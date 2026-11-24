@@ -2,6 +2,7 @@ import errno
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import unittest
 import warnings
+from collections import Counter
 from pathlib import Path
 from contextlib import redirect_stderr
 from unittest.mock import patch
@@ -21,165 +23,306 @@ ABI_HEADER = REPO_ROOT / "kernel/include/astia/api/syscalls.h"
 LIBC_ROOT = REPO_ROOT / "libc"
 sys.path.insert(0, str(TOOLS_MAN))
 
+import docs_manifest
 import generate
 
 
 class GenerateTest(unittest.TestCase):
+    EXPECTED_SOURCES = {
+        'io_setup': 'kernel/src/fs/syscalls/io_setup.cpp',
+        'io_destroy': 'kernel/src/fs/syscalls/io_destroy.cpp',
+        'io_submit': 'kernel/src/fs/syscalls/io_submit.cpp',
+        'io_register': 'kernel/src/fs/syscalls/io_register.cpp',
+        'mmap': 'kernel/src/proc/syscalls/memory/mmap.cpp',
+        'munmap': 'kernel/src/proc/syscalls/memory/munmap.cpp',
+        'mprotect': 'kernel/include/astia/api/syscalls.h',
+        'clock_gettime': 'kernel/include/astia/api/syscalls.h',
+        'exit': 'kernel/src/proc/syscalls/process/exit.cpp',
+        'yield': 'kernel/src/proc/syscalls/thread/yield.cpp',
+        'getpid': 'kernel/src/proc/syscalls/getpid.cpp',
+        'gettid': 'kernel/src/proc/syscalls/gettid.cpp',
+        'futex': 'kernel/src/proc/syscalls/ipc/futex.cpp',
+        'waitpid': 'kernel/include/astia/api/syscalls.h',
+        'spawnve': 'kernel/src/proc/syscalls/process/spawnve.cpp',
+        'fork': 'kernel/src/proc/syscalls/process/fork.cpp',
+        'thread_create': 'kernel/src/proc/syscalls/thread/thread_create.cpp',
+        'thread_exit': 'kernel/src/proc/syscalls/thread/thread_exit.cpp',
+        'thread_join': 'kernel/src/proc/syscalls/thread/thread_join.cpp',
+        'thread_detach': 'kernel/src/proc/syscalls/thread/thread_detach.cpp',
+        'kill': 'kernel/src/proc/syscalls/kill.cpp',
+        'sigaction': 'kernel/src/proc/syscalls/signal/sigaction.cpp',
+        'sigprocmask': 'kernel/src/proc/syscalls/signal/sigprocmask.cpp',
+        'thread_create2': 'kernel/src/proc/syscalls/thread/thread_create2.cpp',
+        'execve': 'libc/src/unistd.c',
+        'sigsuspend': 'libc/src/signal.c',
+        'getpgrp': 'kernel/src/proc/syscalls/getpgrp.cpp',
+        'setpgid': 'kernel/src/proc/syscalls/setpgid.cpp',
+        'setsid': 'kernel/src/proc/syscalls/setsid.cpp',
+        'sigreturn': 'kernel/src/proc/syscalls/signal/sigreturn.cpp',
+        'chdir': 'kernel/src/proc/syscalls/process/chdir.cpp',
+        'getcwd': 'kernel/src/proc/syscalls/process/getcwd.cpp',
+        'getuid': 'kernel/include/astia/api/syscalls.h',
+        'geteuid': 'kernel/include/astia/api/syscalls.h',
+        'getgid': 'kernel/include/astia/api/syscalls.h',
+        'getegid': 'kernel/include/astia/api/syscalls.h',
+        'setuid': 'kernel/src/proc/process.hpp',
+        'seteuid': 'kernel/src/proc/process.hpp',
+        'setgid': 'kernel/src/proc/process.hpp',
+        'setegid': 'kernel/src/proc/process.hpp',
+        'setreuid': 'kernel/src/proc/process.hpp',
+        'setregid': 'kernel/src/proc/process.hpp',
+        'getgroups': 'kernel/src/proc/process.hpp',
+        'setgroups': 'kernel/src/proc/process.hpp',
+        'process_snapshot': 'kernel/src/proc/proc.cpp',
+        'getsid': 'kernel/src/proc/proc.cpp',
+        'unmount': 'kernel/src/fs/syscalls/unmount.cpp',
+        'mount': 'kernel/src/fs/syscalls/mount.cpp',
+        'getrlimit': 'kernel/include/astia/api/syscalls.h',
+        'setrlimit': 'kernel/include/astia/api/syscalls.h',
+        'sigwait': 'kernel/include/astia/api/syscalls.h',
+        'sigaltstack': 'kernel/include/astia/api/syscalls.h',
+        'getpgid': 'kernel/src/proc/syscalls/getpgid.cpp',
+        'getppid': 'kernel/src/proc/syscalls/getppid.cpp',
+        'thread_cancel': 'kernel/include/astia/api/syscalls.h',
+        'alarm': 'kernel/src/proc/syscalls/alarm.cpp',
+        'thread_create_owned': 'kernel/include/astia/api/syscalls.h',
+        'thread_cancel_pending': 'kernel/include/astia/api/syscalls.h',
+        'thread_exists': 'kernel/include/astia/api/syscalls.h',
+        'thread_kill': 'kernel/include/astia/api/syscalls.h',
+        'sigpending': 'kernel/include/astia/api/syscalls.h',
+        'sigtimedwait': 'kernel/include/astia/api/syscalls.h',
+        'clock_getres': 'kernel/include/astia/api/syscalls.h',
+        'thread_getattr': 'kernel/include/astia/api/syscalls.h',
+        'msync': 'kernel/include/astia/api/syscalls.h',
+        'lseek': 'kernel/include/astia/api/syscalls.h',
+        'umask': 'kernel/include/astia/api/syscalls.h',
+        'shm_open': 'kernel/include/astia/api/syscalls.h',
+        'shm_unlink': 'kernel/include/astia/api/syscalls.h',
+        'fchdir': 'kernel/include/astia/api/syscalls.h',
+        'uname': 'kernel/src/proc/syscalls/process/uname.cpp',
+    }
+    EXPECTED_CATEGORIES = {
+        'io_setup': 'fs', 'io_destroy': 'fs', 'io_submit': 'fs', 'io_register': 'fs',
+        'mmap': 'proc/memory', 'munmap': 'proc/memory', 'mprotect': 'abi',
+        'clock_gettime': 'abi', 'exit': 'proc/process', 'yield': 'proc/thread',
+        'getpid': 'proc', 'gettid': 'proc', 'futex': 'proc/ipc',
+        'waitpid': 'proc/process', 'spawnve': 'proc/process', 'fork': 'proc/process',
+        'thread_create': 'proc/thread', 'thread_exit': 'proc/thread',
+        'thread_join': 'proc/thread', 'thread_detach': 'proc/thread', 'kill': 'proc',
+        'sigaction': 'proc/signal', 'sigprocmask': 'proc/signal',
+        'thread_create2': 'proc/thread', 'execve': 'proc/process',
+        'sigsuspend': 'proc/signal', 'getpgrp': 'proc', 'setpgid': 'proc',
+        'setsid': 'proc', 'sigreturn': 'proc/signal', 'chdir': 'proc/process',
+        'getcwd': 'proc/process', 'getuid': 'abi', 'geteuid': 'abi',
+        'getgid': 'abi', 'getegid': 'abi', 'setuid': 'proc', 'seteuid': 'proc',
+        'setgid': 'proc', 'setegid': 'proc', 'setreuid': 'proc',
+        'setregid': 'proc', 'getgroups': 'proc', 'setgroups': 'proc',
+        'process_snapshot': 'proc', 'getsid': 'proc', 'unmount': 'fs',
+        'mount': 'fs', 'getrlimit': 'abi', 'setrlimit': 'abi', 'sigwait': 'abi',
+        'sigaltstack': 'abi', 'getpgid': 'proc', 'getppid': 'proc',
+        'thread_cancel': 'abi', 'alarm': 'proc', 'thread_create_owned': 'abi',
+        'thread_cancel_pending': 'abi', 'thread_exists': 'abi',
+        'thread_kill': 'abi', 'sigpending': 'abi', 'sigtimedwait': 'abi',
+        'clock_getres': 'abi', 'thread_getattr': 'abi', 'msync': 'abi',
+        'lseek': 'abi', 'umask': 'abi', 'shm_open': 'abi', 'shm_unlink': 'abi',
+        'fchdir': 'abi', 'uname': 'proc/process',
+    }
+    EXPECTED_SHARED_SOURCES = {
+        'kernel/include/astia/api/syscalls.h': 26,
+        'kernel/src/proc/process.hpp': 8,
+        'kernel/src/proc/proc.cpp': 2,
+    }
+    EXPECTED_SECTION7 = {
+        'aio': ('docs-aio-7', 'docs-7-aio', 'docs/7/aio.md', 'Asynchronous I/O'),
+        'alarm': ('docs-alarm-7', 'docs-7-alarm', 'docs/7/alarm.md', 'Process alarm'),
+        'exec': ('docs-exec-7', 'docs-7-exec', 'docs/7/exec.md', 'Asynchronous ELF loading and execve'),
+        'rcu': ('docs-rcu-7', 'docs-7-rcu', 'docs/7/rcu.md', 'RCU and lockless constraints'),
+        'sigtimedwait': ('docs-sigtimedwait-7', 'docs-7-sigtimedwait', 'docs/7/sigtimedwait.md', 'sigtimedwait(2)'),
+        'spawnve': ('docs-spawnve-7', 'docs-7-spawnve', 'docs/7/spawnve.md', 'Asynchronous process spawn and spawnve'),
+        'task': ('docs-task-7', 'docs-7-task', 'docs/7/task.md', 'Kernel coroutine tasks'),
+    }
+
     def test_public_abi_prototypes_are_c_syntax(self):
         prototypes = generate.public_abi_prototypes(ABI_HEADER)
-
-        self.assertEqual(
-            prototypes["sigwait"],
-            "long astia_sigwait(const uint32_t* set, int32_t* signal);",
-        )
+        self.assertEqual(prototypes["sigwait"], "long astia_sigwait(const uint32_t* set, int32_t* signal);")
         self.assertEqual(prototypes["alarm"], "long astia_alarm(uint32_t seconds);")
-        self.assertEqual(
-            prototypes["io_submit"],
-            "long astia_io_submit(astia_rings* ring, uint32_t to_submit);",
-        )
+        self.assertEqual(prototypes["io_submit"], "long astia_io_submit(astia_rings* ring, uint32_t to_submit);")
         for prototype in prototypes.values():
             self.assertTrue(prototype.endswith(";"))
 
-    def test_public_user_synopses_cover_all_canonical_ids(self):
+    def test_authored_section2_metadata_is_exact(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
         canonical = generate.syscall_abi(ABI_HEADER)
-        synopses = generate.public_user_synopses(ABI_HEADER, LIBC_ROOT)
-        missing = [name for _, name in canonical if name not in synopses]
-
-        self.assertEqual(missing, ["sigreturn"])
+        self.assertEqual([(page["id"], page["name"]) for page in docs.section2], canonical)
+        self.assertEqual(docs.section2[0]["id"], 0)
+        self.assertEqual(docs.section2[-1]["id"], 70)
+        slugs = [page["slug"] for page in docs.section2]
+        self.assertEqual(len(slugs), len(set(slugs)))
+        for page in docs.section2:
+            name = page["name"]
+            self.assertEqual(page["slug"], f"syscall-{page['id']}-{name.replace('_', '-')}")
+            self.assertEqual(page["title"], f"{name}(2)")
+            self.assertEqual(page["source"], self.EXPECTED_SOURCES[name])
+            self.assertEqual(page["category"], self.EXPECTED_CATEGORIES[name])
+            self.assertEqual(page["synopsisKind"], "raw" if name == "sigreturn" else "public")
+            self.assertEqual((REPO_ROOT / page["source"]).is_file(), True, page["source"])
+            self.assertEqual((REPO_ROOT / "docs/2" / f"{name}.md").is_file(), True)
         self.assertEqual(
-            synopses["io_setup"],
-            "long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);",
+            sorted(page["name"] for page in docs.section2 if page["synopsisKind"] == "raw"),
+            ["sigreturn"],
         )
+
+    def test_authored_section2_synopses_match_abi_and_wrappers(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        prototypes = generate.public_abi_prototypes(ABI_HEADER)
+        special = {
+            "execve": "int execve(const char* path, char* const argv[], char* const envp[]);",
+            "sigsuspend": "int sigsuspend(const sigset_t* mask);",
+            "waitpid": "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
+        }
+        for page in docs.section2:
+            name = page["name"]
+            if name == "sigreturn":
+                self.assertEqual(page["synopsis"], docs_manifest.RAW_SYNOPSIS)
+            else:
+                self.assertEqual(page["synopsis"], special.get(name, prototypes.get(name)), name)
+
+    def test_authored_markdown_presence_and_structure(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        for page in docs.section2:
+            text = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+            self.assertTrue(text.startswith(f"# {page['name']}(2)\n"))
+            self.assertIn("## SYNOPSIS", text)
+            self.assertIn("## DESCRIPTION", text)
+            self.assertIn(page["synopsis"], text)
         self.assertEqual(
-            synopses["unmount"], "long astia_unmount(const char* target);"
+            sorted(path.name for path in (REPO_ROOT / "docs/2").glob("*.md")),
+            sorted(f"{page['name']}.md" for page in docs.section2),
         )
+
+    def test_shared_source_paths_are_exact_and_otherwise_unique(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        counts = Counter(page["source"] for page in docs.section2)
+        shared = {source: count for source, count in counts.items() if count > 1}
+        self.assertEqual(shared, self.EXPECTED_SHARED_SOURCES)
+        self.assertEqual(set(counts), set(self.EXPECTED_SOURCES.values()))
+        self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 38)
+        self.assertEqual(len(docs.section2), 71)
+
+    def test_section7_authored_pages_and_aliases_are_exact(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        self.assertEqual({page["name"] for page in docs.section7}, set(self.EXPECTED_SECTION7))
+        self.assertEqual(sorted(path.name for path in (REPO_ROOT / "docs/7").glob("*.md")), sorted(f"{name}.md" for name in self.EXPECTED_SECTION7))
+        seen = set()
+        for page in docs.section7:
+            slug, alias, source, title = self.EXPECTED_SECTION7[page["name"]]
+            self.assertEqual(page["slug"], slug)
+            self.assertEqual(page["aliases"], [alias])
+            self.assertEqual(page["source"], source)
+            self.assertEqual(page["title"], title)
+            self.assertNotIn(slug, seen)
+            seen.add(slug)
+            self.assertNotIn(alias, seen)
+            seen.add(alias)
+            self.assertTrue((REPO_ROOT / source).is_file())
+
+    def test_migration_contains_only_section2_section7_and_metadata(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        authored = {path.name for path in (REPO_ROOT / "docs/2").glob("*")}
+        overviews = {path.name for path in (REPO_ROOT / "docs/7").glob("*")}
+        self.assertEqual(authored, {f"{page['name']}.md" for page in docs.section2})
+        self.assertEqual(overviews, {f"{page['name']}.md" for page in docs.section7})
+        for name in ("aarch64-virt-boot", "README", "ctest", "module-abi", "architecture-boundaries"):
+            self.assertNotIn(f"{name}.md", authored | overviews)
+        self.assertEqual(len(generate.libc_pages()), 51)
+        self.assertTrue(all(section == 3 for _, _, _, section in generate.libc_pages()))
+        libc_names = {name for name, _, _, _ in generate.libc_pages()}
+        self.assertEqual(len(libc_names), 51)
         self.assertEqual(
-            synopses["clock_gettime"],
-            "long astia_clock_gettime(uint32_t clock_id, astia_timespec* out);",
-        )
-        self.assertEqual(
-            synopses["clock_getres"],
-            "long astia_clock_getres(uint32_t clock_id, astia_timespec* out);",
-        )
-        self.assertEqual(
-            synopses["execve"],
-            "int execve(const char* path, char* const argv[], char* const envp[]);",
-        )
-        self.assertEqual(
-            synopses["sigsuspend"], "int sigsuspend(const sigset_t* mask);"
-        )
-        self.assertEqual(
-            synopses["waitpid"],
-            "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
-        )
-        self.assertEqual(generate.SOURCE_OVERRIDES["execve"], "libc/src/unistd.c")
-        self.assertEqual(
-            generate.SOURCE_OVERRIDES["waitpid"],
-            "kernel/include/astia/api/syscalls.h",
-        )
-        self.assertEqual(generate.CATEGORY_OVERRIDES["execve"], "proc/process")
-        self.assertEqual(generate.CATEGORY_OVERRIDES["sigsuspend"], "proc/signal")
-        self.assertEqual(generate.CATEGORY_OVERRIDES["waitpid"], "proc/process")
-        self.assertEqual(generate.SOURCE_OVERRIDES["sigsuspend"], "libc/src/signal.c")
-
-    def test_public_body_overrides_rewrite_execve_semantics(self):
-        sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["execve"])
-        returns = "\n".join(sections["RETURN VALUE"])
-        errors = "\n".join(sections["ERRORS"])
-        notes = "\n".join(sections["NOTES"])
-
-        self.assertIn("-1 and sets errno", returns)
-        self.assertNotIn("negative errno", returns)
-        self.assertTrue(any(line.strip().startswith("E2BIG:") for line in sections["ERRORS"]))
-        self.assertNotIn("-E2BIG", errors)
-        self.assertIn("libc/src/unistd.c", notes)
-        self.assertIn("FD_CLOEXEC", "\n".join(sections["DESCRIPTION"]))
-        self.assertIn("argv or envp", errors)
-        self.assertNotIn("A path, vector, or string pointer is invalid", errors)
-        self.assertIn("null path returns EINVAL", errors)
-        self.assertIn("not a valid ELF executable image", errors)
-        self.assertIn("ENAMETOOLONG", errors)
-        self.assertIn("resolved path", errors)
-        self.assertIn("ENOEXEC: The file is empty", errors)
-        self.assertNotIn("not a supported executable image", errors)
-        self.assertIn("no current process or thread context", errors)
-        self.assertIn("The current process or thread could not be retained", errors)
-        self.assertNotIn("ESRCH: There is no current process", errors)
-        self.assertIn("resolved against the caller's working directory by libc", notes)
-        self.assertIn("execve.cpp", notes)
-        self.assertIn("exec_loader.cpp", notes)
-        self.assertEqual(generate.error_entries("E2BIG: Too big.")[0][0], "E2BIG")
-
-    def test_waitpid_documents_interruption_and_resource_exhaustion(self):
-        body = (
-            "Synopsis:\n"
-            "    long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);\n\n"
-            "Description:\n    Waits for a child.\n\n"
-            "Return Value:\n    Negative errno.\n\n"
-            "Errors:\n    Old errors.\n\n"
-            "Notes:\n    Old notes."
-        )
-        overrides = generate.PUBLIC_SECTION_OVERRIDES["waitpid"]
-        for heading, content in overrides.items():
-            body = generate.replace_section(body, heading, content)
-        sections = generate.body_sections(body)
-        errors = "\n".join(sections["ERRORS"])
-        notes = "\n".join(sections["NOTES"])
-
-        self.assertIn("astia_waitpid_options", notes)
-        self.assertIn("translates that result to -1", notes)
-        self.assertIn("unblocked interrupting signal", notes)
-        self.assertIn("-EINTR", errors)
-        self.assertIn("process waiter table", errors)
-        self.assertIn("-EAGAIN", errors)
-        self.assertIn("without a wake slot", notes)
-        self.assertNotIn("-ESRCH", notes)
-
-    def test_sigsuspend_uses_libc_contract(self):
-        sections = generate.body_sections(generate.PUBLIC_BODY_OVERRIDES["sigsuspend"])
-        returns = "\n".join(sections["RETURN VALUE"])
-        errors = "\n".join(sections["ERRORS"])
-        notes = "\n".join(sections["NOTES"])
-
-        self.assertIn("Never returns 0", returns)
-        self.assertIn("errno to EINTR", returns)
-        self.assertIn("-1", returns)
-        self.assertIn("EINTR", errors)
-        self.assertIn("EAGAIN", errors)
-        self.assertIn("EFAULT", errors)
-        self.assertNotIn("-EINTR", errors)
-        self.assertIn("libc/src/signal.c", notes)
-        self.assertIn("sigsuspend.cpp", notes)
-        self.assertEqual(generate.SOURCE_OVERRIDES["sigsuspend"], "libc/src/signal.c")
-
-    def test_clock_errors_include_missing_timer_source(self):
-        time_errors = generate.PUBLIC_SECTION_OVERRIDES["clock_gettime"]["ERRORS"]
-        res_errors = generate.PUBLIC_SECTION_OVERRIDES["clock_getres"]["ERRORS"]
-
-        self.assertIn("-EIO", time_errors)
-        self.assertIn("timer source", time_errors)
-        self.assertIn("-EIO", res_errors)
-        self.assertIn("timer source", res_errors)
-
-    def test_fallback_body_uses_public_synopsis_and_missing_detail_label(self):
-        body = generate.fallback_body(
-            "sigwait",
-            "long astia_sigwait(const uint32_t* set, int32_t* signal);",
+            {page["name"] for page in docs.section2},
+            {name for _, name in generate.syscall_abi(ABI_HEADER)},
         )
 
-        self.assertIn(
-            "Synopsis:\n    long astia_sigwait(const uint32_t* set, int32_t* signal);",
-            body,
-        )
-        self.assertIn("System call handler for `sigwait`", body)
-        self.assertIn("Detailed manual text has not been added", body)
-        self.assertNotIn("u64 set_ptr", body)
+    def test_manifest_has_no_markdown_bodies(self):
+        manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
+        serialized = json.dumps(manifest)
+        self.assertNotIn('"content"', serialized)
+        for page in manifest["section2"]["pages"]:
+            self.assertNotIn("markdown", page)
+        for page in manifest["section7"]["pages"]:
+            self.assertNotIn("markdown", page)
+        generated = (REPO_ROOT / "frontend/src/app/docs/docs.manifest.ts").read_text()
+        self.assertNotRegex(generated, r"\bcontent\s*:")
+        self.assertNotIn("# io_setup(2)", generated)
+        for page in docs_manifest.load_authored_docs(REPO_ROOT).section2:
+            body = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+            self.assertNotIn(body.strip(), generated)
+
+    def test_handler_documentation_blocks_are_removed(self):
+        block = re.compile(r"(?m)^[ \t]*///[ \t]*(\w+)[ \t]*-[ \t]*")
+        for path in (REPO_ROOT / "kernel/src").glob("*/syscalls/**/*.cpp"):
+            text = path.read_text()
+            self.assertNotRegex(text, r"(?m)^\s*///", path)
+            self.assertIsNone(block.search(text), path)
+        for path in (REPO_ROOT / "kernel/src").glob("*/syscalls/**/*.hpp"):
+            self.assertIsNone(block.search(path.read_text()), path)
+
+    def test_execve_waitpid_and_sigsuspend_semantics(self):
+        execve = (REPO_ROOT / "docs/2/execve.md").read_text()
+        self.assertIn("-1 and sets errno", execve)
+        self.assertIn("FD_CLOEXEC", execve)
+        self.assertIn("null path returns EINVAL", execve)
+        self.assertIn("ENAMETOOLONG", execve)
+        self.assertIn("libc/src/unistd.c", execve)
+        self.assertIn("exec_loader.cpp", execve)
+        waitpid = (REPO_ROOT / "docs/2/waitpid.md").read_text()
+        self.assertIn("astia_waitpid_options", waitpid)
+        self.assertIn("WNOHANG", waitpid)
+        self.assertIn("WUNTRACED", waitpid)
+        self.assertIn("WCONTINUED", waitpid)
+        self.assertIn("-EAGAIN", waitpid)
+        self.assertIn("-EINTR", waitpid)
+        self.assertIn("without a wake slot", waitpid)
+        self.assertIn("negative errno", waitpid)
+        sigsuspend = (REPO_ROOT / "docs/2/sigsuspend.md").read_text()
+        self.assertIn("Never returns 0", sigsuspend)
+        self.assertIn("errno to EINTR", sigsuspend)
+        self.assertIn("EAGAIN", sigsuspend)
+        self.assertIn("libc/src/signal.c", sigsuspend)
+
+    def test_generator_exports_authored_markdown_verbatim(self):
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
+            root = Path(temporary)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOLS_MAN / "generate.py"),
+                    str(REPO_ROOT / "kernel/src"),
+                    str(root / "site"),
+                    "--docs",
+                    str(REPO_ROOT / "docs"),
+                    "--export-section2",
+                    str(root / "section2"),
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            manifest = json.loads((root / "section2/manifest.json").read_text())
+            docs = docs_manifest.load_authored_docs(REPO_ROOT)
+            self.assertEqual(manifest["count"], 71)
+            for page in docs.section2:
+                exported = (root / "section2" / f"{page['slug']}.md").read_text()
+                authored = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+                self.assertEqual(exported, authored, page["name"])
+            for page in docs.section7:
+                self.assertTrue((root / "site" / f"{page['name']}.7.html").is_file())
 
     def _export_pages(self, count: int = 70, version: str = "old"):
         canonical = [(index, f"fake_{index}") for index in range(count)]
         pages = {
             (name, 2): (
-                generate.fallback_body(name, f"long {name}_{version}(void);"),
+                f"Synopsis:\n    long {name}_{version}(void);\n\n"
+                "Description:\n    Synthetic export page.",
                 "proc",
             )
             for _, name in canonical

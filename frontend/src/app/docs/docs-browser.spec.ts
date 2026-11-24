@@ -16,7 +16,7 @@ const PAGES: readonly DocPage[] = [
     title: 'Manual',
     group: 'Manual page',
     summary: 'API reference.',
-    sourcePath: 'docs/aio.7.md',
+    sourcePath: 'docs/7/aio.md',
     contentKind: 'markdown',
   },
   {
@@ -38,7 +38,7 @@ const CONTENT: Readonly<Record<string, string>> = {
 
 const SOURCE_URLS: Readonly<Record<string, string>> = {
   guide: 'https://github.com/arlirad/astia/blob/main/README.md',
-  manual: 'https://github.com/arlirad/astia/blob/main/docs/aio.7.md',
+  manual: 'https://github.com/arlirad/astia/blob/main/docs/7/aio.md',
   note: 'https://github.com/arlirad/astia/blob/main/docs/architecture-boundaries.md',
 };
 
@@ -241,7 +241,7 @@ describe('DocsBrowser', () => {
     fixture.detectChanges();
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
-    expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain('docs/aio.7.md');
+    expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain('docs/7/aio.md');
     expect(element.querySelector('.docs-pager-link')?.textContent).toContain('Guide');
 
     element.querySelector<HTMLButtonElement>('.docs-pager-link.is-next')?.click();

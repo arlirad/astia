@@ -10,6 +10,7 @@ const generatorPath = join(repoRoot, 'tools/man/generate.py');
 const syscallExportDir = join(frontendRoot, '.cache/syscall-docs');
 const manOutputDir = join(frontendRoot, '.cache/man7');
 const outputPath = join(frontendRoot, 'src/app/docs/docs.manifest.ts');
+const authoredManifestPath = join(docsDir, 'manifest.json');
 const guides = [
   'README.md',
   'kernel/README.md',
@@ -18,6 +19,8 @@ const guides = [
   'libc/README.md',
   'pkg/README.md',
 ];
+const EXCLUDED_DOCS = new Set(['aarch64-virt-boot.md']);
+const CANONICAL_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index)];
 
 if (!existsSync(docsDir)) {
   console.log('Documentation sources are unavailable; keeping the existing docs manifest.');
@@ -39,6 +42,14 @@ execFileSync(
 );
 
 const normalize = (text) => text.replace(/\u2014/g, ' - ');
+const fail = (message) => {
+  throw new Error(message);
+};
+const requireValue = (condition, message) => {
+  if (!condition) {
+    fail(message);
+  }
+};
 
 const guideTitles = {
   'README.md': 'Project README',
@@ -86,16 +97,34 @@ const slugOf = (path) =>
     .replace(/^-+|-+$/g, '')
     .toLowerCase();
 
+const readAuthoredManifest = () => {
+  requireValue(existsSync(authoredManifestPath), `missing authored docs manifest: ${authoredManifestPath}`);
+  const manifest = JSON.parse(readFileSync(authoredManifestPath, 'utf8'));
+  requireValue(manifest?.section2?.pages?.length === CANONICAL_SYSCALL_IDS.length, 'authored manifest must contain 71 syscall pages');
+  requireValue(manifest?.section7?.pages?.length === 7, 'authored manifest must contain 7 overview pages');
+  for (const page of manifest.section2.pages) {
+    requireValue(!('content' in page), 'authored syscall metadata must not embed Markdown bodies');
+  }
+  for (const page of manifest.section7.pages) {
+    requireValue(!('content' in page), 'authored overview metadata must not embed Markdown bodies');
+  }
+  return manifest;
+};
+
+const authoredManifest = readAuthoredManifest();
+const authoredByName = new Map(authoredManifest.section2.pages.map((page) => [page.name, page]));
+const authoredSection7 = new Map(authoredManifest.section7.pages.map((page) => [page.name, page]));
+
 const entries = [
   ...guides
     .filter((path) => existsSync(join(repoRoot, path)))
     .map((path) => ({ path, group: 'Guide' })),
   ...readdirSync(docsDir)
-    .filter((name) => name.endsWith('.md'))
+    .filter((name) => name.endsWith('.md') && !EXCLUDED_DOCS.has(name))
     .sort()
     .map((name) => ({
       path: `docs/${name}`,
-      group: /^.+\.\d+\.md$/i.test(name) ? 'Manual page' : 'Design note',
+      group: 'Design note',
     })),
 ];
 
@@ -111,36 +140,64 @@ const basePages = entries.map(({ path, group }) => {
   };
 });
 
+for (const name of authoredSection7.keys()) {
+  requireValue(existsSync(join(repoRoot, 'docs/7', `${name}.md`)), `missing docs/7/${name}.md`);
+}
+
+const overviewPages = [...authoredSection7.values()].map((page) => {
+  const content = normalize(readFileSync(join(repoRoot, page.source), 'utf8'));
+  const result = {
+    slug: page.slug,
+    title: page.title,
+    group: 'Manual page',
+    summary: summaryOf(content),
+    sourcePath: page.source,
+    contentKind: 'markdown',
+  };
+  if (page.aliases?.length) {
+    result.aliases = page.aliases;
+  }
+  return result;
+});
+
 const manifestPath = join(syscallExportDir, 'manifest.json');
-if (!existsSync(manifestPath)) {
-  throw new Error(`missing section-2 manifest: ${manifestPath}`);
-}
-const canonicalSyscallIds = [
-  ...Array.from({ length: 71 }, (_, index) => index),
-];
+requireValue(existsSync(manifestPath), `missing section-2 manifest: ${manifestPath}`);
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-if (
-  manifest.section !== 2 ||
-  manifest.count !== canonicalSyscallIds.length ||
-  manifest.pages.length !== canonicalSyscallIds.length
-) {
-  throw new Error(
-    `section-2 manifest must contain exactly ${canonicalSyscallIds.length} pages`,
-  );
-}
+requireValue(manifest.section === 2, 'section-2 export has the wrong section');
+requireValue(manifest.count === CANONICAL_SYSCALL_IDS.length, 'section-2 export has the wrong count');
+requireValue(manifest.pages.length === CANONICAL_SYSCALL_IDS.length, 'section-2 export is incomplete');
+
 const syscallIds = manifest.pages.map((page) => page.id);
 const sortedSyscallIds = [...syscallIds].sort((a, b) => a - b);
-if (
-  new Set(syscallIds).size !== canonicalSyscallIds.length ||
-  sortedSyscallIds.some((id, index) => id !== canonicalSyscallIds[index])
-) {
-  throw new Error(
-    `section-2 manifest must contain canonical public IDs ${canonicalSyscallIds.join(', ')}`,
-  );
+requireValue(new Set(syscallIds).size === CANONICAL_SYSCALL_IDS.length, 'section-2 export has duplicate IDs');
+requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..70');
+
+const seenSlugs = new Set(basePages.map((page) => page.slug));
+const seenSourcePaths = new Set(basePages.map((page) => page.sourcePath));
+for (const page of overviewPages) {
+  requireValue(!seenSlugs.has(page.slug), `duplicate overview slug: ${page.slug}`);
+  seenSlugs.add(page.slug);
+  for (const alias of page.aliases ?? []) {
+    requireValue(!seenSlugs.has(alias), `duplicate overview alias: ${alias}`);
+    seenSlugs.add(alias);
+  }
+  requireValue(!seenSourcePaths.has(page.sourcePath), `duplicate overview source: ${page.sourcePath}`);
+  seenSourcePaths.add(page.sourcePath);
 }
 
 const syscallPages = manifest.pages.map((entry) => {
+  const authored = authoredByName.get(entry.name);
+  requireValue(authored, `section-2 export contains unknown syscall: ${entry.name}`);
+  requireValue(authored.id === entry.id, `${entry.name}: exported ID differs from the authored manifest`);
+  requireValue(authored.slug === entry.slug, `${entry.name}: exported slug differs from the authored manifest`);
+  requireValue(authored.source === entry.source, `${entry.name}: exported source differs from the authored manifest`);
+  requireValue(authored.category === entry.category, `${entry.name}: exported category differs from the authored manifest`);
+  requireValue(authored.synopsisKind === entry.synopsis_kind, `${entry.name}: exported synopsis kind differs from the authored manifest`);
+  requireValue(authored.synopsis === entry.synopsis, `${entry.name}: exported synopsis differs from the authored manifest`);
+  requireValue(!seenSlugs.has(entry.slug), `duplicate syscall slug: ${entry.slug}`);
+  seenSlugs.add(entry.slug);
   const content = normalize(readFileSync(join(syscallExportDir, entry.markdown), 'utf8'));
+  requireValue(synopsisOf(content) === entry.synopsis, `${entry.name}: exported Markdown synopsis differs`);
   return {
     slug: entry.slug,
     title: entry.title,
@@ -151,11 +208,11 @@ const syscallPages = manifest.pages.map((entry) => {
     category: entry.category,
     syscallId: entry.id,
     synopsisKind: entry.synopsis_kind,
-    synopsis: normalize(synopsisOf(content)),
+    synopsis: normalize(entry.synopsis),
   };
 });
 
-const pages = [...basePages, ...syscallPages];
+const pages = [...basePages, ...overviewPages, ...syscallPages];
 const body = pages
   .map((page) => {
     const fields = [
@@ -166,6 +223,9 @@ const body = pages
       `sourcePath: ${JSON.stringify(page.sourcePath)}`,
       `contentKind: ${JSON.stringify(page.contentKind)}`,
     ];
+    if (page.aliases?.length) {
+      fields.push(`aliases: ${JSON.stringify(page.aliases)}`);
+    }
     if (page.category) {
       fields.push(`category: ${JSON.stringify(page.category)}`);
     }
@@ -189,5 +249,5 @@ writeFileSync(
   `import type { DocPage } from './docs.model';\n\nexport const DOCS_MANIFEST: readonly DocPage[] = [\n${body}\n];\n`,
 );
 console.log(
-  `Generated ${basePages.length} repository pages and ${syscallPages.length} section-2 syscall pages as runtime metadata.`,
+  `Generated ${basePages.length} repository pages, ${overviewPages.length} overview pages, and ${syscallPages.length} section-2 syscall pages as runtime metadata.`,
 );

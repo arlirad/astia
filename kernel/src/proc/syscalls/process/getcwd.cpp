@@ -7,15 +7,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// getcwd - copy the caller's working directory.
-    ///
-    /// Synopsis:
-    ///     long getcwd(char *buffer, size_t length);
-    ///
-    /// Errors:
-    ///     -EFAULT: The output buffer is inaccessible.
-    ///     -ERANGE: The buffer is too small.
-    ///     -ESRCH: There is no current process.
     struct getcwd
         : sys::syscall_handler<getcwd, sys::syscall_id::getcwd, sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<char> buffer, u64 length) {

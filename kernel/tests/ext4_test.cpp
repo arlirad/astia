@@ -1,15 +1,15 @@
+#include "filesystems/ext4/ext4_reader.hpp"
 #include "test.hpp"
-#include "ext4/ext4_reader.hpp"
 
 #include <cstring>
 #include <vector>
 
 namespace {
 
-    using astia::u8;
     using astia::u16;
     using astia::u32;
     using astia::u64;
+    using astia::u8;
 
     struct image {
         std::vector<u8> bytes;
@@ -36,11 +36,11 @@ namespace {
         }
 
         void put16(u64 offset, u16 value) {
-            bytes[offset] = static_cast<u8>(value);
+            bytes[offset]     = static_cast<u8>(value);
             bytes[offset + 1] = static_cast<u8>(value >> 8);
         }
         void put32(u64 offset, u32 value) {
-            bytes[offset] = static_cast<u8>(value);
+            bytes[offset]     = static_cast<u8>(value);
             bytes[offset + 1] = static_cast<u8>(value >> 8);
             bytes[offset + 2] = static_cast<u8>(value >> 16);
             bytes[offset + 3] = static_cast<u8>(value >> 24);
@@ -91,10 +91,11 @@ namespace {
 
     struct directory_state {
         bool found = false;
-        u32 inode = 0;
+        u32  inode = 0;
     };
 
-    bool find_known(void* context, const astia::ext4::directory_entry& entry) {
+    bool find_known(void*                                                context,
+                    const astia::fs::filesystems::ext4::directory_entry& entry) {
         auto& state = *static_cast<directory_state*>(context);
         if (entry.name_length == 9 && std::memcmp(entry.name, "known.txt", 9) == 0) {
             state.found = true;
@@ -110,46 +111,53 @@ namespace {
         for (u32 i = 0; i < 16; ++i)
             image.bytes[base + 0x68 + i] = static_cast<u8>(i + 1);
         image.put32(base + 0x3FC, 0);
-        image.put32(base + 0x3FC,
-                    astia::ext4::reader::crc32c(~u32{0}, image.bytes.data() + base, 0x3FC));
+        image.put32(base + 0x3FC, astia::fs::filesystems::ext4::reader::crc32c(
+                                      ~u32{0}, image.bytes.data() + base, 0x3FC));
     }
 
     void make_checksum_metadata(image& image) {
         make_checksum_superblock(image);
-        const u32 seed = astia::ext4::reader::crc32c(
+        const u32 seed = astia::fs::filesystems::ext4::reader::crc32c(
             ~u32{0}, image.bytes.data() + 1024 + 0x68, 16);
 
-        u8 descriptor[32]{ };
+        u8 descriptor[32]{};
         std::memcpy(descriptor, image.bytes.data() + 2048, sizeof descriptor);
         descriptor[0x1E] = descriptor[0x1F] = 0;
-        const u32 descriptor_crc = astia::ext4::reader::crc32c(
-            astia::ext4::reader::crc32c(seed, "\0\0\0\0", 4), descriptor,
+        const u32 descriptor_crc = astia::fs::filesystems::ext4::reader::crc32c(
+            astia::fs::filesystems::ext4::reader::crc32c(seed, "\0\0\0\0", 4), descriptor,
             sizeof descriptor);
         image.put16(2048 + 0x1E, static_cast<u16>(descriptor_crc));
 
         for (u32 number : {2u, 12u}) {
             const u64 offset = number == 2 ? 3200 : 4480;
-            u8 raw[128]{ };
+            u8        raw[128]{};
             std::memcpy(raw, image.bytes.data() + offset, sizeof raw);
             raw[0x7C] = raw[0x7D] = 0;
-            u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
-                                  static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
-            u32 checksum = astia::ext4::reader::crc32c(seed, number_bytes, 4);
-            checksum = astia::ext4::reader::crc32c(checksum, raw + 0x64, 4);
-            checksum = astia::ext4::reader::crc32c(checksum, raw, sizeof raw);
+            u8  number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
+                                   static_cast<u8>(number >> 16),
+                                   static_cast<u8>(number >> 24)};
+            u32 checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(seed, number_bytes, 4);
+            checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(checksum, raw + 0x64, 4);
+            checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(checksum, raw, sizeof raw);
             image.put16(offset + 0x7C, static_cast<u16>(checksum));
         }
     }
 
     void update_extent_checksum(image& image) {
         const u64 extent = 8 * 1024;
-        const u32 seed = astia::ext4::reader::crc32c(
+        const u32 seed   = astia::fs::filesystems::ext4::reader::crc32c(
             ~u32{0}, image.bytes.data() + 1024 + 0x68, 16);
-        u8 number_bytes[4] = {12, 0, 0, 0};
-        u8 generation_bytes[4] = {1, 0, 0, 0};
-        u32 checksum = astia::ext4::reader::crc32c(seed, number_bytes, 4);
-        checksum = astia::ext4::reader::crc32c(checksum, generation_bytes, 4);
-        checksum = astia::ext4::reader::crc32c(checksum, image.bytes.data() + extent, 1020);
+        u8  number_bytes[4]     = {12, 0, 0, 0};
+        u8  generation_bytes[4] = {1, 0, 0, 0};
+        u32 checksum =
+            astia::fs::filesystems::ext4::reader::crc32c(seed, number_bytes, 4);
+        checksum =
+            astia::fs::filesystems::ext4::reader::crc32c(checksum, generation_bytes, 4);
+        checksum = astia::fs::filesystems::ext4::reader::crc32c(
+            checksum, image.bytes.data() + extent, 1020);
         image.put32(extent + 1020, checksum);
     }
 
@@ -196,10 +204,10 @@ namespace {
         image.bytes[root + 8] = '.';
         image.put32(root + 12, 2);
         image.put16(root + 16, 1024 - 12);
-        image.bytes[root + 18] = 2;
-        image.bytes[root + 19] = 2;
-        image.bytes[root + 20] = '.';
-        image.bytes[root + 21] = '.';
+        image.bytes[root + 18]   = 2;
+        image.bytes[root + 19]   = 2;
+        image.bytes[root + 20]   = '.';
+        image.bytes[root + 21]   = '.';
         image.bytes[root + 0x1C] = 1;
         image.bytes[root + 0x1D] = 8;
         image.bytes[root + 0x1E] = 1;
@@ -224,44 +232,51 @@ namespace {
     void make_indexed_checksum_directory(image& image) {
         make_indexed_directory(image);
         make_checksum_superblock(image);
-        const u32 seed = astia::ext4::reader::crc32c(
+        const u32 seed = astia::fs::filesystems::ext4::reader::crc32c(
             ~u32{0}, image.bytes.data() + 1024 + 0x68, 16);
 
         u8 descriptor[32]{};
         std::memcpy(descriptor, image.bytes.data() + 2048, sizeof descriptor);
         descriptor[0x1E] = descriptor[0x1F] = 0;
-        const u32 descriptor_crc = astia::ext4::reader::crc32c(
-            astia::ext4::reader::crc32c(seed, "\0\0\0\0", 4), descriptor,
+        const u32 descriptor_crc = astia::fs::filesystems::ext4::reader::crc32c(
+            astia::fs::filesystems::ext4::reader::crc32c(seed, "\0\0\0\0", 4), descriptor,
             sizeof descriptor);
         image.put16(2048 + 0x1E, static_cast<u16>(descriptor_crc));
 
         for (u32 number : {2u, 12u}) {
             const u64 offset = number == 2 ? 3200 : 4480;
-            u8 raw[128]{};
+            u8        raw[128]{};
             std::memcpy(raw, image.bytes.data() + offset, sizeof raw);
             raw[0x7C] = raw[0x7D] = 0;
-            u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
-                                  static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
-            u32 checksum = astia::ext4::reader::crc32c(seed, number_bytes, 4);
-            checksum = astia::ext4::reader::crc32c(checksum, raw + 0x64, 4);
-            checksum = astia::ext4::reader::crc32c(checksum, raw, sizeof raw);
+            u8  number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
+                                   static_cast<u8>(number >> 16),
+                                   static_cast<u8>(number >> 24)};
+            u32 checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(seed, number_bytes, 4);
+            checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(checksum, raw + 0x64, 4);
+            checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(checksum, raw, sizeof raw);
             image.put16(offset + 0x7C, static_cast<u16>(checksum));
         }
 
         image.put16(6 * 1024 + 8, 126);
         const u32 root_count_offset = 0x20;
         const u32 node_count_offset = 8;
-        auto index_checksum = [&](u64 offset, u32 count_offset, u32 number) {
-            u8 number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
-                                  static_cast<u8>(number >> 16), static_cast<u8>(number >> 24)};
-            u8 generation_bytes[4] = {1, 0, 0, 0};
-            u8 tail[8]{};
-            u32 checksum = astia::ext4::reader::crc32c(seed, number_bytes, 4);
-            checksum = astia::ext4::reader::crc32c(checksum, generation_bytes, 4);
-            checksum = astia::ext4::reader::crc32c(checksum,
-                                                   image.bytes.data() + offset,
-                                                   count_offset + 8);
-            checksum = astia::ext4::reader::crc32c(checksum, tail, sizeof tail);
+        auto      index_checksum    = [&](u64 offset, u32 count_offset, u32 number) {
+            u8  number_bytes[4] = {static_cast<u8>(number), static_cast<u8>(number >> 8),
+                                   static_cast<u8>(number >> 16),
+                                   static_cast<u8>(number >> 24)};
+            u8  generation_bytes[4] = {1, 0, 0, 0};
+            u8  tail[8]{};
+            u32 checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(seed, number_bytes, 4);
+            checksum = astia::fs::filesystems::ext4::reader::crc32c(checksum,
+                                                                            generation_bytes, 4);
+            checksum = astia::fs::filesystems::ext4::reader::crc32c(
+                checksum, image.bytes.data() + offset, count_offset + 8);
+            checksum =
+                astia::fs::filesystems::ext4::reader::crc32c(checksum, tail, sizeof tail);
             image.put32(offset + 1020, checksum);
         };
         image.put16(5 * 1024 + 0x20, 123);
@@ -274,29 +289,32 @@ namespace {
         image.put16(leaf + 1016, 12);
         image.bytes[leaf + 1018] = 0;
         image.bytes[leaf + 1019] = 0xDE;
-        u8 number_bytes[4] = {2, 0, 0, 0};
-        u8 generation_bytes[4] = {1, 0, 0, 0};
-        u32 checksum = astia::ext4::reader::crc32c(seed, number_bytes, 4);
-        checksum = astia::ext4::reader::crc32c(checksum, generation_bytes, 4);
-        checksum = astia::ext4::reader::crc32c(checksum, image.bytes.data() + leaf, 1012);
+        u8  number_bytes[4]      = {2, 0, 0, 0};
+        u8  generation_bytes[4]  = {1, 0, 0, 0};
+        u32 checksum =
+            astia::fs::filesystems::ext4::reader::crc32c(seed, number_bytes, 4);
+        checksum =
+            astia::fs::filesystems::ext4::reader::crc32c(checksum, generation_bytes, 4);
+        checksum = astia::fs::filesystems::ext4::reader::crc32c(
+            checksum, image.bytes.data() + leaf, 1012);
         image.put32(leaf + 1020, checksum);
     }
 
 } // namespace
 
 ASTIA_TEST(ext4_reads_extent_file_and_directory) {
-    image image_data;
-    astia::ext4::reader reader;
+    image                                image_data;
+    astia::fs::filesystems::ext4::reader reader;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.block_size() == 1024);
     ASTIA_CHECK(reader.feature_incompat() == 0x42);
 
-    astia::ext4::inode root;
-    astia::ext4::inode file;
+    astia::fs::filesystems::ext4::inode root;
+    astia::fs::filesystems::ext4::inode file;
     ASTIA_CHECK(reader.read_inode(2, root));
     ASTIA_CHECK(reader.read_inode(12, file));
-    ASTIA_CHECK(root.type() == astia::ext4::node_type::directory);
-    ASTIA_CHECK(file.type() == astia::ext4::node_type::regular);
+    ASTIA_CHECK(root.type() == astia::fs::filesystems::ext4::node_type::directory);
+    ASTIA_CHECK(file.type() == astia::fs::filesystems::ext4::node_type::regular);
 
     char contents[32]{};
     ASTIA_CHECK(reader.read_file(file, 0, contents, sizeof contents));
@@ -315,8 +333,8 @@ ASTIA_TEST(ext4_reads_single_indirect_block) {
     image_data.put32(4480 + 0x28 + 48, 7);
     image_data.put32(4480 + 0x04, 12 * 1024 + 16);
     image_data.put32(7 * 1024, 6);
-    astia::ext4::reader reader;
-    astia::ext4::inode file;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  file;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
     u64 physical = 0;
@@ -335,8 +353,8 @@ ASTIA_TEST(ext4_reads_double_indirect_boundary) {
     image_data.put32(7 * 1024, 8);
     image_data.put32(8 * 1024, 6);
     image_data.put32(4480 + 0x04, (12 + 256 + 1) * 1024 + 16);
-    astia::ext4::reader reader;
-    astia::ext4::inode file;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  file;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
     u64 physical = 0;
@@ -350,8 +368,8 @@ ASTIA_TEST(ext4_reads_multi_block_extent_and_sparse_hole) {
     image_data.put16(4480 + 0x38, 2);
     const char second[] = "second extent block\n";
     std::memcpy(image_data.bytes.data() + 7 * 1024, second, sizeof second - 1);
-    astia::ext4::reader reader;
-    astia::ext4::inode file;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  file;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
     char contents[32]{};
@@ -372,62 +390,63 @@ ASTIA_TEST(ext4_reads_multi_block_extent_and_sparse_hole) {
 ASTIA_TEST(ext4_validates_extent_tree_bounds_and_checksums) {
     image image_data;
     make_extent_checksum_file(image_data);
-    astia::ext4::reader reader;
-    astia::ext4::inode file;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  file;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
-    char contents[32]{ };
+    char contents[32]{};
     ASTIA_CHECK(reader.read_file(file, 0, contents, sizeof contents));
     ASTIA_CHECK(std::strcmp(contents, "extent checksum\n") == 0);
 
     image_data.bytes[8 * 1024 + 1020] ^= 1;
     ASTIA_CHECK(!reader.read_file(file, 0, contents, sizeof contents));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::checksum);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::checksum);
 
-    image_data = image{ };
+    image_data = image{};
     make_extent_checksum_file(image_data);
     image_data.put16(8 * 1024 + 4, 85);
     update_extent_checksum(image_data);
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
     ASTIA_CHECK(!reader.read_file(file, 0, contents, sizeof contents));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::corrupt);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::corrupt);
 
-    image_data = image{ };
+    image_data = image{};
     make_extent_checksum_file(image_data);
     image_data.put32(8 * 1024 + 20, 0);
     update_extent_checksum(image_data);
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(12, file));
     ASTIA_CHECK(!reader.read_file(file, 0, contents, sizeof contents));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::corrupt);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::corrupt);
 }
 
 ASTIA_TEST(ext4_rejects_magic_feature_and_checksum_errors) {
-    image image_data;
-    astia::ext4::reader reader;
+    image                                image_data;
+    astia::fs::filesystems::ext4::reader reader;
     image_data.put16(1024 + 0x38, 0);
     ASTIA_CHECK(!reader.open(read_image, &image_data));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::bad_magic);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::bad_magic);
 
     image_data = image{};
     image_data.put32(1024 + 0x5C, 0x0004);
     ASTIA_CHECK(!reader.open(read_image, &image_data));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::unsupported_feature);
+    ASTIA_CHECK(reader.last_error() ==
+                astia::fs::filesystems::ext4::error::unsupported_feature);
 
     image_data = image{};
     make_checksum_superblock(image_data);
     ASTIA_CHECK(reader.open(read_image, &image_data));
     image_data.bytes[1024 + 0x3FC] ^= 1;
     ASTIA_CHECK(!reader.open(read_image, &image_data));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::checksum);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::checksum);
 }
 
 ASTIA_TEST(ext4_reads_indexed_directory_and_rejects_bad_index) {
     image image_data;
     make_indexed_directory(image_data);
-    astia::ext4::reader reader;
-    astia::ext4::inode root;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  root;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(2, root));
     directory_state state;
@@ -436,7 +455,7 @@ ASTIA_TEST(ext4_reads_indexed_directory_and_rejects_bad_index) {
 
     image_data.bytes[6 * 1024 + 8] = 0;
     ASTIA_CHECK(!reader.read_directory(root, find_known, &state));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::corrupt);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::corrupt);
 
     image_data = image{};
     make_indexed_directory(image_data);
@@ -447,8 +466,8 @@ ASTIA_TEST(ext4_reads_indexed_directory_and_rejects_bad_index) {
 ASTIA_TEST(ext4_validates_indexed_directory_checksums) {
     image image_data;
     make_indexed_checksum_directory(image_data);
-    astia::ext4::reader reader;
-    astia::ext4::inode root;
+    astia::fs::filesystems::ext4::reader reader;
+    astia::fs::filesystems::ext4::inode  root;
     ASTIA_CHECK(reader.open(read_image, &image_data));
     ASTIA_CHECK(reader.read_inode(2, root));
     directory_state state;
@@ -457,5 +476,5 @@ ASTIA_TEST(ext4_validates_indexed_directory_checksums) {
 
     image_data.bytes[5 * 1024 + 1019] ^= 1;
     ASTIA_CHECK(!reader.read_directory(root, find_known, &state));
-    ASTIA_CHECK(reader.last_error() == astia::ext4::error::checksum);
+    ASTIA_CHECK(reader.last_error() == astia::fs::filesystems::ext4::error::checksum);
 }

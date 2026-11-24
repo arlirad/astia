@@ -6,10 +6,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// gettid - return the calling thread ID.
-    ///
-    /// Synopsis:
-    ///     long gettid(void);
     struct gettid
         : sys::syscall_handler<gettid, sys::syscall_id::gettid, sys::syscall_mode::sync> {
         static i64 invoke() {

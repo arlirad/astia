@@ -1,6 +1,7 @@
-#include "process_port.h"
 #include <astia/api/signal.h>
 #include <astia/api/syscalls.h>
+
+#include "process_port.h"
 
 #include <errno.h>
 #include <signal.h>
@@ -8,7 +9,7 @@
 #include <unistd.h>
 
 _Thread_local unsigned int __astia_signal_handler_depth;
-static struct sigaction   astia_signal_actions[NSIG];
+static struct sigaction    astia_signal_actions[NSIG];
 
 static void astia_signal_dispatch(int signal_number, siginfo_t* info, void* context) {
     const struct sigaction action = astia_signal_actions[signal_number];
@@ -79,9 +80,9 @@ int sigismember(const sigset_t* set, int signal_number) {
 int sigaction(int signal_number, const struct sigaction* action,
               struct sigaction* old_action) {
     astia_sigaction_t        next_value;
-    const astia_sigaction_t* next = NULL;
+    const astia_sigaction_t* next     = NULL;
     struct sigaction         previous = {0};
-    const int                 valid = signal_number > 0 && signal_number < NSIG;
+    const int                valid    = signal_number > 0 && signal_number < NSIG;
     if (!valid) {
         errno = EINVAL;
         return -1;
@@ -93,8 +94,8 @@ int sigaction(int signal_number, const struct sigaction* action,
         if (next_value.handler != (uintptr_t) SIG_DFL &&
             next_value.handler != (uintptr_t) SIG_IGN)
             next_value.handler = (uintptr_t) &astia_signal_dispatch;
-        next_value.mask    = action->sa_mask;
-        next_value.flags   = (uint32_t) action->sa_flags;
+        next_value.mask  = action->sa_mask;
+        next_value.flags = (uint32_t) action->sa_flags;
         /* sa_restorer is not part of the POSIX interface.  In particular,
            callers such as zsh initialize the handler, mask, and flags but
            leave this extension member indeterminate.  Do not pass that
@@ -118,8 +119,8 @@ int sigaction(int signal_number, const struct sigaction* action,
 }
 
 int sigaltstack(const stack_t* stack, stack_t* old_stack) {
-    astia_stack_t next;
-    astia_stack_t old;
+    astia_stack_t        next;
+    astia_stack_t        old;
     const astia_stack_t* input = NULL;
     if (stack != NULL) {
         next.sp       = (uintptr_t) stack->ss_sp;
@@ -142,7 +143,7 @@ int sigaltstack(const stack_t* stack, stack_t* old_stack) {
 }
 
 int sigprocmask(int how, const sigset_t* set, sigset_t* old_set) {
-    const uint32_t value = set == NULL ? 0 : *set;
+    const uint32_t value     = set == NULL ? 0 : *set;
     const int      operation = set == NULL ? SIG_BLOCK : how;
     const long rc = __astia_process_sigprocmask(operation, value, (uint32_t*) old_set);
     if (rc < 0) {
@@ -162,7 +163,7 @@ int sigpending(sigset_t* set) {
 }
 
 static int astia_valid_signal_number(int signal_number) {
-    return signal_number > 0 && signal_number < NSIG && signal_number != 16;
+    return signal_number > 0 && signal_number < NSIG;
 }
 
 int sighold(int signal_number) {
@@ -204,7 +205,8 @@ static void astia_copy_siginfo(siginfo_t* destination, const astia_siginfo_t* so
 
 int sigwaitinfo(const sigset_t* set, siginfo_t* info) {
     astia_siginfo_t observed = {0};
-    const long rc = __astia_process_sigtimedwait(set, info == NULL ? NULL : &observed, NULL);
+    const long      rc =
+        __astia_process_sigtimedwait(set, info == NULL ? NULL : &observed, NULL);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;
@@ -215,16 +217,16 @@ int sigwaitinfo(const sigset_t* set, siginfo_t* info) {
 }
 
 int sigtimedwait(const sigset_t* set, siginfo_t* info, const struct timespec* timeout) {
-    astia_siginfo_t observed = {0};
-    astia_timespec  requested;
+    astia_siginfo_t       observed = {0};
+    astia_timespec        requested;
     const astia_timespec* requested_ptr = NULL;
     if (timeout != NULL) {
         requested.tv_sec  = timeout->tv_sec;
         requested.tv_nsec = timeout->tv_nsec;
         requested_ptr     = &requested;
     }
-    const long rc = __astia_process_sigtimedwait(
-        set, info == NULL ? NULL : &observed, requested_ptr);
+    const long rc =
+        __astia_process_sigtimedwait(set, info == NULL ? NULL : &observed, requested_ptr);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;

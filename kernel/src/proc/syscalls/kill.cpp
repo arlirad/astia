@@ -10,22 +10,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// kill - send a signal to a process or process group
-    ///
-    /// Synopsis:
-    ///     long kill(int pid, int signal);
-    ///
-    /// Description:
-    ///     pid > 0 targets one process, pid == 0 targets the caller's
-    ///     process group, and pid < 0 targets process group -pid. Signal
-    ///     zero performs an existence check without enqueuing a signal.
-    ///
-    /// Return Value:
-    ///     Returns zero on success.
-    ///
-    /// Errors:
-    ///     -EINVAL: signal or target identifier is malformed.
-    ///     -ESRCH: no matching live process or process group exists.
     struct kill
         : sys::syscall_handler<kill, sys::syscall_id::kill, sys::syscall_mode::sync> {
         static i64 invoke(i32 pid_raw, i32 signal_raw) {

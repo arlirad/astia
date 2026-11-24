@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -144,27 +145,20 @@ def check_no_stale_syscall_82(repository: Path) -> None:
     assert scanned > 0
 
 
-def check_syscall_man_blocks(repository: Path) -> None:
-    source = repository / "kernel" / "src" / "proc" / "syscalls"
-    expected = {
-        "alarm", "chdir", "execve", "exit", "fork", "futex", "getcwd",
-        "getpgid", "getpgrp", "getpid", "getppid", "gettid", "kill", "mmap",
-        "munmap", "setpgid", "setsid", "sigaction", "sigprocmask", "sigreturn",
-        "sigsuspend", "spawnve", "thread_create", "thread_create2",
-        "thread_detach", "thread_exit", "thread_join", "uname", "waitpid",
-        "yield",
-    }
+def check_no_syscall_man_blocks(repository: Path) -> None:
+    source = repository / "kernel" / "src"
     block = re.compile(r"(?m)^[ \t]*///[ \t]*(\w+)[ \t]*-[ \t]*")
-    source_blocks: dict[str, Path] = {}
+    documented: list[str] = []
     for path in source.rglob("*.cpp"):
-        if "syscall_handler<" not in path.read_text():
+        if "syscalls" not in path.parts:
             continue
-        for name in block.findall(path.read_text()):
-            assert name not in source_blocks, f"duplicate man block: {name}"
-            source_blocks[name] = path
-    assert set(source_blocks) == expected
-    assert sum(len(block.findall(path.read_text())) for path in source.rglob("*.cpp")) == 30
-    assert not any(block.search(path.read_text()) for path in source.rglob("*.hpp"))
+        text = path.read_text()
+        if block.search(text) or re.search(r"(?m)^\s*///", text):
+            documented.append(path.relative_to(repository).as_posix())
+    assert documented == [], f"stale syscall documentation blocks: {documented}"
+    for path in source.rglob("*.hpp"):
+        if "syscalls" in path.parts:
+            assert not block.search(path.read_text()), path.relative_to(repository)
 
 
 def main() -> int:
@@ -176,75 +170,48 @@ def main() -> int:
         return 0
     check_production_layout(repository)
     check_public_abi(repository)
-    check_syscall_man_blocks(repository)
+    check_no_syscall_man_blocks(repository)
     check_no_stale_syscall_82(repository)
     with tempfile.TemporaryDirectory(dir=repository) as directory:
         root = Path(directory)
-        source = root / "kernel" / "src"
-        docs = root / "docs"
         output = root / "man"
-        (source / "proc" / "syscalls").mkdir(parents=True)
-        docs.mkdir()
-        (source / "proc" / "syscalls" / "wait_example.cpp").write_text(
-            "/// wait_example - Wait for a child.\\n"
-            "///\\n"
-            "/// Synopsis:\\n"
-            "///     long wait_example(void);\\n"
-            "struct wait_example : sys::syscall_handler<wait_example,\\n"
-            "    sys::syscall_id::waitpid, sys::syscall_mode::sync> {};\\n"
-        )
-        subprocess.run(
-            [
-                sys.executable,
-                str(generator),
-                str(source),
-                str(output),
-                "--docs",
-                str(docs),
-                "--libc-source",
-                str(root / "libc"),
-                "--abi-header",
-                str(repository / "kernel/include/astia/api/syscalls.h"),
-            ],
-            check=True,
-        )
-        index = (output / "index.html").read_text()
-        assert "wait_example.2.html" in index
-        assert "wait_example(2)" in (output / "wait_example.2.html").read_text()
-        assert "long wait_example(void);" in (output / "wait_example.2.html").read_text()
-        production_output = root / "production-man"
+        export = root / "section2"
         subprocess.run(
             [
                 sys.executable,
                 str(generator),
                 str(repository / "kernel/src"),
-                str(production_output),
+                str(output),
                 "--docs",
                 str(repository / "docs"),
+                "--export-section2",
+                str(export),
             ],
             check=True,
+            cwd=repository,
         )
-        for name in {
-            "alarm", "chdir", "execve", "exit", "fork", "futex", "getcwd",
-            "getpgid", "getpgrp", "getpid", "getppid", "gettid", "kill", "mmap",
-            "munmap", "setpgid", "setsid", "sigaction", "sigprocmask", "sigreturn",
-            "sigsuspend", "spawnve", "thread_create", "thread_create2",
-            "thread_detach", "thread_exit", "thread_join", "uname", "waitpid",
-            "yield",
-        }:
-            assert (production_output / f"{name}.2.html").exists(), name
-        assert "FUTEX_WAIT blocks while the word equals value." in (
-            production_output / "futex.2.html"
-        ).read_text()
+        index = (output / "index.html").read_text()
+        assert "MAN 2 - SYSTEM CALLS" in index
+        assert "MAN 7 - OVERVIEWS" in index
         abi = (repository / "kernel/include/astia/api/syscalls.h").read_text()
         public_names = {
             name.lower()
             for name in re.findall(r"\bSYS_([A-Z][A-Z0-9_]*)\b", abi)
         }
-        assert all(
-            (production_output / f"{name}.2.html").exists()
-            for name in public_names
-        )
+        assert len(public_names) == 71
+        for name in public_names:
+            page = output / f"{name}.2.html"
+            assert page.is_file(), name
+            assert f"{name}(2)" in page.read_text()
+        for name in ("aio", "alarm", "exec", "rcu", "sigtimedwait", "spawnve", "task"):
+            assert (output / f"{name}.7.html").is_file(), name
+        assert "FUTEX_WAIT blocks while the word equals value." in (
+            output / "futex.2.html"
+        ).read_text()
+        assert not any(path.name.startswith("aarch64") for path in output.iterdir())
+        manifest = json.loads((export / "manifest.json").read_text())
+        assert manifest["count"] == 71
+        assert [page["id"] for page in manifest["pages"]] == list(range(71))
     return 0
 
 

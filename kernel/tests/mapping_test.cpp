@@ -1,10 +1,11 @@
-#include "../src/fs/mapping.hpp"
-#include "../src/proc/mapping.hpp"
-#include "test.hpp"
+#include <astia/api/syscalls.h>
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
 #include <astia/optional.hpp>
-#include <astia/api/syscalls.h>
+
+#include "../src/fs/mapping.hpp"
+#include "../src/proc/mapping.hpp"
+#include "test.hpp"
 
 static_assert(MAP_STACK == 0x20000);
 static_assert((MAP_STACK & (MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS)) == 0);
@@ -77,12 +78,21 @@ ASTIA_TEST(process_domain_mappers_reject_invalid_values) {
 
 ASTIA_TEST(process_domain_mappers_reject_undefined_values) {
     ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(-1).has_value);
-    ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(16).has_value);
     ASTIA_CHECK(!astia::mapper<astia::signal_number>::from(0).has_value);
     ASTIA_CHECK(!astia::mapper<astia::pid_t>::from(-1).has_value);
     ASTIA_CHECK(!astia::mapper<astia::pid_t>::from(0x100000000ll).has_value);
     ASTIA_CHECK(!astia::mapper<astia::pgrp_t>::from(0).has_value);
     ASTIA_CHECK(!astia::mapper<astia::pgrp_t>::from(0x100000000ll).has_value);
+}
+
+ASTIA_TEST(process_domain_mappers_accept_sigaio_and_sigio_ids) {
+    const auto aio = astia::mapper<astia::signal_number>::from(16);
+    const auto io  = astia::mapper<astia::signal_number>::from(29);
+
+    ASTIA_CHECK(aio.has_value);
+    ASTIA_CHECK(static_cast<astia::u8>(aio.value) == 16);
+    ASTIA_CHECK(io.has_value);
+    ASTIA_CHECK(static_cast<astia::u8>(io.value) == 29);
 }
 
 ASTIA_TEST(getsid_selector_mapping_accepts_zero_and_positive_pid) {

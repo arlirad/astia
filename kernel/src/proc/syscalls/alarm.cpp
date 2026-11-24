@@ -7,13 +7,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// alarm - Schedule delivery of a process alarm.
-    ///
-    /// Synopsis:
-    ///     long alarm(long seconds);
-    ///
-    /// Return Value:
-    ///     Returns the previous alarm value or a negative errno.
     struct alarm
         : sys::syscall_handler<alarm, sys::syscall_id::alarm, sys::syscall_mode::sync> {
         static i64 invoke(i64 seconds) {

@@ -192,6 +192,67 @@ ASTIA_TEST(signal_permission_matches_process_credentials) {
     ASTIA_CHECK(astia::proc::signal_permission(1, 0, 0, 0));
 }
 
+ASTIA_TEST(signal_numbers_are_unique_and_sigaio_occupies_id16) {
+    constexpr astia::signal_number identifiers[] = {
+        astia::signal_number::hup,  astia::signal_number::int_,
+        astia::signal_number::quit, astia::signal_number::ill,
+        astia::signal_number::trap, astia::signal_number::abrt,
+        astia::signal_number::bus,  astia::signal_number::fpe,
+        astia::signal_number::kill, astia::signal_number::usr1,
+        astia::signal_number::segv, astia::signal_number::usr2,
+        astia::signal_number::pipe, astia::signal_number::alrm,
+        astia::signal_number::term, astia::signal_number::aio,
+        astia::signal_number::chld, astia::signal_number::cont,
+        astia::signal_number::stop, astia::signal_number::tstp,
+        astia::signal_number::ttin, astia::signal_number::ttou,
+        astia::signal_number::urg,  astia::signal_number::xcpu,
+        astia::signal_number::xfsz, astia::signal_number::vtalrm,
+        astia::signal_number::prof, astia::signal_number::winch,
+        astia::signal_number::io,   astia::signal_number::pwr,
+        astia::signal_number::sys,
+    };
+    bool assigned[astia::signal_count]{};
+    for (const auto identifier : identifiers) {
+        const auto value = static_cast<astia::u8>(identifier);
+        ASTIA_CHECK(value > 0 && value < astia::signal_count);
+        ASTIA_CHECK(!assigned[value]);
+        assigned[value] = true;
+    }
+    ASTIA_CHECK(assigned[16]);
+    ASTIA_CHECK(!assigned[0]);
+}
+
+ASTIA_TEST(signal_sigaio_is_an_ordinary_signal_with_id16) {
+    ASTIA_CHECK(static_cast<astia::u8>(astia::signal_number::aio) == 16);
+    ASTIA_CHECK(static_cast<astia::u8>(astia::signal_number::io) == 29);
+    ASTIA_CHECK(astia::signal_count == 32);
+    ASTIA_CHECK(astia::valid_signal(astia::signal_number::aio));
+    ASTIA_CHECK(astia::valid_signal(astia::signal_number::io));
+    ASTIA_CHECK(astia::signal_bit(astia::signal_number::aio) ==
+                (astia::signal_mask{1} << 16));
+    ASTIA_CHECK(!astia::is_uncatchable(astia::signal_number::aio));
+    ASTIA_CHECK(astia::default_action(astia::signal_number::aio) ==
+                astia::signal_default::ignore);
+    ASTIA_CHECK(astia::default_action(astia::signal_number::io) ==
+                astia::signal_default::ignore);
+}
+
+ASTIA_TEST(signal_state_catches_and_masks_sigaio) {
+    astia::signal_state state;
+    const auto          handler = reinterpret_cast<astia::signal_handler>(0x400123);
+
+    ASTIA_CHECK(state.disposition(astia::signal_number::aio,
+                                  {astia::signal_action::handler, handler}));
+    ASTIA_CHECK(state.disposition(astia::signal_number::io,
+                                  {astia::signal_action::ignore, nullptr}));
+    state.block(astia::signal_bit(astia::signal_number::aio));
+    ASTIA_CHECK((state.blocked() & astia::signal_bit(astia::signal_number::aio)) != 0);
+    ASTIA_CHECK(state.send(astia::signal_number::aio));
+    ASTIA_CHECK(state.take_unblocked() == static_cast<astia::signal_number>(0));
+    ASTIA_CHECK(state.take_matching(astia::signal_bit(astia::signal_number::aio)) ==
+                astia::signal_number::aio);
+}
+
 ASTIA_TEST(signal_state_protects_uncatchable_signals) {
     astia::signal_state state;
     ASTIA_CHECK(!state.disposition(astia::signal_number::kill,

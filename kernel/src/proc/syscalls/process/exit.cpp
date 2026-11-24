@@ -7,13 +7,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// exit - terminate the calling thread.
-    ///
-    /// Synopsis:
-    ///     long exit(long status);
-    ///
-    /// Return Value:
-    ///     Does not return to the caller.
     struct exit
         : sys::syscall_handler<exit, sys::syscall_id::exit, sys::syscall_mode::sync> {
         static i64 invoke(i64 status) {
