@@ -1,10 +1,11 @@
-#include "initrd.hpp"
-#include "module.hpp"
 #include <astia/boot.hpp>
 #include <astia/elf.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
+
+#include "initrd.hpp"
+#include "module.hpp"
 
 // The "mod" init step: turn the bootloader's handoff into running code.
 //
@@ -56,7 +57,7 @@ namespace astia::mod {
         bool visit_initrd_file(void*, const initrd::file& f) {
             // ET_REL belongs to the kernel-module loader.  Executables
             // remain files in initrdfs and are launched by proc::spawnve.
-            if (elf::kind_of(f.data, f.size) != elf::kind::relocatable) {
+            if (elf::loader::kind_of(f.data, f.size) != elf::loader::kind::relocatable) {
                 return true;
             }
             load_and_run(span<const u8>(static_cast<const u8*>(f.data), f.size), f.name,
@@ -99,7 +100,7 @@ namespace astia::mod {
             const span<const u8> image(static_cast<const u8*>(data),
                                        static_cast<usize>(m.size));
 
-            if (elf::kind_of(image) != elf::kind::none) {
+            if (elf::loader::kind_of(image) != elf::loader::kind::none) {
                 load_and_run(image, nullptr, i);
                 continue;
             }

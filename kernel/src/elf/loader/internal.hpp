@@ -2,7 +2,7 @@
 
 #include <astia/elf.hpp>
 
-namespace astia::elf::detail {
+namespace astia::elf::loader::detail {
 
     using u8  = astia::u8;
     using u16 = astia::u16;
@@ -258,4 +258,4 @@ namespace astia::elf::detail {
     bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
                   u64& out);
 
-} // namespace astia::elf::detail
+} // namespace astia::elf::loader::detail

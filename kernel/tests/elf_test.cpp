@@ -71,11 +71,13 @@ namespace {
         return reinterpret_cast<int (*)()>(entry)();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void invoke_module_initializer(astia::elf::init_fn fn) {
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_module_initializer(astia::elf::loader::init_fn fn) {
         fn();
     }
 
-    ASTIA_NO_SANITIZE_FUNCTION void invoke_module_finalizer(astia::elf::init_fn fn) {
+    ASTIA_NO_SANITIZE_FUNCTION void
+    invoke_module_finalizer(astia::elf::loader::init_fn fn) {
         fn();
     }
 
@@ -337,13 +339,13 @@ namespace {
         arena.base     = storage;
         arena.capacity = sizeof(storage);
         arena.back     = sizeof(storage);
-        astia::elf::env environment{};
+        astia::elf::loader::env environment{};
         environment.ctx     = &arena;
         environment.map     = reloc_map;
         environment.unmap   = reloc_unmap;
         environment.resolve = reloc_resolve;
-        astia::elf::image image;
-        return astia::elf::load(blob.data, blob.len, environment, image);
+        astia::elf::loader::image image;
+        return astia::elf::loader::load(blob.data, blob.len, environment, image);
     }
 
     size_t first_dynamic_relocation(blob_copy& blob) {
@@ -575,16 +577,18 @@ namespace {
 // ========================================================================
 
 ASTIA_TEST(elf_identifies_kind) {
-    ASTIA_CHECK(astia::elf::kind_of(hello_mod_blob, hello_mod_blob_len) ==
-                astia::elf::kind::relocatable);
-    ASTIA_CHECK(astia::elf::kind_of(fixture_dyn_blob, fixture_dyn_blob_len) ==
-                astia::elf::kind::dyn);
-    ASTIA_CHECK(astia::elf::kind_of(fixture_exec_blob, fixture_exec_blob_len) ==
-                astia::elf::kind::executable);
+    ASTIA_CHECK(astia::elf::loader::kind_of(hello_mod_blob, hello_mod_blob_len) ==
+                astia::elf::loader::kind::relocatable);
+    ASTIA_CHECK(astia::elf::loader::kind_of(fixture_dyn_blob, fixture_dyn_blob_len) ==
+                astia::elf::loader::kind::dyn);
+    ASTIA_CHECK(astia::elf::loader::kind_of(fixture_exec_blob, fixture_exec_blob_len) ==
+                astia::elf::loader::kind::executable);
 
     const unsigned char garbage[4] = {0, 1, 2, 3};
-    ASTIA_CHECK(astia::elf::kind_of(garbage, sizeof(garbage)) == astia::elf::kind::none);
-    ASTIA_CHECK(astia::elf::kind_of(nullptr, 100) == astia::elf::kind::none);
+    ASTIA_CHECK(astia::elf::loader::kind_of(garbage, sizeof(garbage)) ==
+                astia::elf::loader::kind::none);
+    ASTIA_CHECK(astia::elf::loader::kind_of(nullptr, 100) ==
+                astia::elf::loader::kind::none);
 }
 
 // ========================================================================
@@ -607,15 +611,15 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     a.back     = cap;
     a.cache_n  = 0;
 
-    astia::elf::env e{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
-    astia::elf::image img;
-    ASTIA_CHECK(astia::elf::load(hello_mod_blob, hello_mod_blob_len, e, img));
-    ASTIA_CHECK(img.loaded == astia::elf::kind::relocatable);
+    astia::elf::loader::image img;
+    ASTIA_CHECK(astia::elf::loader::load(hello_mod_blob, hello_mod_blob_len, e, img));
+    ASTIA_CHECK(img.loaded == astia::elf::loader::kind::relocatable);
     ASTIA_CHECK(img.entry != nullptr);
     ASTIA_CHECK(img.load_bias == 0);
     ASTIA_CHECK(img.nsegs == 0); // relocatable images have no program segments
@@ -645,14 +649,15 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     a.base     = static_cast<unsigned char*>(mem);
     a.capacity = cap;
     a.back     = cap;
-    astia::elf::env e{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
-    astia::elf::image img;
-    ASTIA_CHECK(astia::elf::load(module_symbols_blob, module_symbols_blob_len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(
+        astia::elf::loader::load(module_symbols_blob, module_symbols_blob_len, e, img));
     ASTIA_CHECK(img.init_count != 0);
     for (size_t i = 0; i < img.init_count; ++i)
         if (img.init_array[i] != nullptr)
@@ -672,15 +677,15 @@ ASTIA_TEST(elf_relocatable_rejects_bad_magic) {
     blob_copy buf(hello_mod_blob, hello_mod_blob_len);
     buf.data[0] = 0x00;
 
-    reloc_arena     a{};
-    astia::elf::env e{};
+    reloc_arena             a{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
-    astia::elf::image img;
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
     ASTIA_CHECK(a.mapped == a.unmapped);
 }
 
@@ -695,7 +700,7 @@ ASTIA_TEST(elf_failed_relocatable_loads_release_every_mapping) {
     reloc_arena a{};
     a.base     = static_cast<unsigned char*>(mem);
     a.capacity = cap;
-    astia::elf::env e{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
@@ -704,8 +709,9 @@ ASTIA_TEST(elf_failed_relocatable_loads_release_every_mapping) {
         a.front   = 0;
         a.back    = cap;
         a.cache_n = 0;
-        astia::elf::image img;
-        ASTIA_CHECK(!astia::elf::load(hello_mod_blob, hello_mod_blob_len, e, img));
+        astia::elf::loader::image img;
+        ASTIA_CHECK(
+            !astia::elf::loader::load(hello_mod_blob, hello_mod_blob_len, e, img));
         ASTIA_CHECK(a.mapped == a.unmapped);
     }
     ASTIA_CHECK(a.mapped == 32);
@@ -718,15 +724,15 @@ ASTIA_TEST(elf_relocatable_rejects_wrong_machine) {
     buf.data[18] = 0x00; // e_machine (u16 LE); EM_X86_64 is 62
     buf.data[19] = 0x00;
 
-    reloc_arena     a{};
-    astia::elf::env e{};
+    reloc_arena             a{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
-    astia::elf::image img;
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
 }
 
 ASTIA_TEST(elf_relocatable_rejects_non_relocatable) {
@@ -734,31 +740,31 @@ ASTIA_TEST(elf_relocatable_rejects_non_relocatable) {
     buf.data[16] = 2; // e_type (u16 LE); set ET_EXEC instead of ET_REL
     buf.data[17] = 0;
 
-    reloc_arena     a{};
-    astia::elf::env e{};
+    reloc_arena             a{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = reloc_resolve;
 
-    astia::elf::image img;
+    astia::elf::loader::image img;
     // Now it identifies as an executable and takes the executable path, which
     // has no PT_LOAD / module_main to satisfy.
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
 }
 
 ASTIA_TEST(elf_relocatable_rejects_unresolved_symbol) {
     blob_copy buf(hello_mod_blob, hello_mod_blob_len);
 
-    reloc_arena     a{};
-    astia::elf::env e{};
+    reloc_arena             a{};
+    astia::elf::loader::env e{};
     e.ctx     = &a;
     e.map     = reloc_map;
     e.unmap   = reloc_unmap;
     e.resolve = nullptr; // no resolver: kernel_add cannot bind
 
-    astia::elf::image img;
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
 }
 
 ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
@@ -810,14 +816,14 @@ ASTIA_TEST(elf_relocatable_rejects_unterminated_defined_symbol_name) {
         ASTIA_CHECK(name_offset < string_size);
         if (name_offset < string_size)
             buf.data[string_offset + name_offset + sizeof("_Z11module_mainv") - 1] = 'x';
-        reloc_arena     a{};
-        astia::elf::env e{};
+        reloc_arena             a{};
+        astia::elf::loader::env e{};
         e.ctx     = &a;
         e.map     = reloc_map;
         e.unmap   = reloc_unmap;
         e.resolve = reloc_resolve;
-        astia::elf::image img;
-        ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+        astia::elf::loader::image img;
+        ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
     }
 }
 
@@ -1065,13 +1071,14 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
         arena.base     = storage;
         arena.capacity = sizeof(storage);
         arena.back     = sizeof(storage);
-        astia::elf::env environment{};
+        astia::elf::loader::env environment{};
         environment.ctx     = &arena;
         environment.map     = reloc_map;
         environment.unmap   = reloc_unmap;
         environment.resolve = reloc_resolve;
-        astia::elf::image image;
-        const bool loaded = astia::elf::load(buf.data, buf.len, environment, image);
+        astia::elf::loader::image image;
+        const bool                loaded =
+            astia::elf::loader::load(buf.data, buf.len, environment, image);
         if (loaded)
             reloc_unmap(&arena, image.base, image.size);
         return loaded;
@@ -1128,15 +1135,15 @@ ASTIA_TEST(elf_relocatable_rejects_bad_alignment_and_table_sizes) {
 // ========================================================================
 
 ASTIA_TEST(elf_loads_and_runs_pie_executable) {
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
 
-    astia::elf::image img;
-    ASTIA_CHECK(astia::elf::load(fixture_dyn_blob, fixture_dyn_blob_len, e, img));
-    ASTIA_CHECK(img.loaded == astia::elf::kind::dyn);
+    astia::elf::loader::image img;
+    ASTIA_CHECK(astia::elf::loader::load(fixture_dyn_blob, fixture_dyn_blob_len, e, img));
+    ASTIA_CHECK(img.loaded == astia::elf::loader::kind::dyn);
     ASTIA_CHECK(img.load_bias != 0); // a PIE is placed away from its link address
     ASTIA_CHECK(img.nsegs >= 1);
     ASTIA_CHECK(img.entry != nullptr);
@@ -1158,15 +1165,16 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
 }
 
 ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
 
-    astia::elf::image img;
-    ASTIA_CHECK(astia::elf::load(fixture_exec_blob, fixture_exec_blob_len, e, img));
-    ASTIA_CHECK(img.loaded == astia::elf::kind::executable);
+    astia::elf::loader::image img;
+    ASTIA_CHECK(
+        astia::elf::loader::load(fixture_exec_blob, fixture_exec_blob_len, e, img));
+    ASTIA_CHECK(img.loaded == astia::elf::loader::kind::executable);
     ASTIA_CHECK(img.load_bias == 0); // ET_EXEC is linked, not relocated
     ASTIA_CHECK(img.nsegs >= 1);
     ASTIA_CHECK(img.entry != nullptr);
@@ -1186,38 +1194,39 @@ ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
 }
 
 ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
-    blob_copy       dyn_blob = make_nonpage_aligned_executable(false, true);
-    exec_arena      dyn_arena{};
-    astia::elf::env dyn_env{};
+    blob_copy               dyn_blob = make_nonpage_aligned_executable(false, true);
+    exec_arena              dyn_arena{};
+    astia::elf::loader::env dyn_env{};
     dyn_env.ctx   = &dyn_arena;
     dyn_env.map   = congruent_exec_map;
     dyn_env.unmap = exec_unmap;
-    astia::elf::image dyn_image{};
-    ASTIA_CHECK(astia::elf::load(dyn_blob.data, dyn_blob.len, dyn_env, dyn_image));
+    astia::elf::loader::image dyn_image{};
+    ASTIA_CHECK(
+        astia::elf::loader::load(dyn_blob.data, dyn_blob.len, dyn_env, dyn_image));
     ASTIA_CHECK(dyn_arena.mapped == 1);
     if (dyn_arena.base != nullptr)
         munmap(dyn_arena.base, dyn_arena.span);
 
-    blob_copy       fixed_blob = make_nonpage_aligned_executable(true, true);
-    exec_arena      fixed_arena{};
-    astia::elf::env fixed_env{};
+    blob_copy               fixed_blob = make_nonpage_aligned_executable(true, true);
+    exec_arena              fixed_arena{};
+    astia::elf::loader::env fixed_env{};
     fixed_env.ctx   = &fixed_arena;
     fixed_env.map   = congruent_exec_map;
     fixed_env.unmap = exec_unmap;
-    astia::elf::image fixed_image{};
-    ASTIA_CHECK(
-        astia::elf::load(fixed_blob.data, fixed_blob.len, fixed_env, fixed_image));
+    astia::elf::loader::image fixed_image{};
+    ASTIA_CHECK(astia::elf::loader::load(fixed_blob.data, fixed_blob.len, fixed_env,
+                                         fixed_image));
     ASTIA_CHECK(fixed_arena.mapped == 1);
     if (fixed_arena.base != nullptr)
         munmap(fixed_arena.base, fixed_arena.span);
 
-    stream_exec_context   stream_context{dyn_blob.data, dyn_blob.len, {}};
-    astia::elf::async_env stream_env{};
+    stream_exec_context           stream_context{dyn_blob.data, dyn_blob.len, {}};
+    astia::elf::loader::async_env stream_env{};
     stream_env.ctx   = &stream_context;
     stream_env.map   = congruent_stream_map;
     stream_env.read  = stream_read;
     stream_env.unmap = stream_unmap;
-    auto task        = astia::elf::load_executable_stream(stream_env, dyn_blob.len);
+    auto task = astia::elf::loader::load_executable_stream(stream_env, dyn_blob.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1227,27 +1236,27 @@ ASTIA_TEST(elf_accepts_nonpage_load_alignment) {
 }
 
 ASTIA_TEST(elf_rejects_noncongruent_load_alignment) {
-    blob_copy       blob = make_nonpage_aligned_executable(false, false);
-    exec_arena      arena{};
-    astia::elf::env environment{};
+    blob_copy               blob = make_nonpage_aligned_executable(false, false);
+    exec_arena              arena{};
+    astia::elf::loader::env environment{};
     environment.ctx   = &arena;
     environment.map   = congruent_exec_map;
     environment.unmap = exec_unmap;
-    astia::elf::image image{};
-    ASTIA_CHECK(!astia::elf::load(blob.data, blob.len, environment, image));
+    astia::elf::loader::image image{};
+    ASTIA_CHECK(!astia::elf::loader::load(blob.data, blob.len, environment, image));
     ASTIA_CHECK(arena.mapped == 0);
 }
 
 ASTIA_TEST(elf_nonstream_unaligned_relative_relocation_is_safe) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     shift_first_relocation_target(buf, -1);
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
-    astia::elf::image img;
-    ASTIA_CHECK(astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(astia::elf::loader::load(buf.data, buf.len, e, img));
     ASTIA_CHECK(a.mapped == 1);
     ASTIA_CHECK(a.unmapped == 0);
     if (a.base != nullptr)
@@ -1257,37 +1266,37 @@ ASTIA_TEST(elf_nonstream_unaligned_relative_relocation_is_safe) {
 ASTIA_TEST(elf_executable_failures_release_mapped_span) {
     blob_copy relocation_failure(fixture_dyn_blob, fixture_dyn_blob_len);
     reject_first_dynamic_relocation(relocation_failure);
-    exec_arena      relocation_arena{};
-    astia::elf::env relocation_env{};
+    exec_arena              relocation_arena{};
+    astia::elf::loader::env relocation_env{};
     relocation_env.ctx   = &relocation_arena;
     relocation_env.map   = exec_map;
     relocation_env.unmap = exec_unmap;
-    astia::elf::image relocation_image;
-    ASTIA_CHECK(!astia::elf::load(relocation_failure.data, relocation_failure.len,
-                                  relocation_env, relocation_image));
+    astia::elf::loader::image relocation_image;
+    ASTIA_CHECK(!astia::elf::loader::load(relocation_failure.data, relocation_failure.len,
+                                          relocation_env, relocation_image));
     ASTIA_CHECK(relocation_arena.mapped == 1);
     ASTIA_CHECK(relocation_arena.unmapped == 1);
 
-    exec_arena      copy_arena{};
-    astia::elf::env copy_env{};
+    exec_arena              copy_arena{};
+    astia::elf::loader::env copy_env{};
     copy_env.ctx   = &copy_arena;
     copy_env.map   = exec_map;
     copy_env.unmap = exec_unmap;
     copy_env.copy  = copy_failure;
-    astia::elf::image copy_image;
-    ASTIA_CHECK(
-        !astia::elf::load(fixture_dyn_blob, fixture_dyn_blob_len, copy_env, copy_image));
+    astia::elf::loader::image copy_image;
+    ASTIA_CHECK(!astia::elf::loader::load(fixture_dyn_blob, fixture_dyn_blob_len,
+                                          copy_env, copy_image));
     ASTIA_CHECK(copy_arena.mapped == 1);
     ASTIA_CHECK(copy_arena.unmapped == 1);
 
-    exec_arena      fixed_arena{};
-    astia::elf::env fixed_env{};
+    exec_arena              fixed_arena{};
+    astia::elf::loader::env fixed_env{};
     fixed_env.ctx   = &fixed_arena;
     fixed_env.map   = misfixed_map;
     fixed_env.unmap = exec_unmap;
-    astia::elf::image fixed_image;
-    ASTIA_CHECK(!astia::elf::load(fixture_exec_blob, fixture_exec_blob_len, fixed_env,
-                                  fixed_image));
+    astia::elf::loader::image fixed_image;
+    ASTIA_CHECK(!astia::elf::loader::load(fixture_exec_blob, fixture_exec_blob_len,
+                                          fixed_env, fixed_image));
     ASTIA_CHECK(fixed_arena.mapped == 1);
     ASTIA_CHECK(fixed_arena.unmapped == 1);
 }
@@ -1295,13 +1304,13 @@ ASTIA_TEST(elf_executable_failures_release_mapped_span) {
 ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     shift_first_relocation_target(buf, -1);
-    stream_exec_context   context{buf.data, buf.len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{buf.data, buf.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task         = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::loader::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1313,8 +1322,8 @@ ASTIA_TEST(elf_stream_unaligned_relative_relocation_is_safe) {
 }
 
 ASTIA_TEST(elf_stream_direct_read_applies_relative_relocations) {
-    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx     = &context;
     environment.map     = stream_map;
     environment.read    = stream_read;
@@ -1322,7 +1331,8 @@ ASTIA_TEST(elf_stream_direct_read_applies_relative_relocations) {
     environment.copy    = stream_copy;
     environment.unmap   = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1338,16 +1348,16 @@ ASTIA_TEST(elf_stream_direct_read_applies_relative_relocations) {
 }
 
 ASTIA_TEST(elf_stream_fallback_read_copies_when_direct_reader_is_absent) {
-    blob_copy             blob = make_stream_boundary_executable();
-    stream_exec_context   context{blob.data, blob.len, {}};
-    astia::elf::async_env environment{};
+    blob_copy                     blob = make_stream_boundary_executable();
+    stream_exec_context           context{blob.data, blob.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.copy  = stream_copy;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, blob.len);
+    auto task = astia::elf::loader::load_executable_stream(environment, blob.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1358,14 +1368,15 @@ ASTIA_TEST(elf_stream_fallback_read_copies_when_direct_reader_is_absent) {
 }
 
 ASTIA_TEST(elf_stream_uses_bounded_reads) {
-    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1413,9 +1424,9 @@ ASTIA_TEST(elf_stream_uses_bounded_reads) {
 }
 
 ASTIA_TEST(elf_stream_reads_segments_directly_into_destination) {
-    blob_copy             blob = make_stream_boundary_executable();
-    stream_exec_context   context{blob.data, blob.len, {}};
-    astia::elf::async_env environment{};
+    blob_copy                     blob = make_stream_boundary_executable();
+    stream_exec_context           context{blob.data, blob.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx     = &context;
     environment.map     = stream_map;
     environment.read    = stream_read;
@@ -1423,7 +1434,7 @@ ASTIA_TEST(elf_stream_reads_segments_directly_into_destination) {
     environment.copy    = stream_copy;
     environment.unmap   = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, blob.len);
+    auto task = astia::elf::loader::load_executable_stream(environment, blob.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(!task.failed());
@@ -1449,15 +1460,16 @@ ASTIA_TEST(elf_stream_rejects_truncated_program_headers) {
         blob_u64(blob_copy(fixture_exec_blob, fixture_exec_blob_len), 32));
     const size_t phnum = static_cast<size_t>(fixture_exec_blob[56]) |
                          (static_cast<size_t>(fixture_exec_blob[57]) << 8);
-    const size_t          truncated_size = phoff + phnum * 56 - 1;
-    stream_exec_context   context{fixture_exec_blob, truncated_size, {}};
-    astia::elf::async_env environment{};
+    const size_t                  truncated_size = phoff + phnum * 56 - 1;
+    stream_exec_context           context{fixture_exec_blob, truncated_size, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, context.source_size);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, context.source_size);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1487,13 +1499,13 @@ ASTIA_TEST(elf_stream_rejects_malformed_segment_sizes) {
     }
     ASTIA_CHECK(changed);
 
-    stream_exec_context   context{buf.data, buf.len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{buf.data, buf.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task         = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::loader::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1503,13 +1515,14 @@ ASTIA_TEST(elf_stream_rejects_malformed_segment_sizes) {
 ASTIA_TEST(elf_stream_read_failure_releases_mapping) {
     stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
     context.fail_read_after = 3;
-    astia::elf::async_env environment{};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1521,7 +1534,7 @@ ASTIA_TEST(elf_stream_direct_read_failure_releases_mapping) {
     blob_copy           blob = make_stream_boundary_executable();
     stream_exec_context context{blob.data, blob.len, {}};
     context.fail_read_after = 3;
-    astia::elf::async_env environment{};
+    astia::elf::loader::async_env environment{};
     environment.ctx     = &context;
     environment.map     = stream_map;
     environment.read    = stream_read;
@@ -1529,7 +1542,7 @@ ASTIA_TEST(elf_stream_direct_read_failure_releases_mapping) {
     environment.copy    = stream_copy;
     environment.unmap   = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, blob.len);
+    auto task = astia::elf::loader::load_executable_stream(environment, blob.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1539,14 +1552,15 @@ ASTIA_TEST(elf_stream_direct_read_failure_releases_mapping) {
 }
 
 ASTIA_TEST(elf_stream_rejects_scratch_allocation_failure) {
-    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     astia_test::fail_next_allocation();
     task.resume();
     ASTIA_CHECK(task.failed());
@@ -1554,14 +1568,15 @@ ASTIA_TEST(elf_stream_rejects_scratch_allocation_failure) {
 }
 
 ASTIA_TEST(elf_stream_destroy_releases_mapping) {
-    stream_exec_context   context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = pausing_stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     while (!task.done() && !context.paused)
         task.resume();
     ASTIA_CHECK(context.arena.mapped == 1);
@@ -1574,7 +1589,7 @@ ASTIA_TEST(elf_stream_direct_read_destroy_releases_mapping) {
     blob_copy           blob = make_stream_boundary_executable();
     stream_exec_context context{blob.data, blob.len, {}};
     context.pause_next_direct_read = true;
-    astia::elf::async_env environment{};
+    astia::elf::loader::async_env environment{};
     environment.ctx     = &context;
     environment.map     = stream_map;
     environment.read    = stream_read;
@@ -1582,7 +1597,7 @@ ASTIA_TEST(elf_stream_direct_read_destroy_releases_mapping) {
     environment.copy    = stream_copy;
     environment.unmap   = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, blob.len);
+    auto task = astia::elf::loader::load_executable_stream(environment, blob.len);
     while (!task.done() && !context.direct_paused)
         task.resume();
     ASTIA_CHECK(context.arena.mapped == 1);
@@ -1594,14 +1609,15 @@ ASTIA_TEST(elf_stream_direct_read_destroy_releases_mapping) {
 ASTIA_TEST(elf_stream_copy_failure_releases_mapping) {
     stream_exec_context context{fixture_dyn_blob, fixture_dyn_blob_len, {}};
     context.fail_copy_after = 1;
-    astia::elf::async_env environment{};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.copy  = stream_copy;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, fixture_dyn_blob_len);
+    auto task =
+        astia::elf::loader::load_executable_stream(environment, fixture_dyn_blob_len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1612,14 +1628,14 @@ ASTIA_TEST(elf_stream_copy_failure_releases_mapping) {
 ASTIA_TEST(elf_stream_relocation_failure_releases_mapping) {
     blob_copy buf(fixture_dyn_blob, fixture_dyn_blob_len);
     reject_first_dynamic_relocation(buf);
-    stream_exec_context   context{buf.data, buf.len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{buf.data, buf.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
 
-    auto task = astia::elf::load_executable_stream(environment, buf.len);
+    auto task = astia::elf::loader::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1652,13 +1668,13 @@ ASTIA_TEST(elf_stream_tls_failure_releases_mapping) {
     }
     ASTIA_CHECK(changed);
 
-    stream_exec_context   context{buf.data, buf.len, {}};
-    astia::elf::async_env environment{};
+    stream_exec_context           context{buf.data, buf.len, {}};
+    astia::elf::loader::async_env environment{};
     environment.ctx   = &context;
     environment.map   = stream_map;
     environment.read  = stream_read;
     environment.unmap = stream_unmap;
-    auto task         = astia::elf::load_executable_stream(environment, buf.len);
+    auto task         = astia::elf::loader::load_executable_stream(environment, buf.len);
     while (!task.done())
         task.resume();
     ASTIA_CHECK(task.failed());
@@ -1670,14 +1686,14 @@ ASTIA_TEST(elf_executable_rejects_bad_magic) {
     blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
     buf.data[0] = 0x00;
 
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
 
-    astia::elf::image img;
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
 }
 
 ASTIA_TEST(elf_executable_rejects_wrong_machine) {
@@ -1685,26 +1701,26 @@ ASTIA_TEST(elf_executable_rejects_wrong_machine) {
     buf.data[18] = 0x03; // e_machine -> EM_386, not x86-64
     buf.data[19] = 0x00;
 
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
 
-    astia::elf::image img;
-    ASTIA_CHECK(!astia::elf::load(buf.data, buf.len, e, img));
+    astia::elf::loader::image img;
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, buf.len, e, img));
 }
 
 ASTIA_TEST(elf_executable_rejects_truncated_phdrs) {
     blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
 
-    exec_arena      a{};
-    astia::elf::env e{};
+    exec_arena              a{};
+    astia::elf::loader::env e{};
     e.ctx   = &a;
     e.map   = exec_map;
     e.unmap = exec_unmap;
 
-    astia::elf::image img;
+    astia::elf::loader::image img;
     // Shorter than the program-header table the header points at.
-    ASTIA_CHECK(!astia::elf::load(buf.data, 60, e, img));
+    ASTIA_CHECK(!astia::elf::loader::load(buf.data, 60, e, img));
 }
