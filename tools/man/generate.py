@@ -17,6 +17,8 @@ import sys
 import warnings
 from pathlib import Path
 
+from docs_manifest import load_authored_docs
+
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_CSS = ROOT / "nodivia.css"
@@ -30,236 +32,6 @@ def sentence(text: str) -> str:
             return text[:index] + char.upper() + text[index + 1:] + "."
     return text + "."
 
-PUBLIC_SYNOPSIS_OVERRIDES = {
-    "waitpid": "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);",
-}
-
-SOURCE_OVERRIDES = {
-    "execve": "libc/src/unistd.c",
-    "sigsuspend": "libc/src/signal.c",
-    "waitpid": "kernel/include/astia/api/syscalls.h",
-}
-
-CATEGORY_OVERRIDES = {
-    "execve": "proc/process",
-    "sigsuspend": "proc/signal",
-    "waitpid": "proc/process",
-}
-
-PUBLIC_BODY_OVERRIDES = {
-    "execve": (
-        "Synopsis:\n"
-        "    int execve(const char* path, char* const argv[], char* const envp[]);\n\n"
-        "Description:\n"
-        "    Replaces the calling process image with the executable at path. The process ID, "
-        "process group, and working directory remain associated with the process. Descriptors "
-        "without FD_CLOEXEC remain open; descriptors marked FD_CLOEXEC are closed. The argument "
-        "and environment vectors are copied before the image is replaced.\n\n"
-        "Return Value:\n"
-        "    Does not return on success. On failure, returns -1 and sets errno.\n\n"
-        "Errors:\n"
-        "    E2BIG: The argument or environment vector exceeds its limit.\n"
-        "    EFAULT: An argv or envp vector or string pointer is not readable userspace memory. "
-        "libc resolves path before the syscall, so a null path returns EINVAL and an invalid "
-        "non-null path pointer can fault in libc instead of returning EFAULT.\n"
-        "    EINVAL: The path is null, or the file is nonempty but is not a valid ELF executable "
-        "image (malformed header, unsupported executable type, or invalid segment metadata).\n"
-        "    ENAMETOOLONG: The resolved path exceeds the libc path buffer.\n"
-        "    ENOENT: The executable path does not exist or cannot be opened. The kernel "
-        "also returns this when there is no current process or thread context.\n"
-        "    ENOEXEC: The file is empty.\n"
-        "    ENOMEM: The replacement image cannot be allocated.\n"
-        "    ESRCH: The current process or thread could not be retained for image "
-        "replacement.\n\n"
-        "Notes:\n"
-        "    Relative paths are resolved against the caller's working directory by libc before "
-        "the syscall. The public "
-        "wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); "
-        "the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), "
-        "and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp)."
-    ),
-    "sigsuspend": (
-        "Synopsis:\n"
-        "    int sigsuspend(const sigset_t* mask);\n\n"
-        "Description:\n"
-        "    Temporarily replaces the calling thread's signal mask with mask and waits for a "
-        "signal. The previous mask is restored before the function returns.\n\n"
-        "Return Value:\n"
-        "    Never returns 0. When a signal ends the wait, returns -1 and sets errno to EINTR. "
-        "On failure, returns -1 and sets errno to the reported error.\n\n"
-        "Errors:\n"
-        "    EAGAIN: The signal waiter could not be registered.\n"
-        "    EFAULT: The mask pointer is not readable userspace memory.\n"
-        "    EINTR: A signal ended the wait; this is the normal successful return.\n"
-        "    ESRCH: There is no current process or thread.\n\n"
-        "Notes:\n"
-        "    The libc wrapper is implemented in [libc/src/signal.c](https://github.com/arlirad/astia/blob/main/libc/src/signal.c); "
-        "the kernel wait path is [kernel/src/proc/syscalls/signal/sigsuspend.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.cpp)."
-    ),
-}
-
-
-PUBLIC_SECTION_OVERRIDES = {
-    "waitpid": {
-        "ERRORS": (
-            "-EAGAIN: The process waiter table cannot accept another waiter.\n"
-            "-ECHILD: The caller has no matching child.\n"
-            "-EFAULT: The status pointer is not writable userspace memory.\n"
-            "-EINTR: An unblocked interrupting signal arrived before a child event.\n"
-            "-EINVAL: The PID or option mask is invalid.\n"
-            "-ESRCH: There is no current process or thread."
-        ),
-        "NOTES": (
-            "This page documents the public ABI wrapper astia_waitpid_options. It returns a "
-            "negative errno on failure. The libc waitpid() wrapper translates that result to -1 "
-            "and errno. Without WNOHANG the call may block until a selected child exits, stops, "
-            "or continues. An unblocked interrupting signal interrupts the wait with -EINTR "
-            "without reaping a child. If the process waiter table cannot accept another waiter, "
-            "the call returns -EAGAIN instead of blocking without a wake slot. A successful exit "
-            "event is reaped. Stop and continuation notifications are consumed but do not reap "
-            "the child."
-        ),
-    },
-    "clock_gettime": {
-        "ERRORS": (
-            "-EFAULT: The output timespec pointer is not writable userspace memory.\n"
-            "-EINVAL: The clock ID is unsupported.\n"
-            "-EIO: The platform has no active timer source."
-        ),
-        "NOTES": (
-            "A platform without an active timer source returns -EIO rather than dividing by "
-            "zero. Arguments enter through the direct syscall ABI."
-        ),
-    },
-    "clock_getres": {
-        "ERRORS": (
-            "-EFAULT: The output pointer is not writable when out is non-null.\n"
-            "-EINVAL: The clock ID is unsupported.\n"
-            "-EIO: The platform has no active timer source."
-        ),
-    },
-}
-
-
-ERROR_FALLBACKS = {
-    "E2BIG": "the argument or environment list exceeds the supported limit",
-    "EAGAIN": "a required resource is temporarily unavailable",
-    "EBADF": "the supplied file descriptor is invalid",
-    "EFAULT": "a supplied userspace pointer is invalid or inaccessible",
-    "ECHILD": "the caller has no matching child process",
-    "EINTR": "the operation was interrupted by a signal",
-    "EINVAL": "an argument or flag has an invalid value",
-    "EIO": "the underlying input/output operation failed",
-    "ENOMEM": "the kernel cannot allocate the requested memory",
-    "ENOSYS": "the requested operation is not implemented",
-    "ENOENT": "the requested path or object does not exist",
-    "ENOEXEC": "the selected file is not a valid executable",
-    "EPERM": "the operation is not permitted for the current process",
-    "ESRCH": "the requested process, thread, or group does not exist",
-}
-
-
-def comments(text: str) -> list[tuple[str, str]]:
-    pages: list[tuple[str, str]] = []
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        match = re.match(r"\s*///\s*(\w+)\s*-\s*(.*)$", line)
-        if not match:
-            continue
-        block = [match.group(2)]
-        cursor = index + 1
-        while cursor < len(lines) and re.match(r"\s*///", lines[cursor]):
-            block.append(re.sub(r"^\s*///\s?", "", lines[cursor]))
-            cursor += 1
-        pages.append((match.group(1), "\n".join(block).strip()))
-    return pages
-
-
-LEGACY = {
-    "getpid": ("long getpid(void);", "Returns the calling process ID.", "Never fails."),
-    "gettid": ("long gettid(void);", "Returns the calling thread ID.", "Never fails."),
-    "getpgrp": ("long getpgrp(void);", "Returns the calling process group ID.", "Never fails."),
-    "setpgid": ("long setpgid(int pid, int pgid);", "Moves a process into a process group.", "-EINVAL, -EPERM, -ESRCH."),
-    "setsid": ("long setsid(void);", "Creates a new session for the caller.", "-EPERM, -ESRCH."),
-    "getsid": ("long getsid(void);", "Returns the session ID of the calling process.", "Never fails."),
-    "sigaction": ("long sigaction(int signal, const action *, action *old);", "Gets or changes a signal disposition.", "-EFAULT, -EINVAL, -ESRCH."),
-    "sigreturn": ("long sigreturn(const signal_context *context);", "Restores a saved signal execution context.", "-EFAULT."),
-    "sigprocmask": ("long sigprocmask(int how, uint32_t set, uint32_t *old);", "Blocks, unblocks, or replaces the signal mask.", "-EFAULT, -EINVAL, -ESRCH."),
-    "sigsuspend": ("long sigsuspend(const uint32_t *mask);", "Temporarily replaces the mask and waits for a signal.", "-EFAULT, -EINTR, -ESRCH."),
-    "yield": ("long yield(void);", "Yields the current kernel scheduling turn.", "Never fails."),
-    "exit": ("long exit(long status);", "Terminates the calling thread.", "Does not return."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Waits for a child process and optionally reaps it. Returns early with -EINTR when an unblocked interrupting signal arrives, or -EAGAIN when no waiter slot is available.", "-EAGAIN, -ECHILD, -EFAULT, -EINTR, -EINVAL, -ESRCH."),
-    "spawnve": ("long spawnve(const char *path, char *const argv[], char *const envp[]);", "Creates a process from an executable path using the kernel's asynchronous streaming ELF loader; returns after the child is published and does not wait for child exit.", "-E2BIG, -EAGAIN, -EFAULT, -EIO, -ENOMEM, -ENOENT, -EINVAL."),
-    "execve": ("long execve(const char *path, char *const argv[], char *const envp[]);", "Replaces the calling process image with the executable at path. The process ID, process group, open descriptors, and working directory remain associated with the process; the new image receives the supplied argument and environment vectors.", "-E2BIG, -EFAULT, -ENOENT, -ENOEXEC, -ENOMEM."),
-    "mmap": ("long mmap(void *addr, long length, uint32_t prot, uint32_t flags, int fd, long offset);", "Maps anonymous or file-backed memory into the calling process. Anonymous mappings require fd -1 and offset 0; file mappings use the supplied descriptor and a non-negative offset. The returned address is page aligned.", "-EBADF, -EINVAL, -ENOMEM, -ENOSYS."),
-    "munmap": ("long munmap(void *addr, long length);", "Removes mappings that overlap the requested virtual range. The length must be positive; the address space may split a mapping when only part of a region is removed.", "-EINVAL, -ESRCH."),
-    "fork": ("long fork(void);", "Creates a child process using copy-on-write address-space mappings. The parent receives the child process ID and the child resumes at the return site with zero. File descriptors and the working directory are inherited.", "-EAGAIN, -ESRCH."),
-    "futex": ("long futex(uint32_t *address, uint32_t operation, uint32_t value, const timespec *timeout);", "Waits while the user word equals value or wakes waiters sharing that word. For WAIT, timeout is an absolute CLOCK_MONOTONIC astia_timespec; the private flag selects process-private address keys, while unflagged operations key MAP_SHARED backing identity, page, and word offset.", "-EAGAIN, -EFAULT, -EINVAL, -ETIMEDOUT."),
-    "thread_create": ("long thread_create(void (*entry)(void *), void *stack_top, void *argument);", "Creates a user thread in the calling process. The entry point receives argument and the new thread uses the supplied aligned user stack. The returned value is the new thread ID.", "-EAGAIN, -EFAULT, -ESRCH."),
-    "thread_create2": ("long thread_create2(void (*entry)(void *, void *), void *stack_top, void *argument0, void *argument1);", "Creates a user thread and starts it with two arguments. The entry point and stack must be valid user addresses and the stack top must be aligned.", "-EAGAIN, -EFAULT, -ESRCH."),
-    "thread_exit": ("long thread_exit(long result);", "Terminates the calling user thread and records result for a joining thread. A process becomes waitable when its last live thread exits.", "Does not return."),
-    "thread_join": ("long thread_join(uint32_t tid, void **result);", "Waits for the selected thread to terminate and optionally copies its result pointer to result. A thread may have at most one joiner; joining releases its process-owned reference.", "-EFAULT, -EINVAL, -ESRCH."),
-    "thread_detach": ("long thread_detach(uint32_t tid);", "Marks the selected thread detached. Its resources are reclaimed after termination and no later thread_join is permitted.", "-EINVAL, -ESRCH."),
-    "clock_gettime": ("long clock_gettime(int clock_id, timespec *out);", "Reads a kernel clock into a userspace timespec.", "-EFAULT, -EINVAL."),
-    "io_setup": ("long io_setup(uint32_t entries, uint32_t flags, ring **out);", "Creates an asynchronous I/O ring.", "-EFAULT, -EINVAL, -ENOMEM."),
-    "io_destroy": ("long io_destroy(ring *ring);", "Destroys an asynchronous I/O ring.", "-EINVAL, -ESRCH."),
-    "io_submit": ("long io_submit(ring *ring, uint32_t count);", "Submits published asynchronous I/O operations and returns immediately.", "-EINVAL."),
-    "io_register": ("long io_register(void);", "Registers asynchronous I/O resources.", "-EINVAL, -ENOSYS."),
-}
-
-ERROR_DETAILS = {
-    "setpgid": "-EINVAL: The PID or process-group ID is zero after special-value handling.\n-EPERM: The target is not a child of the caller.\n-EPERM: The target belongs to another session.\n-EPERM: The target is a session leader.\n-ESRCH: The target process does not exist.",
-    "setsid": "-EPERM: The caller is already a process-group leader.\n-ESRCH: There is no current process.",
-    "sigaction": "-EFAULT: The old or new action pointer is not accessible userspace memory.\n-EINVAL: The signal number is invalid or uncatchable.\n-ESRCH: There is no current process.",
-    "sigreturn": "-EFAULT: The saved context is outside userspace.\n-EFAULT: The saved instruction pointer, stack pointer, or flags are invalid.",
-    "sigprocmask": "-EFAULT: The old mask pointer is not writable userspace memory.\n-EINVAL: The operation is not BLOCK, UNBLOCK, or SETMASK.\n-ESRCH: There is no current process.",
-    "sigsuspend": "-EFAULT: The mask pointer is not readable userspace memory.\n-EINTR: A signal interrupted the suspended thread.\n-ESRCH: There is no current process or thread.",
-    "waitpid": "-EAGAIN: The process waiter table cannot accept another waiter.\n-ECHILD: The caller has no matching child.\n-EFAULT: The status pointer is not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event.\n-EINVAL: The PID or option mask is invalid.\n-ESRCH: There is no current process or thread.",
-    "spawnve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-EIO: The executable cannot be read completely.\n-EINVAL: The executable is malformed or truncated.\n-ENOMEM: The process or staged mappings cannot be allocated.\n-ENOENT: The executable path does not exist.\n-EAGAIN: The process registry is full.",
-    "execve": "-E2BIG: The argument or environment vector exceeds its limit.\n-EFAULT: A path, vector, or string pointer is invalid.\n-ENOENT: The executable path does not exist.\n-ENOEXEC: The file is not a valid executable.\n-ENOMEM: The replacement image cannot be allocated.",
-    "mmap": "-EBADF: The file descriptor is invalid for a file mapping.\n-EINVAL: The length, offset, protection, flags, or anonymous sentinel is invalid.\n-ENOMEM: The address space or physical backing cannot be allocated.\n-ENOSYS: The requested fixed or shared mapping mode is not implemented.",
-    "munmap": "-EINVAL: The length is zero or the address range is invalid.\n-ESRCH: There is no current process.",
-    "fork": "-EAGAIN: A process, thread, or registry slot cannot be allocated.\n-ESRCH: There is no current user process.",
-    "futex": "-EAGAIN: The futex value changed or the waiter table is full.\n-EFAULT: The futex word or timeout is not accessible userspace memory.\n-EINVAL: The operation or timeout is invalid.\n-ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.",
-    "thread_create": "-EAGAIN: The process thread limit or memory limit was reached.\n-EFAULT: The entry point or user stack is invalid.\n-ESRCH: There is no current process.",
-    "thread_create2": "-EAGAIN: The process thread limit or memory limit was reached.\n-EFAULT: The entry point, stack, or argument pointer is invalid.\n-ESRCH: There is no current process.",
-    "thread_join": "-EFAULT: The result pointer is not writable userspace memory.\n-EINVAL: The thread is detached, already joined, or is the caller.\n-ESRCH: The thread does not exist.",
-    "thread_detach": "-EINVAL: The thread already has a joiner.\n-ESRCH: The thread does not exist.",
-    "io_setup": "-EFAULT: The output ring pointer is not writable userspace memory.\n-EINVAL: The ring parameters are invalid.\n-ENOMEM: The ring cannot be allocated.",
-    "io_destroy": "-EINVAL: The ring handle is invalid.\n-ESRCH: The ring does not belong to the caller.",
-    "io_submit": "-EINVAL: The ring is invalid or the submission count is not valid.",
-    "io_register": "-ENOSYS: Resource registration is not implemented yet.",
-    "clock_gettime": "-EFAULT: The output timespec pointer is not writable userspace memory.\n-EINVAL: The clock ID is unsupported.",
-}
-
-LEGACY_RETURNS = {
-    "execve": "Does not return on success; on failure it returns a negative errno.",
-    "fork": "Returns the child PID in the parent and zero in the child.",
-    "mmap": "Returns the mapped base address, or a negative errno.",
-    "munmap": "Returns zero on success or a negative errno.",
-    "futex": "Wait returns zero after a wake; wake returns the number of woken waiters.",
-    "thread_create": "Returns the new thread ID or a negative errno.",
-    "thread_create2": "Returns the new thread ID or a negative errno.",
-    "thread_join": "Returns zero after the thread is reaped or a negative errno.",
-    "thread_detach": "Returns zero after detaching the thread or a negative errno.",
-    "yield": "Returns zero after giving another runnable thread an opportunity to run.",
-}
-
-LEGACY_NOTES = {
-    "execve": "The argument and environment vectors are copied before the old image is replaced. Relative paths are resolved against the caller's working directory.",
-    "fork": "Writable private mappings use copy-on-write. The child inherits the parent's descriptor table and current working directory.",
-    "mmap": "Protection and mapping flags are validated by the kernel; unsupported combinations return an error instead of being silently ignored.",
-    "munmap": "The address space owns mapping references, so physical backing is released only after the last mapping reference disappears.",
-    "futex": "Timed waits expire from the kernel timer hook. Wake and timeout publication share the futex bucket lock, so a racing wake has one unambiguous winner.\n\nThe private key is the userspace address within the owning process. Unflagged operations use MAP_SHARED backing identity, page index, and word offset, independent of process and virtual address.",
-    "thread_create": "The caller retains ownership of the user stack. The new thread starts with the process TLS and descriptor context.",
-    "thread_create2": "The caller retains ownership of the user stack. Both arguments are passed directly to the entry point.",
-    "thread_join": "Passing a null result pointer discards the thread result. Joining the calling thread would deadlock and is rejected.",
-    "thread_detach": "Detached threads cannot be joined; their kernel resources are reclaimed automatically after exit.",
-}
-
-
-# Native libc pages.  These describe the public wrappers, not the underlying
-# AIO opcodes; negative AIO errno values are translated to -1 and errno.
 LIBC_PAGES = {
     "poll": ("#include <poll.h>\n\nint poll(struct pollfd *fds, unsigned long count, int timeout_ms);", "Waits for native descriptor readiness. Pipe, terminal, and Unix socket readiness is reported by parked AIO operations and device wakeups; timeout_ms is -1 for an unbounded wait and zero for an immediate check.", "Returns the number of descriptors with nonzero revents, or -1 and sets errno.", "-EINVAL: count exceeds the native ring capacity or timeout_ms is less than -1.\n-EFAULT: A descriptor array is not accessible to userspace.", "The wrapper never spins and does not use host descriptors. POLLNVAL is reported for an invalid descriptor."),
     "select": ("#include <sys/select.h>\n\nint select(int count, fd_set *read_set, fd_set *write_set, fd_set *except_set, struct timeval *timeout);", "Selects readable, writable, and exceptional descriptors through the native parked readiness operation. The three sets are replaced with the descriptors that became ready.", "Returns the number of set members reported ready, or -1 and sets errno.", "-EINVAL: count is negative, exceeds FD_SETSIZE, or timeout has an invalid field.\n-ENOMEM: The temporary readiness array cannot be allocated.", "This is a small POSIX wrapper over poll(3); it preserves Astia's blocking and wakeup semantics without busy polling."),
@@ -313,55 +85,6 @@ LIBC_PAGES = {
     "tcsetpgrp": ("#include <unistd.h>\n\nint tcsetpgrp(int fd, int pgrp);", "Makes pgrp the foreground process group of the terminal referred to by fd.", "Returns zero, or -1 and sets errno.", "-EBADF: fd does not refer to an open descriptor.\n-EPERM: pgrp is nonpositive or is not a process group in the caller's session.\n-ENOTTY: fd is not a terminal.", "The wrapper uses TIOCGPGRP/TIOCSPGRP through ioctl. The target group must exist in the caller's session."),
     "devfs": ("#include <fcntl.h>\n\n/* mounted at /dev */", "Astia mounts the fixed devfs instance at /dev. It exposes registered character devices, including /dev/null and /dev/zero, and the dynamic /dev/tty node. /dev/tty exists for metadata lookup even when the caller has no controlling terminal, but opening it fails unless the caller has one. Device entries use character type and their registered permission mode.", "There is no callable devfs function in libc; applications use the ordinary open, read, write, and ioctl interfaces.", "-EACCES: The requested descriptor access is not allowed by the node's other permission bits.\n-ENOENT: The requested device entry is not registered or /dev/tty has no controlling terminal.", "The devfs registry holds at most 32 exact absolute paths. /dev/null discards writes and returns end of file on reads; /dev/zero fills reads with zero bytes."),
 }
-
-
-SYSCALL_PAGES = {
-    "clock_getres": ("long clock_getres(int clock_id, astia_timespec *out);", "Reads the supported resolution for a kernel clock. Passing a null output requests validation only.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-EINVAL: clock_id is unsupported.\n-EIO: The kernel timer has no configured frequency.", "Resolution is derived from the active timer frequency."),
-    "clock_gettime": ("long clock_gettime(int clock_id, astia_timespec *out);", "Reads a kernel clock into out. CLOCK_MONOTONIC and CLOCK_BOOTTIME report uptime; CLOCK_REALTIME adds the configured epoch anchor.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-EINVAL: clock_id is unsupported.\n-EIO: The kernel timer has no configured frequency.", "Clock values advance at the timer tick rate."),
-    "fchdir": ("long fchdir(int fd);", "Changes the calling process's working directory to the directory referenced by fd.", "Returns zero or a negative errno.", "-EBADF: fd is not an open descriptor.\n-ENOTDIR: fd does not refer to a directory.\n-ESRCH: There is no current process.", "The working directory is process-local and inherited by fork."),
-    "lseek": ("long lseek(int fd, long offset, int whence);", "Changes the offset of a seekable open file description.", "Returns the resulting file offset or a negative errno.", "-EBADF: fd is invalid.\n-EINVAL: whence is unsupported.\n-ESPIPE: The open file is not seekable.", "File descriptions shared by duplicated descriptors share the offset."),
-    "msync": ("long msync(void *addr, long length, uint32_t flags);", "Validates a mapped range and synchronization flags. The current in-memory mapping implementation has no backing-store flush operation.", "Returns zero or a negative errno.", "-EINVAL: The range or flags are invalid.\n-EFAULT: The requested range is not mapped.\n-ESRCH: There is no current process.", "No data is persisted to a host or disk filesystem."),
-    "shm_open": ("long shm_open(const char *name, int flags, uint32_t mode);", "Opens or creates a process-owned shared-memory object identified by name.", "Returns a descriptor or a negative errno.", "-EFAULT: name is not readable userspace memory.\n-EINVAL: flags or mode are invalid.\n-ENOENT: The object does not exist and creation was not requested.\n-ESRCH: There is no current process.", "The object is backed by the kernel's in-memory shared-memory namespace."),
-    "shm_unlink": ("long shm_unlink(const char *name);", "Removes the name of a process-owned shared-memory object.", "Returns zero or a negative errno.", "-EFAULT: name is not readable userspace memory.\n-ENOENT: The named object does not exist.\n-ESRCH: There is no current process.", "Open references remain valid after unlink."),
-    "sigaltstack": ("long sigaltstack(const astia_stack_t *next, astia_stack_t *old);", "Reads or changes the calling thread's alternate signal stack.", "Returns zero or a negative errno.", "-EFAULT: next or old points to inaccessible userspace memory.\n-EINVAL: The stack range or flags are invalid.\n-ESRCH: There is no current thread.", "The alternate stack is per-thread."),
-    "sigpending": ("long sigpending(uint32_t *set);", "Copies the calling thread's pending, currently blocked signal set to set.", "Returns zero or a negative errno.", "-EFAULT: set is not writable userspace memory.\n-ESRCH: There is no current thread.", "The result is a signal bit mask."),
-    "sigtimedwait": ("long sigtimedwait(uint32_t set, astia_siginfo_t *info, const astia_timespec *timeout);", "Waits for one pending signal in set, optionally bounded by a relative timeout.", "Returns the selected signal number or a negative errno.", "-EFAULT: info or timeout is inaccessible userspace memory.\n-EINVAL: set or timeout is invalid.\n-EAGAIN: No selected signal arrived before timeout.\n-EINTR: A different signal interrupted the wait.\n-ESRCH: There is no current thread.", "A null timeout waits without a deadline."),
-    "sigwait": ("long sigwait(uint32_t set, int *signal);", "Waits for one pending signal in set and stores its number in signal.", "Returns zero or a negative errno.", "-EFAULT: signal is not writable userspace memory.\n-EINVAL: set is invalid or contains an unblocked signal.\n-EINTR: The wait was interrupted by a different signal.\n-ESRCH: There is no current thread.", "Signals selected by set should be blocked before entering the wait."),
-    "thread_cancel": ("long thread_cancel(uint32_t tid);", "Requests cancellation of a thread owned by the calling process.", "Returns zero or a negative errno.", "-EINVAL: tid selects the caller.\n-ESRCH: The thread does not exist in the process.", "Cancellation is cooperative with the target's syscall continuation."),
-    "thread_cancel_pending": ("long thread_cancel_pending(void);", "Cancels the calling thread's pending syscall continuation, if one exists.", "Returns zero or a negative errno.", "-ESRCH: There is no current thread.", "Cancellation completion is one-shot; a later completion cannot replace it."),
-    "thread_create_owned": ("long thread_create_owned(const astia_thread_start *start);", "Creates a thread using a kernel-owned stack and starts it with the requested entry and arguments.", "Returns the new thread ID or a negative errno.", "-EFAULT: start is inaccessible userspace memory.\n-EINVAL: Entry or stack parameters are invalid.\n-EAGAIN: Thread resources are exhausted.\n-ESRCH: There is no current process.", "The kernel owns and reclaims the allocated stack."),
-    "thread_exists": ("long thread_exists(uint32_t tid);", "Checks whether tid identifies a live thread in the calling process.", "Returns one when the thread exists, zero otherwise, or a negative errno.", "-ESRCH: There is no current process.", "The query does not acquire ownership of the thread."),
-    "thread_getattr": ("long thread_getattr(uint32_t tid, astia_thread_attr *out);", "Reads attributes for a thread in the calling process.", "Returns zero or a negative errno.", "-EFAULT: out is not writable userspace memory.\n-ESRCH: The thread does not exist.", "Returned stack details describe kernel-managed thread state."),
-    "thread_kill": ("long thread_kill(uint32_t tid, int signal);", "Sends signal to a thread in the calling process.", "Returns zero or a negative errno.", "-EINVAL: signal is invalid or cannot be delivered.\n-ESRCH: The thread does not exist.", "Signal delivery follows the thread's process dispositions."),
-    "umask": ("long umask(uint32_t mask);", "Sets the calling process's file-creation permission mask.", "Returns the previous mask.", "-ESRCH: There is no current process.", "Only permission bits represented by the filesystem mode are retained."),
-    "mprotect": ("long mprotect(void *addr, long length, uint32_t prot);", "Validates a requested protection change for a mapped virtual range. Astia does not currently implement page-permission changes.", "Returns a negative errno.", "-EINVAL: The address, length, or protection value is invalid.\n-ENOSYS: Protection changes are not implemented.", "The syscall number is reserved in the public ABI; mappings retain their creation-time permissions."),
-    "process_snapshot": ("long process_snapshot(astia_process_info *output, uint32_t capacity);", "Copies a bounded snapshot of registered processes into output. Each record contains process IDs, credentials, state, controlling-terminal presence, and bounded names.", "Returns the number of records copied, or a negative errno.", "-EINVAL: capacity exceeds ASTIA_PROCESS_SNAPSHOT_MAX, or output is null with a non-zero capacity.\n-EFAULT: The output range is not writable userspace memory.", "A zero capacity returns zero without writing output. The snapshot is point-in-time and records are not handles."),
-    "getrlimit": ("long getrlimit(int resource, astia_rlimit *output);", "Reads the calling process's native resource limit into output. Astia supports RLIMIT_NOFILE and RLIMIT_AS.", "Returns zero, or a negative errno.", "-EFAULT: output is null or not writable userspace memory.\n-EINVAL: resource is not supported.\n-ESRCH: There is no current process.", "The limits are process-local and are inherited by fork."),
-    "setrlimit": ("long setrlimit(int resource, const astia_rlimit *input);", "Changes a supported native resource limit from input. Astia supports RLIMIT_NOFILE and RLIMIT_AS.", "Returns zero, or a negative errno.", "-EFAULT: input is null or not readable userspace memory.\n-EINVAL: resource or the requested limit is invalid.\n-EPERM: The requested hard-limit change is not permitted.\n-ESRCH: There is no current process.", "A process may lower its limits but cannot raise a hard limit."),
-    "unmount": ("long unmount(uintptr_t target);", "Removes the native in-memory filesystem mount at target. Only a process with effective UID zero may request teardown. The root mount is permanent; a mount with open file descriptions or child mounts remains busy.", "Returns zero, or a negative errno.", "-EFAULT: target is not a readable userspace string.\n-EPERM: The caller's effective UID is not zero.\n-ENOENT: target is not a mounted target.\n-EBUSY: target is the root mount, has open handles, or contains another mount.", "The kernel copies target before authorization and lookup. Unmounting does not flush, persist, or access a host filesystem. The filesystem type remains registered so kernel code may mount another native instance."),
-    "getsid": ("long getsid(int64_t pid);", "Returns the session ID of the selected process. Zero selects the caller; a positive PID selects that process.", "Returns the session ID, or a negative errno.", "-ESRCH: The selector is negative, overflows the PID domain, names no registered process, or there is no current process.", "Zombie processes remain selectable until reaped. The native query does not impose an additional permission check."),
-    "getuid": ("long getuid(void);", "Returns the calling process's real user ID.", "Returns the real UID, or -ESRCH when no current process exists.", "-ESRCH: There is no current process.", "The value is the process credential inherited across fork and spawn."),
-    "geteuid": ("long geteuid(void);", "Returns the calling process's effective user ID.", "Returns the effective UID, or -ESRCH when no current process exists.", "-ESRCH: There is no current process.", "The effective UID selects owner permission checks."),
-    "getgid": ("long getgid(void);", "Returns the calling process's real group ID.", "Returns the real GID, or -ESRCH when no current process exists.", "-ESRCH: There is no current process.", "The value is inherited across fork and spawn."),
-    "getegid": ("long getegid(void);", "Returns the calling process's effective group ID.", "Returns the effective GID, or -ESRCH when no current process exists.", "-ESRCH: There is no current process.", "The effective GID selects group permission checks."),
-    "setuid": ("long setuid(uint32_t uid);", "Sets the real and effective user IDs to uid. A non‑root caller may select only its current real or effective UID.", "Returns zero, or a negative errno.", "-EINVAL: uid is outside the unsigned 32‑bit range.\n-EPERM: The current effective UID is nonzero and uid is neither the real nor effective UID.\n-ESRCH: There is no current process.", "The kernel stores credentials per process."),
-    "seteuid": ("long seteuid(uint32_t uid);", "Sets the effective user ID to uid. A non‑root caller may select only its current real or effective UID.", "Returns zero, or a negative errno.", "-EINVAL: uid is outside the unsigned 32‑bit range.\n-EPERM: The current effective UID is nonzero and uid is neither the real nor effective UID.\n-ESRCH: There is no current process.", "Changing the effective UID does not change the real UID."),
-    "setgid": ("long setgid(uint32_t gid);", "Sets the real and effective group IDs to gid. A non‑root caller may select only its current real or effective GID.", "Returns zero, or a negative errno.", "-EINVAL: gid is outside the unsigned 32‑bit range.\n-EPERM: The current effective GID is nonzero and gid is neither the real nor effective GID.\n-ESRCH: There is no current process.", "Supplementary groups are unchanged."),
-    "setegid": ("long setegid(uint32_t gid);", "Sets the effective group ID to gid. A non‑root caller may select only its current real or effective GID.", "Returns zero, or a negative errno.", "-EINVAL: gid is outside the unsigned 32‑bit range.\n-EPERM: The current effective GID is nonzero and gid is neither the real nor effective GID.\n-ESRCH: There is no current process.", "Changing the effective GID does not change the real GID."),
-    "setreuid": ("long setreuid(uint32_t real_uid, uint32_t effective_uid);", "Sets the real and effective UIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.", "Returns zero, or a negative errno.", "-EINVAL: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n-EPERM: The requested UID transition is not allowed for the current effective UID.\n-ESRCH: There is no current process.", "The process implementation accepts the current real or effective UID, and root may select any 32‑bit UID."),
-    "setregid": ("long setregid(uint32_t real_gid, uint32_t effective_gid);", "Sets the real and effective GIDs. The raw ABI represents the libc sentinel value −1 as the unsigned all‑ones value.", "Returns zero, or a negative errno.", "-EINVAL: Either argument is below the sentinel or outside the unsigned 32‑bit range.\n-EPERM: The requested GID transition is not allowed for the current effective GID.\n-ESRCH: There is no current process.", "The process implementation accepts the current real or effective GID, and root may select any 32‑bit GID."),
-    "getgroups": ("long getgroups(int32_t count, uint32_t *groups);", "Copies up to 16 supplementary group IDs into groups. A count of zero returns the number of groups without writing groups.", "Returns the group count, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not writable for the returned IDs.\n-ESRCH: There is no current process.", "The count and groups pointer are interpreted independently when count is zero."),
-    "setgroups": ("long setgroups(int32_t count, const uint32_t *groups);", "Replaces the supplementary group list with count IDs copied from groups.", "Returns zero, or a negative errno.", "-EINVAL: count is negative or greater than 16.\n-EFAULT: groups is not readable for count IDs.\n-EPERM: The current effective GID is nonzero.\n-ESRCH: There is no current process.", "A zero count is valid and does not dereference groups."),
-    "waitpid": ("long waitpid(int pid, int *status, uint32_t options);", "Selects a child by positive PID, any child with −1, the caller's process group with zero, or a specified process group with a negative PID. It normally blocks until a selected child exits, stops when WUNTRACED is set, or reports a pending continuation when WCONTINUED is set. WNOHANG returns zero when no selected event is ready. An unblocked interrupting signal ends the wait without reaping a child.", "Returns the selected child PID, zero only for WNOHANG with no ready event, or a negative errno. On exit, status uses the traditional layout: signal termination is signal & 0177, normal exit is (exit_status & 0377) << 8, stopped status is (stop_signal << 8) | 0177, and continuation is 0xffff.", "-EAGAIN: The process waiter table cannot accept another waiter, so the call returns instead of blocking without a wake slot.\n-ECHILD: The caller has no matching child.\n-EFAULT: status is non‑null but not writable userspace memory.\n-EINTR: An unblocked interrupting signal arrived before a child event was available.\n-EINVAL: pid selects an invalid process or group identifier, or options contains an unknown bit.\n-ESRCH: There is no current process or thread.", "A successful exit event is reaped. Stop and continuation notifications are consumed but do not reap the child."),
-}
-
-
-def syscall_pages() -> list[tuple[str, str, str]]:
-    pages = []
-    for name, (synopsis, description, returns, errors, notes) in SYSCALL_PAGES.items():
-        group = "fs" if name == "unmount" else ("proc/credentials" if name != "waitpid" else "proc/process")
-        pages.append((name, f"Synopsis:\n    {synopsis}\n\nDescription:\n{description}\n\nReturn Value:\n{returns}\n\nErrors:\n{errors}\n\nNotes:\n{notes}", group))
-    return pages
 
 
 def libc_pages() -> list[tuple[str, str, str, int]]:
@@ -461,16 +184,11 @@ def markdown_page(text: str, fallback_title: str) -> tuple[str, str]:
     return title, "".join(rendered)
 
 
-def overview_pages(docs_root: Path) -> list[tuple[str, str, str]]:
+def overview_pages(records: tuple[dict, ...]) -> list[tuple[str, str, str]]:
     pages = []
-    if not docs_root.is_dir():
-        return pages
-    for path in sorted(docs_root.glob("*.7.md")):
-        name = path.name[:-len(".7.md")]
-        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
-            continue
-        title, body = markdown_page(path.read_text(), name)
-        pages.append((name, title, body))
+    for record in records:
+        title, body = markdown_page(record["markdown"], record["name"])
+        pages.append((record["name"], title, body))
     return pages
 
 
@@ -481,6 +199,23 @@ def render_overview(name: str, title: str, body: str) -> str:
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(page_title)} - Astia manual</title>
 <link rel="stylesheet" href="nodivia.css"></head>
+<body><main class="surface surface__flex">
+<article class="surface__level__1 surface__minor">
+<h1>{html.escape(page_title)}</h1>
+<nav><a href="index.html">Astia manual index</a></nav>
+{body}
+</article></main></body></html>
+"""
+
+
+def render_markdown_page(name: str, markdown: str, section: int) -> str:
+    _, body = markdown_page(markdown, name)
+    page_title = f"{name}({section})"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(page_title)} - Astia manual</title>
+<link rel="stylesheet" href="../nodivia.css"></head>
 <body><main class="surface surface__flex">
 <article class="surface__level__1 surface__minor">
 <h1>{html.escape(page_title)}</h1>
@@ -602,58 +337,6 @@ def public_abi_prototypes(abi_header: Path) -> dict[str, str]:
     return prototypes
 
 
-def libc_public_prototypes(libc_root: Path | None) -> dict[str, str]:
-    if libc_root is None:
-        return {}
-    include_root = libc_root / "include"
-    if not include_root.is_dir():
-        return {}
-    prototypes: dict[str, str] = {}
-    pattern = re.compile(
-        r"^\s*((?:int|long|ssize_t|pid_t|uid_t|gid_t|void)\s+[^;{}]*?"
-        r"\b([a-z_][a-z0-9_]*)\s*\([^;{}]*\))\s*;",
-        re.M | re.S,
-    )
-    for path in sorted(include_root.rglob("*.h")):
-        for match in pattern.finditer(path.read_text(errors="ignore")):
-            prototypes[match.group(2)] = " ".join(match.group(1).split()) + ";"
-    return prototypes
-
-
-def public_user_synopses(abi_header: Path, libc_root: Path | None) -> dict[str, str]:
-    synopses = libc_public_prototypes(libc_root)
-    synopses.update(public_abi_prototypes(abi_header))
-    synopses.update(PUBLIC_SYNOPSIS_OVERRIDES)
-    return synopses
-
-
-def build_source_index(source_root: Path) -> dict[str, list[Path]]:
-    index: dict[str, list[Path]] = {}
-    pattern = re.compile(r"\b(?:i64|long|int)\s+([a-z_][a-z0-9_]*)\s*\(")
-    for path in sorted(source_root.rglob("*")):
-        if path.suffix not in (".cpp", ".hpp"):
-            continue
-        for match in pattern.finditer(path.read_text(errors="ignore")):
-            index.setdefault(match.group(1), []).append(path)
-    return index
-
-
-def source_for(name: str, index: dict[str, list[Path]]) -> Path | None:
-    candidates = index.get(name, [])
-    if not candidates:
-        return None
-    candidates = sorted(
-        candidates,
-        key=lambda path: (
-            0 if "syscalls" in path.parts else 1,
-            0 if path.suffix == ".cpp" else 1,
-            len(path.parts),
-            str(path),
-        ),
-    )
-    return candidates[0]
-
-
 def group_for_source(source: Path | None, source_root: Path) -> str:
     if source is None:
         return "abi"
@@ -667,96 +350,6 @@ def group_for_source(source: Path | None, source_root: Path) -> str:
     if len(parts) >= 3 and parts[1] == "syscalls":
         return f"{root}/{parts[2]}" if len(parts) > 3 else root
     return root
-
-
-def normalize_synopsis(body: str, synopsis: str | None, raw_abi: bool) -> str:
-    lines = body.splitlines()
-    output = []
-    skipping = False
-    replaced = False
-    for line in lines:
-        if re.match(r"^Synopsis:\s*", line):
-            output.append("Synopsis:")
-            if synopsis:
-                output.append(f"    {synopsis}")
-            elif raw_abi:
-                output.append(
-                    "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
-                )
-            skipping = True
-            replaced = True
-            continue
-        if skipping:
-            if re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line):
-                skipping = False
-            else:
-                continue
-        output.append(line)
-    if not replaced:
-        prefix = ["Synopsis:"]
-        if synopsis:
-            prefix.append(f"    {synopsis}")
-        elif raw_abi:
-            prefix.append(
-                "    Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
-            )
-        prefix.append("")
-        if not any(
-            re.match(r"^(Description|Return Value|Errors|Notes|ABI):", line)
-            for line in lines
-        ):
-            prefix.append("Description:")
-        output = prefix + output
-    return "\n".join(output)
-
-
-def replace_section(body: str, heading: str, content: str) -> str:
-    display = {
-        "DESCRIPTION": "Description",
-        "RETURN VALUE": "Return Value",
-        "ERRORS": "Errors",
-        "NOTES": "Notes",
-    }.get(heading, heading.title())
-    lines = body.splitlines()
-    output = []
-    skipping = False
-    found = False
-    for line in lines:
-        if re.match(rf"^{re.escape(display)}:\s*", line):
-            output.append(f"{display}:")
-            output.extend(content.splitlines())
-            skipping = True
-            found = True
-            continue
-        if skipping:
-            if re.match(r"^(Synopsis|Description|Return Value|Errors|Notes|ABI):", line):
-                skipping = False
-            else:
-                continue
-        output.append(line)
-    if not found:
-        output.append(f"{display}:")
-        output.extend(content.splitlines())
-    return "\n".join(output)
-
-
-def fallback_body(name: str, synopsis: str | None) -> str:
-    synopsis_block = f"Synopsis:\n    {synopsis}\n\n" if synopsis else ""
-    synopsis_note = (
-        "The synopsis uses the public ABI declaration."
-        if synopsis
-        else "See the public ABI header for the declaration."
-    )
-    return (
-        synopsis_block
-        + f"Description:\n    System call handler for `{name}`. "
-        "See the implementation source for validation and ownership details.\n\n"
-        "Return Value:\n    Returns zero or a non-negative result on success. "
-        "Negative values are ABI errno codes.\n\n"
-        "Errors:\n    See the kernel error ABI and the implementation source.\n\n"
-        "Notes:\n    Generated from the canonical section-2 ABI. "
-        f"{synopsis_note} Detailed manual text has not been added for this syscall yet."
-    )
 
 
 GENERATED_SYSCALL_ASSET = re.compile(
@@ -1794,8 +1387,11 @@ def export_section2(
     abi_header: Path,
     raw_synopses: set[str] | None = None,
     trusted_root: Path | None = None,
+    metadata: dict[str, dict] | None = None,
+    authored: bool = False,
 ) -> None:
     raw_synopses = raw_synopses or set()
+    metadata = metadata or {}
     repo_root = ROOT.parent.parent
     root = trusted_root if trusted_root is not None else repo_root
     with TransactionalDirectory.begin(
@@ -1809,30 +1405,38 @@ def export_section2(
         for syscall_id, name in canonical:
             body, _ = pages[(name, 2)]
             source = sources.get((name, 2), abi_header)
-            slug = f"syscall-{syscall_id}-{name.replace('_', '-')}"
+            declared = metadata.get(name)
+            slug = declared["slug"] if declared else f"syscall-{syscall_id}-{name.replace('_', '-')}"
             markdown_name = f"{slug}.md"
             output.write_atomic(
                 markdown_name,
-                render_syscall_markdown(name, body, 2, name in raw_synopses),
+                body
+                if authored and declared
+                else render_syscall_markdown(name, body, 2, name in raw_synopses),
             )
             try:
                 source_path = source.resolve().relative_to(repo_root).as_posix()
             except ValueError:
                 source_path = source.as_posix()
-            records.append(
-                {
-                    "id": syscall_id,
-                    "name": name,
-                    "slug": slug,
-                    "title": f"{name}(2)",
-                    "category": CATEGORY_OVERRIDES.get(
-                        name, group_for_source(source, source_root)
-                    ),
-                    "source": source_path,
-                    "markdown": markdown_name,
-                    "synopsis_kind": "raw" if name in raw_synopses else "public",
-                }
-            )
+            record = {
+                "id": syscall_id,
+                "name": name,
+                "slug": slug,
+                "title": f"{name}(2)",
+                "category": declared["category"]
+                if declared
+                else group_for_source(source, source_root),
+                "source": declared["source"] if declared else source_path,
+                "markdown": markdown_name,
+                "synopsis_kind": declared["synopsisKind"]
+                if declared
+                else "raw"
+                if name in raw_synopses
+                else "public",
+            }
+            if declared:
+                record["synopsis"] = declared["synopsis"]
+            records.append(record)
         manifest = {"section": 2, "count": len(records), "pages": records}
         output.write_atomic("manifest.json", json.dumps(manifest, indent=2) + "\n")
         transaction.commit()
@@ -1933,30 +1537,21 @@ def main() -> int:
                         help="write section-2 Markdown pages and manifest.json here")
     args = parser.parse_args()
 
+    repo_root = ROOT.parent.parent
+    docs_root = args.docs if args.docs is not None else repo_root / "docs"
+    try:
+        authored = load_authored_docs(repo_root, docs_root)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+
     pages: dict[tuple[str, int], tuple[str, str]] = {}
-    page_sources: dict[tuple[str, int], Path] = {}
-    for path in sorted(args.source.rglob("*.hpp")):
-        if "syscalls" not in path.parts:
-            continue
-        syscall_index = path.parts.index("syscalls")
-        subsystem = path.parts[syscall_index - 1]
-        if path.parent != Path(*path.parts[:syscall_index + 1]):
-            subsystem = f"{subsystem}/{path.parent.name}"
-        for name, body in comments(path.read_text()):
-            pages[(name, 2)] = (body, subsystem)
-            page_sources[(name, 2)] = path
-    for path in sorted(args.source.rglob("*.cpp")):
-        if "syscall_handler<" not in path.read_text():
-            continue
-        if "syscalls" not in path.parts:
-            continue
-        syscall_index = path.parts.index("syscalls")
-        subsystem = path.parts[syscall_index - 1]
-        if path.parent != Path(*path.parts[:syscall_index + 1]):
-            subsystem = f"{subsystem}/{path.parent.name}"
-        for name, body in comments(path.read_text()):
-            pages[(name, 2)] = (body, subsystem)
-            page_sources[(name, 2)] = path
+    sources: dict[tuple[str, int], Path] = {}
+    metadata: dict[str, dict] = {}
+    for record in authored.section2:
+        pages[(record["name"], 2)] = (record["markdown"], record["category"])
+        sources[(record["name"], 2)] = repo_root / record["source"]
+        metadata[record["name"]] = record
+
     libc_root = args.libc_source
     if libc_root is None:
         candidate = args.source.resolve().parents[1] / "libc"
@@ -1964,64 +1559,16 @@ def main() -> int:
     if libc_root is not None and (libc_root / "include").exists():
         for name, body, group, section in libc_pages():
             pages.setdefault((name, section), (body, group))
-    for name, body, group in syscall_pages():
-        pages[(name, 2)] = (body, group)
 
     abi_header = args.abi_header or args.source.parent / "include/astia/api/syscalls.h"
     if not abi_header.exists():
         raise SystemExit(f"missing section-2 ABI header: {abi_header}")
-    canonical = syscall_abi(abi_header)
-    source_index = build_source_index(args.source)
-    public_synopses = public_user_synopses(abi_header, libc_root)
-    for _, name in canonical:
-        key = (name, 2)
-        source = source_for(name, source_index)
-        if key not in pages:
-            effective_source = source or abi_header
-            pages[key] = (
-                fallback_body(name, public_synopses.get(name)),
-                group_for_source(effective_source, args.source),
-            )
-            page_sources[key] = effective_source
-        else:
-            page_sources.setdefault(key, source or abi_header)
-            if "System call handler for" in pages[key][0]:
-                pages[key] = (
-                    fallback_body(name, public_synopses.get(name)),
-                    pages[key][1],
-                )
+    canonical = [(record["id"], record["name"]) for record in authored.section2]
+    raw_synopses = {
+        record["name"] for record in authored.section2 if record["synopsisKind"] == "raw"
+    }
 
-    raw_synopses: set[str] = set()
-    for _, name in canonical:
-        key = (name, 2)
-        synopsis = public_synopses.get(name)
-        if synopsis is None:
-            raw_synopses.add(name)
-        body, group = pages[key]
-        pages[key] = (normalize_synopsis(body, synopsis, synopsis is None), group)
-
-    repo_root = ROOT.parent.parent
-    for name, source_path in SOURCE_OVERRIDES.items():
-        key = (name, 2)
-        if key in pages:
-            page_sources[key] = repo_root / source_path
-    for name, overrides in PUBLIC_SECTION_OVERRIDES.items():
-        key = (name, 2)
-        if key not in pages:
-            continue
-        body, group = pages[key]
-        for heading, content in overrides.items():
-            body = replace_section(body, heading, content)
-        pages[key] = (body, group)
-    for name, body in PUBLIC_BODY_OVERRIDES.items():
-        key = (name, 2)
-        if key in pages:
-            pages[key] = (body, pages[key][1])
-
-    docs_root = args.docs if args.docs is not None else ROOT.parent.parent / "docs"
-    overviews = overview_pages(docs_root)
-
-    repo_root = ROOT.parent.parent
+    overviews = overview_pages(authored.section7)
     expected_pages = {f"{name}.{section}.html" for name, section in pages}
     expected_overviews = {f"{name}.7.html" for name, _, _ in overviews}
     current_owned = {"nodivia.css", "index.html"} | expected_pages | expected_overviews
@@ -2087,7 +1634,9 @@ def main() -> int:
         for (name, section), (body, _) in sorted(pages.items()):
             output.write_atomic(
                 f"{name}.{section}.html",
-                render(name, body, section),
+                render_markdown_page(name, body, section)
+                if section == 2
+                else render(name, body, section),
             )
         for name, title, body in overviews:
             output.write_atomic(
@@ -2107,10 +1656,12 @@ def main() -> int:
             args.export_section2,
             canonical,
             pages,
-            page_sources,
+            sources,
             args.source,
             abi_header,
             raw_synopses,
+            metadata=metadata,
+            authored=True,
         )
     return 0
 

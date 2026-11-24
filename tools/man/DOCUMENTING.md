@@ -6,81 +6,92 @@ man pages.
 
 ## Ownership and layout
 
-Syscalls belong to the subsystem that owns their implementation:
+Syscall implementations remain owned by their subsystem:
 
 ```text
 kernel/src/proc/syscalls/<name>.cpp
-kernel/src/proc/syscalls/<name>.hpp
 kernel/src/fs/syscalls/<name>.cpp
-kernel/src/fs/syscalls/<name>.hpp
 kernel/src/ipc/syscalls/<name>.cpp
 kernel/src/mm/syscalls/<name>.hpp
 kernel/src/sys/syscalls/<name>.cpp
-kernel/src/sys/syscalls/<name>.hpp
 ```
 
-The implementation file owns the behavior. The header owns the public
-kernel-side prototype, CRTP handler, and man-page comment. Handler-only headers
-are valid when behavior is implemented in an existing subsystem source; they
-retain the same subsystem `syscalls/` path so documentation grouping and links
-remain stable. Each handler's CRTP base registers its descriptor; there is no central
-registration list, and the dispatcher must not duplicate the documentation.
+Handler comments are no longer documentation sources. Do not add `///`
+man-page blocks to syscall handlers. The authored documentation is:
+
+```text
+docs/2/<canonical>.md         71 public syscall pages, IDs 0..70
+docs/7/<name>.md              seven subsystem overviews
+docs/manifest.json            IDs, names, slugs, sources, synopsis metadata
+```
+
+The manifest preserves canonical names, numeric IDs, categories, source
+paths, stable route slugs, synopsis text, and `public`/`raw` kind. Source
+paths intentionally repeat where several syscalls share an ABI header or
+process implementation; the manifest records those expected duplicates.
+Section 3 remains a separate, generator-owned `LIBC_PAGES` inventory and must
+not be copied into `docs/2` or `docs/7`.
+
+Section 7 keeps its existing route slugs (`docs-aio-7`, `docs-alarm-7`,
+`docs-exec-7`, `docs-rcu-7`, `docs-sigtimedwait-7`, `docs-spawnve-7`,
+`docs-task-7`) and `docs-7-<name>` aliases. Keep existing heading anchors
+stable when editing those pages.
+
+Design notes, README pages, section 3 pages, and `docs/aarch64-virt-boot.md`
+are outside this migration. The existing AArch64 manifest drift is a separate
+known issue and must not be folded into this change.
 
 ## Required man-page sections
 
-Every syscall page should provide these sections when applicable:
+Every authored section 2 page provides these Markdown sections:
 
-```text
-Synopsis:
-    long example(...);
+````markdown
+# name(2)
 
-Description:
-    Explain what the syscall does and define special values such as 0 or -1.
+## SYNOPSIS
 
-Return Value:
-    Describe the successful result and whether the syscall can block.
-
-Errors:
-    -EINVAL: Explain the exact invalid input that causes this case.
-    -EPERM: Explain the first independent permission failure.
-    -EPERM: Explain the second independent permission failure.
-
-Notes:
-    ABI, blocking, ownership, or implementation-specific behavior.
+```c
+long astia_name(...);
 ```
 
-The generator turns `Errors:` entries into a top-level error list. Each
-explanation is rendered as a nested list below its errno:
+## DESCRIPTION
 
-```html
-<ul>
-  <li>
-    <code>-EPERM</code>
-    <ul>
-      <li>The target is a session leader.</li>
-    </ul>
-  </li>
-</ul>
-```
+Explain what the syscall does and define special values such as 0 or -1.
 
-## Error documentation rules
+## RETURN VALUE
 
-Describe causes, not just the errno name. A reader should be able to answer:
+Describe the successful result and whether the syscall can block.
 
-> What exact input or process state produced this error?
+## ERRORS
 
-Use one entry per independent cause. Repeating an errno is intentional and
-correct when the same errno can result from different conditions:
+- `-EINVAL`: Explain the exact invalid input that causes this case.
+- `-EPERM`: Explain the permission failure.
 
-```text
-Errors:
-    -EPERM: The caller is not the target's parent.
-    -EPERM: The target belongs to a different session.
-    -EPERM: The target is a session leader.
-```
+## NOTES
 
-Do not collapse these into `-EPERM: Permission denied.` The detailed cases are
-the useful part of the page.
+ABI, blocking, ownership, or implementation-specific behavior.
+````
+
+`sigreturn` is the only raw page. Its `SYNOPSIS` is the raw ABI notice rather
+than a C declaration. Public pages must keep the manifest synopsis equal to
+the code block in the authored page.
+
+## Metadata and parity rules
+
+`docs/manifest.json` contains no Markdown bodies. It is the authority for:
+
+- exact public IDs `0..70` and canonical names;
+- stable slugs of the form `syscall-<id>-<name-with-dashes>`;
+- source handler paths, including expected shared paths;
+- category and `public`/`raw` synopsis kind;
+- the exact synopsis and section 7 alias metadata.
+
+The generator validates every authored page against the manifest and the
+public ABI header. It also checks the H1, `SYNOPSIS`, and `DESCRIPTION`
+sections, section 7 names and aliases, relative links, and heading-anchor
+uniqueness. The exported section-2 Markdown must be byte-for-byte identical to
+the authored `docs/2` page. Frontend metadata must never contain `content` or
+Markdown bodies.
 
 Descriptions are sentences:
 
@@ -89,50 +100,32 @@ Descriptions are sentences:
 - explain the concrete condition;
 - use ordinary ASCII `-`, never an em dash or en dash.
 
-Good:
-
-```text
--EFAULT: The status pointer does not reference writable userspace memory.
--EINVAL: The offset is not aligned to the page size.
--ESRCH: No live process belongs to the selected process group.
-```
-
-Bad:
-
-```text
--EINVAL
--EPERM: Permission denied
--ESRCH - process missing
-```
-
 ## Generator
 
-Generate the site from the complete kernel source tree:
+Generate the static manual and the frontend metadata:
 
 ```bash
-python3 tools/man/generate.py kernel/src dist/man7 --docs docs
+python3 tools/man/generate.py kernel/src dist/man7 --docs docs \
+  --export-section2 frontend/.cache/syscall-docs
+node frontend/scripts/generate-docs.mjs
 ```
 
 The generator:
 
-- reads documented subsystem syscall headers;
-- groups the index first by manual section (`MAN 2 - SYSTEM CALLS`,
-  `MAN 3 - LIBC APIs`, and `MAN 7 - OVERVIEWS`), then by subsystem and
-  optional subgroup;
-- emits one HTML page per syscall;
+- reads authored `docs/2`, `docs/7`, and `docs/manifest.json`;
+- validates section 2 and section 7 metadata before writing anything;
+- groups the index by `MAN 2 - SYSTEM CALLS`, `MAN 3 - LIBC APIs`, and
+  `MAN 7 - OVERVIEWS`;
+- renders section 2 pages from authored Markdown and section 3 pages from the
+  separate `LIBC_PAGES` inventory;
 - copies the Nodivia-derived theme CSS;
-- adds the native filesystem/descriptor APIs from the libc source root as
-  section 3 pages, grouped separately from section 2 syscall pages;
-- links each generated page back to the combined manual index.
-- reads section 7 overview pages from the repository `docs/*.md` directory
-  (including the `*.7.md` source overviews) and writes them as `<name>.7.html`
-  pages in the `MAN 7 - OVERVIEWS` index group.
+- writes one HTML page per section 2 and section 7 entry;
+- exports section-2 metadata plus verbatim authored Markdown for the frontend.
 
-Overview Markdown intentionally uses a dependency-free subset: ATX headings,
+Overview and section 2 Markdown use a dependency-free subset: ATX headings,
 paragraphs, fenced code blocks, and flat ordered or unordered lists. The first
-level-one heading is the page title. Inline backtick code is escaped and
-rendered as `<code>`; other inline Markdown is not interpreted. Use `--docs
-PATH` to generate from another overview-document directory.
+level-one heading is the page title. Use `--docs PATH` only for a directory
+laid out like `docs` with `2/`, `7/`, and `manifest.json`.
 
 ## Publication safety
 
@@ -247,31 +240,30 @@ curl -fsS https://arlia.nodivia.pl/kill.html
 
 ## Coverage contract
 
-The generated section 2 set includes every direct syscall exported by
-`kernel/include/astia/api/syscalls.h`, including credential and group calls
-implemented in `kernel/src/proc/syscalls/process/credentials.cpp`.  A syscall
-must have specific synopsis, return, error, and state semantics; the generic
-legacy description is not acceptable for a newly exported call.
+The authored section 2 set includes every direct syscall exported by
+`kernel/include/astia/api/syscalls.h`. A syscall must have specific synopsis,
+return, error, and state semantics; a generic fallback description is not
+acceptable for a newly exported call.
 
 The generated section 3 set covers the native wrappers declared by
 `libc/include/unistd.h` and `libc/include/sys/stat.h` where their behavior is
 implemented in `libc/src`.  This includes `access`, `getgroups`, `setgroups`,
 `chown`, `lchown`, `fchown`, the typed `file_mode` and `file_permissions`
-kernel APIs, controlling‑terminal process‑group wrappers, and the `/dev`
-devfs pseudo‑device surface.  Pages must describe Astia behavior, including
+kernel APIs, controlling-terminal process-group wrappers, and the `/dev`
+devfs pseudo-device surface.  Pages must describe Astia behavior, including
 intentional restrictions, rather than importing a generic POSIX contract.
 
-Use a non‑breaking hyphen in prose where a compound term needs punctuation.
-The ASCII hyphen remains reserved for ABI errno spellings such as `-EINVAL`.
+Use the ASCII hyphen for prose and ABI errno spellings. Do not use em dashes,
+en dashes, or non-breaking hyphens in authored documentation.
 
 The current overview pages are:
 
 ```text
-docs/task.7.md
-docs/aio.7.md
-docs/alarm.7.md
-docs/exec.7.md
-docs/rcu.7.md
-docs/sigtimedwait.7.md
-docs/spawnve.7.md
+docs/7/task.md
+docs/7/aio.md
+docs/7/alarm.md
+docs/7/exec.md
+docs/7/rcu.md
+docs/7/sigtimedwait.md
+docs/7/spawnve.md
 ```

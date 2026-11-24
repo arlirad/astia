@@ -4,10 +4,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// getpgrp - return the calling process group ID.
-    ///
-    /// Synopsis:
-    ///     long getpgrp(void);
     struct getpgrp : sys::syscall_handler<getpgrp, sys::syscall_id::getpgrp,
                                           sys::syscall_mode::sync> {
         static i64 invoke() {

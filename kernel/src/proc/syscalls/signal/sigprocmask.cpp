@@ -13,15 +13,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// sigprocmask - block, unblock, or replace the signal mask.
-    ///
-    /// Synopsis:
-    ///     long sigprocmask(int how, uint32_t set, uint32_t *old);
-    ///
-    /// Errors:
-    ///     -EFAULT: The old mask pointer is inaccessible.
-    ///     -EINVAL: The mask operation is unknown.
-    ///     -ESRCH: There is no current process.
     struct sigprocmask : sys::syscall_handler<sigprocmask, sys::syscall_id::sigprocmask,
                                               sys::syscall_mode::sync> {
         static i64 invoke(i32 how, signal_mask set, sys::user_ptr<u32> old_ptr) {

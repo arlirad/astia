@@ -6,13 +6,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// getppid - Return the parent process identifier.
-    ///
-    /// Synopsis:
-    ///     long getppid(void);
-    ///
-    /// Return Value:
-    ///     Returns the parent process identifier or a negative errno.
     struct getppid : sys::syscall_handler<getppid, sys::syscall_id::getppid,
                                           sys::syscall_mode::sync> {
         static i64 invoke() {

@@ -9,23 +9,6 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
 
-    /// waitpid - wait for and reap a child process.
-    ///
-    /// Synopsis:
-    ///     long waitpid(int pid, int *status, uint32_t options);
-    ///
-    /// Description:
-    ///     pid > 0 selects one child. pid == -1 selects any child.
-    ///     WNOHANG returns immediately when no child has exited.
-    ///
-    /// Return Value:
-    ///     Returns the reaped child PID, or zero with WNOHANG when no child is ready.
-    ///
-    /// Errors:
-    ///     -EFAULT: The status pointer is not writable userspace memory.
-    ///     -ECHILD: The caller has no matching child process.
-    ///     -EINVAL: The PID or option mask is invalid.
-    ///     -ESRCH: There is no current process or thread.
     struct waitpid : sys::syscall_handler<waitpid, sys::syscall_id::waitpid,
                                           sys::syscall_mode::sync> {
         static i64 invoke(i32 pid, sys::user_ptr<i32> status, u32 options) {

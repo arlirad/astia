@@ -79,6 +79,63 @@ describe('Runtime section-2 syscall docs', () => {
     ).toEqual(['sigreturn(2)']);
   });
 
+  it('preserves exact source paths and expected shared source groups', () => {
+    const counts = new Map<string, number>();
+    for (const page of SYSCALL_PAGES) {
+      counts.set(page.sourcePath, (counts.get(page.sourcePath) ?? 0) + 1);
+    }
+    const shared = Object.fromEntries([...counts].filter(([, count]) => count > 1));
+
+    expect(shared).toEqual({
+      'kernel/include/astia/api/syscalls.h': 26,
+      'kernel/src/proc/process.hpp': 8,
+      'kernel/src/proc/proc.cpp': 2,
+    });
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(38);
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 24)?.sourcePath).toBe(
+      'libc/src/unistd.c',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 25)?.sourcePath).toBe(
+      'libc/src/signal.c',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 13)?.sourcePath).toBe(
+      'kernel/include/astia/api/syscalls.h',
+    );
+  });
+
+  it('preserves canonical titles, categories, synopses, and public/raw kinds', () => {
+    const categories = new Set(
+      SYSCALL_PAGES.map((page) => page.category).filter((value): value is string => !!value),
+    );
+    expect(categories.size).toBeGreaterThan(0);
+    for (const page of SYSCALL_PAGES) {
+      const name = (page.slug ?? '').replace(/^syscall-\d+-/, '').replace(/-/g, '_');
+      expect(page.title).toBe(`${name}(2)`);
+      expect(page.category).toBeTruthy();
+      expect(page.synopsis).toBeTruthy();
+      expect(page.aliases).toBeUndefined();
+    }
+
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 0)?.synopsis).toBe(
+      'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 13)?.synopsis).toBe(
+      'long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 24)?.synopsis).toBe(
+      'int execve(const char* path, char* const argv[], char* const envp[]);',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 25)?.synopsis).toBe(
+      'int sigsuspend(const sigset_t* mask);',
+    );
+    expect(SYSCALL_PAGES.find((page) => page.syscallId === 70)?.synopsis).toBe(
+      'long astia_uname(astia_utsname* output);',
+    );
+    expect(
+      SYSCALL_PAGES.filter((page) => page.synopsisKind === 'raw').map((page) => page.syscallId),
+    ).toEqual([29]);
+  });
+
   it('fetches and renders a representative syscall source page', async () => {
     const sourceText = [
       '// io_setup(2)',

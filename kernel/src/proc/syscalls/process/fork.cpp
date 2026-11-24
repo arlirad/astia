@@ -18,21 +18,6 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
 
-    /// fork - Create a copy-on-write child process.
-    ///
-    /// Synopsis:
-    ///     long fork(void);
-    ///
-    /// Description:
-    ///     Creates a child sharing copy-on-write mappings with the parent.
-    ///     Descriptors and the current working directory are inherited.
-    ///
-    /// Return Value:
-    ///     Returns the child PID in the parent and zero in the child.
-    ///
-    /// Errors:
-    ///     -EAGAIN: A process, thread, mapping, or registry slot cannot be allocated.
-    ///     -ESRCH: There is no current user process.
     struct fork
         : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_trap trap) {

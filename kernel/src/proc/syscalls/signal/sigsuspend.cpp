@@ -13,15 +13,6 @@
 
 namespace astia::proc::syscalls {
 
-    /// sigsuspend - wait for a signal with a temporary mask.
-    ///
-    /// Synopsis:
-    ///     long sigsuspend(const uint32_t *mask);
-    ///
-    /// Errors:
-    ///     -EFAULT: The mask pointer is inaccessible.
-    ///     -EINTR: A signal interrupted the suspended thread.
-    ///     -ESRCH: There is no current process or thread.
     struct sigsuspend : sys::syscall_handler<sigsuspend, sys::syscall_id::sigsuspend,
                                              sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<u32> mask_ptr) {

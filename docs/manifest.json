@@ -1,0 +1,783 @@
+{
+  "section2": {
+    "pages": [
+      {
+        "id": 0,
+        "name": "io_setup",
+        "slug": "syscall-0-io-setup",
+        "title": "io_setup(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/io_setup.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);"
+      },
+      {
+        "id": 1,
+        "name": "io_destroy",
+        "slug": "syscall-1-io-destroy",
+        "title": "io_destroy(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/io_destroy.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_io_destroy(astia_rings* ring);"
+      },
+      {
+        "id": 2,
+        "name": "io_submit",
+        "slug": "syscall-2-io-submit",
+        "title": "io_submit(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/io_submit.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_io_submit(astia_rings* ring, uint32_t to_submit);"
+      },
+      {
+        "id": 3,
+        "name": "io_register",
+        "slug": "syscall-3-io-register",
+        "title": "io_register(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/io_register.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_io_register(astia_rings* ring, uint32_t opcode, const void* ptr, uint32_t nr);"
+      },
+      {
+        "id": 4,
+        "name": "mmap",
+        "slug": "syscall-4-mmap",
+        "title": "mmap(2)",
+        "category": "proc/memory",
+        "source": "kernel/src/proc/syscalls/memory/mmap.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_mmap(void* addr, uint64_t len, uint32_t prot, uint32_t flags, int32_t fd, int64_t off);"
+      },
+      {
+        "id": 5,
+        "name": "munmap",
+        "slug": "syscall-5-munmap",
+        "title": "munmap(2)",
+        "category": "proc/memory",
+        "source": "kernel/src/proc/syscalls/memory/munmap.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_munmap(void* addr, uint64_t len);"
+      },
+      {
+        "id": 6,
+        "name": "mprotect",
+        "slug": "syscall-6-mprotect",
+        "title": "mprotect(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_mprotect(void* addr, uint64_t len, uint32_t prot);"
+      },
+      {
+        "id": 7,
+        "name": "clock_gettime",
+        "slug": "syscall-7-clock-gettime",
+        "title": "clock_gettime(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_clock_gettime(uint32_t clock_id, astia_timespec* out);"
+      },
+      {
+        "id": 8,
+        "name": "exit",
+        "slug": "syscall-8-exit",
+        "title": "exit(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/exit.cpp",
+        "synopsisKind": "public",
+        "synopsis": "void astia_exit(int32_t status);"
+      },
+      {
+        "id": 9,
+        "name": "yield",
+        "slug": "syscall-9-yield",
+        "title": "yield(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/yield.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_yield(void);"
+      },
+      {
+        "id": 10,
+        "name": "getpid",
+        "slug": "syscall-10-getpid",
+        "title": "getpid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/getpid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getpid(void);"
+      },
+      {
+        "id": 11,
+        "name": "gettid",
+        "slug": "syscall-11-gettid",
+        "title": "gettid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/gettid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_gettid(void);"
+      },
+      {
+        "id": 12,
+        "name": "futex",
+        "slug": "syscall-12-futex",
+        "title": "futex(2)",
+        "category": "proc/ipc",
+        "source": "kernel/src/proc/syscalls/ipc/futex.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_futex(uint64_t* addr, uint32_t op, uint32_t val, const astia_timespec* timeout, uint32_t val2, void* addr2);"
+      },
+      {
+        "id": 13,
+        "name": "waitpid",
+        "slug": "syscall-13-waitpid",
+        "title": "waitpid(2)",
+        "category": "proc/process",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options);"
+      },
+      {
+        "id": 14,
+        "name": "spawnve",
+        "slug": "syscall-14-spawnve",
+        "title": "spawnve(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/spawnve.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_spawnve(const char* path, char* const argv[], char* const envp[]);"
+      },
+      {
+        "id": 15,
+        "name": "fork",
+        "slug": "syscall-15-fork",
+        "title": "fork(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/fork.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_fork(void);"
+      },
+      {
+        "id": 16,
+        "name": "thread_create",
+        "slug": "syscall-16-thread-create",
+        "title": "thread_create(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/thread_create.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_create(void (*entry)(void*), void* stack_top, void* argument);"
+      },
+      {
+        "id": 17,
+        "name": "thread_exit",
+        "slug": "syscall-17-thread-exit",
+        "title": "thread_exit(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/thread_exit.cpp",
+        "synopsisKind": "public",
+        "synopsis": "void astia_thread_exit(void* result);"
+      },
+      {
+        "id": 18,
+        "name": "thread_join",
+        "slug": "syscall-18-thread-join",
+        "title": "thread_join(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/thread_join.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_join(uint32_t tid, void** result);"
+      },
+      {
+        "id": 19,
+        "name": "thread_detach",
+        "slug": "syscall-19-thread-detach",
+        "title": "thread_detach(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/thread_detach.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_detach(uint32_t tid);"
+      },
+      {
+        "id": 20,
+        "name": "kill",
+        "slug": "syscall-20-kill",
+        "title": "kill(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/kill.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_kill(int32_t pid, int32_t signal);"
+      },
+      {
+        "id": 21,
+        "name": "sigaction",
+        "slug": "syscall-21-sigaction",
+        "title": "sigaction(2)",
+        "category": "proc/signal",
+        "source": "kernel/src/proc/syscalls/signal/sigaction.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigaction(int32_t signal, const astia_sigaction_t* next, astia_sigaction_t* old);"
+      },
+      {
+        "id": 22,
+        "name": "sigprocmask",
+        "slug": "syscall-22-sigprocmask",
+        "title": "sigprocmask(2)",
+        "category": "proc/signal",
+        "source": "kernel/src/proc/syscalls/signal/sigprocmask.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigprocmask(int32_t how, uint32_t set, uint32_t* old);"
+      },
+      {
+        "id": 23,
+        "name": "thread_create2",
+        "slug": "syscall-23-thread-create2",
+        "title": "thread_create2(2)",
+        "category": "proc/thread",
+        "source": "kernel/src/proc/syscalls/thread/thread_create2.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_create2(void (*entry)(void*, void*), void* stack_top, void* argument0, void* argument1, void* stack_addr, uint64_t stack_size);"
+      },
+      {
+        "id": 24,
+        "name": "execve",
+        "slug": "syscall-24-execve",
+        "title": "execve(2)",
+        "category": "proc/process",
+        "source": "libc/src/unistd.c",
+        "synopsisKind": "public",
+        "synopsis": "int execve(const char* path, char* const argv[], char* const envp[]);"
+      },
+      {
+        "id": 25,
+        "name": "sigsuspend",
+        "slug": "syscall-25-sigsuspend",
+        "title": "sigsuspend(2)",
+        "category": "proc/signal",
+        "source": "libc/src/signal.c",
+        "synopsisKind": "public",
+        "synopsis": "int sigsuspend(const sigset_t* mask);"
+      },
+      {
+        "id": 26,
+        "name": "getpgrp",
+        "slug": "syscall-26-getpgrp",
+        "title": "getpgrp(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/getpgrp.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getpgrp(void);"
+      },
+      {
+        "id": 27,
+        "name": "setpgid",
+        "slug": "syscall-27-setpgid",
+        "title": "setpgid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/setpgid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setpgid(int32_t pid, int32_t pgid);"
+      },
+      {
+        "id": 28,
+        "name": "setsid",
+        "slug": "syscall-28-setsid",
+        "title": "setsid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/setsid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setsid(void);"
+      },
+      {
+        "id": 29,
+        "name": "sigreturn",
+        "slug": "syscall-29-sigreturn",
+        "title": "sigreturn(2)",
+        "category": "proc/signal",
+        "source": "kernel/src/proc/syscalls/signal/sigreturn.cpp",
+        "synopsisKind": "raw",
+        "synopsis": "Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
+      },
+      {
+        "id": 30,
+        "name": "chdir",
+        "slug": "syscall-30-chdir",
+        "title": "chdir(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/chdir.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_chdir(const char* path);"
+      },
+      {
+        "id": 31,
+        "name": "getcwd",
+        "slug": "syscall-31-getcwd",
+        "title": "getcwd(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/getcwd.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getcwd(char* buffer, uint64_t length);"
+      },
+      {
+        "id": 32,
+        "name": "getuid",
+        "slug": "syscall-32-getuid",
+        "title": "getuid(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getuid(void);"
+      },
+      {
+        "id": 33,
+        "name": "geteuid",
+        "slug": "syscall-33-geteuid",
+        "title": "geteuid(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_geteuid(void);"
+      },
+      {
+        "id": 34,
+        "name": "getgid",
+        "slug": "syscall-34-getgid",
+        "title": "getgid(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getgid(void);"
+      },
+      {
+        "id": 35,
+        "name": "getegid",
+        "slug": "syscall-35-getegid",
+        "title": "getegid(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getegid(void);"
+      },
+      {
+        "id": 36,
+        "name": "setuid",
+        "slug": "syscall-36-setuid",
+        "title": "setuid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setuid(uint32_t v);"
+      },
+      {
+        "id": 37,
+        "name": "seteuid",
+        "slug": "syscall-37-seteuid",
+        "title": "seteuid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_seteuid(uint32_t v);"
+      },
+      {
+        "id": 38,
+        "name": "setgid",
+        "slug": "syscall-38-setgid",
+        "title": "setgid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setgid(uint32_t v);"
+      },
+      {
+        "id": 39,
+        "name": "setegid",
+        "slug": "syscall-39-setegid",
+        "title": "setegid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setegid(uint32_t v);"
+      },
+      {
+        "id": 40,
+        "name": "setreuid",
+        "slug": "syscall-40-setreuid",
+        "title": "setreuid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setreuid(uint32_t r, uint32_t e);"
+      },
+      {
+        "id": 41,
+        "name": "setregid",
+        "slug": "syscall-41-setregid",
+        "title": "setregid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setregid(uint32_t r, uint32_t e);"
+      },
+      {
+        "id": 42,
+        "name": "getgroups",
+        "slug": "syscall-42-getgroups",
+        "title": "getgroups(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getgroups(int32_t n, uint32_t* g);"
+      },
+      {
+        "id": 43,
+        "name": "setgroups",
+        "slug": "syscall-43-setgroups",
+        "title": "setgroups(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/process.hpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setgroups(int32_t n, const uint32_t* g);"
+      },
+      {
+        "id": 44,
+        "name": "process_snapshot",
+        "slug": "syscall-44-process-snapshot",
+        "title": "process_snapshot(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/proc.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_process_snapshot(astia_process_info* out, uint32_t capacity);"
+      },
+      {
+        "id": 45,
+        "name": "getsid",
+        "slug": "syscall-45-getsid",
+        "title": "getsid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/proc.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getsid(int32_t pid);"
+      },
+      {
+        "id": 46,
+        "name": "unmount",
+        "slug": "syscall-46-unmount",
+        "title": "unmount(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/unmount.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_unmount(const char* target);"
+      },
+      {
+        "id": 47,
+        "name": "mount",
+        "slug": "syscall-47-mount",
+        "title": "mount(2)",
+        "category": "fs",
+        "source": "kernel/src/fs/syscalls/mount.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_mount(const char* type, const char* target, const char* source);"
+      },
+      {
+        "id": 48,
+        "name": "getrlimit",
+        "slug": "syscall-48-getrlimit",
+        "title": "getrlimit(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getrlimit(int32_t resource, astia_rlimit* limit);"
+      },
+      {
+        "id": 49,
+        "name": "setrlimit",
+        "slug": "syscall-49-setrlimit",
+        "title": "setrlimit(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_setrlimit(int32_t resource, const astia_rlimit* limit);"
+      },
+      {
+        "id": 50,
+        "name": "sigwait",
+        "slug": "syscall-50-sigwait",
+        "title": "sigwait(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigwait(const uint32_t* set, int32_t* signal);"
+      },
+      {
+        "id": 51,
+        "name": "sigaltstack",
+        "slug": "syscall-51-sigaltstack",
+        "title": "sigaltstack(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack);"
+      },
+      {
+        "id": 52,
+        "name": "getpgid",
+        "slug": "syscall-52-getpgid",
+        "title": "getpgid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/getpgid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getpgid(int32_t pid);"
+      },
+      {
+        "id": 53,
+        "name": "getppid",
+        "slug": "syscall-53-getppid",
+        "title": "getppid(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/getppid.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getppid(void);"
+      },
+      {
+        "id": 54,
+        "name": "thread_cancel",
+        "slug": "syscall-54-thread-cancel",
+        "title": "thread_cancel(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_cancel(uint32_t tid);"
+      },
+      {
+        "id": 55,
+        "name": "alarm",
+        "slug": "syscall-55-alarm",
+        "title": "alarm(2)",
+        "category": "proc",
+        "source": "kernel/src/proc/syscalls/alarm.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_alarm(uint32_t seconds);"
+      },
+      {
+        "id": 56,
+        "name": "thread_create_owned",
+        "slug": "syscall-56-thread-create-owned",
+        "title": "thread_create_owned(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_create_owned(void (*entry)(void*, void*), void* stack_top, void* argument0, void* argument1, void* stack_addr, uint64_t stack_size);"
+      },
+      {
+        "id": 57,
+        "name": "thread_cancel_pending",
+        "slug": "syscall-57-thread-cancel-pending",
+        "title": "thread_cancel_pending(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_cancel_pending(void);"
+      },
+      {
+        "id": 58,
+        "name": "thread_exists",
+        "slug": "syscall-58-thread-exists",
+        "title": "thread_exists(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_exists(uint32_t tid);"
+      },
+      {
+        "id": 59,
+        "name": "thread_kill",
+        "slug": "syscall-59-thread-kill",
+        "title": "thread_kill(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_kill(uint32_t tid, int32_t signal);"
+      },
+      {
+        "id": 60,
+        "name": "sigpending",
+        "slug": "syscall-60-sigpending",
+        "title": "sigpending(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigpending(uint32_t* set);"
+      },
+      {
+        "id": 61,
+        "name": "sigtimedwait",
+        "slug": "syscall-61-sigtimedwait",
+        "title": "sigtimedwait(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info, const astia_timespec* timeout);"
+      },
+      {
+        "id": 62,
+        "name": "clock_getres",
+        "slug": "syscall-62-clock-getres",
+        "title": "clock_getres(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_clock_getres(uint32_t clock_id, astia_timespec* out);"
+      },
+      {
+        "id": 63,
+        "name": "thread_getattr",
+        "slug": "syscall-63-thread-getattr",
+        "title": "thread_getattr(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_getattr(uint32_t tid, astia_thread_stack_info* output);"
+      },
+      {
+        "id": 64,
+        "name": "msync",
+        "slug": "syscall-64-msync",
+        "title": "msync(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_msync(void* addr, uint64_t len, uint32_t flags);"
+      },
+      {
+        "id": 65,
+        "name": "lseek",
+        "slug": "syscall-65-lseek",
+        "title": "lseek(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_lseek(int32_t fd, int64_t offset, int32_t whence);"
+      },
+      {
+        "id": 66,
+        "name": "umask",
+        "slug": "syscall-66-umask",
+        "title": "umask(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_umask(uint32_t mode);"
+      },
+      {
+        "id": 67,
+        "name": "shm_open",
+        "slug": "syscall-67-shm-open",
+        "title": "shm_open(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_shm_open(const char* name, int flags, uint32_t mode);"
+      },
+      {
+        "id": 68,
+        "name": "shm_unlink",
+        "slug": "syscall-68-shm-unlink",
+        "title": "shm_unlink(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_shm_unlink(const char* name);"
+      },
+      {
+        "id": 69,
+        "name": "fchdir",
+        "slug": "syscall-69-fchdir",
+        "title": "fchdir(2)",
+        "category": "abi",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_fchdir(int fd);"
+      },
+      {
+        "id": 70,
+        "name": "uname",
+        "slug": "syscall-70-uname",
+        "title": "uname(2)",
+        "category": "proc/process",
+        "source": "kernel/src/proc/syscalls/process/uname.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_uname(astia_utsname* output);"
+      }
+    ]
+  },
+  "section7": {
+    "pages": [
+      {
+        "name": "aio",
+        "slug": "docs-aio-7",
+        "aliases": [
+          "docs-7-aio"
+        ],
+        "title": "Asynchronous I/O",
+        "source": "docs/7/aio.md"
+      },
+      {
+        "name": "alarm",
+        "slug": "docs-alarm-7",
+        "aliases": [
+          "docs-7-alarm"
+        ],
+        "title": "Process alarm",
+        "source": "docs/7/alarm.md"
+      },
+      {
+        "name": "exec",
+        "slug": "docs-exec-7",
+        "aliases": [
+          "docs-7-exec"
+        ],
+        "title": "Asynchronous ELF loading and execve",
+        "source": "docs/7/exec.md"
+      },
+      {
+        "name": "rcu",
+        "slug": "docs-rcu-7",
+        "aliases": [
+          "docs-7-rcu"
+        ],
+        "title": "RCU and lockless constraints",
+        "source": "docs/7/rcu.md"
+      },
+      {
+        "name": "sigtimedwait",
+        "slug": "docs-sigtimedwait-7",
+        "aliases": [
+          "docs-7-sigtimedwait"
+        ],
+        "title": "sigtimedwait(2)",
+        "source": "docs/7/sigtimedwait.md"
+      },
+      {
+        "name": "spawnve",
+        "slug": "docs-spawnve-7",
+        "aliases": [
+          "docs-7-spawnve"
+        ],
+        "title": "Asynchronous process spawn and spawnve",
+        "source": "docs/7/spawnve.md"
+      },
+      {
+        "name": "task",
+        "slug": "docs-task-7",
+        "aliases": [
+          "docs-7-task"
+        ],
+        "title": "Kernel coroutine tasks",
+        "source": "docs/7/task.md"
+      }
+    ]
+  }
+}

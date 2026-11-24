@@ -25,25 +25,6 @@ namespace astia::proc {
 
 namespace astia::proc::syscalls {
 
-    /// futex - Wait on or wake a shared user word.
-    ///
-    /// Synopsis:
-    ///     long futex(uint32_t *address, uint32_t operation, uint32_t value, const
-    ///     timespec *timeout);
-    ///
-    /// Description:
-    ///     FUTEX_WAIT blocks while the word equals value. FUTEX_WAKE wakes up
-    ///     up to value waiters. The private flag selects an address key owned
-    ///     by the calling process; without it, a MAP_SHARED backing key is used.
-    ///
-    /// Return Value:
-    ///     Wait returns zero; wake returns the number of woken waiters.
-    ///
-    /// Errors:
-    ///     -EAGAIN: The word no longer equals the expected value.
-    ///     -EFAULT: The futex word is not accessible userspace memory.
-    ///     -EINVAL: The operation is unknown.
-    ///     -ETIMEDOUT: The absolute CLOCK_MONOTONIC timeout elapsed.
     struct futex
         : sys::syscall_handler<futex, sys::syscall_id::futex, sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<u32> address, u32 op, u32 expected,
