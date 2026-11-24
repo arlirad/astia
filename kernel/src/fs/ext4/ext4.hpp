@@ -34,8 +34,8 @@ namespace astia::fs {
         core::task<i64> writev(span<const buffer> buffers, u64 offset,
                                core::cltoken token) override;
         long            size() const override;
-        file_mode mode() const override;
-        uid_t     uid() const override {
+        file_mode       mode() const override;
+        uid_t           uid() const override {
             return uid_t(_node.uid);
         }
         gid_t gid() const override {

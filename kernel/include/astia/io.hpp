@@ -48,8 +48,7 @@ extern "C" void __tsan_release(void const*);
 // device whose work depends on something else (a filesystem waiting on a
 // block layer) blocks a *thread*, never the device.
 
-namespace astia::fs {
-}
+namespace astia::fs {}
 
 namespace astia::io {
 

@@ -31,21 +31,21 @@ namespace astia::dev {
 
         void detach();
         using quiescence_handler = void (*)(void*, u64);
-        bool          arm_quiescence_handler(quiescence_handler handler, void* context,
-                                             u64 generation);
-        bool          quiescent() const;
+        bool            arm_quiescence_handler(quiescence_handler handler, void* context,
+                                               u64 generation);
+        bool            quiescent() const;
         core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
                               core::cltoken token) override;
         core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
                                core::cltoken token) override;
         long            submit(io::request& request) override;
-        u32           poll(u32 events, u32 flags) override;
+        u32             poll(u32 events, u32 flags) override;
         core::task<i64> ioctl(u64 request, void* argp, usize size,
                               core::cltoken token) override;
-        long          acquire_controlling_terminal(i32 group) override;
-        long          size() const override;
-        u32           block_size() const override;
-        fs::file_mode mode() const override {
+        long            acquire_controlling_terminal(i32 group) override;
+        long            size() const override;
+        u32             block_size() const override;
+        fs::file_mode   mode() const override {
             device*             value = begin_operation();
             const fs::file_mode result(
                 (value != nullptr && (value->flags() & dv_block) != 0)

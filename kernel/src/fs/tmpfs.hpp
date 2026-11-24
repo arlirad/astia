@@ -45,8 +45,8 @@ namespace astia::fs {
         core::task<i64> sync(core::cltoken token) override;
         core::task<i64> sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                      u32 flags, core::cltoken token) override;
-        long size() const override;
-        u64  inode() const override {
+        long            size() const override;
+        u64             inode() const override {
             core::spinlock_guard guard(_lock);
             return _inode;
         }

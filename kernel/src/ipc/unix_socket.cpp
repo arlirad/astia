@@ -252,9 +252,9 @@ namespace astia::fs {
                     }
                     return -EMFILE;
                 }
-                long n = r.direction() == io::direction::input
-                             ? read_ready(r.buffer(), r.length(), 0)
-                             : write_ready(r.buffer(), r.length(), 0);
+                long n           = r.direction() == io::direction::input
+                                       ? read_ready(r.buffer(), r.length(), 0)
+                                       : write_ready(r.buffer(), r.length(), 0);
                 bool peer_closed = false;
                 if (channel) {
                     core::spinlock_guard channel_guard(channel->lock);

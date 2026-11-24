@@ -395,8 +395,8 @@ namespace astia::proc {
             auto* context = static_cast<stream_context*>(opaque);
             if (context == nullptr || !context->file)
                 co_return error_t::ebadf;
-            auto result = co_await context->file->read_exact(destination, offset,
-                                                             context->token);
+            auto result =
+                co_await context->file->read_exact(destination, offset, context->token);
             if (!result)
                 co_return result.error;
             co_return result.value;
@@ -463,7 +463,7 @@ namespace astia::proc {
             }
             if (image.tls_filesz != 0) {
                 auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
-                auto  read = co_await file->read_exact(
+                auto  read        = co_await file->read_exact(
                     astia::span<u8>(destination, static_cast<usize>(image.tls_filesz)),
                     image.tls_offset, token);
                 if (!read) {

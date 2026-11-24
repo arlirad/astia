@@ -47,14 +47,14 @@ namespace {
             return *this;
         }
 
-        astia::core::task<astia::i64>
-        readv(astia::span<const astia::fs::buffer> buffers, astia::u64 offset,
-              astia::core::cltoken token) override {
+        astia::core::task<astia::i64> readv(astia::span<const astia::fs::buffer> buffers,
+                                            astia::u64                           offset,
+                                            astia::core::cltoken token) override {
             return submit_readv(buffers, offset, token);
         }
-        astia::core::task<astia::i64>
-        writev(astia::span<const astia::fs::buffer> buffers, astia::u64 offset,
-               astia::core::cltoken token) override {
+        astia::core::task<astia::i64> writev(astia::span<const astia::fs::buffer> buffers,
+                                             astia::u64                           offset,
+                                             astia::core::cltoken token) override {
             return submit_writev(buffers, offset, token);
         }
         long submit(astia::io::request& request) override {
@@ -189,8 +189,8 @@ ASTIA_TEST(device_file_services_a_parked_completion) {
 ASTIA_TEST(device_file_detach_rejects_new_operations) {
     test_device             device("detachable");
     astia::dev::device_file file(&device);
-    auto parent = astia::mm::shptr<astia::fs::file>::borrowed(&file);
-    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::readwrite);
+    auto                    parent = astia::mm::shptr<astia::fs::file>::borrowed(&file);
+    astia::fs::open_file    handle(parent, astia::fs::open_file_status_flags::readwrite);
     char                    buffer[1]{};
     ASTIA_CHECK(handle.read(buffer, sizeof buffer, 0) == 0);
     file.detach();

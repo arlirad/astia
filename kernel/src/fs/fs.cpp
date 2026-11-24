@@ -1023,10 +1023,10 @@ namespace astia::fs {
     long open_file::read(void* buf, u32 len, u64 offset) {
         if (!_parent)
             return -EBADF;
-        const bool     current = offset == offset_current;
-        const u64      actual  = current ? current_position() : offset;
-        io::operation  operation(buf, len, actual, io::direction::input);
-        io::request&   request = operation.request();
+        const bool    current = offset == offset_current;
+        const u64     actual  = current ? current_position() : offset;
+        io::operation operation(buf, len, actual, io::direction::input);
+        io::request&  request = operation.request();
         if (!request.park_device())
             return -EAGAIN;
         long result = submit(request);
@@ -1110,7 +1110,7 @@ namespace astia::fs {
         }
         io::operation operation(const_cast<void*>(buf), len, actual,
                                 io::direction::output);
-        io::request& request = operation.request();
+        io::request&  request = operation.request();
         if (!request.park_device())
             return -EAGAIN;
         long result = submit(request);
