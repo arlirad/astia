@@ -9,17 +9,17 @@
 namespace astia::fs::syscalls {
 
     struct unmount : sys::syscall_handler<unmount, sys::syscall_id::unmount,
-                                          sys::syscall_mode::sync> {
-        static i64 invoke(sys::user_ptr<char> target) {
+                                          sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::user_ptr<char> target) {
             auto* current = proc::current_process();
             if (current == nullptr)
-                return -ESRCH;
+                co_return -ESRCH;
             if (current->euid() != 0)
-                return -EPERM;
+                co_return -EPERM;
             char path[path_max]{};
             if (!sys::copy_in_string(span<char>(path, sizeof path), target))
-                return -EFAULT;
-            return unmount_type(path);
+                co_return -EFAULT;
+            co_return unmount_type(path);
         }
     };
 
