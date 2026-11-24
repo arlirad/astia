@@ -1,5 +1,8 @@
 if (ARCH STREQUAL "aarch64")
-    add_library(arch_aarch64 OBJECT start.S)
+    add_library(arch_aarch64 OBJECT
+            start.S
+            page_map.cpp
+    )
     target_include_directories(arch_aarch64 PUBLIC
             ${ASTIA_KERNEL_SOURCE_DIR}/include)
 endif ()

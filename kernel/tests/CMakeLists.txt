@@ -98,6 +98,12 @@ astia_add_host_test(astia_boot_init_test boot_init_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/init.cpp)
 astia_add_host_test(astia_aarch64_fdt_test aarch64_fdt_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/aarch64-virt/fdt.cpp)
+astia_add_host_test(astia_aarch64_page_map_test
+        aarch64_page_map_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64/page_map.cpp)
+target_include_directories(astia_aarch64_page_map_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
+target_compile_definitions(astia_aarch64_page_map_test PRIVATE ASTIA_HOST_TEST=1)
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py

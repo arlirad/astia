@@ -15,6 +15,10 @@ namespace astia::arch {
         cache_disable = 1ull << 4,
         global        = 1ull << 5,
         no_execute    = 1ull << 6,
+        /// Selects the backend's Device memory policy for MMIO. The arch
+        /// backend decides the exact MAIR/descriptor encoding and forces
+        /// Device mappings non-executable; x86_64 treats this as a no-op.
+        device = 1ull << 7,
     };
 
     constexpr page_flags operator|(page_flags a, page_flags b) {
