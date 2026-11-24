@@ -65,6 +65,30 @@
     .size \name, . - \name
 .endm
 
+.macro restore_exception_frame
+    ldp x0, x1, [sp, #FRAME_ELR]
+    msr elr_el1, x0
+    msr spsr_el1, x1
+    ldp x2, x3, [sp, #0x010]
+    ldp x4, x5, [sp, #0x020]
+    ldp x6, x7, [sp, #0x030]
+    ldp x8, x9, [sp, #0x040]
+    ldp x10, x11, [sp, #0x050]
+    ldp x12, x13, [sp, #0x060]
+    ldp x14, x15, [sp, #0x070]
+    ldp x16, x17, [sp, #0x080]
+    ldp x18, x19, [sp, #0x090]
+    ldp x20, x21, [sp, #0x0a0]
+    ldp x22, x23, [sp, #0x0b0]
+    ldp x24, x25, [sp, #0x0c0]
+    ldp x26, x27, [sp, #0x0d0]
+    ldp x28, x29, [sp, #0x0e0]
+    ldr x30, [sp, #0x0f0]
+    ldp x0, x1, [sp, #0x000]
+    add sp, sp, #FRAME_SIZE
+    eret
+.endm
+
 .section .vectors, "ax"
 .balign 2048
 .global __vector_table
@@ -80,7 +104,11 @@ __vector_table:
     .org __vector_table + 0x200
     vector_entry __vector_current_el_spx_sync, 4
     .org __vector_table + 0x280
-    vector_entry __vector_current_el_spx_irq, 5
+    .global __vector_current_el_spx_irq
+    .type __vector_current_el_spx_irq, %function
+__vector_current_el_spx_irq:
+    b astia_aarch64_irq_trampoline
+    .size __vector_current_el_spx_irq, . - __vector_current_el_spx_irq
     .org __vector_table + 0x300
     vector_entry __vector_current_el_spx_fiq, 6
     .org __vector_table + 0x380
@@ -107,6 +135,16 @@ __vector_table_end:
 .size __vector_table, __vector_table_end - __vector_table
 
 .section .text
+.balign 4
+.global astia_aarch64_irq_trampoline
+.type astia_aarch64_irq_trampoline, %function
+astia_aarch64_irq_trampoline:
+    save_exception_frame
+    mov x0, sp
+    bl astia_aarch64_irq_entry
+    restore_exception_frame
+.size astia_aarch64_irq_trampoline, . - astia_aarch64_irq_trampoline
+
 .balign 4
 .global astia_aarch64_brk_probe
 .type astia_aarch64_brk_probe, %function

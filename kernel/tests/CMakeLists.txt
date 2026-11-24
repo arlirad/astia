@@ -108,6 +108,9 @@ astia_add_host_test(astia_aarch64_exception_frame_test
         aarch64_exception_frame_test.cpp)
 target_include_directories(astia_aarch64_exception_frame_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/aarch64)
+astia_add_host_test(astia_aarch64_gic_test aarch64_gic_test.cpp)
+target_include_directories(astia_aarch64_gic_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
