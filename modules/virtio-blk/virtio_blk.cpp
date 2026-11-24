@@ -751,7 +751,6 @@ namespace {
             result = pending.result;
             pending.request.release();
             pending = {};
-            io.cancel_acknowledge();
             if (release_pending)
                 release();
             return true;
@@ -784,17 +783,14 @@ namespace {
                 if (!_owner.complete_async(request, result))
                     return 0;
                 request.device_state(nullptr);
-                request.cancel_handler_set(nullptr);
                 return result;
             }
             if (request.device_state() != nullptr)
                 return -16;
             request.device_state(this);
-            request.cancel_handler_set(cancel_request);
             const int result = _owner.submit_async(request);
             if (result < 0) {
                 request.device_state(nullptr);
-                request.cancel_handler_set(nullptr);
                 return result;
             }
             return 0;
@@ -810,18 +806,6 @@ namespace {
         }
 
         private:
-        static void cancel_request(astia::io::request& request) {
-            auto* self = static_cast<virtio_block*>(request.device_state());
-            if (self != nullptr) {
-                const bool retain = request.cancellation_retain();
-                (void) self->_owner.cancel_async(request, retain);
-                if (!retain) {
-                    request.device_state(nullptr);
-                    request.cancel_handler_set(nullptr);
-                }
-            }
-        }
-
         controller& _owner;
     };
 

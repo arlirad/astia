@@ -10,6 +10,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/mm/uptr.hpp>
 
 #include "../../proc/proc.hpp"
 #include "aio.hpp"
@@ -94,6 +95,7 @@ namespace astia::io::aio::ring {
         mm::shptr<fs::open_file> handle;
         mm::iovec                entries;
         ::astia::io::operation*  operation = nullptr;
+        mm::uptr<core::clsource> cancel;
         core::cltoken            token{};
         u64                      generation = 0;
         usize                    moved      = 0;
@@ -102,6 +104,7 @@ namespace astia::io::aio::ring {
             if (operation != nullptr)
                 operation->release_owner();
             operation             = nullptr;
+            cancel                = {};
             used                  = false;
             type                  = kind::operation;
             done                  = false;

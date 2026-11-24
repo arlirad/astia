@@ -70,8 +70,7 @@ namespace {
         }
     };
 
-    class parked_device final : public astia::dev::device,
-                                private astia::io::cancellation_handler {
+    class parked_device final : public astia::dev::device {
         public:
         parked_device() : device("parked", astia::dev::dv_mqueue) {}
 
@@ -87,32 +86,10 @@ namespace {
                 return -EBUSY;
             pending = &request;
             request.device_state(this);
-            request.cancellation_handler_set(this);
             return 0;
         }
 
-        bool                acknowledge_cancel = true;
-        int                 cancel_count       = 0;
-        astia::io::request* pending            = nullptr;
-        std::atomic<bool>*  cancel_entered     = nullptr;
-        std::atomic<bool>*  cancel_gate        = nullptr;
-
-        private:
-        void cancellation_requested(astia::io::request& request,
-                                    astia::core::cancel_reason, bool retain) override {
-            auto* value = static_cast<parked_device*>(request.device_state());
-            ++value->cancel_count;
-            if (value->cancel_entered != nullptr)
-                value->cancel_entered->store(true, std::memory_order_release);
-            if (value->cancel_gate != nullptr)
-                while (!value->cancel_gate->load(std::memory_order_acquire))
-                    std::this_thread::yield();
-            value->pending = nullptr;
-            request.device_state(nullptr);
-            request.cancellation_handler_set(nullptr);
-            if (value->acknowledge_cancel || !retain)
-                request.cancel_acknowledge();
-        }
+        astia::io::request* pending = nullptr;
     };
 
     class queue_device final : public astia::dev::device {
@@ -219,15 +196,9 @@ ASTIA_TEST(device_file_detach_cancels_parked_request_once) {
                                     astia::io::direction::input);
 
     ASTIA_CHECK(file.submit(request) == -EAGAIN);
-    ASTIA_CHECK(device.pending == nullptr);
-    ASTIA_CHECK(device.cancel_count == 1);
-    device.acknowledge_cancel = false;
     file.detach();
-    ASTIA_CHECK(device.cancel_count == 1);
-    ASTIA_CHECK(device.pending == nullptr);
     ASTIA_CHECK(request.cancellation_requested());
     ASTIA_CHECK(request.cancellation_reason() == astia::core::cancel_reason::request);
-    request.cancel_acknowledge();
     ASTIA_CHECK(!request.cancel_device(true));
     ASTIA_CHECK(file.submit(request) == -ENODEV);
 }
@@ -244,114 +215,12 @@ ASTIA_TEST(device_file_detach_cancels_parked_operation_once) {
     ASTIA_CHECK(device.pending == &request);
 
     file.detach();
-    ASTIA_CHECK(device.cancel_count == 1);
-    ASTIA_CHECK(device.pending == nullptr);
     ASTIA_CHECK(request.cancellation_requested());
     ASTIA_CHECK(request.cancellation_reason() == astia::core::cancel_reason::detach);
 
     operation.release_owner();
     ASTIA_CHECK(request.cancellation_requested());
     request.acknowledge();
-    ASTIA_CHECK(device.cancel_count == 1);
-    ASTIA_CHECK(device.pending == nullptr);
-}
-
-ASTIA_TEST(device_file_detach_waits_for_active_cancellation_handler) {
-    parked_device           device;
-    astia::dev::device_file file(&device);
-    char                    buffer[1]{};
-    astia::io::operation operation(buffer, sizeof buffer, 0, astia::io::direction::input);
-    auto&                request = operation.request();
-    std::atomic<bool>    handler_entered{false};
-    std::atomic<bool>    allow_ack{false};
-    device.cancel_entered = &handler_entered;
-    device.cancel_gate    = &allow_ack;
-
-    ASTIA_CHECK(request.park_device());
-    ASTIA_CHECK(file.submit(request) == 0);
-    ASTIA_CHECK(device.pending == &request);
-
-    std::atomic<bool> detach_done{false};
-    std::thread       worker([&] {
-        file.detach();
-        detach_done.store(true, std::memory_order_release);
-    });
-    while (!handler_entered.load(std::memory_order_acquire))
-        std::this_thread::yield();
-    ASTIA_CHECK(!detach_done.load(std::memory_order_acquire));
-    allow_ack.store(true, std::memory_order_release);
-    worker.join();
-
-    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
-    ASTIA_CHECK(device.cancel_count == 1);
-    ASTIA_CHECK(device.pending == nullptr);
-    ASTIA_CHECK(request.cancellation_requested());
-    request.acknowledge();
-    operation.release_owner();
-}
-
-ASTIA_TEST(device_file_detach_waits_for_retained_cancellation_ack) {
-    parked_device           device;
-    astia::dev::device_file file(&device);
-    char                    buffer[1]{};
-    astia::io::operation operation(buffer, sizeof buffer, 0, astia::io::direction::input);
-    auto&                request = operation.request();
-    std::atomic<bool>    cancel_entered{false};
-    device.acknowledge_cancel = false;
-    device.cancel_entered     = &cancel_entered;
-
-    ASTIA_CHECK(request.park_device());
-    ASTIA_CHECK(file.submit(request) == 0);
-
-    std::atomic<bool> detach_done{false};
-    std::thread       worker([&] {
-        file.detach();
-        detach_done.store(true, std::memory_order_release);
-    });
-    while (!cancel_entered.load(std::memory_order_acquire))
-        std::this_thread::yield();
-    while (!detach_done.load(std::memory_order_acquire))
-        std::this_thread::yield();
-    request.cancel_acknowledge();
-    worker.join();
-
-    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
-    ASTIA_CHECK(device.pending == nullptr);
-    operation.release_owner();
-}
-
-ASTIA_TEST(device_file_detach_preserves_operation_for_owner_release) {
-    parked_device           device;
-    astia::dev::device_file file(&device);
-    char                    buffer[1]{};
-    astia::io::operation operation(buffer, sizeof buffer, 0, astia::io::direction::input);
-    auto&                request = operation.request();
-    std::atomic<bool>    cancel_entered{false};
-    std::atomic<bool>    allow_cancel{false};
-    device.cancel_entered = &cancel_entered;
-    device.cancel_gate    = &allow_cancel;
-
-    ASTIA_CHECK(request.park_device());
-    ASTIA_CHECK(file.submit(request) == 0);
-
-    std::atomic<bool> owner_done{false};
-    std::atomic<bool> detach_done{false};
-    std::thread       detach([&] {
-        file.detach();
-        detach_done.store(true, std::memory_order_release);
-    });
-    while (!cancel_entered.load(std::memory_order_acquire))
-        std::this_thread::yield();
-    std::thread owner([&] {
-        operation.release_owner();
-        owner_done.store(true, std::memory_order_release);
-    });
-
-    allow_cancel.store(true, std::memory_order_release);
-    detach.join();
-    owner.join();
-    ASTIA_CHECK(detach_done.load(std::memory_order_acquire));
-    ASTIA_CHECK(owner_done.load(std::memory_order_acquire));
 }
 
 ASTIA_TEST(device_file_quiescence_callback_waits_for_active_submit) {
@@ -398,7 +267,7 @@ ASTIA_TEST(aio_parked_request_stays_stable_across_stretch) {
 
     ASTIA_CHECK(&request == address);
     ASTIA_CHECK(request.stable());
-    ASTIA_CHECK(stale_token.stale());
+    ASTIA_CHECK(!stale_token.stale());
     ASTIA_CHECK(request.cancellation_token().valid());
     ASTIA_CHECK(request.buffer() == static_cast<void*>(second));
     ASTIA_CHECK(request.length() == sizeof second);

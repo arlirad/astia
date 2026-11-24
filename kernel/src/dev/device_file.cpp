@@ -104,7 +104,6 @@ namespace astia::dev {
         pending_[index]       = &request;
         pending_owned_[index] = request.retain_for_device();
         __atomic_store_n(&pending_count_, count + 1, __ATOMIC_RELEASE);
-        request.cancellation_observer_set(const_cast<device_file*>(this));
         return true;
     }
 
@@ -122,17 +121,12 @@ namespace astia::dev {
                 pending_[last]       = nullptr;
                 pending_owned_[last] = false;
                 __atomic_store_n(&pending_count_, last, __ATOMIC_RELEASE);
-                request.cancellation_observer_set(nullptr);
                 if (owned)
                     request.release_for_device();
                 break;
             }
         }
         notify_quiescent();
-    }
-
-    void device_file::cancellation_acknowledged(io::request& request) {
-        untrack_request(request);
     }
 
     device* device_file::begin_operation(const io::request* request) const {
@@ -181,7 +175,7 @@ namespace astia::dev {
             end_operation();
             return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ? -ENODEV : -EBUSY;
         }
-        if (request.cancellation_requested() && !request.has_cancellation_handler()) {
+        if (request.cancellation_requested()) {
             untrack_request(request);
             end_operation();
             return -ECANCELED;

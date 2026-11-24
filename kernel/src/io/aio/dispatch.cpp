@@ -389,9 +389,14 @@ namespace astia::io::aio::dispatch {
             // folds in the caller's byte offset inside the first page, so the
             // device works on the range the SQE named rather than on the page
             // it happens to sit on.
+            core::clsource* cancel_parent = slot.owner ? &slot.owner->cancellation_root()
+                                                       : &core::unrestricted_source;
+            p->cancel = mm::uptr<core::clsource>(new core::clsource(*cancel_parent));
+            const core::cltoken cancel_token =
+                p->cancel ? p->cancel->token() : core::cltoken{};
             p->operation = new ::astia::io::operation(
                 p->entries.window(), static_cast<u32>(p->entries.chunk()), s.offset,
-                s.user_data, direction);
+                s.user_data, direction, {}, cancel_token);
             if (p->operation == nullptr) {
                 p->type = parked_op::kind::oom_completion;
                 if (cq_post(ring, s.user_data, -ENOMEM))

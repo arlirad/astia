@@ -29,7 +29,10 @@ namespace astia::io::aio::operations {
                         co_return aio_result::retry;
                     if (!cq_post(ring, target, -ECANCELED))
                         co_return aio_result::retry;
-                    p.operation->request().cancel_device(false);
+                    if (p.cancel)
+                        (void) p.cancel->cancel(astia::core::cancel_reason::request);
+                    (void) p.operation->request().cancel_device(
+                        false, astia::core::cancel_reason::request);
                     p.operation->request().acknowledge();
                     p.done = true;
                     co_return cq_post(ring, sqe.user_data, 0) ? aio_result::pending

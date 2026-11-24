@@ -535,7 +535,6 @@ ASTIA_TEST(aio_production_cancel_posts_target_and_acknowledges) {
     ASTIA_CHECK(capture.user_data(1) == 0x22);
     ASTIA_CHECK(capture.result(1) == 0);
     ASTIA_CHECK(operation.request().cancellation_requested());
-    ASTIA_CHECK(operation.cancellation_acknowledged());
     ASTIA_CHECK(slot.park[0].done);
     release_parked(slot);
     ASTIA_CHECK(!slot.park[0].used);

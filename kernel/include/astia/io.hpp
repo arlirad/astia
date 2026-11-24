@@ -78,25 +78,6 @@ namespace astia::io {
     class operation;
     class request;
 
-    class cancellation_handler {
-        public:
-        virtual void cancellation_requested(request&, core::cancel_reason, bool) = 0;
-
-        protected:
-        ~cancellation_handler() = default;
-    };
-
-    class cancellation_observer {
-        public:
-        virtual void cancellation_acknowledged(request&) = 0;
-
-        protected:
-        ~cancellation_observer() = default;
-    };
-
-    using legacy_cancellation_handler  = void (*)(request&);
-    using legacy_cancellation_observer = void (*)(request&, void*);
-
     enum class direction : u8 {
         input,  // fill request.buffer() from the object
         output, // drain request.buffer() into the object
@@ -109,14 +90,18 @@ namespace astia::io {
         request(request&&)                 = delete;
         request& operator=(request&&)      = delete;
 
-        explicit request(core::clsource& source)
-            : _cancel_source(&source), _cancel_token(source.token()) {}
+        request() = default;
+
+        explicit request(core::clsource& source) : _external_token(source.token()) {}
 
         request(core::clsource& source, void* buffer, u32 length, u64 offset,
                 u64 user_data, direction direction)
             : _buffer(buffer), _length(length), _offset(offset), _user_data(user_data),
-              _direction(direction), _cancel_source(&source),
-              _cancel_token(source.token()) {}
+              _direction(direction), _external_token(source.token()) {}
+
+        request(void* buffer, u32 length, u64 offset, u64 user_data, direction direction)
+            : _buffer(buffer), _length(length), _offset(offset), _user_data(user_data),
+              _direction(direction) {}
 
         void* buffer() const {
             return _buffer;
@@ -217,22 +202,13 @@ namespace astia::io {
         void release_for_device();
 
         void stretch(void* buffer, u32 length, u64 offset) {
-            _buffer       = buffer;
-            _length       = length;
-            _offset       = offset;
-            _device_state = nullptr;
-            _cancel_source->reset();
-            _cancel_token                 = _cancel_source->token();
-            _cancellation_handler         = nullptr;
-            _cancellation_observer        = nullptr;
-            _legacy_cancellation_handler  = nullptr;
-            _legacy_cancellation_observer = nullptr;
-            _legacy_cancellation_context  = nullptr;
-            _cancellation_retain          = false;
-            _cancel_acknowledged          = false;
-            _complete                     = false;
-            _timeout_expired              = false;
-            _poll_wakeup                  = false;
+            _buffer          = buffer;
+            _length          = length;
+            _offset          = offset;
+            _device_state    = nullptr;
+            _complete        = false;
+            _timeout_expired = false;
+            _poll_wakeup     = false;
         }
 
         bool timeout_set() const {
@@ -292,78 +268,35 @@ namespace astia::io {
         }
 
         bool park_device();
-        bool canceled() const;
+        bool canceled() const {
+            return _cancel_requested || _external_token.canceled();
+        }
         bool begin_device();
         void end_device();
         void acknowledge();
 
-        void cancellation_handler_set(cancellation_handler* handler) {
-            __atomic_store_n(&_cancellation_handler, handler, __ATOMIC_RELEASE);
-        }
-        bool has_cancellation_handler() const {
-            return __atomic_load_n(&_cancellation_handler, __ATOMIC_ACQUIRE) != nullptr ||
-                   __atomic_load_n(&_legacy_cancellation_handler, __ATOMIC_ACQUIRE) !=
-                       nullptr;
-        }
-        void cancellation_observer_set(cancellation_observer* observer) {
-            __atomic_store_n(&_cancellation_observer, observer, __ATOMIC_RELEASE);
-        }
-        bool retain_callback_ref();
-        void release_callback_ref();
-        void cancel_handler_set(legacy_cancellation_handler handler) {
-            __atomic_store_n(&_legacy_cancellation_handler, handler, __ATOMIC_RELEASE);
-        }
-        void cancel_observer_set(legacy_cancellation_observer observer, void* context) {
-            __atomic_store_n(&_legacy_cancellation_context, context, __ATOMIC_RELEASE);
-            __atomic_store_n(&_legacy_cancellation_observer, observer, __ATOMIC_RELEASE);
-        }
-        bool cancellation_retain() const {
-            return _cancellation_retain;
-        }
         core::cltoken cancellation_token() const {
-            return _cancel_token;
+            return _external_token;
         }
         void external_token(core::cltoken token) {
             _external_token = token;
         }
         bool cancellation_requested() const {
-            return _cancel_token.canceled() || _external_token.canceled();
+            return canceled();
         }
         core::cancel_reason cancellation_reason() const {
             const core::cancel_reason external = _external_token.reason();
-            return external != core::cancel_reason::none ? external
-                                                         : _cancel_token.reason();
+            return external != core::cancel_reason::none ? external : _cancel_reason;
         }
-        bool cancel_device(bool                retain = false,
+        bool cancel_device(bool                       = false,
                            core::cancel_reason reason = core::cancel_reason::request) {
-            if (!_cancel_source->cancel(reason))
+            if (_cancel_requested)
                 return false;
-            auto* handler = __atomic_load_n(&_cancellation_handler, __ATOMIC_ACQUIRE);
-            auto  legacy_handler =
-                __atomic_load_n(&_legacy_cancellation_handler, __ATOMIC_ACQUIRE);
-            _cancellation_retain = retain;
-            if (handler != nullptr || legacy_handler != nullptr) {
-                const bool callback_ref = retain_callback_ref();
-                __atomic_add_fetch(&_cancellation_callbacks, 1u, __ATOMIC_ACQ_REL);
-                if (handler != nullptr)
-                    handler->cancellation_requested(*this, reason, retain);
-                else
-                    legacy_handler(*this);
-                __atomic_sub_fetch(&_cancellation_callbacks, 1u, __ATOMIC_ACQ_REL);
-                ASTIA_IO_TSAN_RELEASE(const_cast<const u32*>(&_cancellation_callbacks));
-                _cancellation_retain = false;
-                if (callback_ref)
-                    release_callback_ref();
-            }
-            else {
-                wake();
-                cancel_acknowledge();
-            }
-            if (!retain)
-                cancel_acknowledge();
+            _cancel_requested = true;
+            _cancel_reason    = reason;
+            wake();
             return true;
         }
-        void cancel_acknowledge();
 
         private:
         void*                _buffer                  = nullptr;
@@ -389,17 +322,9 @@ namespace astia::io {
         void*                           _wake_context = nullptr;
         operation*                      _operation    = nullptr;
         mm::uptr<core::completion<i64>> _completion;
-        core::clsource*                 _cancel_source = nullptr;
-        core::cltoken                   _cancel_token;
-        core::cltoken                   _external_token;
-        cancellation_handler*           _cancellation_handler         = nullptr;
-        cancellation_observer*          _cancellation_observer        = nullptr;
-        legacy_cancellation_handler     _legacy_cancellation_handler  = nullptr;
-        legacy_cancellation_observer    _legacy_cancellation_observer = nullptr;
-        void*                           _legacy_cancellation_context  = nullptr;
-        volatile u32                    _cancellation_callbacks       = 0;
-        bool                            _cancellation_retain          = false;
-        bool                            _cancel_acknowledged          = false;
+        core::cltoken                   _external_token{};
+        bool                            _cancel_requested = false;
+        core::cancel_reason             _cancel_reason    = core::cancel_reason::none;
 
         request* _queue_next = nullptr;
 
@@ -417,7 +342,6 @@ namespace astia::io {
             completed,
         };
 
-        core::clsource     _cancel_source;
         astia::io::request _request;
         volatile u8        _state          = static_cast<u8>(state::owner);
         volatile u32       _refs           = 1;
@@ -461,13 +385,13 @@ namespace astia::io {
             release_ref();
         }
 
-        operation() : _request(_cancel_source) {
+        operation() {
             _request._operation = this;
         }
         operation(void* buffer, u32 length, u64 offset, direction direction,
                   mm::uptr<core::completion<i64>> completion = {},
                   core::cltoken                   token      = {})
-            : _request(_cancel_source, buffer, length, offset, 0, direction) {
+            : _request(buffer, length, offset, 0, direction) {
             _request._operation = this;
             _request.external_token(token);
             _request.completion(
@@ -476,7 +400,7 @@ namespace astia::io {
         operation(void* buffer, u32 length, u64 offset, u64 user_data,
                   direction direction, mm::uptr<core::completion<i64>> completion = {},
                   core::cltoken token = {})
-            : _request(_cancel_source, buffer, length, offset, user_data, direction) {
+            : _request(buffer, length, offset, user_data, direction) {
             _request._operation = this;
             _request.external_token(token);
             _request.completion(
@@ -581,43 +505,7 @@ namespace astia::io {
                 }
             }
         }
-
-        bool cancellation_acknowledged() const {
-            return __atomic_load_n(&_request._cancel_acknowledged, __ATOMIC_ACQUIRE);
-        }
     };
-
-    inline void request::cancel_acknowledge() {
-        if (!cancellation_requested())
-            return;
-        bool expected = false;
-        if (!__atomic_compare_exchange_n(&_cancel_acknowledged, &expected, true, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-            return;
-        auto* observer =
-            __atomic_exchange_n(&_cancellation_observer, nullptr, __ATOMIC_ACQ_REL);
-        if (observer != nullptr)
-            observer->cancellation_acknowledged(*this);
-        else {
-            auto  legacy_observer = __atomic_exchange_n(&_legacy_cancellation_observer,
-                                                        nullptr, __ATOMIC_ACQ_REL);
-            auto* context =
-                __atomic_load_n(&_legacy_cancellation_context, __ATOMIC_ACQUIRE);
-            if (legacy_observer != nullptr)
-                legacy_observer(*this, context);
-        }
-        if (_operation != nullptr)
-            _operation->acknowledge();
-    }
-
-    inline bool request::retain_callback_ref() {
-        return _operation != nullptr && _operation->retain_for_device();
-    }
-
-    inline void request::release_callback_ref() {
-        if (_operation != nullptr)
-            _operation->release_for_device();
-    }
 
     inline bool request::park_device() {
         return _operation != nullptr && _operation->park_device();
@@ -630,11 +518,6 @@ namespace astia::io {
     inline void request::release_for_device() {
         if (_operation != nullptr)
             _operation->release_for_device();
-    }
-
-    inline bool request::canceled() const {
-        return _operation != nullptr &&
-               (_operation->canceled() || cancellation_requested());
     }
 
     inline bool request::begin_device() {
