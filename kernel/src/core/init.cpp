@@ -1,5 +1,5 @@
-#include <astia/init.hpp>
 #include <astia/core/resume_queue.hpp>
+#include <astia/init.hpp>
 
 namespace astia::core {
 

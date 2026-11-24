@@ -1,5 +1,5 @@
 set(_astia_core_sources
-        init_core.cpp
+        init.cpp
         resume_queue.cpp
         rcu_runtime.cpp
 )

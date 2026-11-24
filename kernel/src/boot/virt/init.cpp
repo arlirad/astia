@@ -1,6 +1,6 @@
+#include <astia/boot.hpp>
 #include <astia/boot/virt/multiboot2.hpp>
 #include <astia/boot/virt/pvh.hpp>
-#include <astia/boot.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
@@ -21,7 +21,7 @@ namespace astia::boot::virt {
 
     static bool step_boot(init::context& ctx) {
         static astia::boot::boot_info info{};
-        span<const u8> start_info;
+        span<const u8>                start_info;
         if (!identity_span(ctx.start_info, start_info))
             return false;
 

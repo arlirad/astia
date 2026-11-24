@@ -149,7 +149,7 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     slug: "docs-pci-mmio",
     title: "PCI BAR MMIO mapping",
     group: "Design note",
-    summary: "The x86_64 kernel PCI mapper (kernel/src/arch/x86_64/init_arch.cpp) only maps BARs whose page-rounded physical start is at or above the write-back alias floor: Everything below...",
+    summary: "The x86_64 kernel PCI mapper (kernel/src/arch/x86_64/init.cpp) only maps BARs whose page-rounded physical start is at or above the write-back alias floor: Everything below...",
     sourcePath: "docs/pci-mmio.md",
     contentKind: "markdown",
   },

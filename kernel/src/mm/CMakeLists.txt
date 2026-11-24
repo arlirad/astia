@@ -7,7 +7,7 @@ add_library(mm STATIC
         pinned_buffer.cpp
         iovec.cpp
         dma_buffer.cpp
-        init_mm.cpp
+        init.cpp
 )
 
 target_include_directories(mm PUBLIC
