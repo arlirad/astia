@@ -52,13 +52,7 @@ namespace astia::fs {
             return path[n] == '/';
         }
 
-        mm::phys_region* tmpfs_mapping(const file* parent) {
-            return const_cast<tmpfs_file*>(static_cast<const tmpfs_file*>(parent))
-                ->memory_region();
-        }
-
-        const file_mapping_capability tmpfs_mapping_capability{tmpfs_mapping};
-        tmpfs_mount                   shared_memory_mount;
+        tmpfs_mount shared_memory_mount;
 
         bool access_allowed(file_mode mode, uid_t owner, gid_t group, uid_t euid,
                             gid_t egid, permission_bits want, bool privileged) {
@@ -75,14 +69,20 @@ namespace astia::fs {
         }
     } // namespace
 
-    const void* tmpfs_file::capability(file_capability kind) const {
-        switch (kind) {
-        case file_capability::mapping:
-            return &tmpfs_mapping_capability;
-        default:
-            return file::capability(kind);
+    namespace {
+        long immediate_io(tmpfs_file& file, const void* buffer, u32 length, u64 offset,
+                          io::direction direction) {
+            io::operation operation(const_cast<void*>(buffer), length, offset, direction);
+            io::request&  request = operation.request();
+            if (!request.park_device())
+                return -EAGAIN;
+            long result = file.submit(request);
+            if (result == 0 && !request.complete())
+                return -EAGAIN;
+            request.acknowledge();
+            return result;
         }
-    }
+    } // namespace
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : _storage(mode.is_directory() ? nullptr : mm::phys_region::create(pages, true)),
@@ -94,7 +94,17 @@ namespace astia::fs {
         }
     }
 
-    long tmpfs_file::read(void* buffer, u32 length, u64 offset) {
+    core::task<i64> tmpfs_file::readv(span<const buffer> buffers, u64 offset,
+                                      core::cltoken token) {
+        return submit_readv(buffers, offset, token);
+    }
+
+    core::task<i64> tmpfs_file::writev(span<const buffer> buffers, u64 offset,
+                                       core::cltoken token) {
+        return submit_writev(buffers, offset, token);
+    }
+
+    long tmpfs_file::read_ready(void* buffer, u32 length, u64 offset) {
         core::spinlock_guard guard(_lock);
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
@@ -113,7 +123,7 @@ namespace astia::fs {
         return static_cast<long>(count);
     }
 
-    long tmpfs_file::write(const void* buffer, u32 length, u64 offset) {
+    long tmpfs_file::write_ready(const void* buffer, u32 length, u64 offset) {
         core::spinlock_guard guard(_lock);
         if (buffer == nullptr && length != 0) {
             return -EFAULT;
@@ -135,23 +145,24 @@ namespace astia::fs {
         return static_cast<long>(length);
     }
 
-    long tmpfs_file::sync() {
+    core::task<i64> tmpfs_file::sync(core::cltoken) {
         core::spinlock_guard guard(_lock);
         if (_storage == nullptr || !_mode.is_regular())
-            return -EINVAL;
+            co_return -EINVAL;
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
-        return 0;
+        co_return 0;
     }
 
-    long tmpfs_file::sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32) {
+    core::task<i64> tmpfs_file::sync_mapping(mm::phys_region* mapping, u64 offset,
+                                             u64 length, u32, core::cltoken) {
         const u64 page_bytes = mm::phys_region::frame_size;
         if (length == 0 || (offset % page_bytes) != 0 || (length % page_bytes) != 0 ||
             offset > ~u64{0} - length || mapping != _storage || _storage == nullptr ||
             offset >= tmpfs_max_pages * page_bytes) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         if (length > tmpfs_max_pages * page_bytes - offset) {
-            return -EINVAL;
+            co_return -EINVAL;
         }
         core::spinlock_guard guard(_lock);
         const u64            range_end = offset + length;
@@ -165,7 +176,7 @@ namespace astia::fs {
             auto* target = static_cast<u8*>(
                 _storage->page_direct(static_cast<usize>(current / page_bytes)));
             if (source == nullptr || target == nullptr)
-                return -EIO;
+                co_return -EIO;
             if (visible_start < visible_end) {
                 const u64 first = visible_start - current;
                 const u64 count = visible_end - visible_start;
@@ -178,10 +189,14 @@ namespace astia::fs {
                 target[i - current] = 0;
         }
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
-        return 0;
+        co_return 0;
     }
 
-    long tmpfs_file::truncate(u64 length) {
+    core::task<i64> tmpfs_file::truncate(u64 length, core::cltoken) {
+        co_return truncate_ready(length);
+    }
+
+    long tmpfs_file::truncate_ready(u64 length) {
         core::spinlock_guard guard(_lock);
         const u64            capacity = tmpfs_max_pages * mm::phys_region::frame_size;
         if (length > capacity)
@@ -227,7 +242,7 @@ namespace astia::fs {
         }
         if (existing) {
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
-                existing->truncate(0);
+                existing->truncate_ready(0);
             return mm::share<open_file>(existing, flags);
         }
         if ((flags & oflag_creat) == 0) {
@@ -243,7 +258,7 @@ namespace astia::fs {
             --end;
         parent[end > 1 ? end - 1 : 1] = '\0';
         auto file                     = mm::shptr<tmpfs_file>(new tmpfs_file{});
-        if (!file || dispatch_mapping(file.get()) == nullptr)
+        if (!file || file->memory_region() == nullptr)
             return {};
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -280,7 +295,7 @@ namespace astia::fs {
             return mm::share<open_file>(file, flags);
         if (existing) {
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
-                existing->truncate(0);
+                existing->truncate_ready(0);
             return mm::share<open_file>(existing, flags);
         }
         return {};
@@ -314,7 +329,7 @@ namespace astia::fs {
                 return -ENOMEM;
             result->set_path(path);
             if ((flags & oflag_trunc) != 0 && access != 0)
-                return _entries[i].target->truncate(0);
+                return _entries[i].target->truncate_ready(0);
             return 0;
         }
         if ((flags & oflag_creat) == 0)
@@ -430,7 +445,7 @@ namespace astia::fs {
             1, file_mode(file_type::symlink, default_symlink_permissions)});
         if (!file)
             return -ENOMEM;
-        if (dispatch_write(file.get(), target, n, 0) != (long) n)
+        if (immediate_io(*file, target, n, 0, io::direction::output) != (long) n)
             return -ENOSPC;
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -467,7 +482,7 @@ namespace astia::fs {
                 }
         }
         if (file)
-            return dispatch_read(file.get(), buffer, capacity, 0);
+            return immediate_io(*file, buffer, capacity, 0, io::direction::input);
         return -ENOENT;
     }
 

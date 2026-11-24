@@ -618,7 +618,17 @@ namespace astia::fs {
     }
 
     u32 open_file::poll(u32 events) const {
-        return _parent ? _parent->poll(events, 0) : 0;
+        if (!_parent)
+            return 0;
+        auto contract = _parent->as_pollable();
+        if (contract)
+            return contract->poll(events, _flags);
+        u32 ready = 0;
+        if (_parent->as_readable())
+            ready |= POLLIN;
+        if (_parent->as_writable())
+            ready |= POLLOUT;
+        return ready & events;
     }
 
     long open_file::submit(io::request& request) {
@@ -630,11 +640,23 @@ namespace astia::fs {
     }
 
     long open_file::truncate(u64 length) {
-        return _parent ? _parent->truncate(length) : -EBADF;
+        if (!_parent)
+            return -EBADF;
+        auto contract = _parent->as_truncatable();
+        if (!contract)
+            return -EINVAL;
+        auto result = detail::await_now(contract->truncate(length, {}));
+        return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
     long open_file::ioctl(u64 request, void* argument, usize size) {
-        return _parent ? _parent->ioctl(request, argument, size) : -EBADF;
+        if (!_parent)
+            return -EBADF;
+        auto contract = _parent->as_ioctlable();
+        if (!contract)
+            return -ENOTTY;
+        auto result = detail::await_now(contract->ioctl(request, argument, size, {}));
+        return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
     long open_file::acquire_controlling_terminal(i32 group) {

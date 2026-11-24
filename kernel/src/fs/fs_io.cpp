@@ -140,13 +140,13 @@ namespace astia::fs {
         }
     } // namespace
 
-    core::task<i64> file::readv(span<const buffer> buffers, u64 offset,
-                                core::cltoken token) {
+    core::task<i64> file::submit_readv(span<const buffer> buffers, u64 offset,
+                                       core::cltoken token) {
         return submit_vector(this, buffers, offset, io::direction::input, token);
     }
 
-    core::task<i64> file::writev(span<const buffer> buffers, u64 offset,
-                                 core::cltoken token) {
+    core::task<i64> file::submit_writev(span<const buffer> buffers, u64 offset,
+                                        core::cltoken token) {
         return submit_vector(this, buffers, offset, io::direction::output, token);
     }
 
@@ -159,9 +159,12 @@ namespace astia::fs {
             co_return i64{0};
         if (!_parent)
             co_return error_t::ebadf;
+        auto contract = _parent->as_readable();
+        if (!contract)
+            co_return error_t::ebadf;
         const bool current = offset == offset_current;
         const u64  actual  = current ? current_position() : offset;
-        auto       result  = co_await _parent->readv(buffers, actual, token);
+        auto       result  = co_await contract->readv(buffers, actual, token);
         if (!result)
             co_return result.error;
         if (result.value > 0 && current)
@@ -187,7 +190,10 @@ namespace astia::fs {
             if (reserved < 0)
                 co_return error_from_errno(-reserved);
         }
-        auto result = co_await _parent->writev(buffers, actual, token);
+        auto contract = _parent->as_writable();
+        if (!contract)
+            co_return error_t::ebadf;
+        auto result = co_await contract->writev(buffers, actual, token);
         if (!result)
             co_return result.error;
         if (result.value > 0 && (current || append))
@@ -195,44 +201,33 @@ namespace astia::fs {
         co_return result.value;
     }
 
-    core::task<i64> submit(const mm::shptr<open_file>& handle, void* buffer_ptr,
-                           u32 length, u64 offset, io::direction direction,
-                           core::cltoken token) {
-        if (!handle)
-            co_return error_t::ebadf;
-        buffer entry{buffer_ptr, length};
-        auto   result =
-            direction == io::direction::input
-                  ? co_await handle->readv(span<const buffer>(&entry, 1), offset, token)
-                  : co_await handle->writev(span<const buffer>(&entry, 1), offset, token);
+    core::task<i64> open_file::read(span<u8> bytes, u64 offset, core::cltoken token) {
+        if (bytes.size() > static_cast<usize>(~u32{0}))
+            co_return error_t::erange;
+        fs::buffer entry{bytes.data(), bytes.size()};
+        auto result = co_await readv(span<const fs::buffer>(&entry, 1), offset, token);
         if (!result)
             co_return result.error;
         co_return result.value;
     }
 
-    core::task<i64> read(const mm::shptr<open_file>& handle, span<u8> buffer, u64 offset,
-                         core::cltoken token) {
-        if (buffer.size() > static_cast<usize>(~u32{0}))
-            return core::task<i64>(error_t::erange);
-        return submit(handle, buffer.data(), static_cast<u32>(buffer.size()), offset,
-                      io::direction::input, token);
-    }
-
-    core::task<i64> write(const mm::shptr<open_file>& handle, span<const u8> buffer,
-                          u64 offset, core::cltoken token) {
-        if (buffer.size() > static_cast<usize>(~u32{0}))
-            return core::task<i64>(error_t::erange);
-        return submit(handle, const_cast<u8*>(buffer.data()),
-                      static_cast<u32>(buffer.size()), offset, io::direction::output,
-                      token);
-    }
-
-    core::task<i64> read_exact(const mm::shptr<open_file>& handle, span<u8> buffer,
-                               u64 offset, core::cltoken token) {
-        auto result = co_await read(handle, buffer, offset, token);
+    core::task<i64> open_file::write(span<const u8> bytes, u64 offset,
+                                     core::cltoken token) {
+        if (bytes.size() > static_cast<usize>(~u32{0}))
+            co_return error_t::erange;
+        fs::buffer entry{const_cast<u8*>(bytes.data()), bytes.size()};
+        auto result = co_await writev(span<const fs::buffer>(&entry, 1), offset, token);
         if (!result)
             co_return result.error;
-        if (result.value != static_cast<i64>(buffer.size()))
+        co_return result.value;
+    }
+
+    core::task<i64> open_file::read_exact(span<u8> bytes, u64 offset,
+                                          core::cltoken token) {
+        auto result = co_await read(bytes, offset, token);
+        if (!result)
+            co_return result.error;
+        if (result.value != static_cast<i64>(bytes.size()))
             co_return error_t::eio;
         co_return result.value;
     }

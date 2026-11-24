@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/api/errno.h>
 #include <astia/common.hpp>
 
 namespace astia {
@@ -34,6 +35,63 @@ namespace astia {
         enfile,     ///< Kernel-wide finite resource table is full.
         ecanceled,  ///< Operation was cancelled before it completed.
     };
+
+    /// Convert to the negative errno form used by the VFS and syscall seam.
+    constexpr i64 error_errno(error_t error) {
+        switch (error) {
+        case error_t::enone:
+            return 0;
+        case error_t::eacces:
+            return -EACCES;
+        case error_t::eaddrinuse:
+            return -EADDRINUSE;
+        case error_t::eagain:
+            return -EAGAIN;
+        case error_t::ebadf:
+            return -EBADF;
+        case error_t::ebusy:
+            return -EBUSY;
+        case error_t::edom:
+            return -EDOM;
+        case error_t::eexist:
+            return -EEXIST;
+        case error_t::efault:
+            return -EFAULT;
+        case error_t::eio:
+            return -EIO;
+        case error_t::einval:
+            return -EINVAL;
+        case error_t::enoent:
+            return -ENOENT;
+        case error_t::enomem:
+            return -ENOMEM;
+        case error_t::emfile:
+            return -EMFILE;
+        case error_t::enospc:
+            return -ENOSPC;
+        case error_t::enosys:
+            return -ENOSYS;
+        case error_t::enotdir:
+            return -ENOTDIR;
+        case error_t::enotempty:
+            return -ENOTEMPTY;
+        case error_t::eperm:
+            return -EPERM;
+        case error_t::erange:
+            return -ERANGE;
+        case error_t::erofs:
+            return -EROFS;
+        case error_t::etimedout:
+            return -ETIMEDOUT;
+        case error_t::e2big:
+            return -E2BIG;
+        case error_t::enfile:
+            return -ENFILE;
+        case error_t::ecanceled:
+            return -ECANCELED;
+        }
+        return -EIO;
+    }
 
     /// Short, human-readable name for an error code (for logs). Never null.
     inline const char* error_string(error_t error) {

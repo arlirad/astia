@@ -29,8 +29,8 @@ namespace {
               astia::span<astia::u8>                        buffer) {
         astia::i64 total = 0;
         for (astia::usize i = 0; i < buffer.size(); ++i) {
-            auto result = co_await astia::fs::read(
-                file, astia::span<astia::u8>(buffer.data() + i, 1), i);
+            auto result =
+                co_await file->read(astia::span<astia::u8>(buffer.data() + i, 1), i);
             if (!result)
                 co_return result.error;
             total += result.value;
@@ -50,8 +50,23 @@ namespace astia::fs {
         return 0;
     }
 
-    class fake_node final : public file {
+    class fake_node final : public file, public readable, public writable {
         public:
+        optional<readable&> as_readable() override {
+            return *this;
+        }
+        optional<writable&> as_writable() override {
+            return *this;
+        }
+        core::task<i64> readv(span<const buffer> buffers, u64 offset,
+                              core::cltoken token) override {
+            return submit_readv(buffers, offset, token);
+        }
+        core::task<i64> writev(span<const buffer> buffers, u64 offset,
+                               core::cltoken token) override {
+            return submit_writev(buffers, offset, token);
+        }
+
         long submit(io::request& request) override {
             last_direction = request.direction();
             if (submit_mode_state == submit_mode::synchronous_zero) {
@@ -90,7 +105,7 @@ ASTIA_TEST(fs_async_returns_synchronous_zero_completion) {
     submit_mode_state   = submit_mode::synchronous_zero;
     synchronous_submits = 0;
 
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    auto task = handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
@@ -105,13 +120,15 @@ ASTIA_TEST(fs_async_awaits_parked_zero_completion) {
     parked_completion = nullptr;
     parked_request    = nullptr;
 
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    auto task = handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
-    parked_request->acknowledge();
-    ASTIA_CHECK(parked_completion->complete(17));
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        parked_request->acknowledge();
+        ASTIA_CHECK(parked_completion->complete(17));
+    }
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 17);
@@ -126,15 +143,16 @@ ASTIA_TEST(fs_async_write_uses_submit_park_and_wake) {
     parked_request    = nullptr;
     last_direction    = astia::io::direction::input;
 
-    auto task =
-        astia::fs::write(handle, astia::span<const astia::u8>(buffer, sizeof buffer), 0);
+    auto task = handle->write(astia::span<const astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(last_direction == astia::io::direction::output);
     ASTIA_CHECK(parked_completion != nullptr);
     ASTIA_CHECK(parked_request != nullptr);
-    parked_request->acknowledge();
-    ASTIA_CHECK(parked_completion->complete(2));
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        parked_request->acknowledge();
+        ASTIA_CHECK(parked_completion->complete(2));
+    }
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 2);
@@ -147,15 +165,14 @@ ASTIA_TEST(fs_async_propagates_short_reads_and_errors) {
 
     submit_mode_state = submit_mode::synchronous_short;
     auto short_task =
-        astia::fs::read_exact(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+        handle->read_exact(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(short_task.resume());
     ASTIA_CHECK(short_task.done());
     ASTIA_CHECK(short_task.failed());
     ASTIA_CHECK(short_task.error() == astia::error_t::eio);
 
     submit_mode_state = submit_mode::synchronous_error;
-    auto error_task =
-        astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    auto error_task   = handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(error_task.resume());
     ASTIA_CHECK(error_task.done());
     ASTIA_CHECK(error_task.failed());
@@ -185,7 +202,7 @@ ASTIA_TEST(fs_async_cancels_parked_device_flight) {
     parked_completion = nullptr;
     parked_request    = nullptr;
 
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    auto task = handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(parked_completion != nullptr);
@@ -205,15 +222,19 @@ ASTIA_TEST(fs_async_completion_first_keeps_parked_request_stable) {
     parked_completion = nullptr;
     parked_request    = nullptr;
 
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0);
+    auto task = handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0);
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(parked_request != nullptr);
-    ASTIA_CHECK(parked_request->begin_device());
-    buffer[0] = 0xa5;
-    ASTIA_CHECK(parked_completion->complete(4));
+    ASTIA_CHECK(parked_completion != nullptr);
+    if (parked_request != nullptr && parked_completion != nullptr) {
+        ASTIA_CHECK(parked_request->begin_device());
+        buffer[0] = 0xa5;
+        ASTIA_CHECK(parked_completion->complete(4));
+    }
     ASTIA_CHECK(task.done());
-    parked_request->end_device();
+    if (parked_request != nullptr)
+        parked_request->end_device();
     ASTIA_CHECK(!task.failed());
     ASTIA_CHECK(task.value() != nullptr && *task.value() == 4);
     ASTIA_CHECK(buffer[0] == 0xa5);
@@ -228,20 +249,22 @@ ASTIA_TEST(fs_async_active_cancel_releases_device_reference_once) {
         parked_completion = nullptr;
         parked_request    = nullptr;
 
-        auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, 1), 0);
+        auto task = handle->read(astia::span<astia::u8>(buffer, 1), 0);
         ASTIA_CHECK(task.resume());
         ASTIA_CHECK(parked_request != nullptr);
         auto* request = parked_request;
-        ASTIA_CHECK(request->begin_device());
-        task.reset();
-        ASTIA_CHECK(request->cancellation_requested());
-        if ((cycle & 1) != 0) {
-            request->acknowledge();
-            request->end_device();
-        }
-        else {
-            request->end_device();
-            request->acknowledge();
+        if (request != nullptr) {
+            ASTIA_CHECK(request->begin_device());
+            task.reset();
+            ASTIA_CHECK(request->cancellation_requested());
+            if ((cycle & 1) != 0) {
+                request->acknowledge();
+                request->end_device();
+            }
+            else {
+                request->end_device();
+                request->acknowledge();
+            }
         }
     }
 }
@@ -289,8 +312,8 @@ ASTIA_TEST(fs_async_refuses_a_canceled_token_before_submit) {
 
     astia::core::clsource source;
     ASTIA_CHECK(source.cancel(astia::core::cancel_reason::request));
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
-                                source.token());
+    auto task =
+        handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0, source.token());
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(task.done());
     ASTIA_CHECK(task.failed());
@@ -307,8 +330,8 @@ ASTIA_TEST(fs_async_canceled_while_parked_discards_the_result) {
     parked_request    = nullptr;
 
     astia::core::clsource source;
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
-                                source.token());
+    auto                  task =
+        handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0, source.token());
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     if (parked_request == nullptr || parked_completion == nullptr) {
@@ -333,8 +356,8 @@ ASTIA_TEST(fs_async_reset_epoch_discards_a_parked_result) {
     parked_request    = nullptr;
 
     astia::core::clsource source;
-    auto task = astia::fs::read(handle, astia::span<astia::u8>(buffer, sizeof buffer), 0,
-                                source.token());
+    auto                  task =
+        handle->read(astia::span<astia::u8>(buffer, sizeof buffer), 0, source.token());
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());
     if (parked_request == nullptr || parked_completion == nullptr) {
@@ -353,29 +376,27 @@ ASTIA_TEST(fs_async_reset_epoch_discards_a_parked_result) {
 
 ASTIA_TEST(fs_async_cancel_end_device_race_is_linearized) {
     for (int cycle = 0; cycle < 128; ++cycle) {
-        astia::fs::open_file file(make_parent(), astia::fs::open_file_status_flags::none);
-        auto      handle = astia::mm::shptr<astia::fs::open_file>::borrowed(&file);
-        astia::u8 buffer[1]{};
-        astia::fs::io_packet packet(handle, buffer, 1, 0, astia::io::direction::input);
-        ASTIA_CHECK(packet);
-        ASTIA_CHECK(packet.request().park_device());
-        ASTIA_CHECK(packet.request().begin_device());
+        astia::u8            buffer[1]{};
+        astia::io::operation operation(buffer, 1, 0, astia::io::direction::input);
+        auto&                request = operation.request();
+        ASTIA_CHECK(request.park_device());
+        ASTIA_CHECK(request.begin_device());
 
         std::atomic<bool> start{false};
         std::thread       cancel([&] {
             while (!start.load(std::memory_order_acquire))
                 std::this_thread::yield();
-            packet.request().cancel_device(false);
+            request.cancel_device(false);
         });
         std::thread       end([&] {
             while (!start.load(std::memory_order_acquire))
                 std::this_thread::yield();
-            packet.request().end_device();
+            request.end_device();
         });
         start.store(true, std::memory_order_release);
         cancel.join();
         end.join();
-        packet.request().acknowledge();
+        request.acknowledge();
     }
 }
 

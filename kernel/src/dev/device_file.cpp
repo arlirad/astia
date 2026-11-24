@@ -147,24 +147,14 @@ namespace astia::dev {
         notify_quiescent();
     }
 
-    long device_file::read(void* buf, u32 len, u64 offset) {
-        device* value = begin_operation();
-        if (value == nullptr)
-            return -ENODEV;
-        const long result =
-            value->read(astia::span<u8>(static_cast<u8*>(buf), len), offset);
-        end_operation();
-        return result;
+    core::task<i64> device_file::readv(span<const fs::buffer> buffers, u64 offset,
+                                       core::cltoken token) {
+        return submit_readv(buffers, offset, token);
     }
 
-    long device_file::write(const void* buf, u32 len, u64 offset) {
-        device* value = begin_operation();
-        if (value == nullptr)
-            return -ENODEV;
-        const long result =
-            value->write(astia::span<const u8>(static_cast<const u8*>(buf), len), offset);
-        end_operation();
-        return result;
+    core::task<i64> device_file::writev(span<const fs::buffer> buffers, u64 offset,
+                                        core::cltoken token) {
+        return submit_writev(buffers, offset, token);
     }
 
     long device_file::submit(io::request& request) {
@@ -201,14 +191,15 @@ namespace astia::dev {
         return result;
     }
 
-    long device_file::ioctl(u64 request, void* argp, usize size) {
+    core::task<i64> device_file::ioctl(u64 request, void* argp, usize size,
+                                       core::cltoken) {
         device* value = begin_operation();
         if (value == nullptr)
-            return -ENODEV;
+            co_return -ENODEV;
         const long result =
             value->ioctl(request, astia::span<u8>(static_cast<u8*>(argp), size));
         end_operation();
-        return result;
+        co_return result;
     }
 
     long device_file::acquire_controlling_terminal(i32 group) {
