@@ -442,7 +442,7 @@ int getgroups(int count, gid_t groups[]) {
     return (int) rc;
 }
 int setgroups(int count, const gid_t groups[]) {
-    long rc = astia_setgroups(count, (const uint32_t*) groups);
+    long rc = __astia_process_setgroups(count, (const unsigned int*) groups);
     if (rc < 0) {
         errno = (int) -rc;
         return -1;

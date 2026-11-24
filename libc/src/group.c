@@ -1,13 +1,30 @@
+#include <errno.h>
 #include <grp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+enum { INITGROUPS_MAX_GROUPS = 16 };
 
 static FILE*        group_file;
 static char         group_line[1024];
 static char         group_name[256], group_passwd[256];
 static char*        group_members[64];
 static struct group group_result;
+
+__attribute__((weak, noinline)) const char* __astia_group_database_path(void) {
+    return "/etc/group";
+}
+
+static int group_list_contains(const gid_t* groups, int count, gid_t gid) {
+    int i;
+
+    for (i = 0; i < count; ++i)
+        if (groups[i] == gid)
+            return 1;
+    return 0;
+}
 
 static struct group* parse_group(char* line) {
     char*         field;
@@ -52,7 +69,7 @@ static struct group* parse_group(char* line) {
 
 void setgrent(void) {
     if (group_file == NULL)
-        group_file = fopen("/etc/group", "r");
+        group_file = fopen(__astia_group_database_path(), "r");
     else
         rewind(group_file);
 }
@@ -98,4 +115,35 @@ struct group* getgrgid(gid_t gid) {
         }
     endgrent();
     return NULL;
+}
+int initgroups(const char* user, gid_t group) {
+    gid_t         groups[INITGROUPS_MAX_GROUPS];
+    int           count = 0;
+    struct group* entry;
+
+    if (user == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    groups[count++] = group;
+    setgrent();
+    while ((entry = getgrent()) != NULL) {
+        char** member;
+
+        for (member = entry->gr_mem; *member != NULL; ++member) {
+            if (strcmp(*member, user) != 0)
+                continue;
+            if (!group_list_contains(groups, count, entry->gr_gid)) {
+                if (count == INITGROUPS_MAX_GROUPS) {
+                    endgrent();
+                    errno = EINVAL;
+                    return -1;
+                }
+                groups[count++] = entry->gr_gid;
+            }
+            break;
+        }
+    }
+    endgrent();
+    return setgroups(count, groups);
 }

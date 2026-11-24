@@ -69,6 +69,11 @@ __attribute__((weak)) long __astia_process_getegid(void) {
     return astia_getegid();
 }
 
+__attribute__((weak)) long __astia_process_setgroups(int                 count,
+                                                     const unsigned int* groups) {
+    return astia_setgroups(count, (const uint32_t*) groups);
+}
+
 int getpid(void) {
     return process_result(__astia_process_getpid());
 }

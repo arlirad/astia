@@ -98,6 +98,11 @@ __attribute__((weak)) long __astia_process_getgroups(int count, unsigned int* gr
     return host_trap(SYS_getgroups, count, (long) groups, 0, 0);
 }
 
+__attribute__((weak)) long __astia_process_setgroups(int                 count,
+                                                     const unsigned int* groups) {
+    return host_trap(SYS_setgroups, count, (long) groups, 0, 0);
+}
+
 long __astia_process_getpgrp(void) {
     return host_trap(SYS_getpgrp, 0, 0, 0, 0);
 }

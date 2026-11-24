@@ -14,3 +14,4 @@ struct group* getgrgid(gid_t gid);
 void          setgrent(void);
 struct group* getgrent(void);
 void          endgrent(void);
+int           initgroups(const char* user, gid_t group);
