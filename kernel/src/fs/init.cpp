@@ -4,7 +4,7 @@
 namespace astia::fs {
 
     static bool step_fs(init::context&) {
-        return init();
+        return fs::init();
     }
 
 } // namespace astia::fs

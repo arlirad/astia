@@ -3,7 +3,7 @@ add_library(boot_virt STATIC
         pvh.cpp
         multiboot2.cpp
         ../init.cpp
-        init_boot.cpp
+        init.cpp
 )
 
 target_include_directories(boot_virt PUBLIC

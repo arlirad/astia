@@ -15,7 +15,7 @@ add_library(fs STATIC
         ext4/ext4_reader.cpp
         tmpfs.cpp
         unix_pathname.cpp
-        init_fs.cpp
+        init.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/pipe.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/unix_socket.cpp
 )

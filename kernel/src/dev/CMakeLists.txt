@@ -16,7 +16,7 @@ add_library(dev STATIC
         chr/pseudo_register.cpp
         chr/tty/uart16550.cpp
         debug_exit.cpp
-        init_dev.cpp
+        init.cpp
 )
 
 find_program(ASTIA_TTV0_OBJCOPY NAMES llvm-objcopy objcopy REQUIRED)

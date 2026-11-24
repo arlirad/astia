@@ -1,10 +1,11 @@
-#include "chr/pseudo.hpp"
-#include "chr/tty/uart16550.hpp"
-#include "chr/tty/virtual_tty.hpp"
-#include "chr/tty/framebuffer_console.hpp"
 #include <astia/hw/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
+
+#include "chr/pseudo.hpp"
+#include "chr/tty/framebuffer_console.hpp"
+#include "chr/tty/uart16550.hpp"
+#include "chr/tty/virtual_tty.hpp"
 
 namespace astia::dev {
 

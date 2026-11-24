@@ -61,7 +61,7 @@ namespace astia::arch {
 namespace astia::arch::x86_64 {
 
     static bool step_paging(init::context& ctx) {
-        if (ctx.info == nullptr) {
+        if (!ctx.info) {
             return false;
         }
 

@@ -5,7 +5,7 @@
 namespace astia::mm {
 
     static bool step_frames(init::context& ctx) {
-        if (ctx.info == nullptr) {
+        if (!ctx.info) {
             return false;
         }
         kernel_frames().init(ctx.info->memory);

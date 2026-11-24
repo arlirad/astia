@@ -17,7 +17,7 @@ add_library(arch_x86_64 STATIC
         ap_trampoline.S
         isrs.S
         ${CMAKE_CURRENT_BINARY_DIR}/isrs_gen.S
-        init_arch.cpp
+        init.cpp
         pci_config.cpp
         pci_mmio_owner.cpp
         smp.cpp

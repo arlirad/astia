@@ -68,7 +68,7 @@ namespace astia::mod {
     } // namespace
 
     static bool step_mod(init::context& ctx) {
-        if (ctx.info == nullptr) {
+        if (!ctx.info) {
             return false;
         }
         // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).

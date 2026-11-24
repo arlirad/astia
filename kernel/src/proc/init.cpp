@@ -8,7 +8,9 @@ namespace astia::proc {
     bool register_proc_hooks();
 
     static bool step_proc(init::context&) {
-        return proc::init() && scheduler::init() && register_proc_hooks();
+        if (!proc::init() || !scheduler::init())
+            return false;
+        return register_proc_hooks();
     }
 
 } // namespace astia::proc
