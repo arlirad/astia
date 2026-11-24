@@ -50,7 +50,7 @@ typedef struct astia_x86_64_signal_context {
 #define ASTIA_SEGV_MAPERR 1
 #define ASTIA_SEGV_ACCERR 2
 
-#define ASTIA_SIGAIO 29
+#define ASTIA_SIGAIO 16
 enum {
     ASTIA_SIG_BLOCK   = 0,
     ASTIA_SIG_UNBLOCK = 1,

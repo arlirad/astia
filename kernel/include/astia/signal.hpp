@@ -21,6 +21,7 @@ namespace astia {
         pipe   = 13,
         alrm   = 14,
         term   = 15,
+        aio    = 16,
         chld   = 17,
         cont   = 18,
         stop   = 19,
@@ -33,8 +34,7 @@ namespace astia {
         vtalrm = 26,
         prof   = 27,
         winch  = 28,
-        aio    = 29,
-        io     = aio,
+        io     = 29,
         pwr    = 30,
         sys    = 31,
     };
@@ -99,7 +99,7 @@ namespace astia {
 
     constexpr bool valid_signal(signal_number signal) {
         const u8 value = static_cast<u8>(signal);
-        return value > 0 && value < signal_count && value != 16;
+        return value > 0 && value < signal_count;
     }
 
     constexpr signal_mask signal_bit(signal_number signal) {
@@ -117,6 +117,7 @@ namespace astia {
         case signal_number::urg:
         case signal_number::winch:
         case signal_number::aio:
+        case signal_number::io:
             return signal_default::ignore;
         case signal_number::stop:
         case signal_number::tstp:
