@@ -21,7 +21,7 @@ SECTION7_SLUGS = {
 }
 SECTION7_ALIASES = {name: f"docs-7-{name}" for name in SECTION7_NAMES}
 RAW_SYNOPSIS = "Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
-SECTION2_SUBSYSTEMS = ("abi", "fs", "proc")
+SECTION2_SUBSYSTEMS = ("abi", "dl", "fs", "proc")
 PROC_CATEGORIES = ("core", "ipc", "memory", "process", "signal", "thread")
 CATEGORY = re.compile(r"^[a-z0-9]+(?:[/-][a-z0-9]+)*$")
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -191,6 +191,12 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
         assert handler is not None
         if subsystem == "proc":
             _require(category == expected_proc_category(handler, repo_root), f"{name}: proc category does not match its handler")
+        elif subsystem == "dl":
+            _require(category == "dl", f"{name}: dl category must be dl")
+            _require(
+                handler.resolve().is_relative_to((repo_root / "kernel/src/dl/syscalls").resolve()),
+                f"{handler}: dl syscall handler must live under kernel/src/dl/syscalls",
+            )
         elif subsystem == "fs":
             _require(category == "fs", f"{name}: fs category must be fs")
             _require(
