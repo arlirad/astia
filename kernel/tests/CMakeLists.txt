@@ -625,6 +625,17 @@ add_custom_command(
 astia_embed_blob(_lifecycle_reentrant_fixture_cpp
         ${_fix_dir}/module_lifecycle_reentrant.o module_lifecycle_reentrant_blob)
 
+# Compile-only target: these fixtures are normally built by the custom
+# ET_REL commands above, which do not appear in compile_commands.json.  The
+# object library supplies valid compilation-database entries for clang-tidy
+# without linking the fixture symbols into any test binary.
+add_library(astia_module_lifecycle_fixture_compile_db OBJECT
+        module_lifecycle_reentrant_fixture.cpp
+        module_lifecycle_wait_fixture.cpp)
+target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
+        -ffreestanding -fno-pic -fno-pie -mcmodel=large
+        -fno-exceptions -fno-rtti -fno-use-cxa-atexit)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(

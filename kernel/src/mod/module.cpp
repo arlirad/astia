@@ -170,6 +170,10 @@ namespace astia::mod {
             destination[i] = '\0';
         }
 
+        void reset_loaded_module(loaded_module& module) {
+            __builtin_memset(static_cast<void*>(&module), 0, sizeof module);
+        }
+
         registry_slot* find_slot_locked(module_id id, module_error& error) {
             error = module_error::not_found;
             if (!id.valid() || id.slot >= max_modules) {
@@ -207,7 +211,7 @@ namespace astia::mod {
                 slot.close_wait  = nullptr;
                 slot.close_owner = false;
                 ++slot.generation;
-                slot.module = loaded_module{};
+                reset_loaded_module(slot.module);
             }
         }
 
@@ -321,8 +325,7 @@ namespace astia::mod {
                     slot.close_wait  = nullptr;
                     slot.close_owner = false;
                     ++slot.generation;
-                    __builtin_memset(static_cast<void*>(&slot.module), 0,
-                                     sizeof slot.module);
+                    reset_loaded_module(slot.module);
                 }
             }
             for (usize i = 0; i < plan.wake_count; ++i) {
@@ -457,9 +460,9 @@ namespace astia::mod {
                 if (slot == nullptr) {
                     return module_error::no_space;
                 }
-                index           = static_cast<usize>(slot - slots);
-                slot->state     = module_state::loading;
-                slot->module    = loaded_module{};
+                index       = static_cast<usize>(slot - slots);
+                slot->state = module_state::loading;
+                reset_loaded_module(slot->module);
                 slot->module.id = module_id{static_cast<u32>(index), slot->generation};
                 id              = slot->module.id;
             }

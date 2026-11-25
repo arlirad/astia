@@ -28,8 +28,6 @@ UNSUPPORTED_FILES = {
     "kernel/tests/module_lifecycle_fixture.cpp",
     "kernel/tests/module_lifecycle_dso_fixture.cpp",
     "kernel/tests/module_lifecycle_atexit_fixture.cpp",
-    "kernel/tests/module_lifecycle_reentrant_fixture.cpp",
-    "kernel/tests/module_lifecycle_wait_fixture.cpp",
     "kernel/tests/init_user.c",
     "kernel/tests/dyn_libc.c",
     "kernel/tests/fixture_base.c",
