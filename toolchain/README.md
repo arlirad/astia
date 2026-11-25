@@ -279,15 +279,29 @@ ZSH_SOURCE="$PWD/user/zsh" ZSH_BUILD="$PWD/build/user/zsh" \
   toolchain/build-zsh.sh
 ```
 
-Run the initial process/signal batch under the Astia kernel and QEMU:
+Run the initial process, signal, and file-sync batch under the Astia kernel
+and QEMU:
 
 ```sh
 POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh
 ```
 
-The initial batch is `fork/4-1`, `fork/9-1`, `kill/2-1`, and `killpg/1-1`. The fork tests
-cover process creation and the POSIX alarm reset rule; `getpid/1-1` now builds with
-Astia's pthread mutex and cancellation declarations. Its getpid semantics
+The initial batch is `fork/4-1`, `fork/9-1`, `kill/2-1`, `killpg/1-1`,
+`fsync/4-1`, `fsync/5-1`, and `fsync/7-1`. The fsync cases cover a regular-file
+write followed by `fsync` returning 0, `EBADF` for an invalid descriptor, and
+`EINVAL` for a pipe. Run the complete direct `fsync` category with:
+
+```sh
+POSIX_TEST_SOURCE=/tmp/ltp toolchain/run-posix-tests.sh --category fsync
+```
+
+The `aio_fsync/5-1` case is not part of this batch: Astia's `OP_FSYNC`
+completes synchronously, so the case keeps returning `PTS_UNTESTED` (rc 5) and
+the harness keeps reporting it as a failure.
+
+The fork tests cover process creation and the POSIX alarm reset rule;
+`getpid/1-1` now builds with Astia's pthread mutex and cancellation
+declarations. Its getpid semantics
 dependencies `sysconf`, `mkstemp`, and `ftruncate` are implemented. Astia
 reports its actual limits via `sysconf`: 64 open descriptors, 64 processes,
 and 100 clock ticks per second. The complete direct `kill` category, including
