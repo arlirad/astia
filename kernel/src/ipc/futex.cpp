@@ -1,45 +1,47 @@
 #include "futex.hpp"
 
-#include "../proc/proc.hpp"
-#include "scheduler.hpp"
-#include "user_mem.hpp"
 #include <astia/api/errno.h>
-#include <astia/resource_limits.hpp>
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/resource_limits.hpp>
+
+#include "../proc/proc.hpp"
+#include "scheduler.hpp"
+#include "user_mem.hpp"
+
 #include <limits.h>
 
 namespace astia::proc {
 
     namespace {
-        inline constexpr u32 futex_capacity        = resource_limits::queue::futex_waiters;
-        inline constexpr u32 futex_bucket_count    = resource_limits::queue::futex_buckets;
+        inline constexpr u32 futex_capacity     = resource_limits::queue::futex_waiters;
+        inline constexpr u32 futex_bucket_count = resource_limits::queue::futex_buckets;
         inline constexpr u32 futex_bucket_capacity = futex_capacity / futex_bucket_count;
         static_assert(futex_capacity % futex_bucket_count == 0);
 
         struct futex_waiter {
-            process*           owner   = nullptr;
-            u64                address = 0;
-            bool               shared  = false;
+            process*                            owner   = nullptr;
+            u64                                 address = 0;
+            bool                                shared  = false;
             mm::shptr<mm::phys_region_identity> identity;
-            mm::phys_region*   backing = nullptr;
-            usize              page    = 0;
-            usize              offset  = 0;
-            u64                deadline = 0;
-            i64*               result  = nullptr;
-            mm::shptr<process> owner_ref;
-            mm::shptr<thread>  value;
+            mm::phys_region*                    backing  = nullptr;
+            usize                               page     = 0;
+            usize                               offset   = 0;
+            u64                                 deadline = 0;
+            i64*                                result   = nullptr;
+            mm::shptr<process>                  owner_ref;
+            mm::shptr<thread>                   value;
 
             void release_shared_mapping() {
                 mm::phys_region* region = backing;
-                backing = nullptr;
+                backing                 = nullptr;
                 if (region != nullptr)
                     region->release_range(page, 1);
                 identity = {};
-                page = 0;
-                offset = 0;
+                page     = 0;
+                offset   = 0;
             }
         };
 
@@ -56,16 +58,17 @@ namespace astia::proc {
             return buckets[hash];
         }
 
-        futex_bucket& bucket_for_shared(const mm::shptr<mm::phys_region_identity>& identity,
-                                        usize page, usize offset) {
+        futex_bucket&
+        bucket_for_shared(const mm::shptr<mm::phys_region_identity>& identity, usize page,
+                          usize offset) {
             const u64 value = reinterpret_cast<u64>(identity.get()) +
                               static_cast<u64>(page) * 1315423911ull + offset;
             return buckets[static_cast<u32>((value >> 2) % futex_bucket_count)];
         }
 
-        bool shared_match(const futex_waiter& waiter,
-                          const mm::shptr<mm::phys_region_identity>& identity,
-                          usize page, usize offset) {
+        bool shared_match(const futex_waiter&                        waiter,
+                          const mm::shptr<mm::phys_region_identity>& identity, usize page,
+                          usize offset) {
             return waiter.shared && waiter.identity.get() == identity.get() &&
                    waiter.page == page && waiter.offset == offset;
         }
@@ -86,6 +89,32 @@ namespace astia::proc {
                                                 __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
             }
             return count < futex_capacity;
+        }
+
+        /// Parks a registered futex waiter.  The caller holds the bucket
+        /// lock and has interrupts masked; arming the continuation under
+        /// that lock closes the register-vs-wake race, then both are
+        /// released before the coroutine suspends.
+        struct futex_park {
+            thread&                self;
+            core::spinlock_guard&  bucket_lock;
+            arch::interrupt_guard& gate;
+
+            bool await_ready() const {
+                return false;
+            }
+            bool await_suspend(std::coroutine_handle<> continuation) {
+                self.arm_wait(continuation);
+                bucket_lock.unlock();
+                gate.unlock();
+                return true;
+            }
+            void await_resume() {}
+        };
+
+        void wake_futex_waiter(thread* waiter) {
+            if (waiter->wake_wait())
+                (void) scheduler::wake(waiter);
         }
 
         bool detach_waiter(thread* target, process* owner, signal_number signal) {
@@ -119,7 +148,7 @@ namespace astia::proc {
             }
             if (!wake)
                 return false;
-            scheduler::wake(wake.get());
+            wake_futex_waiter(wake.get());
             return true;
         }
     } // namespace
@@ -153,7 +182,7 @@ namespace astia::proc {
         }
         if (!wake)
             return false;
-        scheduler::wake(wake.get());
+        wake_futex_waiter(wake.get());
         return true;
     }
 
@@ -161,32 +190,32 @@ namespace astia::proc {
         return detach_waiter(target, nullptr, signal_number{});
     }
 
-    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
-                   bool shared) {
+    core::task<i64> futex_wait(u64 address, u32 expected, u64 timeout,
+                               bool cancellation_point, bool shared) {
         auto* owner = current_process();
-        auto* self = current_thread();
+        auto* self  = current_thread();
         if (owner == nullptr || self == nullptr)
-            return -EFAULT;
+            co_return -EFAULT;
         if (shared && (address & 3u) != 0)
-            return -EINVAL;
+            co_return -EINVAL;
         const auto validated = sys::user_ptr<u32>(address).validate();
         if (!validated)
-            return -EFAULT;
+            co_return -EFAULT;
         shared_futex_mapping shared_mapping;
         if (shared) {
             const i32 resolved = owner->resolve_shared_futex(address, shared_mapping);
             if (resolved < 0)
-                return resolved;
+                co_return resolved;
         }
         auto owner_ref = retain_process(owner->pid());
         if (!owner_ref) {
             shared_mapping.release();
-            return -EFAULT;
+            co_return -EFAULT;
         }
         auto* word = shared ? shared_mapping.word : validated.value.get();
         if (cancellation_point && self->cancellation_pending()) {
             shared_mapping.release();
-            return -EINTR;
+            co_return -EINTR;
         }
         u64 deadline = 0;
         if (timeout != 0) {
@@ -194,98 +223,97 @@ namespace astia::proc {
             const auto timeout_range = sys::user_ptr<astia_timespec>(timeout).validate();
             if (!timeout_range || !sys::copy_in(&abstime, timeout_range.value.bytes())) {
                 shared_mapping.release();
-                return -EFAULT;
+                co_return -EFAULT;
             }
-            if (abstime.tv_sec < 0 || abstime.tv_nsec < 0 || abstime.tv_nsec >= 1000000000) {
+            if (abstime.tv_sec < 0 || abstime.tv_nsec < 0 ||
+                abstime.tv_nsec >= 1000000000) {
                 shared_mapping.release();
-                return -EINVAL;
+                co_return -EINVAL;
             }
             const u64 now = monotonic_now_ns();
             if (now == 0 || static_cast<u64>(abstime.tv_sec) >
-                                 (UINT64_MAX - static_cast<u64>(abstime.tv_nsec)) /
-                                     nanoseconds_per_second) {
+                                (UINT64_MAX - static_cast<u64>(abstime.tv_nsec)) /
+                                    nanoseconds_per_second) {
                 shared_mapping.release();
-                return -EINVAL;
+                co_return -EINVAL;
             }
             deadline = static_cast<u64>(abstime.tv_sec) * nanoseconds_per_second +
                        static_cast<u64>(abstime.tv_nsec);
             if (deadline <= now) {
                 shared_mapping.release();
-                return -ETIMEDOUT;
+                co_return -ETIMEDOUT;
             }
         }
         i64 result = 0;
 
         arch::interrupt_guard gate;
-        auto& bucket = shared ? bucket_for_shared(shared_mapping.identity,
-                                                  shared_mapping.page,
-                                                  shared_mapping.offset)
-                              : bucket_for_private(address);
-        {
-            core::spinlock_guard lock(bucket.lock);
-            if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
-                shared_mapping.release();
-                return -EAGAIN;
-            }
-            if (cancellation_point && self->cancellation_pending()) {
-                shared_mapping.release();
-                return -EINTR;
-            }
-            if (deadline != 0 && deadline <= monotonic_now_ns()) {
-                shared_mapping.release();
-                return -ETIMEDOUT;
-            }
-            if (!reserve_waiter()) {
-                shared_mapping.release();
-                return -EAGAIN;
-            }
-            u32 slot = futex_bucket_capacity;
-            for (u32 i = 0; i < futex_bucket_capacity; ++i) {
-                if (!bucket.waiters[i].value) {
-                    slot = i;
-                    break;
-                }
-            }
-            if (slot == futex_bucket_capacity) {
-                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
-                shared_mapping.release();
-                return -EAGAIN;
-            }
-            mm::shptr<thread> retained = owner->retain_thread(self);
-            if (!retained || retained.get() != self) {
-                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
-                shared_mapping.release();
-                return -EAGAIN;
-            }
-            auto& waiter = bucket.waiters[slot];
-            waiter.owner = owner;
-            waiter.address = address;
-            waiter.shared = shared;
-            if (shared) {
-                waiter.identity = static_cast<mm::shptr<mm::phys_region_identity>&&>(
-                    shared_mapping.identity);
-                waiter.backing = shared_mapping.backing;
-                waiter.page = shared_mapping.page;
-                waiter.offset = shared_mapping.offset;
-                shared_mapping.backing = nullptr;
-            }
-            waiter.deadline = deadline;
-            waiter.result = &result;
-            waiter.owner_ref = static_cast<mm::shptr<process>&&>(owner_ref);
-            waiter.value = static_cast<mm::shptr<thread>&&>(retained);
-            self->state(thread_state::blocked);
-            if (cancellation_point && self->cancellation_pending()) {
-                waiter.release_shared_mapping();
-                waiter = {};
-                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
-                self->state(thread_state::running);
-                shared_mapping.release();
-                return -EINTR;
+        auto&                 bucket = shared
+                                           ? bucket_for_shared(shared_mapping.identity,
+                                                               shared_mapping.page, shared_mapping.offset)
+                                           : bucket_for_private(address);
+        core::spinlock_guard  lock(bucket.lock);
+        if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
+            shared_mapping.release();
+            co_return -EAGAIN;
+        }
+        if (cancellation_point && self->cancellation_pending()) {
+            shared_mapping.release();
+            co_return -EINTR;
+        }
+        if (deadline != 0 && deadline <= monotonic_now_ns()) {
+            shared_mapping.release();
+            co_return -ETIMEDOUT;
+        }
+        if (!reserve_waiter()) {
+            shared_mapping.release();
+            co_return -EAGAIN;
+        }
+        u32 slot = futex_bucket_capacity;
+        for (u32 i = 0; i < futex_bucket_capacity; ++i) {
+            if (!bucket.waiters[i].value) {
+                slot = i;
+                break;
             }
         }
+        if (slot == futex_bucket_capacity) {
+            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            shared_mapping.release();
+            co_return -EAGAIN;
+        }
+        mm::shptr<thread> retained = owner->retain_thread(self);
+        if (!retained || retained.get() != self) {
+            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            shared_mapping.release();
+            co_return -EAGAIN;
+        }
+        auto& waiter   = bucket.waiters[slot];
+        waiter.owner   = owner;
+        waiter.address = address;
+        waiter.shared  = shared;
+        if (shared) {
+            waiter.identity = static_cast<mm::shptr<mm::phys_region_identity>&&>(
+                shared_mapping.identity);
+            waiter.backing         = shared_mapping.backing;
+            waiter.page            = shared_mapping.page;
+            waiter.offset          = shared_mapping.offset;
+            shared_mapping.backing = nullptr;
+        }
+        waiter.deadline  = deadline;
+        waiter.result    = &result;
+        waiter.owner_ref = static_cast<mm::shptr<process>&&>(owner_ref);
+        waiter.value     = static_cast<mm::shptr<thread>&&>(retained);
+        self->state(thread_state::blocked);
+        if (cancellation_point && self->cancellation_pending()) {
+            waiter.release_shared_mapping();
+            waiter = {};
+            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            self->state(thread_state::running);
+            shared_mapping.release();
+            co_return -EINTR;
+        }
         shared_mapping.release();
-        scheduler::yield();
-        return result;
+        co_await futex_park{*self, lock, gate};
+        co_return result;
     }
 
     i64 futex_wake(u64 address, u32 count, bool shared) {
@@ -300,12 +328,12 @@ namespace astia::proc {
                 return resolved;
         }
         arch::interrupt_guard gate;
-        mm::shptr<thread> wake_list[futex_bucket_capacity];
-        u32 wake_count = 0;
-        auto& bucket = shared ? bucket_for_shared(shared_mapping.identity,
-                                                  shared_mapping.page,
-                                                  shared_mapping.offset)
-                              : bucket_for_private(address);
+        mm::shptr<thread>     wake_list[futex_bucket_capacity];
+        u32                   wake_count = 0;
+        auto&                 bucket     = shared
+                                               ? bucket_for_shared(shared_mapping.identity,
+                                                                   shared_mapping.page, shared_mapping.offset)
+                                               : bucket_for_private(address);
         {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
@@ -319,7 +347,7 @@ namespace astia::proc {
                 }
                 wake_list[wake_count++] = waiter.value;
                 waiter.release_shared_mapping();
-                bucket.waiters[i]       = {};
+                bucket.waiters[i] = {};
                 __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
             }
         }
@@ -327,7 +355,7 @@ namespace astia::proc {
         // Do not enter the scheduler while holding a futex bucket lock: the
         // scheduler may indirectly contend with another futex operation.
         for (u32 i = 0; i < wake_count; ++i)
-            scheduler::wake(wake_list[i].get());
+            wake_futex_waiter(wake_list[i].get());
         // FUTEX_WAKE reports matching waiters removed from this bucket.  It
         // must not depend on whether enqueue() accepted a request for a
         // waiter that has already been made runnable by another path.
@@ -358,8 +386,8 @@ namespace astia::proc {
         arch::interrupt_guard gate;
         for (u32 bucket_index = 0; bucket_index < futex_bucket_count; ++bucket_index) {
             mm::shptr<thread> wake_list[futex_bucket_capacity];
-            u32                wake_count = 0;
-            auto&              bucket     = buckets[bucket_index];
+            u32               wake_count = 0;
+            auto&             bucket     = buckets[bucket_index];
             {
                 core::spinlock_guard lock(bucket.lock);
                 for (u32 i = 0; i < futex_bucket_capacity; ++i) {
@@ -370,12 +398,12 @@ namespace astia::proc {
                         *waiter.result = -ETIMEDOUT;
                     wake_list[wake_count++] = waiter.value;
                     waiter.release_shared_mapping();
-                    waiter                   = {};
+                    waiter = {};
                     __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
                 }
             }
             for (u32 i = 0; i < wake_count; ++i)
-                scheduler::wake(wake_list[i].get());
+                wake_futex_waiter(wake_list[i].get());
         }
     }
 
