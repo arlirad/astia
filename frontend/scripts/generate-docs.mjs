@@ -196,15 +196,18 @@ const syscallPages = manifest.pages.map((entry) => {
   requireValue(authored.synopsis === entry.synopsis, `${entry.name}: exported synopsis differs from the authored manifest`);
   requireValue(!seenSlugs.has(entry.slug), `duplicate syscall slug: ${entry.slug}`);
   seenSlugs.add(entry.slug);
-  const content = normalize(readFileSync(join(syscallExportDir, entry.markdown), 'utf8'));
-  requireValue(synopsisOf(content) === entry.synopsis, `${entry.name}: exported Markdown synopsis differs`);
+  const sourcePath = `docs/2/${entry.name}.md`;
+  requireValue(existsSync(join(repoRoot, sourcePath)), `missing authored syscall page: ${sourcePath}`);
+  const content = normalize(readFileSync(join(repoRoot, sourcePath), 'utf8'));
+  requireValue(synopsisOf(content) === entry.synopsis, `${entry.name}: authored Markdown synopsis differs`);
   return {
     slug: entry.slug,
     title: entry.title,
     group: 'Syscall (2)',
     summary: summaryOf(content),
-    sourcePath: entry.source,
-    contentKind: 'source',
+    sourcePath,
+    contentKind: 'markdown',
+    implementationPath: entry.source,
     category: entry.category,
     syscallId: entry.id,
     synopsisKind: entry.synopsis_kind,
@@ -223,6 +226,9 @@ const body = pages
       `sourcePath: ${JSON.stringify(page.sourcePath)}`,
       `contentKind: ${JSON.stringify(page.contentKind)}`,
     ];
+    if (page.implementationPath) {
+      fields.push(`implementationPath: ${JSON.stringify(page.implementationPath)}`);
+    }
     if (page.aliases?.length) {
       fields.push(`aliases: ${JSON.stringify(page.aliases)}`);
     }
