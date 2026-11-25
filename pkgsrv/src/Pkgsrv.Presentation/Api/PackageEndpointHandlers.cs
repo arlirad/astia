@@ -1,4 +1,5 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Features.Packages.RequestBuild;
@@ -22,6 +23,27 @@ public static class PackageEndpointHandlers
 
             return Results.Ok(new PackageListResponse(
                 packages.Select(PackageSummaryResponse.From).ToArray()));
+        }
+        catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
+        {
+            return ApiErrorMapper.Map(exception);
+        }
+    }
+
+    public static async Task<IResult> GetAsync(
+        string name,
+        string version,
+        IMediator mediator,
+        IActorContextAccessor actors,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var package = await mediator.Send(
+                new GetPackageQuery(name, version, actors.GetCurrent()),
+                cancellationToken);
+
+            return Results.Ok(PackageResponse.From(package));
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
         {
@@ -69,7 +91,7 @@ public static class PackageEndpointHandlers
 
             var body = PackageResponse.From(result.Package);
 
-            return Results.Created($"/packages/{body.Name}/{body.Version}", body);
+            return Results.Created(PackageLocation(body.Name, body.Version), body);
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
         {
@@ -91,7 +113,7 @@ public static class PackageEndpointHandlers
                 cancellationToken);
 
             return Results.Accepted(
-                $"/packages/{result.Name}/{result.Version}",
+                PackageLocation(result.Name, result.Version),
                 BuildResponse.From(result));
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
@@ -99,4 +121,7 @@ public static class PackageEndpointHandlers
             return ApiErrorMapper.Map(exception);
         }
     }
+
+    private static string PackageLocation(string name, string version) =>
+        $"/packages/{Uri.EscapeDataString(name)}/{Uri.EscapeDataString(version)}";
 }

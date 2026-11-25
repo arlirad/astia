@@ -48,21 +48,36 @@ public sealed class PackageAggregateTests
     }
 
     [Fact]
-    public void DequeueDomainEvents_ClearsCollectedEvents()
+    public void AcknowledgeDomainEvents_RemovesPublishedSnapshot()
     {
         var package = TestPackages.CreatePackage();
-
-        var events = package.DequeueDomainEvents();
+        var events = package.PeekDomainEvents();
 
         Assert.Single(events);
+
+        package.AcknowledgeDomainEvents(events);
+
         Assert.Empty(package.DomainEvents);
+    }
+
+    [Fact]
+    public void AcknowledgeDomainEvents_LeavesEventsAddedAfterSnapshot()
+    {
+        var package = TestPackages.CreatePackage();
+        var published = package.PeekDomainEvents();
+        package.RequestBuild(TestPackages.Timestamp);
+
+        package.AcknowledgeDomainEvents(published);
+
+        var remaining = Assert.Single(package.DomainEvents);
+        Assert.IsType<PackageBuildRequested>(remaining);
     }
 
     [Fact]
     public async Task RequestBuild_AllowsExactlyOneConcurrentTransition()
     {
         var package = TestPackages.CreatePackage();
-        package.DequeueDomainEvents();
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var attempts = Enumerable.Range(0, 64)

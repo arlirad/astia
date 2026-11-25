@@ -32,12 +32,11 @@ public sealed record PkgsrvListenOptions
         ArgumentNullException.ThrowIfNull(configuration);
 
         var section = configuration.GetSection("Pkgsrv:Listen");
-        var unixSocketPath = section["UnixSocketPath"]?.Trim();
-
-        if (string.IsNullOrWhiteSpace(unixSocketPath))
-        {
-            unixSocketPath = DefaultUnixSocketPath;
-        }
+        var unixSocketPath = ReadValueOrDefault(
+            section,
+            "UnixSocketPath",
+            "Pkgsrv:Listen:UnixSocketPath",
+            DefaultUnixSocketPath);
 
         if (!Path.IsPathFullyQualified(unixSocketPath))
         {
@@ -48,23 +47,44 @@ public sealed record PkgsrvListenOptions
         var tcpEnabledValue = section["Tcp:Enabled"];
         var tcpEnabled = false;
 
-        if (!string.IsNullOrWhiteSpace(tcpEnabledValue)
-            && !bool.TryParse(tcpEnabledValue, out tcpEnabled))
+        if (tcpEnabledValue is not null
+            && (string.IsNullOrWhiteSpace(tcpEnabledValue)
+                || !bool.TryParse(tcpEnabledValue, out tcpEnabled)))
         {
             throw new InvalidOperationException(
-                "Pkgsrv:Listen:Tcp:Enabled must be true or false.");
+                "Pkgsrv:Listen:Tcp:Enabled must be true or false when supplied.");
         }
 
-        var tcpUrl = section["Tcp:Url"]?.Trim();
-
-        if (string.IsNullOrWhiteSpace(tcpUrl))
-        {
-            tcpUrl = DefaultTcpUrl;
-        }
-
+        var tcpUrl = ReadValueOrDefault(
+            section,
+            "Tcp:Url",
+            "Pkgsrv:Listen:Tcp:Url",
+            DefaultTcpUrl);
         var tcpEndpoint = tcpEnabled ? ParseLoopbackHttpEndpoint(tcpUrl) : null;
 
         return new PkgsrvListenOptions(unixSocketPath, tcpEnabled, tcpUrl, tcpEndpoint);
+    }
+
+    private static string ReadValueOrDefault(
+        IConfigurationSection section,
+        string relativeKey,
+        string fullKey,
+        string defaultValue)
+    {
+        var value = section[relativeKey];
+
+        if (value is null)
+        {
+            return defaultValue;
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new InvalidOperationException(
+                $"{fullKey} was supplied but is empty. Omit the key to use the default.");
+        }
+
+        return value.Trim();
     }
 
     private static Uri ParseLoopbackHttpEndpoint(string value)

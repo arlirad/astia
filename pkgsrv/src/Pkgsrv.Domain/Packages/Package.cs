@@ -105,13 +105,28 @@ public sealed class Package
         }
     }
 
-    public IReadOnlyList<IDomainEvent> DequeueDomainEvents()
+    public IReadOnlyList<IDomainEvent> PeekDomainEvents()
     {
+        return DomainEvents;
+    }
+
+    public void AcknowledgeDomainEvents(IReadOnlyCollection<IDomainEvent> publishedEvents)
+    {
+        ArgumentNullException.ThrowIfNull(publishedEvents);
+
         lock (_gate)
         {
-            var events = _domainEvents.ToArray();
-            _domainEvents.Clear();
-            return events;
+            foreach (var publishedEvent in publishedEvents)
+            {
+                for (var index = _domainEvents.Count - 1; index >= 0; index--)
+                {
+                    if (ReferenceEquals(_domainEvents[index], publishedEvent))
+                    {
+                        _domainEvents.RemoveAt(index);
+                        break;
+                    }
+                }
+            }
         }
     }
 }

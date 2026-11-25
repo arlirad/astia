@@ -1,4 +1,5 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Application.Abstractions.Builds;
 using Pkgsrv.Application.Abstractions.Security;
@@ -17,6 +18,21 @@ public sealed class PkgsrvCompositionTests
         await using var app = PkgsrvHost.Create([]);
 
         Assert.NotNull(app.Services.GetRequiredService<IMediator>());
+    }
+
+    [Fact]
+    public async Task PkgsrvHost_MapsGetPackageRouteForCreatedLocation()
+    {
+        await using var app = PkgsrvHost.Create([]);
+
+        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Single(candidate => candidate.RoutePattern.RawText == "/packages/{name}/{version}");
+        var methods = endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods;
+
+        Assert.NotNull(methods);
+        Assert.Contains("GET", methods);
     }
 
     [Fact]

@@ -104,6 +104,19 @@ internal sealed class TestEventPublisher : IDomainEventPublisher
     }
 }
 
+internal sealed class ThrowingEventPublisher : IDomainEventPublisher
+{
+    public List<IDomainEvent> Attempted { get; } = new();
+
+    public Task PublishAsync(
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
+    {
+        Attempted.AddRange(domainEvents);
+        throw new InvalidOperationException("event publication failed");
+    }
+}
+
 internal sealed class TestClock : ISystemClock
 {
     public DateTimeOffset UtcNow { get; set; } = TestPackages.Timestamp;

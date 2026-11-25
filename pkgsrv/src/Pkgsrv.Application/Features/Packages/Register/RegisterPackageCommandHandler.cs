@@ -89,9 +89,11 @@ public sealed class RegisterPackageCommandHandler
             throw new PackageConflictException(package.Key.ToString());
         }
 
+        var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(
-            package.DequeueDomainEvents(),
+            domainEvents,
             cancellationToken).ConfigureAwait(false);
+        package.AcknowledgeDomainEvents(domainEvents);
 
         return new RegisterPackageResult(PackageDetailsDto.From(package));
     }
