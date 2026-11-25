@@ -3,6 +3,7 @@
 #include <astia/fs.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
+#include "exec_hooks.hpp"
 #include "exec_rollback.hpp"
 #include "proc.hpp"
 #include "process.hpp"
@@ -389,7 +390,17 @@ namespace astia::proc {
             }
         }
 
-        *entry_out = reinterpret_cast<u64>(image.entry);
+        // The synchronous path has no task context to load an interpreter
+        // in; exec_user_image() is kernel-internal and only drives static
+        // test images.
+        if (image.interp_size != 0)
+            return false;
+        _exec_image.entry  = reinterpret_cast<u64>(image.entry);
+        _exec_image.phdr   = image.phdr_vaddr;
+        _exec_image.interp = 0;
+        _exec_image.phnum  = image.phnum;
+        _exec_image.phent  = image.phent;
+        *entry_out         = reinterpret_cast<u64>(image.entry);
         return true;
     }
 
@@ -548,7 +559,31 @@ namespace astia::proc {
         }
         if (image.tls_memsz == 0)
             _tls_tp = 0;
-        *entry_out = reinterpret_cast<u64>(image.entry);
+
+        _exec_image.entry  = reinterpret_cast<u64>(image.entry);
+        _exec_image.phdr   = image.phdr_vaddr;
+        _exec_image.interp = 0;
+        _exec_image.phnum  = image.phnum;
+        _exec_image.phent  = image.phent;
+
+        u64 entry = reinterpret_cast<u64>(image.entry);
+        if (image.interp_size != 0) {
+            if (image.interp_size >= fs::path_max)
+                co_return false;
+            char path[fs::path_max]{};
+            auto read = co_await file->read_exact(
+                span<u8>(reinterpret_cast<u8*>(path), image.interp_size),
+                image.interp_offset, _cancellation_root.token());
+            if (!read || read.value != static_cast<i64>(image.interp_size) ||
+                path[image.interp_size - 1] != '\0')
+                co_return false;
+            auto interp = co_await load_interpreter(*this, path);
+            if (!interp)
+                co_return false;
+            _exec_image.interp = interp.value.base;
+            entry              = interp.value.entry;
+        }
+        *entry_out = entry;
         co_return true;
     }
 

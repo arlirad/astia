@@ -3231,6 +3231,29 @@ int main(int argc, char** argv) {
             return 86;
     }
 
+    /* 52: PT_INTERP bootstrap.  The kernel must enter /lib/ld.stub.so,
+       which stamps argc and jumps to the payload's AT_ENTRY; the payload
+       exits 0 only if it saw the stamp and a non-zero AT_BASE. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 87;
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_main", NULL};
+            execv("/bin/interp_main", child_argv);
+            _Exit(143); /* fixture not staged in this initrd */
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child)
+            return 88;
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 143)
+            ; /* daemond/native initrds do not carry the fixture */
+        else if (status != 0)
+            return 88;
+        else
+            printf("astia: interp ok\n");
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

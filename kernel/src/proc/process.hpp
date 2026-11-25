@@ -319,6 +319,17 @@ namespace astia::proc {
         u64 tls_tp() const {
             return _tls_tp;
         }
+        /// Startup-vector facts about the image this process will enter.
+        struct exec_image_info {
+            u64 entry  = 0; ///< payload entry (AT_ENTRY)
+            u64 phdr   = 0; ///< payload phdr table (AT_PHDR)
+            u64 interp = 0; ///< interpreter load bias (AT_BASE), 0 = static
+            u16 phnum  = 0;
+            u16 phent  = 0;
+        };
+        const exec_image_info& exec_image() const {
+            return _exec_image;
+        }
         /// Cancellation token for I/O this process starts (dlmap image
         /// reads, file mappings).  Execve retires it with the old image.
         core::cltoken io_token() {
@@ -533,6 +544,7 @@ namespace astia::proc {
         fd_table               _descriptors;
         mm::address_space      _address_space;
         u64                    _tls_tp = 0;
+        exec_image_info        _exec_image{};
         astia_rlimit           _rlimit_nofile{max_process_fds, max_process_fds};
         astia_rlimit           _rlimit_as{~u64{0}, ~u64{0}};
         u64                    _mapped_bytes = 0;

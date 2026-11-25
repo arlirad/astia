@@ -4,6 +4,7 @@
 #include <astia/mm/frame_allocator.hpp>
 
 #include "proc/events.hpp"
+#include "proc/exec_hooks.hpp"
 #include "proc/process.hpp"
 
 #include <new>
@@ -207,7 +208,7 @@ namespace astia::dl {
             }
 
             auto& result = loaded.value;
-            if (result.nsegs == 0 || result.phdr_vaddr == 0) {
+            if (result.nsegs == 0 || result.phdr_vaddr == 0 || result.interp_size != 0) {
                 unmap_span(&context, nullptr, 0);
                 co_return error_t::einval;
             }
@@ -288,7 +289,37 @@ namespace astia::dl {
 
     } // namespace
 
+    namespace {
+
+        core::task<proc::interpreter_info> load_for_exec(process&    target,
+                                                         const char* path) {
+            if (path == nullptr)
+                co_return error_t::einval;
+            auto file = fs::open_path(path);
+            if (!file)
+                co_return error_t::enoent;
+            if (file->size() <= 0)
+                co_return error_t::einval;
+            auto mapped = co_await map(target, file, 0);
+            if (!mapped)
+                co_return mapped.error;
+            co_return proc::interpreter_info{mapped.value.base, mapped.value.entry};
+        }
+
+        void release_bindings(process& target) {
+            release(target);
+        }
+
+        void adopt_bindings(process& target, process& staging) {
+            adopt(target, staging);
+        }
+
+    } // namespace
+
     bool init() {
+        if (!proc::register_exec_hooks(
+                {&load_for_exec, &release_bindings, &adopt_bindings}))
+            return false;
         proc::events::teardown::add("dl", core::hook::priority::late,
                                     [](proc::process& target) {
                                         release(target);
@@ -303,11 +334,9 @@ namespace astia::dl {
         return true;
     }
 
-    core::task<info> map(process& target, fd_t fd, u32 flags) {
+    core::task<info> map(process& target, mm::shptr<fs::open_file> file, u32 flags) {
         if (flags != 0)
             co_return error_t::einval;
-
-        auto file = target.descriptor(fd);
         if (!file)
             co_return error_t::ebadf;
         const long size = file->size();
@@ -451,6 +480,24 @@ namespace astia::dl {
         row->owner = nullptr;
         row->count = 0;
         for (auto& item : row->items)
+            item = {};
+    }
+
+    void adopt(process& target, process& staging) {
+        core::spinlock_guard guard(g_lock);
+        auto*                source = find_row(&staging);
+        if (source == nullptr || source->count == 0)
+            return;
+        auto* destination = find_row(&target);
+        if (destination == nullptr)
+            destination = make_row(&target);
+        if (destination == nullptr || destination->count != 0)
+            return;
+        *destination       = *source;
+        destination->owner = &target;
+        source->owner      = nullptr;
+        source->count      = 0;
+        for (auto& item : source->items)
             item = {};
     }
 
