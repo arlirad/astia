@@ -55,18 +55,14 @@ static int has_mode(const char* path, mode_t mode) {
 static int file_equals(const char* path, const char* expected) {
     FILE*  file = fopen(path, "r");
     char   buffer[512];
-    size_t length = strlen(expected);
-    if (file == NULL || length >= sizeof buffer) {
-        if (file != NULL)
-            fclose(file);
+    size_t length;
+    size_t actual;
+    if (file == NULL)
         return 0;
-    }
-    if (fread(buffer, 1, length, file) != length) {
-        fclose(file);
-        return 0;
-    }
-    buffer[length] = '\0';
-    int equal      = strcmp(buffer, expected) == 0;
+    actual     = fread(buffer, 1, sizeof buffer, file);
+    int at_end = actual < sizeof buffer || fgetc(file) == EOF;
+    length     = strlen(expected);
+    int equal  = at_end && actual == length && memcmp(buffer, expected, length) == 0;
     fclose(file);
     return equal;
 }
@@ -325,12 +321,38 @@ static int check_pty(const char* name, char* const argv[], char* const envp[],
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
+static int id_checks(void) {
+    char* id[]         = {"id", NULL};
+    char* id_help[]    = {"id", "--help", NULL};
+    char* id_version[] = {"id", "--version", NULL};
+    gid_t group        = 1000;
+    if (check("id newline", id, NULL, 0, "uid=0(root) gid=0(root) groups=0(root)\n", 1) !=
+        0)
+        return 1;
+    if (setgroups(1, &group) != 0)
+        return fail("id supplementary setup");
+    int rc = check("id groups newline", id, NULL, 0,
+                   "uid=0(root) gid=0(root) groups=0(root),1000(users)\n", 1);
+    if (setgroups(0, NULL) != 0)
+        return fail("id supplementary restore");
+    if (rc != 0)
+        return 1;
+    if (check("id help newline", id_help, NULL, 0,
+              "Usage: id\n\nPrint the effective UID, GID, and supplementary groups.\n",
+              1) != 0)
+        return 1;
+    return check("id version newline", id_version, NULL, 0, "id (Astia coreutils) 0.1\n",
+                 1);
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
     if (credential_checks() != 0)
         return 1;
     if (account_checks() != 0)
+        return 1;
+    if (id_checks() != 0)
         return 1;
     if (chdir("/bin") != 0)
         return fail("runner chdir");
@@ -417,7 +439,6 @@ int main(void) {
     char* ln_link[]                = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
     char* readlink_link[]          = {"readlink", "/tmp/coreutils_link", NULL};
     char* whoami[]                 = {"whoami", NULL};
-    char* id[]                     = {"id", NULL};
     char* login[]                  = {"login", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
@@ -486,7 +507,6 @@ int main(void) {
         stat("/tmp/coreutils_dangling", &dangling_stat) == 0 ||
         check("pwd", pwd, NULL, 0, "/bin\n", 1) ||
         check("whoami", whoami, NULL, 0, "root\n", 1) ||
-        check("id", id, NULL, 0, "uid=0(root) gid=0(root)", 0) ||
         check("login without controlling tty", login, "missing\n", 1, NULL, 0) ||
         check("pwd invalid", pwd_bad, NULL, 2, NULL, 0) ||
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
