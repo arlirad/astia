@@ -342,24 +342,26 @@ namespace astia::fs::filesystems {
         if (equal(old_path, new_path))
             return 0;
 
-        char old_parent[path_max]{};
-        char new_parent[path_max]{};
-        if (!copy_path(old_parent, old_path) || !copy_path(new_parent, new_path))
+        char* parent = _path_scratch;
+        if (!copy_path(parent, old_path))
             return -ENAMETOOLONG;
         u32 end = 0;
-        while (old_parent[end] != '\0')
+        while (parent[end] != '\0')
             ++end;
-        while (end > 1 && old_parent[end - 1] != '/')
+        while (end > 1 && parent[end - 1] != '/')
             --end;
-        old_parent[end > 1 ? end - 1 : 1] = '\0';
-        end                               = 0;
-        while (new_parent[end] != '\0')
+        parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type_unlocked(parent) != directory_dir)
+            return -ENOENT;
+        if (!copy_path(parent, new_path))
+            return -ENAMETOOLONG;
+        end = 0;
+        while (parent[end] != '\0')
             ++end;
-        while (end > 1 && new_parent[end - 1] != '/')
+        while (end > 1 && parent[end - 1] != '/')
             --end;
-        new_parent[end > 1 ? end - 1 : 1] = '\0';
-        if (node_type_unlocked(old_parent) != directory_dir ||
-            node_type_unlocked(new_parent) != directory_dir)
+        parent[end > 1 ? end - 1 : 1] = '\0';
+        if (node_type_unlocked(parent) != directory_dir)
             return -ENOENT;
 
         u32 source = tmpfs_max_entries;
@@ -384,7 +386,13 @@ namespace astia::fs::filesystems {
             }
             if (_entries[target].target)
                 _entries[target].target->drop_link();
-            _entries[target] = entry{};
+            _entries[target].used      = false;
+            _entries[target].directory = false;
+            _entries[target].mode      = {};
+            _entries[target].uid       = {};
+            _entries[target].gid       = {};
+            _entries[target].path[0]   = '\0';
+            _entries[target].target    = {};
         }
         const u32 old_len = [&] {
             u32 n = 0;
@@ -424,15 +432,14 @@ namespace astia::fs::filesystems {
                 match = parent_of(old_path, _entries[i].path);
             if (!match)
                 continue;
-            char renamed[path_max]{};
             for (u32 j = 0; j < new_len; ++j)
-                renamed[j] = new_path[j];
+                parent[j] = new_path[j];
             u32 suffix = old_len;
             u32 at     = new_len;
             while (_entries[i].path[suffix])
-                renamed[at++] = _entries[i].path[suffix++];
-            renamed[at] = '\0';
-            copy_path(_entries[i].path, renamed);
+                parent[at++] = _entries[i].path[suffix++];
+            parent[at] = '\0';
+            copy_path(_entries[i].path, parent);
         }
         return 0;
     }
@@ -445,7 +452,7 @@ namespace astia::fs::filesystems {
             return node_type_unlocked(old_path) == directory_dir ? -EPERM : -ENOENT;
         if (node_type_unlocked(new_path) != directory_unknown)
             return -EEXIST;
-        char parent[path_max]{};
+        char* parent = _path_scratch;
         if (!copy_path(parent, new_path))
             return -ENAMETOOLONG;
         u32 end = 0;
@@ -464,16 +471,18 @@ namespace astia::fs::filesystems {
             return -ENOENT;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
             if (!_entries[i].used) {
-                if (!copy_path(_entries[i].path, new_path))
+                _entries[i].used      = true;
+                _entries[i].directory = false;
+                _entries[i].mode      = _entries[source].mode;
+                _entries[i].uid       = _entries[source].uid;
+                _entries[i].gid       = _entries[source].gid;
+                _entries[i].target    = _entries[source].target;
+                if (!copy_path(_entries[i].path, new_path)) {
+                    _entries[i].used    = false;
+                    _entries[i].path[0] = '\0';
+                    _entries[i].target  = {};
                     return -ENAMETOOLONG;
-                _entries[i] = entry{true,
-                                    false,
-                                    _entries[source].mode,
-                                    _entries[source].uid,
-                                    _entries[source].gid,
-                                    {},
-                                    _entries[source].target};
-                copy_path(_entries[i].path, new_path);
+                }
                 _entries[source].target->add_link();
                 return 0;
             }

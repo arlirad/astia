@@ -35,22 +35,20 @@ namespace astia::fs {
                             gid_t gid, astia::span<char> canonical) {
         if (!path || !endpoint || canonical.data() == nullptr || canonical.empty())
             return -EINVAL;
-        char resolved[path_max]{};
-        long rc = resolve_path(path, resolved, sizeof resolved, false);
+        long rc = resolve_path(path, canonical.data(), static_cast<u32>(canonical.size()),
+                               false);
         if (rc < 0)
             return rc;
         u32 length = 0;
-        while (resolved[length])
+        while (canonical.data()[length])
             ++length;
-        if (length + 1 > canonical.size())
-            return -ENAMETOOLONG;
-        mount* owner = retain_mount_for_unix_path(resolved);
+        mount* owner = retain_mount_for_unix_path(canonical.data());
         if (!owner)
             return -ENOENT;
         long                 result = 0;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && equal(item.path, resolved)) {
+            if (item.used && equal(item.path, canonical.data())) {
                 result = -EADDRINUSE;
                 break;
             }
@@ -70,10 +68,8 @@ namespace astia::fs {
             free->owner    = owner;
             free->uid      = uid;
             free->gid      = gid;
-            for (u32 i = 0; i <= length; ++i) {
-                free->path[i]       = resolved[i];
-                canonical.data()[i] = resolved[i];
-            }
+            for (u32 i = 0; i <= length; ++i)
+                free->path[i] = canonical.data()[i];
         }
         guard.unlock();
         if (result)

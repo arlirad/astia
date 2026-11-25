@@ -4,6 +4,7 @@ import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from './app.routes';
 import { DocumentationPage } from './documentation/documentation-page';
 import { DOCS_FETCH } from './docs/docs.repository';
+import { DOC_SYSCALLS_KEY } from './docs/docs-tree';
 import { HomePage } from './home/home';
 
 async function settle(harness: RouterTestingHarness): Promise<void> {
@@ -79,9 +80,14 @@ describe('Application routes', () => {
     const element = harness.routeNativeElement as HTMLElement;
 
     expect(component).toBeInstanceOf(DocumentationPage);
-    expect(element.querySelectorAll('[role="treeitem"]').length).toBe(7);
+    expect(element.querySelectorAll('[role="treeitem"]').length).toBe(4);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
-    expect(element.querySelector('[role="tree"]')?.textContent).toContain('proc');
+    expect(element.querySelector('[role="tree"]')?.textContent).toContain('Syscalls (2)');
+    expect(
+      element
+        .querySelector(`[data-tree-key="${DOC_SYSCALLS_KEY}"]`)
+        ?.getAttribute('aria-expanded'),
+    ).toBe('false');
     expect(element.querySelector('.docs-page-title')).toBeNull();
     expect(element.querySelector('h1.eyebrow')?.textContent).toContain('Documentation');
     expect(element.textContent).not.toContain('Design notes, boundaries, and current limits.');
@@ -147,7 +153,7 @@ describe('Application routes', () => {
     );
   });
 
-  it('serves the dl top-level taxonomy page on its stable route', async () => {
+  it('serves the dl taxonomy page on its stable route', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/documentation/syscall-71-dlmap', DocumentationPage);
     await settle(harness);
@@ -162,6 +168,11 @@ describe('Application routes', () => {
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toBe(
       'https://github.com/arlirad/astia/blob/main/kernel/src/dl/syscalls/dlmap.cpp',
     );
+    expect(
+      element
+        .querySelector(`[data-tree-key="${DOC_SYSCALLS_KEY}"]`)
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
     expect(
       element
         .querySelector('[data-tree-key="taxonomy:dl"]')
@@ -192,6 +203,26 @@ describe('Application routes', () => {
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toBe(
       'https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/uname.cpp',
     );
+    expect(
+      element
+        .querySelector(`[data-tree-key="${DOC_SYSCALLS_KEY}"]`)
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(
+      element
+        .querySelector('[data-tree-key="taxonomy:proc"]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(
+      element
+        .querySelector('[data-tree-key="taxonomy:proc/process"]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(
+      element
+        .querySelector('[data-tree-key="page:syscall-70-uname"]')
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
   });
 
   it('keeps the docs filter and category state across result navigation', async () => {

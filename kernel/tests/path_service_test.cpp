@@ -1,3 +1,5 @@
+#include "arena.hpp"
+#include "heap_exhaustion.hpp"
 #include "test.hpp"
 
 #ifdef RENAME_NOREPLACE
@@ -7,9 +9,12 @@
 #undef RENAME_EXCHANGE
 #endif
 
-#include "../src/fs/path_service.hpp"
 #include <astia/api/errno.h>
 #include <astia/fs.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/heap.hpp>
+
+#include "../src/fs/path_service.hpp"
 
 #include <cstring>
 
@@ -37,6 +42,27 @@ namespace {
         if (same(path, "/loop2"))
             return "/loop1";
         return nullptr;
+    }
+
+    alignas(16) astia::u8 path_service_heap_storage[64 * 1024];
+
+    bool no_mapping(astia::u64, astia::u64) {
+        return true;
+    }
+
+    void initialize_heap() {
+        static bool ready = false;
+        if (ready)
+            return;
+        astia_test::map_arena();
+        astia::mm::memory_map map;
+        map.add(astia_test::arena_base, astia_test::arena_size,
+                astia::mm::memory_type::usable);
+        astia::mm::kernel_frames().init(map);
+        astia::mm::heap::configure(path_service_heap_storage,
+                                   sizeof path_service_heap_storage, no_mapping);
+        ASTIA_CHECK(astia::mm::heap::init());
+        ready = true;
     }
 }
 
@@ -88,6 +114,7 @@ ASTIA_TEST(path_service_composes_absolute_and_relative_paths) {
 }
 
 ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
+    initialize_heap();
     char buffer[astia::fs::path_max]{};
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/../target", buffer, sizeof buffer,
                                                  false) == 0);
@@ -106,6 +133,7 @@ ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
 }
 
 ASTIA_TEST(path_service_preserves_loop_and_length_errors) {
+    initialize_heap();
     char buffer[astia::fs::path_max]{};
     ASTIA_CHECK(astia::fs::path_service::resolve("/loop1", buffer, sizeof buffer) ==
                 -ELOOP);
@@ -118,4 +146,28 @@ ASTIA_TEST(path_service_preserves_loop_and_length_errors) {
         long_path[i] = 'x';
     ASTIA_CHECK(astia::fs::path_service::resolve(long_path, buffer, sizeof buffer) ==
                 -ENAMETOOLONG);
+}
+
+ASTIA_TEST(path_service_resolves_at_path_max) {
+    initialize_heap();
+    char path[astia::fs::path_max]{};
+    char buffer[astia::fs::path_max]{};
+    path[0] = '/';
+    for (astia::u32 i = 1; i < sizeof path - 1; ++i)
+        path[i] = 'x';
+    ASTIA_CHECK(astia::fs::path_service::resolve(path, buffer, sizeof buffer) == 0);
+    ASTIA_CHECK(std::strlen(buffer) == sizeof path - 1);
+}
+
+ASTIA_TEST(path_service_resolve_reports_enomem_when_scratch_allocation_fails) {
+    initialize_heap();
+    char buffer[astia::fs::path_max]{};
+    {
+        astia_test::heap_exhaustion exhaustion;
+        ASTIA_CHECK(exhaustion.acquire());
+        ASTIA_CHECK(astia::fs::path_service::resolve("/target", buffer, sizeof buffer) ==
+                    -ENOMEM);
+    }
+    ASTIA_CHECK(astia::fs::path_service::resolve("/target", buffer, sizeof buffer) == 0);
+    ASTIA_CHECK(same(buffer, "/target"));
 }
