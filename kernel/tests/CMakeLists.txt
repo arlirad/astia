@@ -1088,6 +1088,28 @@ if (ARCH STREQUAL "x86_64")
                 -fno-asynchronous-unwind-tables -mno-red-zone -fno-builtin
         )
 
+        # The same sources as a shared library, for the dynamic-linking
+        # images.  It cannot depend on a libc, so it is linked freestanding;
+        # initial-exec TLS is what the interpreter's static-TLS layout
+        # supports.
+        get_target_property(_astia_libc_sources astia_userspace_libc SOURCES)
+        add_library(astia_userspace_libc_shared SHARED ${_astia_libc_sources})
+        target_include_directories(astia_userspace_libc_shared PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                ${ASTIA_KERNEL_SOURCE_DIR}/include
+        )
+        target_compile_options(astia_userspace_libc_shared PRIVATE
+                -ffreestanding -fPIC -fno-stack-protector
+                -fno-asynchronous-unwind-tables -mno-red-zone -fno-builtin
+                -ftls-model=initial-exec
+        )
+        target_link_options(astia_userspace_libc_shared PRIVATE
+                -nostdlib -shared -Wl,-soname,libc.so -Wl,-z,now
+        )
+        target_link_libraries(astia_userspace_libc_shared PRIVATE gcc)
+        set_target_properties(astia_userspace_libc_shared PROPERTIES
+                PREFIX "" OUTPUT_NAME libc SUFFIX ".so")
+
         # A real userspace program: CRT0 unpacks the kernel's startup
         # frame into main(argc, argv, envp) and leaves via libc exit().
         # Prefer the standalone Clang sysroot so this image cannot silently
@@ -1210,12 +1232,28 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
+                -fno-stack-protector -mno-red-zone
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/dyn_libc_main.o ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -Wl,-rpath-link,${_fix_dir}
+                -o ${_fix_dir}/dyn_libc ${_fix_dir}/crt0.o
+                ${_fix_dir}/dyn_libc_main.o $<TARGET_FILE:astia_userspace_libc_shared>
+                -lgcc
+                COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_FILE:astia_userspace_libc_shared> ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/dyn_libc ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
-                lib/libfixture_base.so bin/interp_link etc/passwd etc/group
+                lib/libfixture_base.so bin/interp_link lib/libc.so bin/dyn_libc
+                etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1228,6 +1266,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
+                $<TARGET_FILE:astia_userspace_libc_shared>
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"
@@ -1268,6 +1308,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
                 "astia: interp ok"
                 "astia: ld ok"
+                "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
 

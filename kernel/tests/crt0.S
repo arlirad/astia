@@ -12,7 +12,8 @@ _start:
     leaq    8(%rsp), %rsi           # argv
     movq    %rdi, %rax
     leaq    16(%rsp,%rax,8), %rdx   # envp = &argv[argc + 1]
-    movq    %rdx, environ(%rip)     # POSIX libc global environment pointer
+    movq    environ@GOTPCREL(%rip), %rax   # GOT form: a PIE gets a GLOB_DAT
+    movq    %rdx, (%rax)                   # POSIX libc global environment pointer
     and     $-16, %rsp              # SysV: 16-byte alignment at the call
     call    main
     movl    %eax, %edi
