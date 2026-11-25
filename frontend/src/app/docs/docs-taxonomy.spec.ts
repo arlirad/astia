@@ -9,6 +9,7 @@ const SUBSYSTEM_COUNTS: Readonly<Record<string, number>> = {
   proc: 40,
   fs: 6,
   abi: 25,
+  dl: 2,
 };
 
 const CATEGORY_COUNTS: Readonly<Record<string, number>> = {
@@ -20,6 +21,7 @@ const CATEGORY_COUNTS: Readonly<Record<string, number>> = {
   thread: 6,
   fs: 6,
   abi: 25,
+  dl: 2,
 };
 
 const optionText = (select: HTMLSelectElement): string[] =>
@@ -63,8 +65,8 @@ describe('DocsBrowser taxonomy', () => {
     return { fixture, element: fixture.nativeElement as HTMLElement };
   }
 
-  it('derives exact subsystem and category facets from all 71 syscall pages', () => {
-    expect(SYSCALL_PAGES.length).toBe(71);
+  it('derives exact subsystem and category facets from all 73 syscall pages', () => {
+    expect(SYSCALL_PAGES.length).toBe(73);
     const subsystems = new Map<string, number>();
     const categories = new Map<string, number>();
     for (const page of SYSCALL_PAGES) {
@@ -81,13 +83,14 @@ describe('DocsBrowser taxonomy', () => {
       'Taxonomy',
     );
     expect(optionText(element.querySelector('.docs-subsystem-filter')!)).toEqual([
-      'All (71)',
+      'All (73)',
       'proc (40)',
       'fs (6)',
       'abi (25)',
+      'dl (2)',
     ]);
     expect(optionText(element.querySelector('.docs-category-filter')!)).toEqual([
-      'All (71)',
+      'All (73)',
       'core (9)',
       'ipc (1)',
       'memory (2)',
@@ -96,11 +99,54 @@ describe('DocsBrowser taxonomy', () => {
       'thread (6)',
       'fs (6)',
       'abi (25)',
+      'dl (2)',
     ]);
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(DOC_PAGES.length);
+    expect(element.querySelectorAll('[role="treeitem"]').length).toBe(7);
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
     expect(element.querySelector('.docs-count')?.textContent).toContain(
       `${DOC_PAGES.length} pages`,
     );
+  });
+
+  it('renders proc categories and top-level groups as an ARIA tree', () => {
+    const { fixture, element } = render();
+    const proc = element.querySelector<HTMLElement>('[data-tree-key="taxonomy:proc"]');
+
+    expect(proc?.getAttribute('role')).toBe('treeitem');
+    expect(proc?.getAttribute('aria-level')).toBe('1');
+    expect(proc?.getAttribute('aria-expanded')).toBe('false');
+    expect(proc?.textContent).toContain('40');
+
+    proc?.click();
+    fixture.detectChanges();
+
+    expect(proc?.getAttribute('aria-expanded')).toBe('true');
+    const categories = [...element.querySelectorAll<HTMLElement>(
+      '[data-tree-key^="taxonomy:proc/"]',
+    )];
+    expect(
+      categories.map((row) => row.querySelector('.docs-tree-label')?.textContent?.trim()),
+    ).toEqual(['core', 'ipc', 'memory', 'process', 'signal', 'thread']);
+    expect(
+      categories.map((row) => row.querySelector('.docs-group-count')?.textContent?.trim()),
+    ).toEqual(['9', '1', '2', '18', '4', '6']);
+    for (const category of categories) {
+      expect(category.getAttribute('aria-level')).toBe('2');
+      expect(category.getAttribute('aria-expanded')).toBe('false');
+    }
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
+
+    element
+      .querySelector<HTMLElement>('[data-tree-key="taxonomy:proc/process"]')
+      ?.click();
+    fixture.detectChanges();
+
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(18);
+    expect(
+      element.querySelector('[data-tree-key="page:syscall-70-uname"]')?.getAttribute(
+        'aria-level',
+      ),
+    ).toBe('3');
   });
 
   it('filters by subsystem and category and resets incompatible categories', () => {
@@ -220,7 +266,7 @@ describe('DocsBrowser taxonomy', () => {
       'uname(2)',
     );
     expect(element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length).toBe(
-      1,
+      2,
     );
     expect(element.querySelector('.docs-index-link.is-active')?.textContent).toContain(
       'proc / process',

@@ -10,7 +10,7 @@ import {
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 const CANONICAL_SYSCALL_IDS = [
-  ...Array.from({ length: 71 }, (_, index) => index),
+  ...Array.from({ length: 73 }, (_, index) => index),
 ];
 
 describe('Runtime section-2 syscall docs', () => {
@@ -61,7 +61,7 @@ describe('Runtime section-2 syscall docs', () => {
     return { page, element, headings };
   }
 
-  it('contains all 71 canonical syscall pages with stable IDs and slugs', () => {
+  it('contains all 73 canonical syscall pages with stable IDs and slugs', () => {
     expect(SYSCALL_PAGES.length).toBe(CANONICAL_SYSCALL_IDS.length);
     expect(
       SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0)),
@@ -119,7 +119,7 @@ describe('Runtime section-2 syscall docs', () => {
 
     for (const page of SYSCALL_PAGES) {
       expect(page.sourcePath).toMatch(
-        /^docs\/2\/(?:abi|fs|proc\/(?:core|ipc|memory|process|signal|thread))\/[a-z0-9_]+\.md$/,
+        /^docs\/2\/(?:abi|dl|fs|proc\/(?:core|ipc|memory|process|signal|thread))\/[a-z0-9_]+\.md$/,
       );
       expect(page.contentKind).toBe('markdown');
       expect(page.subsystem).toBeTruthy();
@@ -148,10 +148,10 @@ describe('Runtime section-2 syscall docs', () => {
       'kernel/src/proc/process.hpp': 8,
       'kernel/src/proc/proc.cpp': 2,
     });
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(71);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(73);
     expect(
       new Set(SYSCALL_PAGES.map((page) => page.implementationPath)).size,
-    ).toBe(38);
+    ).toBe(40);
     expect(SYSCALL_PAGES.find((page) => page.syscallId === 24)?.implementationPath).toBe(
       'libc/src/unistd.c',
     );
@@ -163,7 +163,7 @@ describe('Runtime section-2 syscall docs', () => {
     );
   });
 
-  it('assigns exact taxonomy and physical paths for all 71 syscall pages', () => {
+  it('assigns exact taxonomy and physical paths for all 73 syscall pages', () => {
     const expected: Record<string, number[]> = {
       'fs/fs': [0, 1, 2, 3, 46, 47],
       'abi/abi': [6, 7, 32, 33, 34, 35, 48, 49, 50, 51, 54, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
@@ -173,6 +173,7 @@ describe('Runtime section-2 syscall docs', () => {
       'proc/process': [8, 13, 14, 15, 24, 30, 31, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 70],
       'proc/signal': [21, 22, 25, 29],
       'proc/thread': [9, 16, 17, 18, 19, 23],
+      'dl/dl': [71, 72],
     };
     const actual = new Map<string, number[]>();
     for (const page of SYSCALL_PAGES) {
@@ -183,7 +184,7 @@ describe('Runtime section-2 syscall docs', () => {
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'proc').length).toBe(40);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'fs').length).toBe(6);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'abi').length).toBe(25);
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(71);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(73);
     expect(SYSCALL_PAGES.some((page) => /^docs\/2\/[^/]+\.md$/.test(page.sourcePath))).toBeFalse();
     for (const page of SYSCALL_PAGES) {
       expect(page.sourcePath).toBe(
@@ -199,12 +200,12 @@ describe('Runtime section-2 syscall docs', () => {
       SYSCALL_PAGES.map((page) => page.category).filter((value): value is string => !!value),
     );
     expect(categories).toEqual(
-      new Set(['abi', 'fs', 'core', 'ipc', 'memory', 'process', 'signal', 'thread']),
+      new Set(['abi', 'dl', 'fs', 'core', 'ipc', 'memory', 'process', 'signal', 'thread']),
     );
     for (const page of SYSCALL_PAGES) {
       const name = (page.slug ?? '').replace(/^syscall-\d+-/, '').replace(/-/g, '_');
       expect(page.title).toBe(`${name}(2)`);
-      expect(page.sourcePath).toMatch(new RegExp(`^docs/2/(?:abi|fs|proc/[a-z]+)/${name}\\.md$`));
+      expect(page.sourcePath).toMatch(new RegExp(`^docs/2/(?:abi|dl|fs|proc/[a-z]+)/${name}\\.md$`));
       expect(page.category).toBeTruthy();
       expect(page.synopsis).toBeTruthy();
       expect(page.aliases).toBeUndefined();

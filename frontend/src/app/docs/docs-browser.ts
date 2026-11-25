@@ -10,21 +10,26 @@ import {
   viewChild,
 } from '@angular/core';
 import type { DocPage, DocsLoadStatus } from './docs.model';
+import {
+  DOC_CATEGORY_ORDER,
+  DOC_SUBSYSTEM_ORDER,
+  DOC_TREE_ALL,
+  buildDocTree,
+  countDocTreePages,
+  docTreeAncestorKeys,
+  docTreeGroupKeys,
+  filterDocTree,
+  flattenDocTree,
+  pageMatches,
+  taxonomyMatches,
+  type DocTreeRow,
+} from './docs-tree';
 import { slugify } from './docs-utils';
-
-interface DocGroupView {
-  readonly name: string;
-  readonly pages: readonly DocPage[];
-}
 
 interface FacetCount {
   readonly name: string;
   readonly count: number;
 }
-
-const TAXONOMY_ALL = 'all';
-const SUBSYSTEM_ORDER = ['proc', 'fs', 'abi'];
-const CATEGORY_ORDER = ['core', 'ipc', 'memory', 'process', 'signal', 'thread', 'fs', 'abi'];
 
 const orderFacets = (
   facets: readonly FacetCount[],
@@ -38,23 +43,6 @@ const orderFacets = (
     (left, right) => rank(left.name) - rank(right.name)
     || left.name.localeCompare(right.name),
   );
-};
-
-const pageMatches = (page: DocPage, query: string): boolean => {
-  if (!query) {
-    return true;
-  }
-  const searchable =
-    `${page.title} ${page.group} ${page.subsystem ?? ''} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
-    `${page.synopsisKind ?? ''} ${page.summary}`;
-  return searchable.toLowerCase().includes(query);
-};
-
-const taxonomyMatches = (page: DocPage, subsystem: string, category: string): boolean => {
-  if (subsystem !== TAXONOMY_ALL && page.subsystem !== subsystem) {
-    return false;
-  }
-  return category === TAXONOMY_ALL || page.category === category;
 };
 
 @Component({
@@ -75,9 +63,10 @@ export class DocsBrowser {
   readonly retryRequested = output<void>();
 
   protected readonly query = signal('');
-  protected readonly subsystemFilter = signal(TAXONOMY_ALL);
-  protected readonly categoryFilter = signal(TAXONOMY_ALL);
-  private readonly expandedGroups = signal<ReadonlySet<string>>(new Set());
+  protected readonly subsystemFilter = signal(DOC_TREE_ALL);
+  protected readonly categoryFilter = signal(DOC_TREE_ALL);
+  protected readonly expandedNodes = signal<ReadonlySet<string>>(new Set());
+  protected readonly activeKey = signal<string | null>(null);
   private firstSelectionChange = true;
   private lastSelectedSlug: string | null = null;
 
@@ -86,14 +75,14 @@ export class DocsBrowser {
     return slug ? (this.pages().find((page) => page.slug === slug) ?? null) : null;
   });
   protected readonly subsystemFacets = computed<readonly FacetCount[]>(() =>
-    orderFacets(this.facetCounts(this.pages(), (page) => page.subsystem), SUBSYSTEM_ORDER),
+    orderFacets(this.facetCounts(this.pages(), (page) => page.subsystem), DOC_SUBSYSTEM_ORDER),
   );
   protected readonly categoryFacets = computed<readonly FacetCount[]>(() => {
     const subsystem = this.subsystemFilter();
     const pages = this.pages().filter(
-      (page) => subsystem === TAXONOMY_ALL || page.subsystem === subsystem,
+      (page) => subsystem === DOC_TREE_ALL || page.subsystem === subsystem,
     );
-    return orderFacets(this.facetCounts(pages, (page) => page.category), CATEGORY_ORDER);
+    return orderFacets(this.facetCounts(pages, (page) => page.category), DOC_CATEGORY_ORDER);
   });
   protected readonly taxonomyPageCount = computed(
     () => this.pages().filter((page) => page.subsystem).length,
@@ -103,27 +92,32 @@ export class DocsBrowser {
     return this.pages().filter(
       (page) =>
         page.category
-        && (subsystem === TAXONOMY_ALL || page.subsystem === subsystem),
+        && (subsystem === DOC_TREE_ALL || page.subsystem === subsystem),
     ).length;
   });
-  protected readonly filteredGroups = computed<readonly DocGroupView[]>(() => {
+  protected readonly filteredTree = computed(() => {
     const query = this.query().trim().toLowerCase();
     const subsystem = this.subsystemFilter();
     const category = this.categoryFilter();
-    const groups = new Map<string, DocPage[]>();
-    for (const page of this.pages()) {
-      if (!pageMatches(page, query) || !taxonomyMatches(page, subsystem, category)) {
-        continue;
-      }
-      const pages = groups.get(page.group) ?? [];
-      pages.push(page);
-      groups.set(page.group, pages);
-    }
-    return [...groups].map(([name, pages]) => ({ name, pages }));
+    return filterDocTree(
+      buildDocTree(this.pages()),
+      (page) => pageMatches(page, query) && taxonomyMatches(page, subsystem, category),
+    );
   });
-  protected readonly resultCount = computed(() =>
-    this.filteredGroups().reduce((count, group) => count + group.pages.length, 0),
+  protected readonly visibleRows = computed(() =>
+    flattenDocTree(this.filteredTree(), this.expandedNodes()),
   );
+  protected readonly resultCount = computed(() =>
+    this.filteredTree().reduce((count, node) => count + countDocTreePages(node), 0),
+  );
+  protected readonly effectiveActiveKey = computed(() => {
+    const active = this.activeKey();
+    const rows = this.visibleRows();
+    if (active && rows.some((row) => row.key === active)) {
+      return active;
+    }
+    return rows[0]?.key ?? null;
+  });
   protected readonly previousPage = computed(() => this.adjacentPage(-1));
   protected readonly nextPage = computed(() => this.adjacentPage(1));
 
@@ -131,6 +125,7 @@ export class DocsBrowser {
   private readonly markdown = viewChild<ElementRef<HTMLElement>>('markdown');
   private readonly pageTitle = viewChild<ElementRef<HTMLElement>>('pageTitle');
   private readonly filterInput = viewChild<ElementRef<HTMLInputElement>>('filterInput');
+  private readonly tree = viewChild<ElementRef<HTMLElement>>('tree');
 
   constructor() {
     effect(() => {
@@ -143,14 +138,7 @@ export class DocsBrowser {
         return;
       }
       this.lastSelectedSlug = page.slug;
-      this.expandedGroups.update((groups) => {
-        if (groups.has(page.group)) {
-          return groups;
-        }
-        const next = new Set(groups);
-        next.add(page.group);
-        return next;
-      });
+      this.expandKeys(docTreeAncestorKeys(page));
     });
 
     effect(() => {
@@ -182,24 +170,96 @@ export class DocsBrowser {
     });
   }
 
-  protected groupOpen(name: string): boolean {
-    return this.expandedGroups().has(name);
-  }
-
-  protected groupListId(name: string): string {
-    return `docs-group-${slugify(name)}`;
-  }
-
-  protected toggleGroup(name: string): void {
-    this.expandedGroups.update((groups) => {
-      const next = new Set(groups);
-      if (next.has(name)) {
-        next.delete(name);
+  protected toggleNode(key: string): void {
+    this.expandedNodes.update((nodes) => {
+      const next = new Set(nodes);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next.add(name);
+        next.add(key);
       }
       return next;
     });
+  }
+
+  protected activateRow(row: DocTreeRow): void {
+    this.activeKey.set(row.key);
+    if (row.kind === 'page' && row.page) {
+      this.selectPage(row.page.slug);
+      return;
+    }
+    this.toggleNode(row.key);
+  }
+
+  protected onRowFocus(row: DocTreeRow): void {
+    this.activeKey.set(row.key);
+  }
+
+  protected onTreeKeydown(event: KeyboardEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+    const rowElement = target.closest<HTMLElement>('[data-tree-key]');
+    const key = rowElement?.getAttribute('data-tree-key');
+    const rows = this.visibleRows();
+    const index = key ? rows.findIndex((row) => row.key === key) : -1;
+    if (index < 0) {
+      return;
+    }
+    const row = rows[index];
+
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        this.focusRow(rows[index + 1]?.key);
+        return;
+      case 'ArrowUp':
+        event.preventDefault();
+        this.focusRow(rows[index - 1]?.key);
+        return;
+      case 'ArrowRight':
+        event.preventDefault();
+        if (row.kind !== 'group') {
+          return;
+        }
+        if (!row.expanded) {
+          this.toggleNode(row.key);
+          return;
+        }
+        if (rows[index + 1]?.level === row.level + 1) {
+          this.focusRow(rows[index + 1].key);
+        }
+        return;
+      case 'ArrowLeft':
+        event.preventDefault();
+        if (row.kind === 'group' && row.expanded) {
+          this.toggleNode(row.key);
+          return;
+        }
+        for (let parent = index - 1; parent >= 0; parent -= 1) {
+          if (rows[parent].level < row.level) {
+            this.focusRow(rows[parent].key);
+            return;
+          }
+        }
+        return;
+      case 'Home':
+        event.preventDefault();
+        this.focusRow(rows[0]?.key);
+        return;
+      case 'End':
+        event.preventDefault();
+        this.focusRow(rows[rows.length - 1]?.key);
+        return;
+      case 'Enter':
+      case ' ':
+        event.preventDefault();
+        this.activateRow(row);
+        return;
+      default:
+        return;
+    }
   }
 
   protected taxonomyLabel(page: DocPage): string {
@@ -217,21 +277,24 @@ export class DocsBrowser {
     if (!query.trim()) {
       return;
     }
-    this.expandMatchingGroups();
+    this.expandMatchingNodes();
   }
 
   protected setSubsystem(event: Event): void {
     this.subsystemFilter.set((event.target as HTMLSelectElement).value);
     const categories = new Set(this.categoryFacets().map((facet) => facet.name));
-    if (this.categoryFilter() !== TAXONOMY_ALL && !categories.has(this.categoryFilter())) {
-      this.categoryFilter.set(TAXONOMY_ALL);
+    if (
+      this.categoryFilter() !== DOC_TREE_ALL
+      && !categories.has(this.categoryFilter())
+    ) {
+      this.categoryFilter.set(DOC_TREE_ALL);
     }
-    this.expandMatchingGroups();
+    this.expandMatchingNodes();
   }
 
   protected setCategory(event: Event): void {
     this.categoryFilter.set((event.target as HTMLSelectElement).value);
-    this.expandMatchingGroups();
+    this.expandMatchingNodes();
   }
 
   private facetCounts(
@@ -248,25 +311,40 @@ export class DocsBrowser {
     return [...counts].map(([name, count]) => ({ name, count }));
   }
 
-  private expandMatchingGroups(): void {
-    const query = this.query().trim().toLowerCase();
-    const subsystem = this.subsystemFilter();
-    const category = this.categoryFilter();
-    const matching = new Set(
-      this.pages()
-        .filter(
-          (page) =>
-            pageMatches(page, query) && taxonomyMatches(page, subsystem, category),
-        )
-        .map((page) => page.group),
-    );
-    this.expandedGroups.update((groups) => {
-      const next = new Set(groups);
-      for (const name of matching) {
-        next.add(name);
+  private expandMatchingNodes(): void {
+    this.expandKeys(docTreeGroupKeys(this.filteredTree()));
+  }
+
+  private expandKeys(keys: readonly string[]): void {
+    this.expandedNodes.update((nodes) => {
+      const missing = keys.filter((key) => !nodes.has(key));
+      if (missing.length === 0) {
+        return nodes;
+      }
+      const next = new Set(nodes);
+      for (const key of missing) {
+        next.add(key);
       }
       return next;
     });
+  }
+
+  private focusRow(key: string | undefined): void {
+    if (!key) {
+      return;
+    }
+    this.activeKey.set(key);
+    queueMicrotask(() => this.rowElement(key)?.focus());
+  }
+
+  private rowElement(key: string): HTMLElement | null {
+    const root = this.tree()?.nativeElement;
+    if (!root) {
+      return null;
+    }
+    return [...root.querySelectorAll<HTMLElement>('[data-tree-key]')].find(
+      (element) => element.getAttribute('data-tree-key') === key,
+    ) ?? null;
   }
 
   protected selectPage(slug: string): void {
