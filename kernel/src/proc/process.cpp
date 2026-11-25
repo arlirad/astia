@@ -69,6 +69,16 @@ namespace astia::proc {
         u32                 dead_process_count = 0;
     }
 
+    /// Wake a thread that may be parked in an async wait.  The scheduler
+    /// wake is still needed for threads parked on a completion, while the
+    /// deposit resumes a futex/signal/task waiter on its own stack.
+    void wake_blocked(thread* value) {
+        if (value == nullptr)
+            return;
+        (void) value->wake_wait();
+        (void) scheduler::wake(value);
+    }
+
     void defer_dead_thread(const mm::shptr<thread>& value) {
         if (!value) {
             return;
@@ -461,7 +471,7 @@ namespace astia::proc {
         futex_remove_process(this);
         sys::io_interrupt_process(this, -EINTR);
         for (u32 i = 0; i < count; ++i)
-            scheduler::wake(wake_list[i]);
+            wake_blocked(wake_list[i]);
     }
 
     bool process::thread_exited(thread* value, i32 status) {
@@ -578,7 +588,7 @@ namespace astia::proc {
                 }
             }
             for (u32 i = 0; i < count; ++i)
-                scheduler::wake(wake_list[i]);
+                wake_blocked(wake_list[i]);
             signal_info info{};
             info.code   = ASTIA_CLD_CONTINUED;
             info.pid    = static_cast<i32>(raw_id(_pid));
@@ -631,7 +641,7 @@ namespace astia::proc {
             }
         }
         for (u32 i = 0; i < count; ++i)
-            scheduler::wake(wake_list[i]);
+            wake_blocked(wake_list[i]);
     }
 
     void process::interrupt_signal_io(signal_number signal) {
