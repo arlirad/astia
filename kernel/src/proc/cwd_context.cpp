@@ -62,23 +62,22 @@ namespace astia::proc {
         if (compose_rc < 0)
             return compose_rc;
 
-        char       resolved[fs::path_max]{};
-        const long resolve_rc = fs::resolve_path(full, resolved, sizeof resolved, true);
+        const long resolve_rc = fs::resolve_path(full, full, sizeof full, true);
         if (resolve_rc < 0)
             return resolve_rc;
-        const fs::file_type type = fs::node_type(resolved);
+        const fs::file_type type = fs::node_type(full);
         if (type == fs::directory_unknown)
             return -ENOENT;
         if (type != fs::directory_dir)
             return -ENOTDIR;
 
         usize length = 0;
-        while (resolved[length] != '\0')
+        while (full[length] != '\0')
             ++length;
         if (length + 1 > sizeof(_cwd))
             return -ENAMETOOLONG;
         for (usize i = 0; i <= length; ++i)
-            _cwd[i] = resolved[i];
+            _cwd[i] = full[i];
         return 0;
     }
 

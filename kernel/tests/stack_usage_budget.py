@@ -20,6 +20,7 @@ def stack_frames(output: str) -> dict[str, int]:
                 "vaddr_range_to_off",
                 "vaddr_range_in_load",
                 "vaddr_to_off",
+                "path_service::resolve",
             )
         ):
             continue

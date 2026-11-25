@@ -16,14 +16,15 @@ namespace astia::io::aio::operations {
             astia_sockaddr a{};
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
-            char socket_path[fs::path_max]{}, canonical[fs::path_max]{};
+            char socket_path[fs::path_max]{};
             long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
             if (path_rc < 0)
                 co_return static_cast<i32>(path_rc);
-            path_rc = fs::resolve_path(socket_path, canonical, sizeof canonical, false);
+            path_rc =
+                fs::resolve_path(socket_path, socket_path, sizeof socket_path, false);
             if (path_rc < 0)
                 co_return static_cast<i32>(path_rc);
-            if (!parent_writable(proc::current_process(), canonical))
+            if (!parent_writable(proc::current_process(), socket_path))
                 co_return -EACCES;
             const auto* socket = handle->parent()->unix_socket_capability();
             long        rc = socket == nullptr ? -EOPNOTSUPP : socket->bind(*handle, a);

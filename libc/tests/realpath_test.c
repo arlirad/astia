@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -147,10 +148,10 @@ static void test_invalid_arguments(char* buffer, size_t size) {
     CHECK(realpath(NULL, buffer) == NULL);
     CHECK(errno == EINVAL);
 
-    char long_path[300];
-    memset(long_path, 'a', sizeof long_path);
-    long_path[0]   = '/';
-    long_path[299] = '\0';
+    char long_path[PATH_MAX + 1];
+    memset(long_path, 'a', PATH_MAX);
+    long_path[0]        = '/';
+    long_path[PATH_MAX] = '\0';
     memset(buffer, 'L', size);
     errno = 0;
     CHECK(realpath(long_path, buffer) == NULL);

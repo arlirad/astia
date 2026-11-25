@@ -1,6 +1,9 @@
 #include "path_service.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/mm/heap.hpp>
+
+#include <new>
 
 namespace astia::fs::path_service {
     namespace {
@@ -34,6 +37,31 @@ namespace astia::fs::path_service {
                 ++length;
             return length;
         }
+
+        struct resolve_scratch {
+            char pending[path_max * 2];
+            char result[path_max];
+            char component[path_max];
+            char target[path_max];
+            char combined[path_max * 2];
+        };
+
+        class resolve_scratch_owner {
+            public:
+            explicit resolve_scratch_owner(resolve_scratch* value) : _value(value) {}
+            ~resolve_scratch_owner() {
+                if (_value != nullptr)
+                    mm::heap::free(_value);
+            }
+            resolve_scratch_owner(const resolve_scratch_owner&)            = delete;
+            resolve_scratch_owner& operator=(const resolve_scratch_owner&) = delete;
+            resolve_scratch*       get() const {
+                return _value;
+            }
+
+            private:
+            resolve_scratch* _value;
+        };
     }
 
     long compose(const char* base, const char* path, span<char> buffer) {
@@ -64,10 +92,18 @@ namespace astia::fs::path_service {
     long resolve(const char* path, char* buffer, u32 capacity, bool follow_final) {
         if (path == nullptr || buffer == nullptr || capacity == 0 || path[0] != '/')
             return -EINVAL;
-        char pending[path_max * 2]{};
-        char result[path_max]{};
-        u32  plen = 0, rlen = 1, links = 0;
-        u32  path_length = 0;
+        auto memory = mm::heap::alloc(sizeof(resolve_scratch));
+        if (!memory)
+            return -ENOMEM;
+        auto* storage = ::new (static_cast<void*>(memory.value)) resolve_scratch{};
+        resolve_scratch_owner owner(storage);
+        char(&pending)[path_max * 2]  = storage->pending;
+        char(&result)[path_max]       = storage->result;
+        char(&component)[path_max]    = storage->component;
+        char(&target)[path_max]       = storage->target;
+        char(&combined)[path_max * 2] = storage->combined;
+        u32 plen = 0, rlen = 1, links = 0;
+        u32 path_length = 0;
         while (path[path_length] != '\0')
             ++path_length;
         const bool trailing_slash = path_length != 0 && path[path_length - 1] == '/';
@@ -87,8 +123,7 @@ namespace astia::fs::path_service {
             u32 end = start;
             while (end < plen && pending[end] != '/')
                 ++end;
-            char component[path_max]{};
-            u32  clen = end - start;
+            u32 clen = end - start;
             if (clen >= path_max)
                 return -ENAMETOOLONG;
             for (u32 i = 0; i < clen; ++i)
@@ -127,12 +162,10 @@ namespace astia::fs::path_service {
             if ((!last || follow_final) && node_type(result) == directory_lnk) {
                 if (++links > 16)
                     return -ELOOP;
-                char target[path_max]{};
                 long n = read_symlink(result, target, sizeof target);
                 if (n < 0)
                     return n;
-                char combined[path_max * 2]{};
-                u32  at = 0;
+                u32 at = 0;
                 if (target[0] != '/') {
                     at = parent_len;
                     for (u32 i = 0; i < at; ++i)

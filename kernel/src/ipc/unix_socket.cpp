@@ -551,18 +551,17 @@ namespace astia::fs {
             char  n[path_max];
             if (!f || !path(a, n))
                 return -EINVAL;
-            char  canonical[path_max]{};
             auto* current = proc::current_process();
             if (!current)
                 return -ESRCH;
             mm::shptr<file> node = o.parent();
             long            rc   = register_unix_path(n, node, uid_t{current->euid()},
                                                       gid_t{current->egid()},
-                                                      astia::span<char>(canonical, sizeof canonical));
+                                                      astia::span<char>(n, sizeof n));
             if (rc < 0)
                 return rc;
             f->set_bound_address(a);
-            f->mark_bound(canonical);
+            f->mark_bound(n);
             return 0;
         }
         long socket_listen(open_file& o, u32 b) {

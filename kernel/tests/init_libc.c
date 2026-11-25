@@ -22,6 +22,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <pthread.h>
 #include <sched.h>
@@ -1498,7 +1499,7 @@ int main(int argc, char** argv) {
     /* 4: process working directory state through chdir/getcwd. */
     {
         char cwd[64];
-        char long_relative[61];
+        char long_relative[PATH_MAX - 4];
         for (size_t i = 0; i < sizeof(long_relative) - 1; ++i)
             long_relative[i] = 'x';
         long_relative[sizeof(long_relative) - 1] = '\0';

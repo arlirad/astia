@@ -46,7 +46,7 @@ namespace astia::fs::filesystems {
         bool       attach(const initrd::archive& archive);
 
         private:
-        initrd_mount* _instance = nullptr;
+        mm::shptr<initrd_mount> _instance;
     };
 
     initrd_filesystem& initrd_type();
