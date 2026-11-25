@@ -26,15 +26,27 @@ initrd=$3
 # below it so a stalled guest still gets its serial log printed instead of
 # being SIGKILLed mid-report.  The required markers and exit status are
 # unchanged.
-qemu_timeout_seconds=${ASTIA_BOOT_QEMU_TIMEOUT:-45}
-case "$qemu_timeout_seconds" in
-    '' | *[!0-9]*) qemu_timeout_seconds=45 ;;
-esac
-if [ "$qemu_timeout_seconds" -lt 1 ]; then
-    qemu_timeout_seconds=1
-elif [ "$qemu_timeout_seconds" -gt 55 ]; then
-    qemu_timeout_seconds=55
-fi
+#
+# Only one-to-three digit overrides are accepted.  `timeout` takes 64-bit
+# values, and shell arithmetic is not a portable way to detect that an
+# override overflowed the machine word, so the width is rejected before any
+# comparison.
+boot_timeout_seconds() {
+    seconds=${ASTIA_BOOT_QEMU_TIMEOUT:-45}
+    case "$seconds" in
+        '' | *[!0-9]*) seconds=45 ;;
+    esac
+    if [ "${#seconds}" -gt 3 ]; then
+        seconds=45
+    elif [ "$seconds" -lt 1 ]; then
+        seconds=1
+    elif [ "$seconds" -gt 55 ]; then
+        seconds=55
+    fi
+    printf '%s\n' "$seconds"
+}
+
+qemu_timeout_seconds=$(boot_timeout_seconds)
 expected_qemu_status=${ASTIA_EXPECT_QEMU_STATUS:-1}
 require_selftest=${ASTIA_REQUIRE_SELFTEST:-1}
 forbidden_pattern=${ASTIA_FORBID_PATTERN:-}
