@@ -147,6 +147,8 @@ enum {
     SYS_SHM_UNLINK            = 68,
     SYS_FCHDIR                = 69,
     SYS_UNAME                 = 70,
+    SYS_DLMAP                 = 71,
+    SYS_DLUNMAP               = 72,
 };
 
 /* ------------------------------------------------------------------ */
@@ -206,6 +208,33 @@ enum {
     ASTIA_PROCESS_DEAD     = 5,
 };
 enum { ASTIA_PROCESS_SNAPSHOT_MAX = 64 };
+
+/* ------------------------------------------------------------------ */
+/* dynamic library mapping                                             */
+/* ------------------------------------------------------------------ */
+
+/* Returned by dlmap.  `base` is the load bias and the dlunmap handle:
+ * every segment of the image sits at base + its PT_LOAD p_vaddr.  The
+ * program headers are visible at `phdr`, so a userspace linker can walk
+ * PT_DYNAMIC/PT_TLS itself without re-reading the file.
+ */
+typedef struct astia_dl_info {
+    uint32_t size;    /* sizeof(astia_dl_info) */
+    uint32_t version; /* ASTIA_DL_INFO_VERSION */
+    uint64_t base;
+    uint64_t span;
+    uint64_t entry;
+    uint64_t phdr;
+    uint32_t phnum;
+    uint32_t phent;
+    uint32_t flags; /* reserved, 0 */
+    uint32_t reserved;
+} astia_dl_info;
+
+enum { ASTIA_DL_INFO_VERSION = 1 };
+
+/* dlmap flags (reserved; must be 0 for now) */
+enum { ASTIA_DL_MAP_SHARED = 0 };
 
 /* ------------------------------------------------------------------ */
 /* constants for the direct-call flag words                            */
@@ -341,6 +370,17 @@ static inline long astia_shm_open(const char* name, int flags, uint32_t mode) {
 }
 static inline long astia_shm_unlink(const char* name) {
     return astia_raw6(SYS_SHM_UNLINK, (long) name, 0, 0, 0, 0, 0);
+}
+
+/* Maps the ELF image open at `fd` into the calling process at a
+ * kernel-chosen base shared by every process.  Read-only text is shared
+ * physically; writable segments are copy-on-write.  Returns the load
+ * bias (the dlunmap handle) or a negative error. */
+static inline long astia_dlmap(int32_t fd, uint32_t flags, astia_dl_info* info) {
+    return astia_raw6(SYS_DLMAP, (long) fd, (long) flags, (long) info, 0, 0, 0);
+}
+static inline long astia_dlunmap(uint64_t base) {
+    return astia_raw6(SYS_DLUNMAP, (long) base, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_lseek(int32_t fd, int64_t offset, int32_t whence) {

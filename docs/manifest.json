@@ -852,6 +852,26 @@
         "source": "kernel/src/proc/syscalls/process/uname.cpp",
         "synopsisKind": "public",
         "synopsis": "long astia_uname(astia_utsname* output);"
+      },
+      {
+        "id": 71,
+        "name": "dlmap",
+        "slug": "syscall-71-dlmap",
+        "title": "dlmap(2)",
+        "category": "proc/memory",
+        "source": "kernel/src/dl/syscalls/dlmap.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_dlmap(int32_t fd, uint32_t flags, astia_dl_info* info);"
+      },
+      {
+        "id": 72,
+        "name": "dlunmap",
+        "slug": "syscall-72-dlunmap",
+        "title": "dlunmap(2)",
+        "category": "proc/memory",
+        "source": "kernel/src/dl/syscalls/dlunmap.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_dlunmap(uint64_t base);"
       }
     ]
   },
