@@ -4,11 +4,14 @@ using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Packages;
 
 namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
 public sealed class PostgresPackageRepository : IPackageRepository, IPackageIndex
 {
+    public const int MaxListResults = PackageIndexLimits.MaxListResults;
+
     private readonly IDbContextFactory<PostgresPackageDbContext> _contextFactory;
 
     public PostgresPackageRepository(IDbContextFactory<PostgresPackageDbContext> contextFactory)
@@ -64,9 +67,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
 
         var name = package.Key.Name.Value;
         var version = package.Key.Version.ToString();
-        var expectedState = package.State == PackageState.BuildRequested
-            ? PackageState.Registered
-            : package.State;
+        var expectedState = PostgresPackageStateTransition.ExpectedPersistedState(package.State);
         var sourceUrl = package.Manifest.Source.RepositoryUri.ToString();
         var sourceCommit = package.Manifest.Source.CommitSha;
         var toolchainName = package.Manifest.Toolchain.Name;
@@ -78,7 +79,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         var signatureValue = package.Manifest.Signature.Value;
         var buildIsolation = (int)package.BuildPolicy.Isolation;
         var allowNetwork = package.BuildPolicy.AllowNetwork;
-        var timeoutSeconds = (int)package.BuildPolicy.Timeout.TotalSeconds;
+        var timeoutTicks = package.BuildPolicy.Timeout.Ticks;
         var state = (int)package.State;
         var pendingEventsJson = PostgresPendingEventSerializer.Serialize(package.PeekDomainEvents());
         var buildRequestedAt = package.BuildRequestedAt;
@@ -100,7 +101,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
                     .SetProperty(record => record.SignatureValue, signatureValue)
                     .SetProperty(record => record.BuildIsolation, buildIsolation)
                     .SetProperty(record => record.AllowNetwork, allowNetwork)
-                    .SetProperty(record => record.TimeoutSeconds, timeoutSeconds)
+                    .SetProperty(record => record.TimeoutTicks, timeoutTicks)
                     .SetProperty(record => record.State, state)
                     .SetProperty(record => record.PendingEventsJson, pendingEventsJson)
                     .SetProperty(record => record.BuildRequestedAt, buildRequestedAt),
@@ -186,8 +187,6 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         }
 
         var records = await query
-            .OrderBy(record => record.Name)
-            .ThenBy(record => record.Version)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -196,6 +195,9 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
                 PostgresPackageMapper.ToManifest(record),
                 PostgresPackageMapper.ToState(record.State),
                 record.RegisteredAt))
+            .OrderBy(entry => entry.Manifest.Name.Value, StringComparer.Ordinal)
+            .ThenBy(entry => entry.Manifest.Version, PackageVersionOrder.Comparer)
+            .Take(MaxListResults)
             .ToArray();
     }
 

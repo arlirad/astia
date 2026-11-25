@@ -28,7 +28,7 @@ public sealed class PostgresPackageMapperTests
         Assert.Equal(package.Manifest.Signature.Value, record.SignatureValue);
         Assert.Equal((int)BuildIsolation.Container, record.BuildIsolation);
         Assert.Equal(package.BuildPolicy.AllowNetwork, record.AllowNetwork);
-        Assert.Equal((int)package.BuildPolicy.Timeout.TotalSeconds, record.TimeoutSeconds);
+        Assert.Equal(package.BuildPolicy.Timeout.Ticks, record.TimeoutTicks);
         Assert.Equal((int)PackageState.Registered, record.State);
         Assert.Equal(package.RegisteredAt, record.RegisteredAt);
         Assert.Null(record.BuildRequestedAt);
@@ -105,5 +105,22 @@ public sealed class PostgresPackageMapperTests
 
         Assert.Throws<InvalidOperationException>(
             () => PostgresPackageMapper.ToDomain(record));
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesFractionalBuildTimeout()
+    {
+        var package = Package.Register(
+            TestPackages.CreateManifest(),
+            BuildPolicy.Create(
+                BuildIsolation.Container,
+                allowNetwork: false,
+                timeout: TimeSpan.FromMilliseconds(1500)),
+            TestPackages.Timestamp);
+
+        var rehydrated = PostgresPackageMapper.ToDomain(
+            PostgresPackageMapper.FromDomain(package));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(1500), rehydrated.BuildPolicy.Timeout);
     }
 }

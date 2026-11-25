@@ -68,6 +68,83 @@ public sealed class PackageJsonCacheTests
     }
 
     [Fact]
+    public async Task List_UnfilteredAndLiteralStarSearchUseDistinctKeys()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var cache = new PackageJsonCache(memory, Options);
+        var calls = 0;
+
+        Task<PackageListResponse> Load(CancellationToken _)
+        {
+            calls++;
+            return Task.FromResult(CreateListResponse(calls == 1 ? "unfiltered" : "star"));
+        }
+
+        var unfiltered = await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            Load,
+            CancellationToken.None);
+        var literalStar = await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            "*",
+            Load,
+            CancellationToken.None);
+
+        Assert.Equal(2, calls);
+        Assert.NotEqual(unfiltered, literalStar);
+        Assert.Contains("\"name\":\"unfiltered\"", unfiltered, StringComparison.Ordinal);
+        Assert.Contains("\"name\":\"star\"", literalStar, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InvalidationDuringLoad_DoesNotServeStaleJsonOnNextRead()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var cache = new PackageJsonCache(memory, Options);
+        var loadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<PackageListResponse> BlockingLoad(CancellationToken cancellationToken)
+        {
+            loadStarted.TrySetResult();
+            await releaseLoad.Task.WaitAsync(cancellationToken);
+            return CreateListResponse("stale");
+        }
+
+        var inFlight = cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            BlockingLoad,
+            CancellationToken.None);
+        await loadStarted.Task;
+
+        cache.InvalidateAfterMutation();
+        releaseLoad.SetResult();
+
+        var stale = await inFlight;
+        Assert.Contains("\"name\":\"stale\"", stale, StringComparison.Ordinal);
+
+        var fresh = await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            _ => Task.FromResult(CreateListResponse("fresh")),
+            CancellationToken.None);
+
+        Assert.Contains("\"name\":\"fresh\"", fresh, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ActorKey_DoesNotCollideForDelimiterBearingRoleStrings()
     {
         var clock = new ManualClock();
@@ -195,12 +272,18 @@ public sealed class PackageJsonCacheTests
         Assert.Equal(2, calls);
     }
 
-    private static PackageListResponse CreateListResponse() => new(
+    private static PackageListResponse CreateListResponse(string name = "widget") => new(
     [
-        PackageSummaryResponse.From(PackageSummaryDto.From(new PackageIndexEntry(
-            TestPackages.CreateManifest(),
-            PackageState.Registered,
-            TestPackages.Timestamp)))
+        new PackageSummaryResponse(
+            name,
+            "1.2.3",
+            TestPackages.CommitSha,
+            "gcc 13.2.0",
+            TestPackages.ContentHashValue,
+            "ci://pkgsrv/tests/42",
+            "Pending",
+            "Registered",
+            TestPackages.Timestamp)
     ]);
 
     private static PackageResponse CreatePackageResponse() =>

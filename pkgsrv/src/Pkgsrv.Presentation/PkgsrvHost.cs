@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.Presentation.Api;
 using Pkgsrv.Presentation.Caching;
@@ -59,6 +60,14 @@ public static class PkgsrvHost
             app.Logger.LogWarning(
                 "Pkgsrv is using the in-memory package store. Package metadata will not survive restart.");
         }
+        else if (!databaseOptions.InitializeSchema)
+        {
+            app.Services
+                .GetRequiredService<IPackageSchemaValidator>()
+                .ValidateAsync(CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
+        }
 
         app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
         app.MapPackageEndpoints();
@@ -77,6 +86,13 @@ public static class PkgsrvHost
         if (initializer is not null)
         {
             await initializer.InitializeAsync(cancellationToken);
+        }
+
+        var validator = app.Services.GetService<IPackageSchemaValidator>();
+
+        if (validator is not null)
+        {
+            await validator.ValidateAsync(cancellationToken);
         }
     }
 }

@@ -182,12 +182,19 @@ export Pkgsrv__Database__InitializeSchema=false
 ```
 
 The adapter maps package key, all manifest fields, build policy, aggregate state,
-and registration/build timestamps. Rehydration uses a domain factory and does not
-raise registration or build events.
+and registration/build timestamps. Build timeouts are stored as ticks, so fractional
+`TimeSpan` values survive a round trip. Rehydration uses a domain factory and does
+not raise registration or build events.
 
 Build requests use a conditional row update requiring the persisted state to still
 be `Registered`. Concurrent build requests race on that predicate; one succeeds,
-and a stale update raises `PackageConflictException`, mapped to HTTP `409`.
+and a stale update — including a stale `Registered` aggregate attempting to
+overwrite a persisted `BuildRequested` state — raises `PackageConflictException`,
+mapped to HTTP `409`.
+
+List results are ordered deterministically by name, numeric major/minor/patch,
+pre-release text with releases after pre-releases, build-metadata text, and
+canonical version. The result set is capped at 1000 entries.
 
 Pending domain events are stored in the same row in `PendingEventsJson` and are
 written atomically with registration/build state. Only the supported
@@ -206,8 +213,11 @@ be idempotent. Automatic outbox dispatch/retry is not implemented yet.
 The schema lives in the default `public` schema as `packages`. It can be initialized
 by setting `InitializeSchema=true`; startup executes idempotent
 `CREATE TABLE IF NOT EXISTS` and index statements before listening. The initializer
-never drops or truncates data. For production, prefer managed migrations or a
-reviewed DDL deployment, and grant the runtime user only the required table
+never drops or truncates data. The versioned DDL is also available as
+`pkgsrv/db/migrations/0001_packages.sql`. Startup validates the exact schema version
+in `schema_versions`; a missing table or an older/future version fails startup
+rather than silently claiming durability. For production, prefer managed migrations
+or a reviewed DDL deployment, and grant the runtime user only the required table
 privileges. The application does not create databases, roles, or extensions, and
 does not silently alter existing schemas.
 
@@ -220,8 +230,9 @@ Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
 served from a bounded in-process JSON cache. The cache key includes the caller
 identity, the list query, and the package key. Actor identity fields and roles are
 length-prefixed before being combined, so delimiter-bearing header values cannot
-collide. JSON is generated only on a cache miss, then returned with
-`application/json`.
+collide. Unfiltered list results use an explicit `all` key segment; filtered results
+use `search:<query>`, so a literal `*` search cannot collide with the unfiltered
+list. JSON is generated only on a cache miss, then returned with `application/json`.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
@@ -229,8 +240,10 @@ collide. JSON is generated only on a cache miss, then returned with
 | `Pkgsrv__Cache__SizeLimit` | `1024` | Maximum cached entries |
 
 Successful registration and build mutations invalidate list/detail entries by
-advancing a cache generation. Entries also expire by absolute TTL, and the
-`MemoryCache` size limit prevents unbounded growth.
+advancing a cache generation. A load captures the generation before it starts; if a
+mutation invalidates the cache while that load is in flight, the stale result is not
+stored for future reads. Entries also expire by absolute TTL, and the `MemoryCache`
+size limit prevents unbounded growth.
 
 ## Listening endpoint
 
@@ -380,11 +393,33 @@ listening endpoint section.
   in-memory mode is not durable.
 - Automatic pending-event dispatch/retry is not implemented. The durable boundary
   is at-least-once, so publishers must be idempotent.
-- No EF migrations are included. Use `InitializeSchema=true` only for the skeleton,
-  or manage the reviewed DDL through deployment/migrations.
+- Versioned SQL DDL is provided under `pkgsrv/db/migrations`; EF migrations are not
+  used. `InitializeSchema=true` remains a skeleton convenience and is not an
+  automatic production migration mechanism.
+- Full SemVer identifier precedence and version-aware search are not implemented;
+  list ordering is the deterministic contract above.
 - Irva.Client authorization is pending and defaults to deny.
 - No project reference is made to `/home/tymk/Projects/_prg/servers/ervan`; the
   permission and client adapter must be wired when hosting alongside Ervan.
 - Package build requests persist the requested state and return `NotExecuted`; build
   execution remains deliberately disabled until a verified sandbox adapter exists.
 - The application deliberately does not create the Unix socket runtime directory.
+
+## Tracked residuals
+
+- [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration
+  and migration conformance tests.
+- [#175](https://github.com/arlirad/astia/issues/175) - cross-instance read-model
+  cache invalidation.
+- [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox
+  dispatch/retry for package domain events.
+- [#177](https://github.com/arlirad/astia/issues/177) - provenance contains-search
+  index or restricted search fields.
+- [#178](https://github.com/arlirad/astia/issues/178) - real Irva authorization and
+  Ervan hosting boundary.
+- [#179](https://github.com/arlirad/astia/issues/179) - sandboxed build execution,
+  signing, and package delivery.
+- [#180](https://github.com/arlirad/astia/issues/180) - storage mode and PostgreSQL
+  availability in health/readiness.
+- [#197](https://github.com/arlirad/astia/issues/197) - full SemVer precedence and
+  version-aware search.

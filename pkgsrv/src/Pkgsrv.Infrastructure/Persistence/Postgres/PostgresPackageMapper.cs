@@ -31,7 +31,7 @@ public static class PostgresPackageMapper
         record.SignatureValue = package.Manifest.Signature.Value;
         record.BuildIsolation = (int)package.BuildPolicy.Isolation;
         record.AllowNetwork = package.BuildPolicy.AllowNetwork;
-        record.TimeoutSeconds = (int)package.BuildPolicy.Timeout.TotalSeconds;
+        record.TimeoutTicks = package.BuildPolicy.Timeout.Ticks;
         record.State = (int)package.State;
         record.PendingEventsJson = PostgresPendingEventSerializer.Serialize(package.PeekDomainEvents());
         record.RegisteredAt = package.RegisteredAt;
@@ -60,7 +60,7 @@ public static class PostgresPackageMapper
         var buildPolicy = BuildPolicy.Create(
             (BuildIsolation)record.BuildIsolation,
             record.AllowNetwork,
-            TimeSpan.FromSeconds(record.TimeoutSeconds));
+            TimeSpan.FromTicks(record.TimeoutTicks));
         var pendingEvents = PostgresPendingEventSerializer.Deserialize(
             record.PendingEventsJson,
             manifest,

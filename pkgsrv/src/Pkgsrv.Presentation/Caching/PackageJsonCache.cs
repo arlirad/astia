@@ -9,6 +9,9 @@ namespace Pkgsrv.Presentation.Caching;
 
 public sealed class PackageJsonCache : IPackageJsonCache
 {
+    private const string AllListKey = "all";
+    private const string SearchListKeyPrefix = "search:";
+
     private static readonly JsonSerializerOptions SerializerOptions =
         new(JsonSerializerDefaults.Web);
 
@@ -28,9 +31,10 @@ public sealed class PackageJsonCache : IPackageJsonCache
         Func<CancellationToken, Task<PackageListResponse>> load,
         CancellationToken cancellationToken)
     {
-        var key = $"pkgsrv:json:{CurrentGeneration()}:list:{ActorKey(actor)}:{NormalizeSearch(search)}";
+        var generation = CurrentGeneration();
+        var key = $"pkgsrv:json:{generation}:list:{ActorKey(actor)}:{NormalizeSearch(search)}";
 
-        return GetOrCreateAsync(key, load, cancellationToken);
+        return GetOrCreateAsync(key, generation, load, cancellationToken);
     }
 
     public Task<string> GetPackageJsonAsync(
@@ -40,9 +44,10 @@ public sealed class PackageJsonCache : IPackageJsonCache
         Func<CancellationToken, Task<PackageResponse>> load,
         CancellationToken cancellationToken)
     {
-        var key = $"pkgsrv:json:{CurrentGeneration()}:package:{ActorKey(actor)}:{name}@{version}";
+        var generation = CurrentGeneration();
+        var key = $"pkgsrv:json:{generation}:package:{ActorKey(actor)}:{name}@{version}";
 
-        return GetOrCreateAsync(key, load, cancellationToken);
+        return GetOrCreateAsync(key, generation, load, cancellationToken);
     }
 
     public void InvalidateAfterMutation()
@@ -52,6 +57,7 @@ public sealed class PackageJsonCache : IPackageJsonCache
 
     private async Task<string> GetOrCreateAsync<TResponse>(
         string key,
+        long generation,
         Func<CancellationToken, Task<TResponse>> load,
         CancellationToken cancellationToken)
     {
@@ -62,22 +68,32 @@ public sealed class PackageJsonCache : IPackageJsonCache
 
         var response = await load(cancellationToken).ConfigureAwait(false);
         var json = JsonSerializer.Serialize(response, SerializerOptions);
-        _cache.Set(
-            key,
-            json,
-            new MemoryCacheEntryOptions
-            {
-                Size = 1,
-                AbsoluteExpirationRelativeToNow = _options.Ttl
-            });
+
+        if (CurrentGeneration() == generation)
+        {
+            _cache.Set(
+                key,
+                json,
+                new MemoryCacheEntryOptions
+                {
+                    Size = 1,
+                    AbsoluteExpirationRelativeToNow = _options.Ttl
+                });
+        }
 
         return json;
     }
 
     private long CurrentGeneration() => Interlocked.Read(ref _generation);
 
-    private static string NormalizeSearch(string? search) =>
-        search?.Trim().ToLowerInvariant() ?? string.Empty;
+    private static string NormalizeSearch(string? search)
+    {
+        var normalized = search?.Trim();
+
+        return string.IsNullOrEmpty(normalized)
+            ? AllListKey
+            : SearchListKeyPrefix + normalized.ToLowerInvariant();
+    }
 
     private static string ActorKey(AuthorizationContext actor)
     {

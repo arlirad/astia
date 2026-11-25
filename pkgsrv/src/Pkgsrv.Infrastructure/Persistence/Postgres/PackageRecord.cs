@@ -28,7 +28,7 @@ public sealed class PackageRecord
 
     public bool AllowNetwork { get; set; }
 
-    public int TimeoutSeconds { get; set; }
+    public long TimeoutTicks { get; set; }
 
     public int State { get; set; }
 

@@ -2,7 +2,14 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
 public static class PostgresPackageSchema
 {
+    public const int RequiredVersion = 1;
+
     public const string CreateSql = """
+        CREATE TABLE IF NOT EXISTS schema_versions (
+            version integer PRIMARY KEY,
+            applied_at timestamp with time zone NOT NULL DEFAULT now()
+        );
+
         CREATE TABLE IF NOT EXISTS packages (
             "Name" text NOT NULL,
             "Version" text NOT NULL,
@@ -17,19 +24,49 @@ public static class PostgresPackageSchema
             "SignatureValue" text NULL,
             "BuildIsolation" integer NOT NULL,
             "AllowNetwork" boolean NOT NULL,
-            "TimeoutSeconds" integer NOT NULL,
+            "TimeoutTicks" bigint NOT NULL,
             "State" integer NOT NULL,
             "PendingEventsJson" text NOT NULL DEFAULT '[]',
             "RegisteredAt" timestamp with time zone NOT NULL,
             "BuildRequestedAt" timestamp with time zone NULL,
-            CONSTRAINT "PK_packages" PRIMARY KEY ("Name", "Version")
+            CONSTRAINT "PK_packages" PRIMARY KEY ("Name", "Version"),
+            CONSTRAINT "CK_packages_TimeoutTicks" CHECK ("TimeoutTicks" BETWEEN 10000000 AND 36000000000)
         );
 
         ALTER TABLE packages
             ADD COLUMN IF NOT EXISTS "PendingEventsJson" text NOT NULL DEFAULT '[]';
 
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "TimeoutTicks" bigint NOT NULL DEFAULT 0;
+
+        DO $pkgsrv$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'packages'
+                  AND column_name = 'TimeoutSeconds'
+            ) THEN
+                UPDATE packages
+                SET "TimeoutTicks" = "TimeoutSeconds"::bigint * 10000000
+                WHERE "TimeoutTicks" = 0;
+            END IF;
+        END
+        $pkgsrv$;
+
         CREATE INDEX IF NOT EXISTS "IX_packages_Name" ON packages ("Name");
         CREATE INDEX IF NOT EXISTS "IX_packages_State" ON packages ("State");
         CREATE INDEX IF NOT EXISTS "IX_packages_RegisteredAt" ON packages ("RegisteredAt");
+
+        INSERT INTO schema_versions (version)
+        VALUES (1)
+        ON CONFLICT (version) DO NOTHING;
+        """;
+
+    public const string ValidationSql = """
+        SELECT
+            to_regclass('packages') IS NOT NULL,
+            COALESCE((SELECT MAX(version) FROM schema_versions), 0)
         """;
 }

@@ -55,7 +55,8 @@ public sealed class InMemoryPackageRepository : IPackageRepository, IPackageInde
         var entries = _packages.Values
             .Where(package => Matches(package, normalizedSearch))
             .OrderBy(package => package.Manifest.Name.Value, StringComparer.Ordinal)
-            .ThenBy(package => package.Manifest.Version.ToString(), StringComparer.Ordinal)
+            .ThenBy(package => package.Manifest.Version, PackageVersionOrder.Comparer)
+            .Take(PackageIndexLimits.MaxListResults)
             .Select(package => new PackageIndexEntry(
                 package.Manifest,
                 package.State,

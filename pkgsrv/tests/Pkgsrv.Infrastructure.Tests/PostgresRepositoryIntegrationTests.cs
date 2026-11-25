@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Pkgsrv.Application.Errors;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
@@ -55,6 +56,10 @@ public sealed class PostgresRepositoryIntegrationTests
             Assert.NotNull(updated);
             Assert.Equal(PackageState.BuildRequested, updated.State);
             Assert.Equal(TestPackages.Timestamp.AddMinutes(1), updated.BuildRequestedAt);
+
+            var stale = TestPackages.CreatePackage(name: name);
+            await Assert.ThrowsAsync<PackageConflictException>(
+                () => repository.UpdateAsync(stale, CancellationToken.None));
 
             var results = await repository.SearchAsync(name, CancellationToken.None);
             Assert.Contains(results, entry => entry.Manifest.Name.Value == name);
