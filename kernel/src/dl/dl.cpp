@@ -223,25 +223,28 @@ namespace astia::dl {
             const u64 span_start = reinterpret_cast<u64>(result.base) - result.load_bias;
             const u64 page_bytes = mm::phys_region::frame_size;
 
-            value->region        = region;
-            value->base          = result.load_bias;
-            value->span          = result.size;
-            value->entry         = reinterpret_cast<u64>(result.entry);
-            value->phdr          = result.phdr_vaddr;
-            value->phnum         = result.phnum;
-            value->phent         = result.phent;
-            value->ident_mount   = mount;
-            value->ident_inode   = inode;
-            value->ident_size    = size;
-            value->segment_count = static_cast<u32>(result.nsegs);
-
-            bool valid = true;
-            for (u32 i = 0; i < value->segment_count; ++i) {
+            value->region      = region;
+            value->base        = result.load_bias;
+            value->span        = result.size;
+            value->entry       = reinterpret_cast<u64>(result.entry);
+            value->phdr        = result.phdr_vaddr;
+            value->phnum       = result.phnum;
+            value->phent       = result.phent;
+            value->ident_mount = mount;
+            value->ident_inode = inode;
+            value->ident_size  = size;
+            bool valid         = true;
+            for (u32 i = 0; i < result.nsegs; ++i) {
                 const auto& source = result.segs[i];
-                const u64   start  = page_align_down(source.vaddr);
-                const u64   end    = page_align_up(source.vaddr + source.memsz);
+                // lld emits empty PT_LOADs (filesz = memsz = 0) for padding;
+                // they describe no pages and must not become VMAs.
+                if (source.memsz == 0)
+                    continue;
+                const u64 start = page_align_down(source.vaddr);
+                const u64 end   = page_align_up(source.vaddr + source.memsz);
                 if (end <= start || start < span_start ||
-                    (start - span_start) % page_bytes != 0 || end - start > result.size) {
+                    (start - span_start) % page_bytes != 0 || end - start > result.size ||
+                    value->segment_count == elf::loader::max_segments) {
                     valid = false;
                     break;
                 }
@@ -250,14 +253,14 @@ namespace astia::dl {
                     valid = false;
                     break;
                 }
-                value->segments[i] = {
+                value->segments[value->segment_count++] = {
                     start,
                     end - start,
                     protection_of(flags.value),
                     static_cast<u32>((start - span_start) / page_bytes),
                 };
             }
-            if (!valid) {
+            if (!valid || value->segment_count == 0) {
                 region->release();
                 co_return error_t::einval;
             }
