@@ -1,0 +1,96 @@
+using Pkgsrv.Domain.Errors;
+using Pkgsrv.Domain.Events;
+using Pkgsrv.Domain.Packages;
+using Pkgsrv.TestSupport;
+
+namespace Pkgsrv.Domain.Tests;
+
+public sealed class PackageAggregateTests
+{
+    [Fact]
+    public void Register_StartsInRegisteredStateAndRaisesEvent()
+    {
+        var package = TestPackages.CreatePackage();
+
+        Assert.Equal(PackageState.Registered, package.State);
+        Assert.Equal(TestPackages.Timestamp, package.RegisteredAt);
+        Assert.Null(package.BuildRequestedAt);
+
+        var domainEvent = Assert.IsType<PackageRegistered>(Assert.Single(package.DomainEvents));
+        Assert.Equal(package.Key, domainEvent.Key);
+        Assert.Equal(TestPackages.Timestamp, domainEvent.OccurredAt);
+    }
+
+    [Fact]
+    public void RequestBuild_TransitionsOnceAndRaisesEvent()
+    {
+        var package = TestPackages.CreatePackage();
+        var requestedAt = TestPackages.Timestamp.AddMinutes(5);
+
+        package.RequestBuild(requestedAt);
+
+        Assert.Equal(PackageState.BuildRequested, package.State);
+        Assert.Equal(requestedAt, package.BuildRequestedAt);
+
+        Assert.Contains(package.DomainEvents, domainEvent => domainEvent is PackageBuildRequested);
+    }
+
+    [Fact]
+    public void RequestBuild_RejectsDuplicateRequest()
+    {
+        var package = TestPackages.CreatePackage();
+        package.RequestBuild(TestPackages.Timestamp);
+
+        var exception = Assert.Throws<DomainException>(
+            () => package.RequestBuild(TestPackages.Timestamp.AddMinutes(1)));
+
+        Assert.Equal(DomainErrorCodes.BuildAlreadyRequested, exception.Code);
+    }
+
+    [Fact]
+    public void DequeueDomainEvents_ClearsCollectedEvents()
+    {
+        var package = TestPackages.CreatePackage();
+
+        var events = package.DequeueDomainEvents();
+
+        Assert.Single(events);
+        Assert.Empty(package.DomainEvents);
+    }
+
+    [Fact]
+    public async Task RequestBuild_AllowsExactlyOneConcurrentTransition()
+    {
+        var package = TestPackages.CreatePackage();
+        package.DequeueDomainEvents();
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var attempts = Enumerable.Range(0, 64)
+            .Select(_ => Task.Run(async () =>
+            {
+                await start.Task;
+
+                try
+                {
+                    package.RequestBuild(TestPackages.Timestamp);
+                    return true;
+                }
+                catch (DomainException exception) when (exception.Code == DomainErrorCodes.BuildAlreadyRequested)
+                {
+                    return false;
+                }
+            }))
+            .ToArray();
+
+        start.SetResult();
+        var outcomes = await Task.WhenAll(attempts);
+
+        Assert.Equal(1, outcomes.Count(outcome => outcome));
+        Assert.Equal(63, outcomes.Count(outcome => !outcome));
+        Assert.Equal(PackageState.BuildRequested, package.State);
+        Assert.Equal(TestPackages.Timestamp, package.BuildRequestedAt);
+
+        var buildEvent = Assert.Single(package.DomainEvents.OfType<PackageBuildRequested>());
+        Assert.Equal(TestPackages.Timestamp, buildEvent.OccurredAt);
+    }
+}

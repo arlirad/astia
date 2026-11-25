@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pkgsrv.TestSupport</RootNamespace>
+    <AssemblyName>Pkgsrv.TestSupport</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pkgsrv.Application\Pkgsrv.Application.csproj" />
+    <ProjectReference Include="..\..\src\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+  </ItemGroup>
+</Project>

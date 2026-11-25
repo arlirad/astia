@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.11" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pkgsrv.Application\Pkgsrv.Application.csproj" />
+    <ProjectReference Include="..\..\src\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+    <ProjectReference Include="..\..\test-support\Pkgsrv.TestSupport\Pkgsrv.TestSupport.csproj" />
+  </ItemGroup>
+</Project>

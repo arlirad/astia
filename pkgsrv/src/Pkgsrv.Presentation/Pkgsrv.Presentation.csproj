@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Pkgsrv.Presentation</RootNamespace>
+    <AssemblyName>Pkgsrv.Presentation</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pkgsrv.Application\Pkgsrv.Application.csproj" />
+    <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+    <ProjectReference Include="..\Pkgsrv.Infrastructure\Pkgsrv.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
