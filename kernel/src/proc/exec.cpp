@@ -22,6 +22,13 @@ namespace astia::proc {
             return true;
         }
 
+        bool checked_add(u64 left, u64 right, u64& result) {
+            if (left > ~u64{0} - right)
+                return false;
+            result = left + right;
+            return true;
+        }
+
         /// One PT_LOAD segment's physical run, recorded at map time so
         /// the load can file it as a VMA afterwards.
         struct mapped_segment {
@@ -213,11 +220,15 @@ namespace astia::proc {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
             if (image.tls_filesz > image.tls_memsz || !is_power_of_two(align) ||
                 !checked_align_up(image.tls_memsz, align, tls_span) ||
+                tls_span > user_address_limit - user_tls_base ||
                 tls_span > ~u64{0} - user_tls_tcb_headroom ||
                 tls_span + user_tls_tcb_headroom > ~u64{0} - (elf::loader::page_size - 1))
                 return false;
-            const u64 total =
-                tls_span + user_tls_tcb_headroom + elf::loader::page_size - 1;
+            u64 total = 0;
+            if (!checked_add(user_dso_tls_reserve, tls_span, total) ||
+                !checked_add(total, user_tls_tcb_headroom, total) ||
+                !checked_add(total, elf::loader::page_size - 1, total))
+                return false;
             pages = total / elf::loader::page_size;
             return pages != 0;
         }
@@ -238,17 +249,19 @@ namespace astia::proc {
             if (frames == mm::frame_allocator::invalid_frame) {
                 return false;
             }
+            const u64 bottom = user_tls_base - user_dso_tls_reserve;
             for (u64 page = 0; page < pages; ++page) {
-                if (!map.map_4k(user_tls_base + page * elf::loader::page_size,
+                if (!map.map_4k(bottom + page * elf::loader::page_size,
                                 frames + page * elf::loader::page_size,
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
                                     mm::mapping_flags::user)) {
-                    unmap_run(map, user_tls_base, page);
+                    unmap_run(map, bottom, page);
                     mm::kernel_frames().release(frames, pages);
                     return false;
                 }
             }
-            auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
+            auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames)) +
+                                user_dso_tls_reserve;
             for (u64 index = 0; index < source.size() && index < image.tls_memsz;
                  ++index) {
                 destination[index] = source.data()[index];
@@ -369,7 +382,7 @@ namespace astia::proc {
         // Static TLS: the thread's %fs base loads the block end this
         // materializes (0 = the image has no PT_TLS and nothing ever
         // reaches %fs).
-        if (image.tls_memsz != 0) {
+        if (image.tls_memsz != 0 || image.interp_size != 0) {
             u64 tp         = 0;
             u64 tls_frames = 0;
             u64 tls_pages  = 0;
@@ -378,12 +391,16 @@ namespace astia::proc {
                 rollback_tls_failure(&image_state, _address_space);
                 return false;
             }
-            _tls_tp      = tp;
-            auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
+            _tls_tp               = tp;
+            _exec_image.tls_base  = user_tls_base;
+            _exec_image.tls_tp    = tp;
+            _exec_image.tls_limit = user_tls_base - user_dso_tls_reserve;
+            auto* region          = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
-                !register_mapping(user_tls_base, tls_pages,
+                !register_mapping(user_tls_base - user_dso_tls_reserve, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                rollback_mapping_failure(_address_space, user_tls_base, tls_pages,
+                rollback_mapping_failure(_address_space,
+                                         user_tls_base - user_dso_tls_reserve, tls_pages,
                                          tls_frames, region);
                 rollback_tls_failure(&image_state, _address_space);
                 return false;
@@ -466,29 +483,33 @@ namespace astia::proc {
             const u64 frames = mm::kernel_frames().alloc(pages, mm::frame_flags::zeroed);
             if (frames == mm::frame_allocator::invalid_frame)
                 co_return false;
+            const u64 bottom = user_tls_base - user_dso_tls_reserve;
             for (u64 page = 0; page < pages; ++page) {
-                if (!map.map_4k(user_tls_base + page * elf::loader::page_size,
+                if (!map.map_4k(bottom + page * elf::loader::page_size,
                                 frames + page * elf::loader::page_size,
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
                                     mm::mapping_flags::user)) {
-                    unmap_run(map, user_tls_base, page);
+                    unmap_run(map, bottom, page);
                     mm::kernel_frames().release(frames, pages);
                     co_return false;
                 }
             }
             if (image.tls_filesz != 0) {
-                auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
-                auto  read        = co_await file->read_exact(
+                auto* destination =
+                    static_cast<u8*>(mm::kernel_frames().to_virt(frames)) +
+                    user_dso_tls_reserve;
+                auto read = co_await file->read_exact(
                     astia::span<u8>(destination, static_cast<usize>(image.tls_filesz)),
                     image.tls_offset, token);
                 if (!read) {
-                    unmap_run(map, user_tls_base, pages);
+                    unmap_run(map, bottom, pages);
                     mm::kernel_frames().release(frames, pages);
                     co_return false;
                 }
             }
-            auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames));
-            tp_out            = user_tls_base + tls_span;
+            auto* destination = static_cast<u8*>(mm::kernel_frames().to_virt(frames)) +
+                                user_dso_tls_reserve;
+            tp_out                                          = user_tls_base + tls_span;
             *reinterpret_cast<u64*>(destination + tls_span) = tp_out;
             frames_out                                      = frames;
             pages_out                                       = pages;
@@ -537,7 +558,7 @@ namespace astia::proc {
             }
             seg.used = false;
         }
-        if (image.tls_memsz != 0) {
+        if (image.tls_memsz != 0 || image.interp_size != 0) {
             u64  tls_frames = 0, tls_pages = 0, tp = 0;
             auto tls = co_await map_tls_file_async(_address_space, file,
                                                    _cancellation_root.token(), image, tp,
@@ -548,16 +569,22 @@ namespace astia::proc {
             }
             auto* region = mm::phys_region::adopt(tls_frames, tls_pages);
             if (region == nullptr ||
-                !register_mapping(user_tls_base, tls_pages,
+                !register_mapping(user_tls_base - user_dso_tls_reserve, tls_pages,
                                   map_protection::read | map_protection::write, region)) {
-                rollback_mapping_failure(_address_space, user_tls_base, tls_pages,
+                rollback_mapping_failure(_address_space,
+                                         user_tls_base - user_dso_tls_reserve, tls_pages,
                                          tls_frames, region);
                 rollback_tls_failure(&stream.map, _address_space);
                 co_return false;
             }
-            _tls_tp = tp;
+            _tls_tp               = tp;
+            _exec_image.tls_base  = user_tls_base;
+            _exec_image.tls_tp    = tp;
+            _exec_image.tls_limit = user_tls_base - user_dso_tls_reserve;
         }
-        if (image.tls_memsz == 0)
+        // With an interpreter the arena is mapped even when the payload has
+        // no TLS: shared objects lay their blocks out below it.
+        if (image.tls_memsz == 0 && image.interp_size == 0)
             _tls_tp = 0;
 
         _exec_image.entry  = reinterpret_cast<u64>(image.entry);

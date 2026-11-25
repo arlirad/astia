@@ -13,42 +13,63 @@ MARKERS = (
 )
 
 
+def _has_marker(text: str) -> bool:
+    return any(marker in text for marker in MARKERS)
+
+
+def _lines(body: str) -> list[str]:
+    """Split on '\\n' only, keeping the terminator on every finished line."""
+    parts = body.split("\n")
+    lines = [part + "\n" for part in parts[:-1]]
+    if parts[-1]:
+        lines.append(parts[-1])
+    return lines
+
+
 def normalize(text: str) -> str:
     matches = list(PREFIX.finditer(text))
     if not matches:
         return text
 
-    segments = []
-    if matches[0].start() != 0:
-        segments.append((None, text[: matches[0].start()]))
+    # One record per prefix, in the order the prefixes appeared.
+    records: list[str] = []
+    # Records whose first line was cut off by an interleaved record, most
+    # recently started last: a continuation line belongs to that one first.
+    open_records: list[int] = []
 
     for index, match in enumerate(matches):
+        start = match.end()
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        segments.append((match, text[match.end() : end]))
+        lines = _lines(text[start:end])
+
+        first = lines[0] if lines else ""
+        records.append(match.group(0) + first)
+        current = len(records) - 1
+        if not first.endswith("\n"):
+            open_records.append(current)
+
+        for line in lines[1:]:
+            if open_records:
+                target = open_records.pop()
+                records[target] += line
+                if not line.endswith("\n"):
+                    open_records.append(target)
+                continue
+            # Nothing was interrupted, so the newline that ended the record
+            # above was itself injected: this line continues that record.
+            if _has_marker(records[current]):
+                continue
+            if records[current].endswith("\n"):
+                records[current] = records[current][:-1]
+            records[current] += line
 
     output: list[str] = []
-    last_target: int | None = None
-    for match, body in segments:
-        if match is None:
-            if last_target is not None:
-                output[last_target] += body
+    for record in records:
+        if not _has_marker(record):
             continue
-
-        if any(marker in body for marker in MARKERS):
-            output.append(match.group(0) + body)
-            last_target = len(output) - 1
-            continue
-
-        # A foreign record may interleave after a target record's opening
-        # fragment. Its first line belongs to that foreign message; any later
-        # lines are continuations of the preceding target record.
-        newline = body.find("\n")
-        if newline < 0:
-            if last_target is not None:
-                output[last_target] += body
-        elif last_target is not None:
-            output[last_target] += body[newline + 1 :]
-
+        if not record.endswith("\n"):
+            record += "\n"
+        output.append(record)
     return "".join(output)
 
 

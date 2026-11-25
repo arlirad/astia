@@ -93,6 +93,10 @@ namespace astia::elf::loader {
         unmap_fn      unmap   = nullptr;
         /// Optional direct PT_LOAD reader; falls back to `read` plus `copy`.
         async_read_to_fn read_to = nullptr;
+        /// Leave GLOB_DAT/JUMP_SLOT/64 relocations for a userspace linker
+        /// instead of rejecting the image.  Set for shared objects mapped by
+        /// dlmap; the executable loader derives the same rule from PT_INTERP.
+        bool defer_symbol_relocs = false;
     };
 
     /// One loaded PT_LOAD segment of an executable (relocatable images leave

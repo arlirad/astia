@@ -74,7 +74,8 @@ namespace astia::dl {
     /// process startup, so `proc` never has to know this subsystem exists.
     bool init();
 
-    core::task<info> map(proc::process& target, mm::shptr<fs::open_file> file, u32 flags);
+    core::task<info> map(proc::process& target, mm::shptr<fs::open_file> file, u32 flags,
+                         bool defer_symbols = true);
     i64              unmap(proc::process& target, u64 base);
     void             release(proc::process& target);
     /// Move a staging process's bindings (the image exec built) onto the

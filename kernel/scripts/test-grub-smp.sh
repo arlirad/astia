@@ -8,6 +8,15 @@ qemu_timeout_seconds=10
 log=${TMPDIR:-/tmp}/astia_grub_smp_$$.log
 trap 'rm -f "$log"' EXIT INT TERM
 
+require_pattern() {
+    if ! grep -qF "$1" "$log"; then
+        echo "test-grub-smp: missing required output: $1" >&2
+        echo "test-grub-smp: last 40 serial log lines:" >&2
+        tail -n 40 "$log" >&2
+        exit 1
+    fi
+}
+
 set +e
 timeout "$qemu_timeout_seconds" "$qemu" -machine q35 -smp "$smp" -cdrom "$iso" \
     -serial "file:$log" -display none -monitor none -no-reboot
@@ -16,21 +25,21 @@ set -e
 cat "$log"
 
 # The production image intentionally parks after boot, so timeout is expected.
-grep -qF "smp: discovered=$smp online=1" "$log"
-grep -qF "online=$smp" "$log"
+require_pattern "smp: discovered=$smp online=1"
+require_pattern "online=$smp"
 if [ "${ASTIA_GRUB_EXPECT_FRAMEBUFFER:-0}" = 1 ]; then
-    grep -qF "framebuffer: ready" "$log"
+    require_pattern "framebuffer: ready"
 elif [ "${ASTIA_GRUB_EXPECT_FRAMEBUFFER:-0}" = unavailable ]; then
-    grep -qF "framebuffer: unavailable" "$log"
+    require_pattern "framebuffer: unavailable"
 fi
 if grep -qF "core: boot ok" "$log"; then
     :
 else
-    grep -qF "core: selftest ok" "$log"
+    require_pattern "core: selftest ok"
 fi
 if [ "${ASTIA_GRUB_EXPECT_AP_WORK:-0}" = 1 ]; then
-    grep -qF "smp scheduler: AP work ok" "$log"
-    grep -qF "smp scheduler: migration ok" "$log"
+    require_pattern "smp scheduler: AP work ok"
+    require_pattern "smp scheduler: migration ok"
 fi
 if [ "${ASTIA_GRUB_EXPECT_APIC_TOPOLOGY:-0}" = 1 ]; then
     if grep -qF "AP startup deferred" "$log"; then

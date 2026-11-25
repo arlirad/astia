@@ -3256,6 +3256,28 @@ int main(int argc, char** argv) {
             printf("astia: interp ok\n");
     }
 
+    /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
+       applies the payload's PLT relocation for fixture_answer. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 89;
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_link", NULL};
+            execv("/bin/interp_link", child_argv);
+            _Exit(144);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child)
+            return 89;
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 89;
+        else
+            printf("astia: ld ok\n");
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

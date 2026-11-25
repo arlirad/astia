@@ -38,11 +38,20 @@ namespace astia::core {
         spinlock(const spinlock&)            = delete;
         spinlock& operator=(const spinlock&) = delete;
 
-        void lock() {
-            while (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
-                arch::cpu::relax();
+        /// One attempt at taking the lock; false if another CPU holds it.
+        /// Panic paths use this to bound how long they wait.
+        bool try_lock() {
+            if (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
+                return false;
             }
             ASTIA_TSAN_ACQUIRE(&_flag);
+            return true;
+        }
+
+        void lock() {
+            while (!try_lock()) {
+                arch::cpu::relax();
+            }
         }
 
         void unlock() {

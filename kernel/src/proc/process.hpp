@@ -326,6 +326,11 @@ namespace astia::proc {
             u64 interp = 0; ///< interpreter load bias (AT_BASE), 0 = static
             u16 phnum  = 0;
             u16 phent  = 0;
+            /// Static TLS arena: payload block start, thread pointer, and the
+            /// bottom the interpreter may lay shared-object blocks out in.
+            u64 tls_base  = 0;
+            u64 tls_tp    = 0;
+            u64 tls_limit = 0;
         };
         const exec_image_info& exec_image() const {
             return _exec_image;

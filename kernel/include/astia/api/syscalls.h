@@ -375,7 +375,10 @@ static inline long astia_shm_unlink(const char* name) {
 /* Maps the ELF image open at `fd` into the calling process at a
  * kernel-chosen base shared by every process.  Read-only text is shared
  * physically; writable segments are copy-on-write.  Returns the load
- * bias (the dlunmap handle) or a negative error. */
+ * bias (the dlunmap handle) or a negative error.
+ *
+ * Symbol relocations (GLOB_DAT/JUMP_SLOT/64) are left unapplied: the
+ * caller is the loader and must resolve them before entering the image. */
 static inline long astia_dlmap(int32_t fd, uint32_t flags, astia_dl_info* info) {
     return astia_raw6(SYS_DLMAP, (long) fd, (long) flags, (long) info, 0, 0, 0);
 }
