@@ -3,7 +3,6 @@ import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from './app.routes';
 import { DocumentationPage } from './documentation/documentation-page';
-import { DOC_PAGES } from './content';
 import { DOCS_FETCH } from './docs/docs.repository';
 import { HomePage } from './home/home';
 
@@ -42,6 +41,14 @@ describe('Application routes', () => {
           ),
         );
       }
+      if (url.endsWith('/docs/2/dl/dlmap.md')) {
+        return Promise.resolve(
+          new Response(
+            '# dlmap(2)\n\n## DESCRIPTION\n\nMap a shared-library image.\n\n## RETURN VALUE\n\nReturns the load bias.\n\n## ERRORS\n\n- `-EINVAL`: Invalid flags.',
+            { status: 200 },
+          ),
+        );
+      }
       return Promise.resolve(
         new Response('long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out) {\n  return 0;\n}', {
           status: 200,
@@ -72,7 +79,9 @@ describe('Application routes', () => {
     const element = harness.routeNativeElement as HTMLElement;
 
     expect(component).toBeInstanceOf(DocumentationPage);
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(DOC_PAGES.length);
+    expect(element.querySelectorAll('[role="treeitem"]').length).toBe(7);
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
+    expect(element.querySelector('[role="tree"]')?.textContent).toContain('proc');
     expect(element.querySelector('.docs-page-title')).toBeNull();
     expect(element.querySelector('h1.eyebrow')?.textContent).toContain('Documentation');
     expect(element.textContent).not.toContain('Design notes, boundaries, and current limits.');
@@ -136,6 +145,32 @@ describe('Application routes', () => {
     expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
       'kernel/src/fs/syscalls/io_setup.cpp',
     );
+  });
+
+  it('serves the dl top-level taxonomy page on its stable route', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation/syscall-71-dlmap', DocumentationPage);
+    await settle(harness);
+    const element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'dlmap(2)',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain(
+      'Map a shared-library image.',
+    );
+    expect(element.querySelector('.docs-source')?.getAttribute('href')).toBe(
+      'https://github.com/arlirad/astia/blob/main/kernel/src/dl/syscalls/dlmap.cpp',
+    );
+    expect(
+      element
+        .querySelector('[data-tree-key="taxonomy:dl"]')
+        ?.getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(
+      element.querySelector('[data-tree-key="page:syscall-71-dlmap"]')
+        ?.getAttribute('aria-selected'),
+    ).toBe('true');
   });
 
   it('serves syscall-70 uname on its stable route', async () => {

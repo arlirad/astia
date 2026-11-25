@@ -42,52 +42,69 @@
       </label>
     </fieldset>
 
-    <p class="docs-count" aria-live="polite">{{ resultCount() }} pages</p>
+    <p class="docs-count" aria-live="polite">
+      {{ resultCount() }} pages
+      <span class="docs-count-note">Counts include matching descendant pages.</span>
+    </p>
 
-    <nav class="docs-groups" aria-label="Documentation pages" tabindex="0">
-      @for (group of filteredGroups(); track group.name) {
-        <section class="docs-group">
-          <h3 class="docs-group-heading">
-            <button
-              type="button"
-              class="docs-group-toggle"
-              [attr.aria-expanded]="groupOpen(group.name)"
-              [attr.aria-controls]="groupListId(group.name)"
-              (click)="toggleGroup(group.name)"
-            >
-              <span class="docs-group-mark" aria-hidden="true">
-                {{ groupOpen(group.name) ? '-' : '+' }}
-              </span>
-              <span class="docs-group-title">{{ group.name }}</span>
-              <span class="docs-group-count">{{ group.pages.length }}</span>
-            </button>
-          </h3>
-          <ul [id]="groupListId(group.name)" [hidden]="!groupOpen(group.name)">
-            @for (page of group.pages; track page.slug) {
-              <li>
-                <button
-                  type="button"
-                  class="docs-index-link"
-                  [class.is-active]="page.slug === selectedSlug()"
-                  [attr.data-slug]="page.slug"
-                  [attr.data-syscall-id]="page.syscallId ?? null"
-                  (click)="selectPage(page.slug)"
-                >
-                  <span>{{ page.title }}</span>
-                  <small>
-                    @if (taxonomyLabel(page); as taxonomy) {
-                      {{ taxonomy }} ·
-                    }
-                    {{ page.summary }}
-                  </small>
-                </button>
-              </li>
+    <p class="docs-tree-help" id="docs-tree-help">
+      Arrow keys move, Left and Right fold, Home and End jump, Enter and Space open.
+    </p>
+
+    <nav class="docs-groups" aria-label="Documentation pages">
+      <ul
+        #tree
+        class="docs-tree"
+        role="tree"
+        aria-label="Documentation pages"
+        aria-describedby="docs-tree-help"
+        (keydown)="onTreeKeydown($event)"
+      >
+        @for (row of visibleRows(); track row.key) {
+          <li
+            class="docs-tree-item"
+            [class.docs-group]="row.kind === 'group'"
+            [class.docs-group-toggle]="row.kind === 'group'"
+            [class.docs-index-link]="row.kind === 'page'"
+            [class.is-active]="row.kind === 'page' && row.page?.slug === selectedSlug()"
+            role="treeitem"
+            [attr.aria-level]="row.level"
+            [attr.aria-setsize]="row.setsize"
+            [attr.aria-posinset]="row.posinset"
+            [attr.aria-expanded]="row.kind === 'group' ? row.expanded : null"
+            [attr.aria-selected]="row.kind === 'page' ? row.page?.slug === selectedSlug() : false"
+            [attr.aria-current]="row.kind === 'page' && row.page?.slug === selectedSlug() ? 'page' : null"
+            [attr.tabindex]="row.key === effectiveActiveKey() ? 0 : -1"
+            [attr.data-tree-key]="row.key"
+            [attr.data-syscall-id]="row.page?.syscallId ?? null"
+            [style.padding-left.rem]="(row.level - 1) * 0.75"
+            (click)="activateRow(row)"
+            (focus)="onRowFocus(row)"
+          >
+            <span class="docs-tree-row">
+              @if (row.kind === 'group') {
+                <span class="docs-group-mark" aria-hidden="true">
+                  {{ row.expanded ? '-' : '+' }}
+                </span>
+              }
+              <span class="docs-tree-label">{{ row.label }}</span>
+              @if (row.kind === 'group') {
+                <span class="docs-group-count">{{ row.count }}</span>
+              }
+            </span>
+            @if (row.page; as page) {
+              <small class="docs-tree-summary">
+                @if (taxonomyLabel(page); as taxonomy) {
+                  {{ taxonomy }} ·
+                }
+                {{ page.summary }}
+              </small>
             }
-          </ul>
-        </section>
-      } @empty {
-        <p class="docs-empty">No docs match this filter.</p>
-      }
+          </li>
+        } @empty {
+          <li class="docs-empty" role="none">No docs match this filter.</li>
+        }
+      </ul>
     </nav>
   </aside>
 
