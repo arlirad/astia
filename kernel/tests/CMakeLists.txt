@@ -121,6 +121,10 @@ add_test(NAME astia_init_launch_shape
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
                 ${ASTIA_KERNEL_SOURCE_DIR})
 astia_add_test_label(astia_init_launch_shape "init;deterministic")
+add_test(NAME astia_normalize_init_log
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_normalize_init_log.py)
+astia_add_test_label(astia_normalize_init_log "deterministic;init")
 
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
