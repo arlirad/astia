@@ -5,7 +5,8 @@ for `ARCH=aarch64 PLATFORM=virt BOOT=virt`. It is deliberately a **stage**, not
 a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
 driver model, generic IRQ registration, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
-boot-CPU self-SGI path, but it does not expose a generic interrupt subsystem.
+boot-CPU self-SGI path and a bounded EL1 physical-timer PPI 30 proof, but it
+does not expose a generic interrupt subsystem or a periodic tick.
 
 ## Target and boundary
 
@@ -49,15 +50,18 @@ The stage does exactly this:
     `ICC_IAR1_EL1`, complete it with `ICC_EOIR1_EL1` plus `ICC_DIR_EL1`
     (`EOImode == 1`), return with `ERET`, and verify the handler ran exactly
     once.
-12. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
+12. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30,
+    unmask IRQs, wait with a bounded spin, mask IRQs, and verify exactly one
+    timer interrupt was acknowledged, handled, completed, and returned from.
+13. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
 
 Explicit non-goals: scheduler, full virtual-memory management, user address
-spaces, cache maintenance policy, generic IRQ registration/dispatch, timer or
-other PPI/SPI drivers, external device interrupts, modules, userspace, SMP,
-secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
-generic-kernel boot.
+spaces, cache maintenance policy, generic IRQ registration/dispatch, a generic
+timer abstraction, periodic tick or timer queue, other PPI/SPI drivers,
+external device interrupts, modules, userspace, SMP, secondary
+redistributors, PSCI CPU bring-up, initrd, ACPI, and full generic-kernel boot.
 
 ## Direct ELF boot contract
 
@@ -458,12 +462,12 @@ and the Arm Learn the Architecture exception-model guide, not summaries:
   offsets).
   <https://developer.arm.com/-/media/Arm%20Developer%20Community/PDF/Learn%20the%20Architecture/Exception%20model.pdf>
 
-## GICv3 boot-CPU self-SGI
+## GICv3 boot-CPU self-SGI and timer PPI
 
 This milestone adds a single, bounded GICv3 path for the boot CPU. It is not a
 generic interrupt subsystem: only the current-EL `SP_ELx` IRQ slot is
-returnable, only one reserved SGI INTID is accepted, and every other vector or
-INTID remains fatal.
+returnable, only the reserved SGI 15 and the EL1 physical-timer PPI 30 INTIDs
+are accepted, and every other vector or INTID remains fatal.
 
 ### Security-state and platform assumptions
 
@@ -536,16 +540,17 @@ For the matching redistributor's SGI frame (`GICR` base + `0x1_0000`):
   to Non-secure Group 1.
 - `GICR_IPRIORITYR0..7` are written `0xA0A0A0A0`, giving every SGI/PPI the
   same mid-range priority. `ICC_PMR_EL1` is later set to `0xF0`, so the
-  self-SGI is not masked.
+  self-SGI and timer PPI are not masked.
 - `GICR_ICFGR1` is written 0, leaving PPIs level-sensitive. `GICR_ICFGR0`
   (SGIs) is not programmed because SGIs are always edge-triggered and the
   register is RAO/WI for them (DAI 0492 §5.2.4).
-- `GICR_ISENABLER0` enables only the reserved self-SGI bit. No PPI is
-  enabled. The stage reads the set-enable register back and requires the
-  self-SGI bit, failing with `sgi-not-enabled` otherwise.
+- `GICR_ISENABLER0` enables the reserved self-SGI bit 15 and the EL1
+  physical-timer PPI bit 30. The stage reads the set-enable register back and
+  requires both bits, failing with `sgi-not-enabled` or
+  `timer-ppi-not-enabled` otherwise.
 
-The reserved self-SGI INTID is 15 (`gicv3::self_sgi_id`). It is the only SGI
-the IRQ handler accepts.
+The reserved self-SGI INTID is 15 (`gicv3::self_sgi_id`); the EL1 physical
+timer PPI is INTID 30 (`timer::ppi_id`). No other SGI/PPI is enabled.
 
 ### CPU interface
 
@@ -636,12 +641,16 @@ fit in the 128-byte slot. The trampoline:
 3. Restores `x0`-`x30`, `ELR_EL1`, and `SPSR_EL1`, adjusts `SP_EL1`, and
    executes `ERET`.
 
-The IRQ handler reads `ICC_IAR1_EL1`. It accepts exactly one INTID, the
-reserved self-SGI 15. For that INTID it writes `ICC_EOIR1_EL1` (priority drop)
-and `ICC_DIR_EL1` (deactivation), then returns. INTID 1023 is the
-architectural spurious value and returns without EOI; every other INTID,
-including 1020-1022, is fatal and halts through PSCI `SYSTEM_OFF`. All other
-vector slots remain the existing deterministic fatal stubs.
+The IRQ handler reads `ICC_IAR1_EL1` and preserves the complete value for the
+`ICC_EOIR1_EL1` priority drop. It accepts the reserved self-SGI 15 and the
+EL1 physical-timer PPI 30. For either INTID it writes `ICC_EOIR1_EL1`
+(priority drop) followed by `ICC_DIR_EL1` (deactivation), then returns. For
+PPI 30 it first disables and masks the timer and moves the compare point to a
+bounded positive value, so the level-sensitive source is deasserted before
+EOIR/DIR and does not re-fire. INTID 1023 is the architectural spurious value
+and returns without EOI; every other INTID, including 1020-1022, is fatal and
+halts through PSCI `SYSTEM_OFF`. All other vector slots remain the existing
+deterministic fatal stubs.
 
 The main path unmasks `PSTATE.I` with `MSR DAIFClr, #2`, triggers the SGI,
 busy-waits with a bounded `YIELD` loop for the handler counter, then masks
@@ -649,27 +658,64 @@ busy-waits with a bounded `YIELD` loop for the handler counter, then masks
 between the counter check and `WFI` would hang the boot CPU. The bounded loop
 turns a missing interrupt into a printed failure.
 
-### Timer/PPI deferral
+### EL1 physical timer PPI 30
 
-The Generic Timer is deliberately not enabled in this milestone:
+The stage now proves one bounded, one-shot EL1 physical-timer interrupt. It is
+not a timer subsystem: there is no periodic tick, timer queue, scheduler
+interaction, generic timer abstraction, or EL0 access.
 
-- The EL1 physical timer is programmed through `CNTPCT_EL0`,
-  `CNTP_CVAL_EL0`, `CNTP_TVAL_EL0`, and `CNTP_CTL_EL0`; the timer condition is
-  `(PhysicalCount - CompareValue) >= 0`, and the interrupt is asserted when
-  `CNTP_CTL_EL0.ENABLE == 1`, `IMASK == 0`, and the condition is met
-  (DDI 0487 M.c §D12.2.4, §D12.2.4.1, §D24.10.22).
-- Timer outputs are PPIs; PPIs occupy INTIDs 16-31 and are configured per
-  redistributor through `GICR_*` registers (IHI 0069G Table 2-1; DAI 0492
-  §5.2.4). The Non-secure EL1 physical timer is the recommended PPI INTID 30
-  in the Arm SBSA recommended PPI assignments.
-- Enabling that PPI without a timer handler would route the first expiry into
-  the fatal IRQ path. A correct timer path would additionally need
-  `CNTFRQ_EL0` validation, compare-value programming, PPI 30 configuration,
-  and a repeat/disable policy. Those are outside the approved scope.
-- QEMU's DTB does not describe the Generic Timer PPI in the typed boot info,
-  so the stage has no parsed timer source to trust. The boot stage therefore
-  leaves `CNTP_CTL_EL0.ENABLE = 0`, leaves PPI 30 disabled, and uses a bounded
-  busy-wait rather than `WFI` for the self-SGI.
+The interrupt contract is:
+
+- The source is the EL1 physical timer output, wired to PPI INTID 30
+  (`timer::ppi_id`), the Arm SBSA recommended Non-secure EL1 timer PPI.
+- The redistributor assigns PPI 30 to Non-secure Group 1
+  (`GICR_IGROUPR0`), priority `0xA0` (`GICR_IPRIORITYR`), and level-sensitive
+  behavior (`GICR_ICFGR1 = 0`). `ICC_PMR_EL1 = 0xF0` admits priority `0xA0`.
+- The timer condition is
+  `((PhysicalCountInt() - Offset) - CompareValue) >= 0`. With `ENABLE == 1`
+  and `IMASK == 0`, the output is asserted while the condition is met and
+  `ISTATUS` is 1; `ISTATUS` ignores `IMASK` (DDI 0487 M.d §D12.2.4.1,
+  §D24.10.22).
+- Arming uses `CNTP_TVAL_EL0` rather than `CNTP_CVAL_EL0`. A TVAL write sets
+  `CNTP_CVAL_EL0 = CNTPCT_EL0 + SignExtend(TimerValue[31:0])`, so the policy
+  accepts only a positive interval below `0x8000_0000` and derives it from
+  `CNTFRQ_EL0` with checked 64-bit arithmetic (DDI 0487 M.d §D12.2.4.2,
+  §D24.10.24). A zero frequency or unrepresentable interval fails before any
+  sysreg write.
+- The fixed interval is 10 ms (`timer::one_shot_interval_ms`). Ticks are
+  `ceil(frequency_hz * 10 / 1000)` with overflow and `INT32_MAX` checks. On
+  QEMU `cortex-a57`, `CNTFRQ_EL0 = 0x03B9_ACA0` (62.5 MHz) and the interval is
+  625,000 ticks (`0x0009_8968`).
+- Arming writes `CNTP_CTL_EL0` disabled and masked, writes `CNTP_TVAL_EL0`,
+  then writes `ENABLE = 1, IMASK = 0`, with `ISB` after each timer system
+  register write. The read-back control line records `ENABLE`, `IMASK`, and
+  the observed `ISTATUS`.
+- On acknowledge, the handler disables and masks the timer and moves the
+  compare point to the maximum positive TVAL before any priority drop. This
+  deasserts the level source, so `EOIR`/`DIR` cannot leave the PPI active and
+  pending. The timer is not masked or disabled after EOI.
+- `ICC_CTLR_EL1.EOImode == 1` splits the completion: the write to
+  `ICC_EOIR1_EL1` drops priority and the write to `ICC_DIR_EL1` deactivates
+  the interrupt. The entire `ICC_IAR1_EL1` value is preserved for the EOIR
+  write; the INTID is used for DIR. This follows the GIC lifecycle,
+  activation, priority-drop, and deactivation rules and the requirement not to
+  use a partial IAR value (IHI 0069G §4.1.1).
+- The GIC MMIO ordering is unchanged: `DSB SY` after redistributor writes,
+  `ISB; DSB SY; ISB` around `ICC_EOIR1_EL1`/`ICC_DIR_EL1`, and `ISB` before
+  those drains. The timer sysreg writes add `ISB` but do not weaken the
+  existing GIC barriers.
+
+The boot path proves this sequence: after the self-SGI proof and with IRQs
+masked, it prints the PPI and frequency/interval diagnostics, arms the
+one-shot, prints `TIMER ARMED`, unmasks IRQs, waits with a bounded `YIELD`
+loop for the timer counter, masks IRQs, and requires exactly one handled
+timer interrupt before printing `TIMER RETURNED` and `TIMER PPI OK`. The
+deliberate BRK64 fatal proof follows immediately. A missing or repeated timer
+interrupt is a printed failure, not a hang.
+
+Explicit timer non-goals: periodic/repeating timers, `CNTV*` virtual timers,
+EL2/EL3 timers, timer queues, deadline scheduling, broadcast timers, CPU
+hotplug/PSCI timer state, `WFI`-based idle, and generic PPI/SPI registration.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -704,12 +750,13 @@ summaries:
   `GICR_ISENABLER0`; §12.11.35 `GICR_TYPER`; §12.11.40 `GICR_WAKER`;
   Table 12-14 Forwarding an SGI to a target PE.
 - Arm, *Arm Architecture Reference Manual for A-profile architecture*, DDI
-  0487 M.c, <https://developer.arm.com/documentation/ddi0487/mc>:
+  0487 M.d, <https://developer.arm.com/documentation/ddi0487/md>:
   §D12.1 About the Generic Timer; §D12.2.4 Timers (the timer output is a
-  PPI); §D12.2.4.1 Operation of the CompareValue views; §D24.10.22
-  `CNTP_CTL_EL0` (`ENABLE`, `IMASK`, `ISTATUS`); the `D24.10` Generic Timer
-  register descriptions for `CNTPCT_EL0`, `CNTP_CVAL_EL0`, and
-  `CNTP_TVAL_EL0`.
+  PPI); §D12.2.4.1 Operation of the CompareValue views; §D12.2.4.2 Operation
+  of the TimerValue views; §D24.10.1 `CNTFRQ_EL0`; §D24.10.22
+  `CNTP_CTL_EL0` (`ENABLE`, `IMASK`, `ISTATUS`); §D24.10.24
+  `CNTP_TVAL_EL0`; and the `D24.10` Generic Timer register descriptions for
+  `CNTPCT_EL0` and `CNTP_CVAL_EL0`.
 - Arm, *Server Base System Architecture* (SBSA), recommended PPI INTID
   assignments: Non-secure EL1 physical timer on PPI 30.
 - QEMU `virt` machine documentation and the generated DTB contract,
@@ -739,7 +786,7 @@ cmake --build kernel/build-tests --target astia_aarch64_exception_frame_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_exception_frame_test$' \
   --output-on-failure
 
-# Focused GICv3 SGI/IRQ policy test (host)
+# Focused GICv3 SGI/timer/IRQ policy test (host)
 cmake --build kernel/build-tests --target astia_aarch64_gic_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_gic_test$' \
   --output-on-failure
@@ -758,11 +805,12 @@ The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
 vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
 redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
 CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
-reserved self-SGI ID, the
-IRQ handler's `IAR1`/`EOIR1`/`DIR` values, the IRQ return, the BRK64
-`ESR_EL1` syndrome, `ELR_EL1`, the seeded `FAR_EL1`, and the clean exception
-halt. It runs QEMU with `-machine virt,secure=off,virtualization=off,gic-version=3`
-so the DTB describes GICv3 rather than QEMU's default GICv2.
+reserved self-SGI ID, the timer PPI 30/frequency/arm and `CNTP_CTL_EL0` state,
+both handlers' `IAR1`/`EOIR1`/`DIR` values, the single timer-handled proof,
+the IRQ returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
+`FAR_EL1`, and the clean exception halt. It runs QEMU with
+`-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
+describes GICv3 rather than QEMU's default GICv2.
 
 Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
@@ -785,13 +833,15 @@ lift must be recorded here with the exact source and rework.
 ## Remaining gaps
 
 - No full kernel boot, user address spaces, virtual-memory allocator, generic
-  IRQ subsystem, timer, modules, userspace, SMP, initrd, or ACPI.
+  IRQ subsystem, timer subsystem, modules, userspace, SMP, initrd, or ACPI.
 - The returnable exception path is limited to the current-EL `SP_ELx` IRQ
-  slot and one reserved SGI. The synchronous slot is fatal diagnostics only,
-  and the remaining 14 vector slots are deterministic fatal stubs. There is
-  no recovery, no user fault handling, and no FIQ/SError dispatch.
-- No external SPI, PPI, or device driver interrupts. No timer/CNTP path, no
-  PPI 30 enable, and no generic IRQ registration/dispatch.
+  slot, one reserved SGI, and one timer PPI. The synchronous slot is fatal
+  diagnostics only, and the remaining 14 vector slots are deterministic fatal
+  stubs. There is no recovery, no user fault handling, and no FIQ/SError
+  dispatch.
+- No external SPI, other PPI, or device driver interrupts. The only timer is
+  a single 10 ms one-shot on PPI 30; there is no periodic tick, timer queue,
+  virtual timer, or generic IRQ registration/dispatch.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at

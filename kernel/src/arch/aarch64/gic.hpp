@@ -2,6 +2,8 @@
 
 #include <astia/common.hpp>
 
+#include "timer.hpp"
+
 namespace astia::arch::aarch64::gicv3 {
 
     inline constexpr u32 self_sgi_id       = 15;
@@ -48,6 +50,7 @@ namespace astia::arch::aarch64::gicv3 {
         no_redistributor,
         redistributor_wake_timeout,
         sgi_not_enabled,
+        timer_ppi_not_enabled,
         sre_not_enabled,
         sre_bypass_not_disabled,
         eoimode_not_set,
@@ -87,6 +90,7 @@ namespace astia::arch::aarch64::gicv3 {
         irq_action action = irq_action::fatal;
         u32        intid  = 0;
         u32        iar    = 0;
+        bool       timer  = false;
     };
 
     [[nodiscard]] constexpr bool add_checked(u64 left, u64 right, u64& result) {
@@ -124,6 +128,9 @@ namespace astia::arch::aarch64::gicv3 {
         if (intid <= max_sgi_id && intid == self_sgi_id) {
             return irq_action::handled;
         }
+        if (intid == timer::ppi_id) {
+            return irq_action::handled;
+        }
         return irq_action::fatal;
     }
 
@@ -131,5 +138,6 @@ namespace astia::arch::aarch64::gicv3 {
     void       trigger_self_sgi();
     irq_result acknowledge_and_complete();
     u32        self_sgi_count();
+    u32        timer_count();
 
 } // namespace astia::arch::aarch64::gicv3

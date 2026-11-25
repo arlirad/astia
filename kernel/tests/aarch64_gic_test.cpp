@@ -1,9 +1,11 @@
 #include "gic.hpp"
 #include "test.hpp"
+#include "timer.hpp"
 
 namespace {
     using namespace astia;
     namespace gicv3 = astia::arch::aarch64::gicv3;
+    namespace timer = astia::arch::aarch64::timer;
 } // namespace
 
 ASTIA_TEST(aarch64_gic_self_sgi_encoding) {
@@ -23,9 +25,12 @@ ASTIA_TEST(aarch64_gic_mpidr_affinity) {
 
 ASTIA_TEST(aarch64_gic_irq_policy) {
     ASTIA_CHECK(gicv3::classify_intid(gicv3::self_sgi_id) == gicv3::irq_action::handled);
+    ASTIA_CHECK(gicv3::classify_intid(timer::ppi_id) == gicv3::irq_action::handled);
     ASTIA_CHECK(gicv3::classify_intid(0) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(14) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(16) == gicv3::irq_action::fatal);
+    ASTIA_CHECK(gicv3::classify_intid(29) == gicv3::irq_action::fatal);
+    ASTIA_CHECK(gicv3::classify_intid(31) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(32) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(1019) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(1020) == gicv3::irq_action::fatal);
@@ -33,6 +38,27 @@ ASTIA_TEST(aarch64_gic_irq_policy) {
     ASTIA_CHECK(gicv3::classify_intid(1022) == gicv3::irq_action::fatal);
     ASTIA_CHECK(gicv3::classify_intid(1023) == gicv3::irq_action::spurious);
     ASTIA_CHECK(gicv3::classify_intid(0xffffff) == gicv3::irq_action::fatal);
+}
+
+ASTIA_TEST(aarch64_timer_ppi_policy) {
+    ASTIA_CHECK(timer::ppi_id == 30U);
+    ASTIA_CHECK(timer::ctl_enable == 0x1U);
+    ASTIA_CHECK(timer::ctl_imask == 0x2U);
+    ASTIA_CHECK(timer::ctl_istatus == 0x4U);
+    ASTIA_CHECK(timer::ctl_disabled_masked == timer::ctl_imask);
+    ASTIA_CHECK(timer::one_shot_interval_ms == 10U);
+    ASTIA_CHECK(timer::tval_max_positive == 0x7fffffffU);
+
+    u32 ticks = 0;
+    ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(ticks == 625000U);
+    ASTIA_CHECK(timer::one_shot_ticks(1U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(ticks == 1U);
+    ASTIA_CHECK(timer::one_shot_ticks(0xffffffffU, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(ticks <= timer::tval_max_positive);
+    ASTIA_CHECK(!timer::one_shot_ticks(0U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(!timer::one_shot_ticks(62500000U, 0U, ticks));
+    ASTIA_CHECK(!timer::one_shot_ticks(0xffffffffU, 0xffffffffU, ticks));
 }
 
 ASTIA_TEST(aarch64_gic_register_policy) {
