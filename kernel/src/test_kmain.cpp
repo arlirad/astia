@@ -7,6 +7,7 @@
 #include <astia/log.hpp>
 #include <astia/version.hpp>
 
+#include "async_syscall.hpp"
 #include "debug_exit.hpp"
 #include "dev/chr/tty/uart16550.hpp"
 #include "mod/module_driver.hpp"
@@ -62,7 +63,8 @@ namespace {
         const astia::i32 child_pid =
             static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
         astia::i32       status = -1;
-        const astia::i64 reaped = astia::proc::waitpid(child_pid, &status);
+        const astia::i64 reaped =
+            astia::proc::run_async_syscall(astia::proc::waitpid(child_pid, &status));
         // waitpid re-enables IRQs before returning. Keep process teardown on
         // this lifecycle stack non-preemptible.
         astia::arch::cpu::nointerrupts();

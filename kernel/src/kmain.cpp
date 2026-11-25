@@ -10,6 +10,7 @@
 
 #include "dev/chr/tty/uart16550.hpp"
 #include "panic.hpp"
+#include "proc/async_syscall.hpp"
 #include "proc/proc.hpp"
 #include "proc/scheduler.hpp"
 #include "sys/syscall.hpp"
@@ -84,7 +85,8 @@ extern "C" void kmain(void* start_info) {
     astia::log::info("init launched pid=%d", init_pid);
 
     astia::i32       exit_status = -1;
-    const astia::i64 reaped      = astia::proc::waitpid(init_pid, &exit_status);
+    const astia::i64 reaped =
+        astia::proc::run_async_syscall(astia::proc::waitpid(init_pid, &exit_status));
 
     astia::arch::cpu::nointerrupts();
     astia::log::error("init exited pid=%d status=%d wait=%ld", init_pid, exit_status,

@@ -508,25 +508,45 @@ namespace astia::proc {
         return found ? 0 : -ESRCH;
     }
 
-    i64 waitpid(i32 pid, i32* status, wait_options options) {
+    namespace {
+        /// Suspends a waitpid scan until a child changes state.  The caller
+        /// masks interrupts so registration and the scan stay atomic against
+        /// child exit; the awaiter arms the continuation and unmasks them
+        /// only once the thread is parked.
+        struct child_wait {
+            thread& self;
+            bool    await_ready() const {
+                return false;
+            }
+            bool await_suspend(std::coroutine_handle<> continuation) {
+                self.arm_wait(continuation);
+                self.state(thread_state::blocked);
+                arch::cpu::interrupts();
+                return true;
+            }
+            void await_resume() {}
+        };
+    } // namespace
+
+    core::task<i64> waitpid(i32 pid, i32* status, wait_options options) {
         process* parent = current_process();
         thread*  self   = current_thread();
         if (parent == nullptr || self == nullptr) {
-            return -ESRCH;
+            co_return -ESRCH;
         }
         const bool   group_wait = pid < -1;
         const pgrp_t requested_group =
             group_wait ? wait_group_from_selector(pid)
                        : (pid == 0 ? parent->process_group() : pgrp_t{});
         if (raw_wait_options(options) & ~valid_wait_option_bits)
-            return -EINVAL;
+            co_return -EINVAL;
 
-        // From here to the blocking yield the scan and the waiter
-        // registration must be atomic against child exits, which can
-        // only happen by running the child on this single CPU.
-        arch::cpu::nointerrupts();
         i64 result = 0;
         for (;;) {
+            // From here to the suspension the scan and the waiter
+            // registration must be atomic against child exits, which can
+            // only happen by running the child on this single CPU.
+            arch::cpu::nointerrupts();
             self->state(thread_state::blocked);
             if (!parent->add_waiter(self)) {
                 // Never block without a slot: child exit would have no way
@@ -577,6 +597,7 @@ namespace astia::proc {
                 // process while that lock is held.
                 if (!take_registered(zombie_child, taken)) {
                     self->state(thread_state::running);
+                    arch::cpu::interrupts();
                     continue;
                 }
                 // `taken` now owns the registry's reference; dropping it
@@ -619,13 +640,13 @@ namespace astia::proc {
                 break;
             }
 
-            // A live child exists: block until thread_exited() wakes us.
+            // A live child exists: park until thread_exited() wakes us.
             // The wake clears our waiter slot, so it is re-added at the
             // top of the next scan.
-            scheduler::yield();
+            co_await child_wait{*self};
         }
         arch::cpu::interrupts();
-        return result;
+        co_return result;
     }
 
 } // namespace astia::proc

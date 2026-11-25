@@ -1,7 +1,8 @@
 #pragma once
 
-#include "process.hpp"
 #include <astia/optional.hpp>
+
+#include "process.hpp"
 
 namespace astia::proc {
 
@@ -114,7 +115,8 @@ namespace astia::proc {
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns
     /// the reaped pid with *status set, or -ECHILD/-EINVAL/-ESRCH.
-    i64 waitpid(i32 pid, i32* status, wait_options options = wait_options::none);
+    core::task<i64> waitpid(i32 pid, i32* status,
+                            wait_options options = wait_options::none);
 
     /// Duplicate the calling process copy-on-write: the child shares
     /// every mapping (each backing region gains one reference, private
