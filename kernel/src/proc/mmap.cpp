@@ -188,39 +188,75 @@ namespace astia::proc {
             return -EINVAL;
         }
 
-        arch::interrupt_spinlock_guard guard(_mmap_lock);
-        // The caller sees one contiguous range, but the address space keeps
-        // mappings page-granular (a DSO's copy-on-write segments in
-        // particular), so a buffer may span adjacent VMAs.  Pin each covered
-        // mapping as its own iovec entry: the list is a scatter/gather walk
-        // and the bytes stay in address order.
-        for (u64 cursor = addr; cursor < last;) {
-            mmap_region* vma = nullptr;
+        auto find = [this](u64 address) -> mmap_region* {
             for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
-                if (!it->pending && it->covers(cursor)) {
-                    vma = it;
-                    break;
+                if (!it->pending && it->covers(address)) {
+                    return it;
                 }
             }
-            if (vma == nullptr) {
-                return -EFAULT;
+            return nullptr;
+        };
+
+        i32 status = 0;
+        {
+            arch::interrupt_spinlock_guard guard(_mmap_lock);
+            // The caller sees one contiguous range, but the address space may
+            // split it across adjacent mappings (a DSO's copy-on-write
+            // segments are page-granular).  Consecutive pieces that continue
+            // the same backing region stay one iovec entry; a real region
+            // boundary starts the next.  Pinning is all-or-nothing: on
+            // failure the entries this call added are dropped below.
+            for (u64 cursor = addr; cursor < last;) {
+                mmap_region* vma = find(cursor);
+                if (vma == nullptr) {
+                    status = -EFAULT;
+                    break;
+                }
+                if (vma->stack && !grow_stack(vma, cursor, destination)) {
+                    status = -EFAULT;
+                    break;
+                }
+                const u64   first  = cursor & ~(page_bytes - 1);
+                const usize page   = static_cast<usize>((first - vma->base) / page_bytes);
+                const usize offset = static_cast<usize>(cursor - first);
+                u64         piece_end = vma->end() < last ? vma->end() : last;
+                usize       count =
+                    static_cast<usize>((piece_end - first + page_bytes - 1) / page_bytes);
+                usize            length      = static_cast<usize>(piece_end - cursor);
+                mm::phys_region* region      = vma->backing;
+                const usize      region_page = vma->region_page + page;
+
+                while (piece_end < last) {
+                    mmap_region* next = find(piece_end);
+                    if (next == nullptr || next->backing != region ||
+                        next->region_page != region_page + count) {
+                        break;
+                    }
+                    if (next->stack && !grow_stack(next, piece_end, destination)) {
+                        status = -EFAULT;
+                        break;
+                    }
+                    const u64 next_end = next->end() < last ? next->end() : last;
+                    count += static_cast<usize>((next_end - piece_end + page_bytes - 1) /
+                                                page_bytes);
+                    length += static_cast<usize>(next_end - piece_end);
+                    piece_end = next_end;
+                }
+                if (status < 0) {
+                    break;
+                }
+                if (!out.append(region, region_page, count, offset, length,
+                                destination)) {
+                    status = -ENOMEM;
+                    break;
+                }
+                cursor = piece_end;
             }
-            if (vma->stack && !grow_stack(vma, cursor, destination)) {
-                return -EFAULT;
-            }
-            const u64   piece_end = vma->end() < last ? vma->end() : last;
-            const u64   first     = cursor & ~(page_bytes - 1);
-            const usize page      = static_cast<usize>((first - vma->base) / page_bytes);
-            const usize count =
-                static_cast<usize>((piece_end - first + page_bytes - 1) / page_bytes);
-            if (!out.append(vma->backing, vma->region_page + page, count,
-                            static_cast<usize>(cursor - first),
-                            static_cast<usize>(piece_end - cursor), destination)) {
-                return -ENOMEM;
-            }
-            cursor = piece_end;
         }
-        return 0;
+        if (status < 0) {
+            out.release();
+        }
+        return status;
     }
 
     bool process::install_mapping(u64 hint, usize pages, map_protection prot,

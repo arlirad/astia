@@ -1128,6 +1128,8 @@ if (ARCH STREQUAL "x86_64")
             set(_cross_dir ${_fix_dir}/clang)
             file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
+            file(GLOB _cross_abi_headers CONFIGURE_DEPENDS
+                    ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/*.h)
             add_custom_command(
                     OUTPUT ${_cross_dir}/image/init_libc
                     BYPRODUCTS ${_cross_dir}/image/libc.so
@@ -1143,6 +1145,7 @@ if (ARCH STREQUAL "x86_64")
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
                     ${_cross_libc_sources}
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/CMakeLists.txt
+                    ${_cross_abi_headers}
                     COMMENT "Cross-building libc-backed userspace image init_libc"
             )
             set(_init_libc_image ${_cross_dir}/image/init_libc)

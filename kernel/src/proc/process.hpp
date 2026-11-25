@@ -423,10 +423,10 @@ namespace astia::proc {
         /// Snapshot [addr, addr + len) into `out` as one more entry of an
         /// asynchronous operation's buffer list: 0, or a negated errno.
         /// `destination` marks a buffer the operation will fill (see
-        /// mm::pinned_buffer).  v1 resolves each entry to a single backing
-        /// region — a region is a contiguous frame run and the direct map is
-        /// linear, so an entry is one kernel window a device can be handed —
-        /// and answers -EFAULT for a range that crosses out of one.  A process
+        /// mm::pinned_buffer).  A range that spans adjacent mappings is
+        /// pinned as one entry per backing region: pieces that continue the
+        /// same region are coalesced, so an ordinary buffer crossing a DSO's
+        /// page-granular VMAs still uses a single entry.  A process
         /// with no address space should not be here at all: its pointers are
         /// kernel memory, which cannot be unmapped out from under the
         /// operation in the first place (see sys::pin_user_span).

@@ -61,6 +61,7 @@ version_metadata=$(cat "$build/version.json")
 libc_revision=$(
     {
         find "$root/libc" -type f -exec sha256sum {} +
+        find "$root/kernel/include/astia/api" -type f -exec sha256sum {} +
         sha256sum "$root/toolchain/build-init-libc.sh" \
             "$root/toolchain/astia-x86_64-clang.cmake" "$clang_path" \
             "$root/tools/astia_version.py" "$root/cmake/AstiaVersion.cmake"
