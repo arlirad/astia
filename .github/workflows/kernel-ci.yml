@@ -1,5 +1,7 @@
-# Display name only: required status-check contexts are job ids (build-and-test, asan-ubsan, tsan, clang-tidy, clang-format-pr), not this workflow name.
-# Keep job ids unique across workflows so a future AArch64 kernel workflow cannot collide with them.
+# Display name only. Required status-check contexts are check-run names: the job id
+# (e.g. build-and-test) unless the job sets `name:` (e.g. clang-format-pr). Keep job
+# ids and job names unique across workflows so a future AArch64 kernel workflow
+# cannot collide with an existing required context.
 name: Kernel CI (x86_64)
 
 on:
