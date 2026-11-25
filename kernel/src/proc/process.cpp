@@ -252,7 +252,7 @@ namespace astia::proc {
 
             // The startup block: argc + argv[] + NULL + envp[] + NULL
             // + the interpreter-relevant auxv pairs + AT_NULL.
-            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 12);
+            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 18);
             if (cursor < base + block) {
                 return false;
             }
@@ -292,11 +292,14 @@ namespace astia::proc {
                 u64 type;
                 u64 value;
             } auxv[] = {
-                {3, info.phdr},   // AT_PHDR
-                {4, info.phent},  // AT_PHENT
-                {5, info.phnum},  // AT_PHNUM
-                {7, info.interp}, // AT_BASE
-                {9, info.entry},  // AT_ENTRY
+                {3, info.phdr},         // AT_PHDR
+                {4, info.phent},        // AT_PHENT
+                {5, info.phnum},        // AT_PHNUM
+                {7, info.interp},       // AT_BASE
+                {9, info.entry},        // AT_ENTRY
+                {0x41, info.tls_base},  // AT_ASTIA_TLS_BASE
+                {0x42, info.tls_tp},    // AT_ASTIA_TLS_TP
+                {0x43, info.tls_limit}, // AT_ASTIA_TLS_LIMIT
             };
             for (const auto& entry : auxv) {
                 if (!write_user_u64(owner, base, top, at, entry.type) ||
@@ -1225,38 +1228,44 @@ namespace astia::proc {
         if (!free) {
             return false;
         }
-        auto* copy = mm::phys_region::create(source->pages, false);
-        if (copy == nullptr) {
+        // Share the process TLS image and let each side copy-on-write.  A
+        // thread that never writes TLS costs no frames, and the template's
+        // initialized values are what a new thread must start with.
+        if (!source->backing->share_range(source->region_page, source->pages))
             return false;
-        }
+        const auto read_only = mm::mapping_flags::present | mm::mapping_flags::user |
+                               mm::mapping_flags::no_execute;
         for (usize page = 0; page < source->pages; ++page) {
-            __builtin_memcpy(copy->page_direct(page), source->backing->page_direct(page),
-                             page_bytes);
-            if (!_address_space.map_4k(
-                    base + page * page_bytes, copy->base() + page * page_bytes,
-                    mm::mapping_flags::present | mm::mapping_flags::writable |
-                        mm::mapping_flags::user)) {
-                for (usize done = 0; done < page; ++done) {
-                    _address_space.unmap(base + done * page_bytes);
-                }
-                copy->release();
-                return false;
-            }
+            const u64 virt = source->base + page * page_bytes;
+            if (_address_space.translate(virt) != mm::address_space::invalid)
+                (void) _address_space.protect_4k(virt, read_only);
         }
-        if (!register_mapping(base, source->pages,
-                              map_protection::read | map_protection::write, copy)) {
-            for (usize page = 0; page < source->pages; ++page) {
-                _address_space.unmap(base + page * page_bytes);
-            }
-            copy->release();
+        u64 installed = 0;
+        if (!install_mapping(base, source->pages,
+                             map_protection::read | map_protection::write,
+                             source->backing, {}, 0, installed, source->region_page,
+                             false, false, base, /*cow=*/true)) {
+            source->backing->release_range(source->region_page, source->pages);
             return false;
         }
+        // The thread pointer's self-reference is the one word that is always
+        // per thread; copying its page first keeps every other page shared.
+        fs_base = base + (_tls_tp - source->base);
+        if (!cow_fault(fs_base, true)) {
+            (void) unmap(base, source->pages * page_bytes);
+            return false;
+        }
+        const u64 phys = _address_space.translate(fs_base);
+        if (phys == mm::address_space::invalid) {
+            (void) unmap(base, source->pages * page_bytes);
+            return false;
+        }
+        auto* tcb =
+            static_cast<u8*>(mm::kernel_frames().to_virt(phys & ~(page_bytes - 1)));
+        *reinterpret_cast<u64*>(tcb + (fs_base & (page_bytes - 1))) = fs_base;
+
         mapping_base  = base;
         mapping_pages = source->pages;
-        fs_base       = base + (_tls_tp - source->base);
-        auto* tcb     = static_cast<u8*>(
-            copy->page_direct(static_cast<usize>((fs_base - base) / page_bytes)));
-        *reinterpret_cast<u64*>(tcb + (fs_base - base) % page_bytes) = fs_base;
         return true;
     }
 

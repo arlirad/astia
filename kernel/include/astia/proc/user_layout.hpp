@@ -24,6 +24,14 @@ namespace astia::proc {
     inline constexpr u64 user_ring_slot_span   = user_layout_policy::ring_slot_span;
     inline constexpr u64 user_tls_tcb_headroom = user_layout_policy::tls_tcb_headroom;
 
+    /// Space reserved below the payload's static TLS block for the static TLS
+    /// blocks of interpreted shared objects.  The interpreter lays them out
+    /// downward from `user_tls_base`; the block is mapped writable for the
+    /// whole span so thread clones carry them too.
+    inline constexpr u64 user_dso_tls_reserve = 64_kib;
+
+    static_assert(user_tls_base >= user_dso_tls_reserve);
+
     constexpr bool is_user_address_canonical(u64 address) {
         return user_layout_policy::is_canonical(address);
     }

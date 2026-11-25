@@ -1157,16 +1157,55 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/ld.stub.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_main ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -fno-plt -ffreestanding -mno-red-zone
+                -Wl,-e,ld_start
+                -Wl,--hash-style=sysv -Wl,-Bsymbolic -Wl,-z,now
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64
+                -o ${_fix_dir}/ld.astia.so
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -ftls-model=initial-exec -fno-stack-protector
+                -Wl,--hash-style=sysv
+                -Wl,-soname,libfixture_base.so -o ${_fix_dir}/libfixture_base.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -ftls-model=initial-exec -fno-stack-protector
+                -Wl,--hash-style=sysv
+                -Wl,-soname,libfixture.so -o ${_fix_dir}/libfixture.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
+                ${_fix_dir}/libfixture_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_link
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c ${_fix_dir}/libfixture.so
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture.so ${_fix_dir}/libfixture_base.so
+                ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_link ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
-                bin/interp_main lib/ld.stub.so etc/passwd etc/group
+                bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
+                lib/libfixture_base.so bin/interp_link etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"
@@ -1206,6 +1245,7 @@ if (ARCH STREQUAL "x86_64")
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
                 "astia: interp ok"
+                "astia: ld ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
 

@@ -173,6 +173,12 @@ namespace astia::elf::loader {
         // this loader deliberately does not do, so we reject it.
         bool apply_relative_relocs(span<const u8> bytes, const elf64_phdr* ph, u16 phnum,
                                    u64 mapped_addr, u64 span_start, u64 span_end) {
+            // With an interpreter, symbol relocations are its job: leave
+            // them in place instead of failing the load.
+            bool has_interp = false;
+            for (u16 i = 0; i < phnum; ++i)
+                if (ph[i].p_type == pt_interp)
+                    has_interp = true;
             const usize len = bytes.size();
             // Find PT_DYNAMIC; a fully static ET_EXEC has none, which is fine.
             const elf64_dyn* dyn       = nullptr;
@@ -246,7 +252,9 @@ namespace astia::elf::loader {
                     continue;
                 }
                 if (type != r_x86_64_relative) {
-                    return false; // needs full dynamic linking, which we do not do
+                    if (has_interp)
+                        continue; // the interpreter resolves it
+                    return false;
                 }
                 // The patched slot lives in the mapped image at vaddr + bias.
                 u64 loc_vaddr = read_u64_bytes(entry);
@@ -653,6 +661,12 @@ namespace astia::elf::loader {
             }
         }
 
+        bool has_interp = false;
+        for (u16 i = 0; i < header.e_phnum; ++i)
+            if (ph[i].p_type == pt_interp)
+                has_interp = true;
+        const bool defer_symbols = has_interp || e.defer_symbol_relocs;
+
         usize segment_count = 0;
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_load)
@@ -723,8 +737,11 @@ namespace astia::elf::loader {
                     const u32 relocation_type = r_type(r_info);
                     if (relocation_type == r_x86_64_none)
                         continue;
-                    if (relocation_type != r_x86_64_relative)
+                    if (relocation_type != r_x86_64_relative) {
+                        if (defer_symbols)
+                            continue;
                         co_return fail(error_t::einval);
+                    }
                     const u64 location_vaddr = read_u64_bytes(entry);
                     if (location_vaddr < span_start || location_vaddr > span_end ||
                         sizeof(u64) > span_end - location_vaddr ||

@@ -200,7 +200,8 @@ namespace astia::dl {
 
             elf::loader::async_env environment{&context,  map_span,  nullptr,
                                                read_span, copy_span, unmap_span};
-            environment.read_to = read_to_span;
+            environment.read_to             = read_to_span;
+            environment.defer_symbol_relocs = true;
             auto loaded = co_await elf::loader::load_executable_stream(environment, size);
             if (!loaded) {
                 unmap_span(&context, nullptr, 0);
