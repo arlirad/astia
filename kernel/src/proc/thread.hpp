@@ -183,6 +183,7 @@ namespace astia::proc {
         void             arm_wait(std::coroutine_handle<> continuation);
         bool             arm_wait_unless_cancelled(std::coroutine_handle<> continuation);
         bool             wake_wait();
+        bool             park_unless_woken();
         void             request_resume(std::coroutine_handle<> continuation);
         void             resume_pending();
         long             detach();

@@ -37,17 +37,23 @@ namespace astia::proc {
                 // A wait queue may have handed this thread a continuation to
                 // run on its own stack.  Do that before parking again.
                 self->resume_pending();
+                bool parked = false;
                 {
                     arch::interrupt_spinlock_guard guard(lock);
                     if (done)
                         return true;
                     if (!wait_live(owner, self))
                         return false;
-                    self->state(thread_state::blocked);
+                    // A waiter wakeup that lands after resume_pending() but
+                    // before this block deposits its continuation here.  Parking
+                    // anyway would lose it: the thread would sleep with the
+                    // continuation queued and nothing left to wake it.
+                    parked = self->park_unless_woken();
                 }
                 // A completer may run between the unlock and the yield; it sees
                 // the blocked state under the same lock and wakes this thread.
-                scheduler::yield();
+                if (parked)
+                    scheduler::yield();
             }
         }
 

@@ -37,6 +37,7 @@ add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
         support/cpu_relax_host.cpp
+        support/interrupts_host.cpp
         support/platform_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/request_queue.cpp
 )
@@ -136,6 +137,14 @@ astia_add_host_test(astia_task_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
 )
+astia_add_host_test(astia_thread_park_test
+        thread_park_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/thread.cpp
+)
+target_compile_options(astia_thread_park_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_thread_park_test PRIVATE -Wl,--gc-sections)
+astia_add_test_label(astia_thread_park_test "deterministic;proc")
 astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
