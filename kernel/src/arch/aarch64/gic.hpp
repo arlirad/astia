@@ -4,6 +4,23 @@
 
 #include "timer.hpp"
 
+// Boot-CPU local (SGI/PPI) dispatch contract, following GICv3 IHI 0069G:
+// - Acknowledge Group 1 with one ICC_IAR1_EL1 read and preserve the complete
+//   value for EOIR; activation precedes every completion write (section 4.1.1).
+// - Invoke the registered handler before EOIR/DIR. A level-sensitive handler
+//   must deassert its source before the priority drop, otherwise the PPI
+//   becomes active-and-pending and re-fires (section 4.1.1).
+// - EOImode=1 splits completion: write the full IAR to ICC_EOIR1_EL1 for the
+//   priority drop, then the INTID to ICC_DIR_EL1 for deactivation (sections
+//   4.1.1, 12.2.6, and 12.2.8).
+// - INTIDs 0-15 are SGIs and 16-31 are PPIs (Table 2-1). This stage supports
+//   only registered INTIDs in 0-31. SPIs, extended PPIs, and special INTIDs
+//   1020-1022 are fatal; 1023 is the spurious no-op (sections 2.2 and 2.2.1).
+// - Priority 0xA0, ICC_PMR_EL1 0xF0, and BPR1 0 admit these local interrupts;
+//   the running priority returns to its previous value on EOIR (sections 4.8
+//   and 4.8.3-4.8.7).
+// Registration runs only while PSTATE.I is set during boot; the table is
+// fixed, allocation-free, and lock-free. No SPI, SMP, or scheduler support.
 namespace astia::arch::aarch64::gicv3 {
 
     inline constexpr u32 self_sgi_id       = 15;
@@ -121,14 +138,51 @@ namespace astia::arch::aarch64::gicv3 {
                (u64{(affinity >> 24) & 0xff} << 48) | rs;
     }
 
+    inline constexpr u32 local_intid_limit = 32;
+
+    using local_irq_handler = void (*)(void* context);
+
+    enum class registration_error : u8 {
+        none,
+        invalid_intid,
+        null_handler,
+        already_registered,
+    };
+
+    const char* describe(registration_error value);
+
+    struct local_irq_registration {
+        local_irq_handler handler = nullptr;
+        void*             context = nullptr;
+    };
+
+    inline local_irq_registration local_irq_table[local_intid_limit]{};
+
+    [[nodiscard]] constexpr bool valid_local_intid(u32 intid) {
+        return intid < local_intid_limit;
+    }
+
+    [[nodiscard]] inline registration_error
+    register_local_irq(u32 intid, local_irq_handler handler, void* context) {
+        if (!valid_local_intid(intid)) {
+            return registration_error::invalid_intid;
+        }
+        if (handler == nullptr) {
+            return registration_error::null_handler;
+        }
+        local_irq_registration& slot = local_irq_table[intid];
+        if (slot.handler != nullptr) {
+            return registration_error::already_registered;
+        }
+        slot = local_irq_registration{handler, context};
+        return registration_error::none;
+    }
+
     [[nodiscard]] constexpr irq_action classify_intid(u32 intid) {
         if (intid >= special_intid_min) {
             return intid == spurious_intid ? irq_action::spurious : irq_action::fatal;
         }
-        if (intid <= max_sgi_id && intid == self_sgi_id) {
-            return irq_action::handled;
-        }
-        if (intid == timer::ppi_id) {
+        if (valid_local_intid(intid) && local_irq_table[intid].handler != nullptr) {
             return irq_action::handled;
         }
         return irq_action::fatal;
@@ -137,7 +191,5 @@ namespace astia::arch::aarch64::gicv3 {
     error      initialize(const boot_config& config, init_result& result);
     void       trigger_self_sgi();
     irq_result acknowledge_and_complete();
-    u32        self_sgi_count();
-    u32        timer_count();
 
 } // namespace astia::arch::aarch64::gicv3

@@ -3,10 +3,11 @@
 This document describes the production AArch64 `virt` early boot target added
 for `ARCH=aarch64 PLATFORM=virt BOOT=virt`. It is deliberately a **stage**, not
 a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
-driver model, generic IRQ registration, timers, and the scheduler, none of
+driver model, a full generic IRQ subsystem, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
-boot-CPU self-SGI path and a bounded EL1 physical-timer PPI 30 proof, but it
-does not expose a generic interrupt subsystem or a periodic tick.
+boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, and a bounded
+EL1 physical-timer PPI 30 proof, but it does not expose an SPI/device IRQ
+subsystem or a periodic tick.
 
 ## Target and boundary
 
@@ -45,23 +46,27 @@ The stage does exactly this:
     Device-nGnRE and initialize the boot CPU's GICv3 path: distributor
     `ARE_NS`/`EnableGrp1NS`, matching redistributor wake, SGI/PPI Group-1
     defaults, and the EL1 CPU interface.
-11. Trigger one reserved self-SGI through `ICC_SGI1R_EL1`, take the IRQ
+11. With IRQs still masked, register the self-SGI and timer PPI handlers in
+    the fixed 32-entry boot-CPU local dispatch table, then print the
+    registration marker.
+12. Trigger one reserved self-SGI through `ICC_SGI1R_EL1`, take the IRQ
     through the current-EL `SP_ELx` IRQ slot, acknowledge it with
     `ICC_IAR1_EL1`, complete it with `ICC_EOIR1_EL1` plus `ICC_DIR_EL1`
     (`EOImode == 1`), return with `ERET`, and verify the handler ran exactly
     once.
-12. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30,
+13. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30,
     unmask IRQs, wait with a bounded spin, mask IRQs, and verify exactly one
     timer interrupt was acknowledged, handled, completed, and returned from.
-13. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
+14. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
 
 Explicit non-goals: scheduler, full virtual-memory management, user address
-spaces, cache maintenance policy, generic IRQ registration/dispatch, a generic
-timer abstraction, periodic tick or timer queue, other PPI/SPI drivers,
-external device interrupts, modules, userspace, SMP, secondary
-redistributors, PSCI CPU bring-up, initrd, ACPI, and full generic-kernel boot.
+spaces, cache maintenance policy, a full generic IRQ subsystem, SPI or device
+IRQ dispatch, a generic timer abstraction, periodic tick or timer queue, other
+PPI/SPI drivers, external device interrupts, modules, userspace, SMP,
+secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
+generic-kernel boot.
 
 ## Direct ELF boot contract
 
@@ -641,22 +646,52 @@ fit in the 128-byte slot. The trampoline:
 3. Restores `x0`-`x30`, `ELR_EL1`, and `SPSR_EL1`, adjusts `SP_EL1`, and
    executes `ERET`.
 
-The IRQ handler reads `ICC_IAR1_EL1` and preserves the complete value for the
-`ICC_EOIR1_EL1` priority drop. It accepts the reserved self-SGI 15 and the
-EL1 physical-timer PPI 30. For either INTID it writes `ICC_EOIR1_EL1`
-(priority drop) followed by `ICC_DIR_EL1` (deactivation), then returns. For
-PPI 30 it first disables and masks the timer and moves the compare point to a
-bounded positive value, so the level-sensitive source is deasserted before
-EOIR/DIR and does not re-fire. INTID 1023 is the architectural spurious value
-and returns without EOI; every other INTID, including 1020-1022, is fatal and
-halts through PSCI `SYSTEM_OFF`. All other vector slots remain the existing
-deterministic fatal stubs.
+The IRQ handler reads `ICC_IAR1_EL1` once and preserves the complete value for
+the `ICC_EOIR1_EL1` priority drop. It dispatches the registered local handler
+for the acknowledged INTID before writing `ICC_EOIR1_EL1` (priority drop)
+followed by `ICC_DIR_EL1` (deactivation). For PPI 30 the timer handler first
+disables and masks the timer and moves the compare point to a bounded positive
+value, so the level-sensitive source is deasserted before EOIR/DIR and does
+not re-fire. INTID 1023 is the architectural spurious value and returns
+without EOI; every unregistered local INTID, SPI, extended PPI, and special
+INTID 1020-1022 is fatal and halts through PSCI `SYSTEM_OFF`. All other vector
+slots remain the existing deterministic fatal stubs.
 
 The main path unmasks `PSTATE.I` with `MSR DAIFClr, #2`, triggers the SGI,
 busy-waits with a bounded `YIELD` loop for the handler counter, then masks
 `PSTATE.I` again with `MSR DAIFSet, #2`. It does not use `WFI`: a lost-wakeup
 between the counter check and `WFI` would hang the boot CPU. The bounded loop
 turns a missing interrupt into a printed failure.
+
+### Boot-CPU local IRQ registration and dispatch
+
+Before `IRQ ENABLED`, the stage registers exactly two handlers in a fixed
+32-entry local table: reserved SGI 15 and timer PPI 30. `register_local_irq`
+takes a function pointer plus an opaque context, rejects INTIDs outside 0-31,
+null handlers, and duplicate INTIDs, and performs no allocation, locking, or
+scheduler interaction. Registration is only valid on the boot CPU while
+`PSTATE.I` is set; there is no unregister or runtime mutation path.
+
+`acknowledge_and_complete()` reads `ICC_IAR1_EL1` once, classifies the INTID,
+and invokes the registered handler before any completion write. It then writes
+the complete IAR value to `ICC_EOIR1_EL1` for the priority drop and the INTID
+to `ICC_DIR_EL1` for deactivation (`EOImode == 1`). A handler for a
+level-sensitive source must make that source inactive before returning,
+because the priority drop happens before deactivation and an asserted level
+would otherwise leave the interrupt active-and-pending. The timer handler
+therefore disables and masks `CNTP_CTL_EL0` and moves the compare point before
+returning; the SGI handler only counts the event.
+
+INTIDs 0-15 are SGIs, 16-31 are PPIs, 32-1019 are SPIs, and 1020-1023 are
+special (IHI 0069G Table 2-1, §2.2). Only a registered INTID in 0-31 is
+handled. An unregistered local INTID, every SPI, extended PPI, or special
+INTID 1020-1022 is fatal. INTID 1023 is the architectural spurious value and
+returns without EOI.
+
+Non-goals for this foundation: SPIs and external devices, INTIDs above 31,
+secondary CPUs and per-CPU tables, dynamic unregister, interrupt priorities
+beyond the fixed boot policy, nested/preempted dispatch, scheduler wakeups,
+and any generic IRQ abstraction.
 
 ### EL1 physical timer PPI 30
 
@@ -715,7 +750,8 @@ interrupt is a printed failure, not a hang.
 
 Explicit timer non-goals: periodic/repeating timers, `CNTV*` virtual timers,
 EL2/EL3 timers, timer queues, deadline scheduling, broadcast timers, CPU
-hotplug/PSCI timer state, `WFI`-based idle, and generic PPI/SPI registration.
+hotplug/PSCI timer state, `WFI`-based idle, and SPI registration. The local
+table is intentionally SGI/PPI-only.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -805,9 +841,10 @@ The smoke runner also asserts the post-MMU marker, the exact MAIR/TCR values,
 vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
 redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
 CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
-reserved self-SGI ID, the timer PPI 30/frequency/arm and `CNTP_CTL_EL0` state,
-both handlers' `IAR1`/`EOIR1`/`DIR` values, the single timer-handled proof,
-the IRQ returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
+reserved self-SGI ID, the local registration marker and IDs, the timer PPI
+30/frequency/arm and `CNTP_CTL_EL0` state, both handlers'
+`IAR1`/`EOIR1`/`DIR` values, the single timer-handled proof, the IRQ returns,
+the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
 `FAR_EL1`, and the clean exception halt. It runs QEMU with
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
@@ -841,7 +878,9 @@ lift must be recorded here with the exact source and rework.
   dispatch.
 - No external SPI, other PPI, or device driver interrupts. The only timer is
   a single 10 ms one-shot on PPI 30; there is no periodic tick, timer queue,
-  virtual timer, or generic IRQ registration/dispatch.
+  or virtual timer. The local dispatch table is a fixed boot-CPU SGI/PPI
+  foundation, not a generic IRQ subsystem: no SPI dispatch, no dynamic
+  registration, no per-CPU tables, and no scheduler interaction.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at

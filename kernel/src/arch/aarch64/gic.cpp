@@ -12,9 +12,6 @@ namespace astia::arch::aarch64::gicv3 {
         constexpr u32 priority_registers     = 8;
         constexpr u32 wait_spin_limit        = 1000000;
 
-        volatile u32 handled_sgi_count   = 0;
-        volatile u32 handled_timer_count = 0;
-
         [[nodiscard]] u32 read32(u64 base, u64 offset) {
             return *reinterpret_cast<volatile const u32*>(base + offset);
         }
@@ -191,6 +188,20 @@ namespace astia::arch::aarch64::gicv3 {
         return "unknown";
     }
 
+    const char* describe(registration_error value) {
+        switch (value) {
+        case registration_error::none:
+            return "none";
+        case registration_error::invalid_intid:
+            return "invalid-intid";
+        case registration_error::null_handler:
+            return "null-handler";
+        case registration_error::already_registered:
+            return "already-registered";
+        }
+        return "unknown";
+    }
+
     error initialize(const boot_config& config, init_result& result) {
         if (!valid_region(config.distributor) || !valid_region(config.redistributor) ||
             config.distributor.size < minimum_distributor_size ||
@@ -322,30 +333,15 @@ namespace astia::arch::aarch64::gicv3 {
         const irq_action action   = classify_intid(intid);
         const bool       is_timer = intid == timer::ppi_id;
         if (action == irq_action::handled) {
-            if (is_timer) {
-                timer::disable_and_clear();
-            }
+            const local_irq_registration local = local_irq_table[intid];
+            local.handler(local.context);
             write_icc_eoir1_el1(iar);
             write_icc_dir_el1(intid);
             isb();
             dsb_sy();
             isb();
-            if (is_timer) {
-                handled_timer_count = handled_timer_count + 1;
-            }
-            else {
-                handled_sgi_count = handled_sgi_count + 1;
-            }
         }
         return irq_result{action, intid, iar, is_timer};
-    }
-
-    u32 self_sgi_count() {
-        return handled_sgi_count;
-    }
-
-    u32 timer_count() {
-        return handled_timer_count;
     }
 
 } // namespace astia::arch::aarch64::gicv3
