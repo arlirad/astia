@@ -128,4 +128,17 @@ namespace astia::proc {
     /// -EAGAIN (resource or registry failure).
     i64 fork(const arch::user_context& uctx);
 
+    /// Boot entry boundary: start the single boot coroutine and park the
+    /// seed thread until it completes.  The body runs early init inline
+    /// before the scheduler exists; run_boot captures the seed process and
+    /// thread after the first suspension, when the scheduler is up, and
+    /// keeps every continuation on that thread.
+    ///
+    /// Do not replace this with core::det_task.  det_task owns the frame but
+    /// not the current process/thread context: its continuations may be
+    /// resumed from another CPU or completion context, while the boot body's
+    /// spawnve/waitpid calls depend on the original seed thread's
+    /// current_process()/current_thread().
+    i64 run_boot(core::task<void> operation);
+
 } // namespace astia::proc

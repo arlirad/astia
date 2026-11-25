@@ -16,7 +16,7 @@
 //
 // Two faces of the same port:
 //   - polled_putc(): the polled console primitive, byte at a time.
-//     It works from the first instruction of kmain — before any init
+//     It works from the first instruction of kmain_entry — before any init
 //     step, with the interrupt gate closed — because it touches
 //     nothing but THR/LSR.  Panic dumps and early boot logs live here.
 //   - The ring face: fds STDIN/STDOUT/STDERR are bound to the port by
