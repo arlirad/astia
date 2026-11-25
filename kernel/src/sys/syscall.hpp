@@ -91,6 +91,10 @@ namespace astia::sys {
         uname                 = 70,
         dlmap                 = 71,
         dlunmap               = 72,
+        modopen               = 73,
+        modls                 = 74,
+        modstat               = 75,
+        modclose              = 76,
     };
 
     /// How many registers the ABI hands every trap — and so the most

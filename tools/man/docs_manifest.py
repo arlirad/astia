@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-CANONICAL_SYSCALL_IDS = tuple(range(73))
+CANONICAL_SYSCALL_IDS = tuple(range(77))
 SECTION7_NAMES = ("aio", "alarm", "exec", "rcu", "sigtimedwait", "spawnve", "task")
 SECTION7_SLUGS = {
     "aio": "docs-aio-7",
@@ -21,7 +21,7 @@ SECTION7_SLUGS = {
 }
 SECTION7_ALIASES = {name: f"docs-7-{name}" for name in SECTION7_NAMES}
 RAW_SYNOPSIS = "Raw kernel ABI. No public C wrapper declaration is provided for this syscall."
-SECTION2_SUBSYSTEMS = ("abi", "dl", "fs", "proc")
+SECTION2_SUBSYSTEMS = ("abi", "dl", "fs", "mod", "proc")
 PROC_CATEGORIES = ("core", "ipc", "memory", "process", "signal", "thread")
 CATEGORY = re.compile(r"^[a-z0-9]+(?:[/-][a-z0-9]+)*$")
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -139,7 +139,7 @@ def canonical_syscalls(abi_header: Path) -> list[tuple[int, str]]:
     entries.sort()
     _require(
         [value for value, _ in entries] == list(CANONICAL_SYSCALL_IDS),
-        f"{abi_header}: expected canonical syscall IDs 0..70, found {entries}",
+        f"{abi_header}: expected canonical syscall IDs 0..76, found {entries}",
     )
     _require(
         len({name for _, name in entries}) == len(entries),
@@ -153,7 +153,7 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
     _require(isinstance(section, dict), "manifest.section2 must be an object")
     pages = section.get("pages")
     _require(isinstance(pages, list), "manifest.section2.pages must be a list")
-    _require(len(pages) == len(CANONICAL_SYSCALL_IDS), "manifest must contain exactly 71 syscall pages")
+    _require(len(pages) == len(CANONICAL_SYSCALL_IDS), "manifest must contain exactly 77 syscall pages")
 
     canonical = canonical_syscalls(abi_header)
     expected_names = {syscall_id: name for syscall_id, name in canonical}
@@ -202,6 +202,12 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
             _require(
                 handler.resolve().is_relative_to((repo_root / "kernel/src/fs/syscalls").resolve()),
                 f"{handler}: fs syscall handler must live under kernel/src/fs/syscalls",
+            )
+        elif subsystem == "mod":
+            _require(category == "mod", f"{name}: mod category must be mod")
+            _require(
+                handler.resolve().is_relative_to((repo_root / "kernel/src/mod/syscalls").resolve()),
+                f"{handler}: mod syscall handler must live under kernel/src/mod/syscalls",
             )
         else:
             _require(category == "abi", f"{name}: abi category must be abi")
@@ -255,7 +261,7 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
     records.sort(key=lambda record: record["id"])
     _require(
         [record["id"] for record in records] == list(CANONICAL_SYSCALL_IDS),
-        "section2 pages must be ordered 0..70",
+        "section2 pages must be ordered 0..76",
     )
     return tuple(records)
 

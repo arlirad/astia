@@ -10,7 +10,7 @@ import {
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 const CANONICAL_SYSCALL_IDS = [
-  ...Array.from({ length: 73 }, (_, index) => index),
+  ...Array.from({ length: 77 }, (_, index) => index),
 ];
 
 describe('Runtime section-2 syscall docs', () => {
@@ -61,7 +61,7 @@ describe('Runtime section-2 syscall docs', () => {
     return { page, element, headings };
   }
 
-  it('contains all 73 canonical syscall pages with stable IDs and slugs', () => {
+  it('contains all 77 canonical syscall pages with stable IDs and slugs', () => {
     expect(SYSCALL_PAGES.length).toBe(CANONICAL_SYSCALL_IDS.length);
     expect(
       SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0)),
@@ -119,7 +119,7 @@ describe('Runtime section-2 syscall docs', () => {
 
     for (const page of SYSCALL_PAGES) {
       expect(page.sourcePath).toMatch(
-        /^docs\/2\/(?:abi|dl|fs|proc\/(?:core|ipc|memory|process|signal|thread))\/[a-z0-9_]+\.md$/,
+        /^docs\/2\/(?:abi|dl|fs|mod|proc\/(?:core|ipc|memory|process|signal|thread))\/[a-z0-9_]+\.md$/,
       );
       expect(page.contentKind).toBe('markdown');
       expect(page.subsystem).toBeTruthy();
@@ -148,10 +148,10 @@ describe('Runtime section-2 syscall docs', () => {
       'kernel/src/proc/process.hpp': 8,
       'kernel/src/proc/proc.cpp': 2,
     });
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(73);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(77);
     expect(
       new Set(SYSCALL_PAGES.map((page) => page.implementationPath)).size,
-    ).toBe(40);
+    ).toBe(44);
     expect(SYSCALL_PAGES.find((page) => page.syscallId === 24)?.implementationPath).toBe(
       'libc/src/unistd.c',
     );
@@ -163,7 +163,7 @@ describe('Runtime section-2 syscall docs', () => {
     );
   });
 
-  it('assigns exact taxonomy and physical paths for all 73 syscall pages', () => {
+  it('assigns exact taxonomy and physical paths for all 77 syscall pages', () => {
     const expected: Record<string, number[]> = {
       'fs/fs': [0, 1, 2, 3, 46, 47],
       'abi/abi': [6, 7, 32, 33, 34, 35, 48, 49, 50, 51, 54, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
@@ -174,6 +174,7 @@ describe('Runtime section-2 syscall docs', () => {
       'proc/signal': [21, 22, 25, 29],
       'proc/thread': [9, 16, 17, 18, 19, 23],
       'dl/dl': [71, 72],
+      'mod/mod': [73, 74, 75, 76],
     };
     const actual = new Map<string, number[]>();
     for (const page of SYSCALL_PAGES) {
@@ -184,7 +185,9 @@ describe('Runtime section-2 syscall docs', () => {
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'proc').length).toBe(40);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'fs').length).toBe(6);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'abi').length).toBe(25);
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(73);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'dl').length).toBe(2);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'mod').length).toBe(4);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(77);
     expect(SYSCALL_PAGES.some((page) => /^docs\/2\/[^/]+\.md$/.test(page.sourcePath))).toBeFalse();
     for (const page of SYSCALL_PAGES) {
       expect(page.sourcePath).toBe(
@@ -200,12 +203,12 @@ describe('Runtime section-2 syscall docs', () => {
       SYSCALL_PAGES.map((page) => page.category).filter((value): value is string => !!value),
     );
     expect(categories).toEqual(
-      new Set(['abi', 'dl', 'fs', 'core', 'ipc', 'memory', 'process', 'signal', 'thread']),
+      new Set(['abi', 'dl', 'fs', 'mod', 'core', 'ipc', 'memory', 'process', 'signal', 'thread']),
     );
     for (const page of SYSCALL_PAGES) {
       const name = (page.slug ?? '').replace(/^syscall-\d+-/, '').replace(/-/g, '_');
       expect(page.title).toBe(`${name}(2)`);
-      expect(page.sourcePath).toMatch(new RegExp(`^docs/2/(?:abi|dl|fs|proc/[a-z]+)/${name}\\.md$`));
+      expect(page.sourcePath).toMatch(new RegExp(`^docs/2/(?:abi|dl|fs|mod|proc/[a-z]+)/${name}\\.md$`));
       expect(page.category).toBeTruthy();
       expect(page.synopsis).toBeTruthy();
       expect(page.aliases).toBeUndefined();

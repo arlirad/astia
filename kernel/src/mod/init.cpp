@@ -31,9 +31,13 @@ namespace astia::mod {
 
         // Load one ELF image and run it, logging the outcome. `name` labels an
         // initrd file; when null the boot-module index `i` is used instead.
+        // Boot modules are resident: once their entrypoint (and any driver
+        // registration it performed) is live they can never be unloaded.
         void load_and_run(span<const u8> data, const char* name, u64 i) {
-            const loaded_module* mod = load_module(data);
-            if (mod == nullptr) {
+            module_load_options options{};
+            options.resident = true;
+            module_id id{};
+            if (load_image(data, options, id) != module_error::ok) {
                 if (name != nullptr) {
                     logs::error("%s failed to load", name);
                 }
@@ -43,7 +47,10 @@ namespace astia::mod {
                 }
                 return;
             }
-            const int rc = run_module(mod);
+            int rc = 0;
+            if (run(id, rc) != module_error::ok) {
+                rc = -1;
+            }
             if (name != nullptr) {
                 logs::info("%s rc=%d", name, rc);
             }
