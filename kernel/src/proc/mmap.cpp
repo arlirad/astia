@@ -223,10 +223,16 @@ namespace astia::proc {
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
                                   u64& base_out, usize region_page, bool shared,
-                                  bool stack) {
-        const u64  page_bytes = mm::phys_region::frame_size;
-        const auto flags4     = pte_flags(prot);
-        auto*      entry      = alloc_region();
+                                  bool stack, u64 fixed_base, bool cow) {
+        const u64 page_bytes = mm::phys_region::frame_size;
+        // A copy-on-write range is writable as a VMA but starts read-only in
+        // the page tables, so the first store faults into a private copy.
+        const auto pte_prot =
+            cow ? static_cast<map_protection>(static_cast<u32>(prot) &
+                                              ~static_cast<u32>(map_protection::write))
+                : prot;
+        const auto flags4 = pte_flags(pte_prot);
+        auto*      entry  = alloc_region();
         if (entry == nullptr)
             return false;
 
@@ -238,7 +244,20 @@ namespace astia::proc {
         bool reserved = false;
         {
             arch::interrupt_spinlock_guard guard(_mmap_lock);
-            base = place(_mmap_regions, hint, pages * page_bytes, stack);
+            const u64                      want = pages * page_bytes;
+            if (fixed_base != 0) {
+                base = fixed_base;
+                if ((base % page_bytes) != 0 || base + want < base ||
+                    base + want > user_address_limit)
+                    base = 0;
+                for (mmap_region* it = _mmap_regions; base != 0 && it != nullptr;
+                     it              = it->next)
+                    if (base < it->end() && it->base < base + want)
+                        base = 0;
+            }
+            else {
+                base = place(_mmap_regions, hint, want, stack);
+            }
             astia_rlimit address_limit{};
             (void) get_rlimit(RLIMIT_AS, &address_limit);
             if (base != 0 && pages * page_bytes <= address_limit.current &&
@@ -318,6 +337,13 @@ namespace astia::proc {
         }
         base_out = base;
         return true;
+    }
+
+    bool process::map_shared_range(u64 base, usize pages, map_protection prot,
+                                   mm::phys_region* region, u32 region_page, bool cow) {
+        u64 out = 0;
+        return install_mapping(base, pages, prot, region, mm::shptr<fs::open_file>{}, 0,
+                               out, region_page, false, false, base, cow);
     }
 
     bool process::grow_stack(mmap_region* vma, u64 addr, bool write) {

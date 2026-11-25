@@ -127,6 +127,11 @@ namespace astia::elf::loader {
         init_fn fini_array[max_init_array_entries] = {};
         usize   fini_count                         = 0;
 
+        // Program header table as it is visible to the running image.
+        u64 phdr_vaddr = 0;
+        u16 phnum      = 0;
+        u16 phent      = 0;
+
         // Static TLS template (PT_TLS), materialized per thread by the
         // consumer of this image: file offset and sizes of [tdata][tbss],
         // plus the alignment the thread pointer is derived from.

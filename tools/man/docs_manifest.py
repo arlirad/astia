@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-CANONICAL_SYSCALL_IDS = tuple(range(71))
+CANONICAL_SYSCALL_IDS = tuple(range(73))
 SECTION7_NAMES = ("aio", "alarm", "exec", "rcu", "sigtimedwait", "spawnve", "task")
 SECTION7_SLUGS = {
     "aio": "docs-aio-7",

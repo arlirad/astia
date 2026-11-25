@@ -19,6 +19,7 @@ add_subdirectory(core)
 add_subdirectory(mm)
 add_subdirectory(fs)
 add_subdirectory(proc)
+add_subdirectory(dl)
 add_subdirectory(sys)
 add_subdirectory(util)
 add_subdirectory(hw)
@@ -40,6 +41,7 @@ set(_astia_kernel_libs
         fs
         core
         proc
+        dl
         sys
         arch_${ARCH}
         mm

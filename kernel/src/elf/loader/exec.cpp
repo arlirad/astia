@@ -104,6 +104,32 @@ namespace astia::elf::loader {
             return false;
         }
 
+        /// Inverse of vaddr_range_to_off: the in-memory virtual address a
+        /// file range is loaded at (AT_PHDR for the startup vector).
+        bool offset_range_to_vaddr(const elf64_phdr* ph, u16 phnum, u64 off, u64 size,
+                                   u64& vaddr) {
+            for (u16 i = 0; i < phnum; ++i) {
+                if (ph[i].p_type != pt_load || off < ph[i].p_offset ||
+                    off - ph[i].p_offset > ph[i].p_filesz ||
+                    size > ph[i].p_filesz - (off - ph[i].p_offset))
+                    continue;
+                vaddr = ph[i].p_vaddr + (off - ph[i].p_offset);
+                return true;
+            }
+            return false;
+        }
+
+        /// Record the phdr table address the image exposes.
+        void fill_image_tables(const elf64_phdr* ph, u16 phnum, u64 phoff, u64 phbytes,
+                               u64 bias, image& out) {
+            out.phnum      = phnum;
+            out.phent      = sizeof(elf64_phdr);
+            u64 phdr_vaddr = 0;
+            if (offset_range_to_vaddr(ph, phnum, phoff, phbytes, phdr_vaddr) &&
+                phdr_vaddr <= ~u64{0} - bias)
+                out.phdr_vaddr = phdr_vaddr + bias;
+        }
+
         // Translate a virtual address to a file offset using the PT_LOAD
         // segments (the only segments whose bytes live in the file).
         bool vaddr_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, usize len,
@@ -425,6 +451,8 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, phnum, eh->e_entry, 1) ||
             eh->e_entry - span_start > ~u64{0} - mapped_addr)
             return false;
+        fill_image_tables(ph, phnum, eh->e_phoff,
+                          static_cast<u64>(phnum) * sizeof(elf64_phdr), load_bias, out);
         out.entry     = reinterpret_cast<void*>(mapped_addr + (eh->e_entry - span_start));
         out.base      = mapped;
         out.size      = static_cast<usize>(span);
@@ -738,6 +766,7 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, header.e_phnum, header.e_entry, 1) ||
             header.e_entry - span_start > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
+        fill_image_tables(ph, header.e_phnum, header.e_phoff, ph_bytes, bias, result);
         result.entry =
             reinterpret_cast<void*>(mapped_addr + (header.e_entry - span_start));
         result.base      = mapped;
