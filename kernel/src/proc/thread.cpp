@@ -291,6 +291,14 @@ namespace astia::proc {
         return true;
     }
 
+    bool thread::park_unless_woken() {
+        arch::interrupt_spinlock_guard guard(_resume_lock);
+        if (_pending_resume_count != 0)
+            return false;
+        state(thread_state::blocked);
+        return true;
+    }
+
     void thread::request_resume(std::coroutine_handle<> continuation) {
         if (!continuation)
             return;
