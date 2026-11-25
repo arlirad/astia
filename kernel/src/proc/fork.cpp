@@ -1,6 +1,7 @@
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
 
+#include "events.hpp"
 #include "proc.hpp"
 
 namespace astia::proc {
@@ -51,6 +52,10 @@ namespace astia::proc {
             !parent->clone_address_space_cow(child.get()) || !register_process(child)) {
             // The child shptr drops here; ~process releases every
             // backing reference and descriptor its failed clone took.
+            return -EAGAIN;
+        }
+        if (events::forked::emit_until(*child, *parent) == core::hook::outcome::stop) {
+            (void) unregister_process(child.get());
             return -EAGAIN;
         }
         if (!child->create_fork_thread(uctx, parent_thread->signals().blocked(),

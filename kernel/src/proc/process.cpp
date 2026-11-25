@@ -12,6 +12,7 @@
 #include "../fs/path_service.hpp"
 #include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
+#include "events.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 
@@ -408,6 +409,7 @@ namespace astia::proc {
         arch::interrupt_guard gate;
         futex_remove_process(this);
         discard_image();
+        events::teardown::emit(*this);
         // Member destructors run after this body, which would otherwise
         // restore IF before their shptr releases. Empty them while the gate
         // is still closed.

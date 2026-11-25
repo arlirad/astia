@@ -1148,6 +1148,25 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
     ASTIA_CHECK(img.nsegs >= 1);
     ASTIA_CHECK(img.entry != nullptr);
 
+    // The startup vector and dlmap both expose the phdr table through the
+    // image's runtime address; check the loader derives it from the first
+    // PT_LOAD rather than handing out the file offset.
+    {
+        const auto* bytes  = static_cast<const unsigned char*>(fixture_dyn_blob);
+        auto        read16 = [&](astia::usize off) {
+            return static_cast<astia::u16>(bytes[off] | (bytes[off + 1] << 8));
+        };
+        auto read64 = [&](astia::usize off) {
+            astia::u64 value = 0;
+            for (astia::usize byte = 0; byte < 8; ++byte)
+                value |= static_cast<astia::u64>(bytes[off + byte]) << (byte * 8);
+            return value;
+        };
+        ASTIA_CHECK(img.phent == read16(54));
+        ASTIA_CHECK(img.phnum == read16(56));
+        ASTIA_CHECK(img.phdr_vaddr == img.load_bias + read64(32));
+    }
+
     for (astia::usize i = 0; i < img.nsegs; ++i) {
         auto want = reinterpret_cast<void*>(img.segs[i].vaddr + img.load_bias);
         ASTIA_CHECK(img.segs[i].loc == want);
