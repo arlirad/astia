@@ -37,6 +37,7 @@ add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
         support/cpu_relax_host.cpp
+        support/platform_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/request_queue.cpp
 )
 set_source_files_properties(support/main.cpp

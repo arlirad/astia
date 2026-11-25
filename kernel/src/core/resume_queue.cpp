@@ -28,6 +28,7 @@ namespace astia::core {
             mpmc_queue<u16, queue_capacity> overflow;
             resume_slot                     slots[queue_capacity * 2]{};
             std::coroutine_handle<>         active{};
+            u32                             used = 0;
         };
 
         cpu_queue queues[max_cpus];
@@ -38,11 +39,15 @@ namespace astia::core {
                    static_cast<u8>(expected);
         }
 
-        void release_slot(resume_slot& slot) {
+        void release_slot(cpu_queue& queue, resume_slot& slot) {
+            if (is_state(slot, slot_state::free))
+                return;
             slot.continuation = {};
             slot.generation   = 0;
             __atomic_store_n(&slot.state, static_cast<u8>(slot_state::free),
                              __ATOMIC_RELEASE);
+            if (queue.used != 0)
+                --queue.used;
         }
 
         bool take_slot(cpu_queue& queue, u16& index) {
@@ -54,7 +59,7 @@ namespace astia::core {
         void discard_canceled(cpu_queue& queue, u16 index) {
             resume_slot& slot = queue.slots[index];
             if (is_state(slot, slot_state::canceled))
-                release_slot(slot);
+                release_slot(queue, slot);
         }
     }
 
@@ -103,6 +108,7 @@ namespace astia::core {
         resume_slot& slot = queue.slots[free];
         slot.continuation = continuation;
         slot.generation   = generation;
+        ++queue.used;
         __atomic_store_n(&slot.state, static_cast<u8>(slot_state::queued),
                          __ATOMIC_RELEASE);
         if (!queue.overflow.empty_approx()) {
@@ -110,7 +116,7 @@ namespace astia::core {
                 arch::cpu::request_local_reschedule();
                 return true;
             }
-            release_slot(slot);
+            release_slot(queue, slot);
             return false;
         }
         if (queue.ready.try_push(free) || queue.overflow.try_push(free)) {
@@ -118,18 +124,30 @@ namespace astia::core {
             return true;
         }
 
-        release_slot(slot);
+        release_slot(queue, slot);
         return false;
     }
 
     void cancel_resume(std::coroutine_handle<> continuation, u64 generation) {
         if (!continuation)
             return;
-        for (u32 cpu = 0; cpu < max_cpus; ++cpu) {
+        // Only online CPUs can own a queued handle.  max_cpus is the array
+        // bound (256), so walking it made every task destruction scan all
+        // 256 queues even on a single-CPU boot.
+        u32 online = arch::platform::online_cpu_count();
+        if (online == 0)
+            online = 1;
+        if (online > max_cpus)
+            online = max_cpus;
+        for (u32 cpu = 0; cpu < online; ++cpu) {
             cpu_queue& queue = queues[cpu];
             for (;;) {
                 arch::interrupt_spinlock_guard guard(queue.lock);
-                bool                           retry = false;
+                if (queue.used == 0) {
+                    guard.unlock();
+                    break;
+                }
+                bool retry = false;
                 for (u16 i = 0; i < queue_capacity * 2; ++i) {
                     resume_slot& slot  = queue.slots[i];
                     const auto   state = static_cast<slot_state>(
@@ -203,7 +221,7 @@ namespace astia::core {
             {
                 arch::interrupt_spinlock_guard guard(queue.lock);
                 queue.active = {};
-                release_slot(slot);
+                release_slot(queue, slot);
             }
             ++count;
         }
