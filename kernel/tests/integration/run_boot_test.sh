@@ -22,10 +22,19 @@ fi
 qemu=$1
 kernel=$2
 initrd=$3
-# CTest grants this test a 60s budget.  TCG boots can exceed 30s under host
-# load, so keep the internal deadline aligned with the CTest budget.  The
-# required markers and exit status are unchanged.
-qemu_timeout_seconds=60
+# CTest grants this test a 60s budget.  Keep the internal deadline strictly
+# below it so a stalled guest still gets its serial log printed instead of
+# being SIGKILLed mid-report.  The required markers and exit status are
+# unchanged.
+qemu_timeout_seconds=${ASTIA_BOOT_QEMU_TIMEOUT:-45}
+case "$qemu_timeout_seconds" in
+    '' | *[!0-9]*) qemu_timeout_seconds=45 ;;
+esac
+if [ "$qemu_timeout_seconds" -lt 1 ]; then
+    qemu_timeout_seconds=1
+elif [ "$qemu_timeout_seconds" -gt 55 ]; then
+    qemu_timeout_seconds=55
+fi
 expected_qemu_status=${ASTIA_EXPECT_QEMU_STATUS:-1}
 require_selftest=${ASTIA_REQUIRE_SELFTEST:-1}
 forbidden_pattern=${ASTIA_FORBID_PATTERN:-}
@@ -70,6 +79,9 @@ set -e
 
 if [ "$status" -eq 124 ]; then
     echo "run_boot_test: qemu exceeded ${qemu_timeout_seconds}s internal timeout" >&2
+    cat "$log"
+    echo "run_boot_test: kernel boot test failed (qemu status $status)" >&2
+    exit 1
 fi
 
 cat "$log"
