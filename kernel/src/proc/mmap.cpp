@@ -267,6 +267,7 @@ namespace astia::proc {
                 entry->prot         = prot;
                 entry->shared       = shared;
                 entry->stack        = stack;
+                entry->demand_zero  = !stack && region->lazy();
                 entry->mapped_pages = stack ? 1 : pages;
                 entry->pending      = true;
                 entry->holds_ref    = true;
@@ -308,8 +309,30 @@ namespace astia::proc {
                 delete entry;
                 return false;
             }
+            // A lazy region may not have this page yet: leave it absent and
+            // let the first access materialise it.  Eager regions always
+            // have every page, so this changes nothing for them.
+            const u64 frame = region->page_base(region_page + page);
+            if (frame == mm::frame_allocator::invalid_frame) {
+                if (!transaction.skip_4k(base + page * page_bytes)) {
+                    transaction.rollback();
+                    {
+                        arch::interrupt_spinlock_guard guard(_mmap_lock);
+                        mmap_region**                  link = &_mmap_regions;
+                        while (*link != nullptr && *link != entry)
+                            link = &(*link)->next;
+                        if (*link == entry) {
+                            *link = entry->next;
+                            _mapped_bytes -= pages * page_bytes;
+                        }
+                    }
+                    delete entry;
+                    return false;
+                }
+                continue;
+            }
             if (!transaction.map_4k(
-                    base + page * page_bytes, region->page_base(region_page + page),
+                    base + page * page_bytes, frame,
                     mm::mapping_flags_from_bits(static_cast<u64>(flags4)))) {
                 {
                     arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -380,6 +403,27 @@ namespace astia::proc {
             ++vma->mapped_pages;
         }
         return _address_space.translate(virt) != mm::address_space::invalid;
+    }
+
+    bool process::materialize_lazy_page(mmap_region* vma, u64 virt, usize backing_page,
+                                        bool write) {
+        if (vma == nullptr || vma->backing == nullptr || vma->pending ||
+            (write && !has(vma->prot, map_protection::write))) {
+            return false;
+        }
+        if (!vma->backing->ensure_page(backing_page, true)) {
+            return false;
+        }
+        // A shared lazy page becomes readable through this mapping; a write
+        // still has to split it in cow_fault(), so only a sole owner gets
+        // the write bit here.
+        const bool unique = vma->backing->uniquely_held(backing_page);
+        const auto flags  = pte_flags(
+            unique
+                ? vma->prot
+                : static_cast<map_protection>(static_cast<u32>(vma->prot) &
+                                               ~static_cast<u32>(map_protection::write)));
+        return _address_space.map_4k(virt, vma->backing->page_base(backing_page), flags);
     }
 
     u64 process::map_anonymous(vaddr_t addr, bytes_t len, map_protection prot,
@@ -635,13 +679,14 @@ namespace astia::proc {
                 _mapped_bytes -= drop_to - drop_from;
 
                 if (old_end > last) {
-                    tail_used    = true;
-                    tail->next   = it->next;
-                    tail->base   = last;
-                    tail->pages  = (old_end - last) / page_bytes;
-                    tail->prot   = it->prot;
-                    tail->shared = it->shared;
-                    tail->stack  = it->stack;
+                    tail_used         = true;
+                    tail->next        = it->next;
+                    tail->base        = last;
+                    tail->pages       = (old_end - last) / page_bytes;
+                    tail->prot        = it->prot;
+                    tail->shared      = it->shared;
+                    tail->stack       = it->stack;
+                    tail->demand_zero = it->demand_zero;
                     if (it->stack) {
                         const u64 frontier    = old_end - it->mapped_pages * page_bytes;
                         const u64 mapped_from = frontier > last ? frontier : last;
@@ -1068,6 +1113,7 @@ namespace astia::proc {
         entry->pages        = pages;
         entry->mapped_pages = pages;
         entry->prot         = prot;
+        entry->demand_zero  = region->lazy();
         entry->holds_ref    = true;
         entry->backing      = region;
         const u64 bytes     = pages * mm::phys_region::frame_size;
@@ -1282,6 +1328,15 @@ namespace astia::proc {
         if (vma->stack && _address_space.translate(virt) == mm::address_space::invalid) {
             return grow_stack(vma, addr, write);
         }
+        if (vma->demand_zero &&
+            _address_space.translate(virt) == mm::address_space::invalid) {
+            if (!materialize_lazy_page(vma, virt, backing_page, write))
+                return false;
+            // A sole owner is writable now; a shared page stays read-only
+            // and falls through to the ordinary CoW split below.
+            if (!write || back->uniquely_held(backing_page))
+                return true;
+        }
         if (!write || vma->shared || !has(vma->prot, map_protection::write)) {
             return false; // not ours, or a genuine violation
         }
@@ -1357,6 +1412,7 @@ namespace astia::proc {
         middle->pages        = 1;
         middle->prot         = vma->prot;
         middle->stack        = vma->stack;
+        middle->demand_zero  = vma->demand_zero;
         middle->mapped_pages = 1;
         middle->holds_ref    = true; // sole owner of the copy
         middle->backing      = copy;
@@ -1369,6 +1425,7 @@ namespace astia::proc {
             right->pages        = old_pages - page - 1;
             right->prot         = vma->prot;
             right->stack        = vma->stack;
+            right->demand_zero  = vma->demand_zero;
             right->mapped_pages = old_pages - page - 1;
             right->holds_ref    = false;
             right->backing      = vma->backing;

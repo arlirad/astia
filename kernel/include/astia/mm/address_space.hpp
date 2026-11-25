@@ -82,6 +82,10 @@ namespace astia::mm {
         mapping_transaction& operator=(const mapping_transaction&) = delete;
 
         bool map_4k(vaddr_t virt, paddr_t phys, mapping_flags flags);
+        /// Advance the cursor over a page that is intentionally left absent
+        /// (a lazy backing page).  Rollback treats it like a mapped page; the
+        /// unmap of an absent page is a no-op.
+        bool skip_4k(vaddr_t virt);
         void commit();
         void rollback();
 
