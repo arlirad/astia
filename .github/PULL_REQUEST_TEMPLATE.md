@@ -15,12 +15,6 @@ credentials, private keys, private hostnames, or unredacted configuration.
 - Not in scope:
 - Subsystems and public surfaces:
 
-## Owner / reviewer
-
-`@handle` or `unassigned`
-
-<!-- Opening this PR does not assign anyone. -->
-
 ## Current base and head
 
 | Ref | Branch | Commit |

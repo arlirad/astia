@@ -61,11 +61,3 @@ body:
         Follow-ups: #...
     validations:
       required: true
-  - type: input
-    id: owner
-    attributes:
-      label: Owner
-      description: "@handle if someone volunteered; otherwise leave blank. Maintainers assign work; this form never auto-assigns."
-      placeholder: "@username or leave unassigned"
-    validations:
-      required: false
