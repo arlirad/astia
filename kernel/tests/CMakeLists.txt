@@ -124,6 +124,7 @@ astia_add_test_label(astia_init_launch_shape "init;deterministic")
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
 astia_add_host_test(astia_completion_test completion_test.cpp)
+astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_path_service_test
         path_service_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp)
