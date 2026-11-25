@@ -8,7 +8,8 @@ which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
 boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, a bounded
 five-tick EL1 physical-timer PPI 30 proof, and a fixed-capacity IRQ-context
 deadline queue, but it does not expose an SPI/device IRQ subsystem, a
-scheduler tick service, thread sleep/wake, or an unbounded timer queue.
+scheduler tick service, thread sleep/wake, or a dynamically sized or general
+timer queue.
 
 ## Target and boundary
 
@@ -706,9 +707,9 @@ and any generic IRQ abstraction.
 
 The stage now proves one bounded, five-tick EL1 physical-timer interrupt
 sequence with the re-arm inside the registered handler, plus a fixed-capacity
-deadline queue dispatched from that handler. It is not a timer subsystem or a
-scheduler tick source: there is no unbounded timer queue, scheduler
-interaction, generic timer abstraction, or EL0 access.
+deadline table dispatched from that handler. It is not a timer subsystem or a
+scheduler tick source: there is no dynamically sized or general timer queue,
+timer wheel, scheduler interaction, generic timer abstraction, or EL0 access.
 
 The interrupt contract is:
 
@@ -787,7 +788,8 @@ deadline policy inside the timer handler, not a general timer subsystem.
   `invalid_delay`, a null handler with `null_handler`, and a full table with
   `full`. Success returns `none`, arms the first free slot, and returns a
   non-zero id. Ids increase monotonically, skip zero on wrap, and are not
-  reused until `reset_deadlines`.
+  reused until `reset_deadlines`; an assigned id never collides with a
+  currently armed entry, including across the 32-bit wrap.
 - `cancel_deadline(id)` clears the matching armed slot and returns true; an
   unknown or already-fired id returns false. `pending_deadlines()` counts
   armed slots and `reset_deadlines()` clears the table and restarts the id
@@ -805,20 +807,24 @@ deadline policy inside the timer handler, not a general timer subsystem.
   interrupts, and they must return promptly so the level-sensitive source is
   deasserted.
 - `now_ms()` reads `CNTPCT_EL0` and `CNTFRQ_EL0` and converts with
-  `count_to_ms`, which rejects a zero frequency and overflow-checked
-  `count * 1000`; it returns zero if the conversion is unrepresentable. Reads
-  need no `ISB`, and the function performs no system-register writes.
+  `count_to_ms`, which rejects a zero frequency and an unrepresentable
+  quotient, using quotient/remainder arithmetic so the full counter range
+  converts without overflowing; it returns zero if the conversion is
+  unrepresentable. Reads need no `ISB`, and the function performs no
+  system-register writes.
 - The host test covers capacity, conversion and overflow, due boundaries,
-  tie-breaking, scheduling errors, cancellation, catch-up ordering, and
-  reset. The boot proof schedules A (+10 ms), B (+30 ms), and C (+20 ms),
-  cancels C, and requires A then B to fire exactly once each across the
-  five-tick window with no pending deadlines.
+  tie-breaking, scheduling errors, cancellation, catch-up ordering, id-wrap
+  collision avoidance, callback re-entry, and reset. The boot proof schedules
+  A (+10 ms), B (+30 ms), and C (+20 ms), cancels C, and requires A then B to
+  fire exactly once each across the five-tick window with no pending
+  deadlines.
 
 Explicit timer non-goals: repeating timers beyond the fixed five-tick proof,
-`CNTV*` virtual timers, EL2/EL3 timers, an unbounded timer queue or timer
-wheel, scheduler handoff, thread sleep/wake, deadline priorities or priority
-inheritance, SMP, broadcast timers, CPU hotplug/PSCI timer state, `WFI`-based
-idle, and SPI registration. The local table is intentionally SGI/PPI-only.
+`CNTV*` virtual timers, EL2/EL3 timers, a dynamically sized or general timer
+queue or timer wheel, scheduler handoff, thread sleep/wake, deadline
+priorities or priority inheritance, SMP, broadcast timers, CPU hotplug/PSCI
+timer state, `WFI`-based idle, and SPI registration. The local table is
+intentionally SGI/PPI-only.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -947,11 +953,12 @@ lift must be recorded here with the exact source and rework.
   stubs. There is no recovery, no user fault handling, and no FIQ/SError
   dispatch.
 - No external SPI, other PPI, or device driver interrupts. The only timer is
-  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has no
-  scheduler binding, timer queue, or virtual timer. The local dispatch table
-  is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ subsystem: no SPI
-  dispatch, no dynamic registration, no per-CPU tables, and no scheduler
-  interaction.
+  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has a
+  fixed-capacity eight-entry deadline table but no scheduler binding,
+  dynamically sized or general timer queue, or virtual timer. The local
+  dispatch table is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ
+  subsystem: no SPI dispatch, no dynamic registration, no per-CPU tables, and
+  no scheduler interaction.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at

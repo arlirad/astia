@@ -120,10 +120,20 @@ namespace astia::arch::aarch64::timer {
     }
 
     [[nodiscard]] constexpr bool count_to_ms(u64 count, u32 frequency_hz, u64& ms) {
-        if (frequency_hz == 0 || count > ~u64{0} / 1000) {
+        if (frequency_hz == 0) {
             return false;
         }
-        ms = (count * 1000) / frequency_hz;
+        const u64 frequency = frequency_hz;
+        const u64 whole     = count / frequency;
+        if (whole > ~u64{0} / 1000) {
+            return false;
+        }
+        const u64 whole_ms = whole * 1000;
+        const u64 part_ms  = ((count % frequency) * 1000) / frequency;
+        if (whole_ms > ~u64{0} - part_ms) {
+            return false;
+        }
+        ms = whole_ms + part_ms;
         return true;
     }
 
@@ -150,11 +160,24 @@ namespace astia::arch::aarch64::timer {
         if (slot == deadline_capacity) {
             return deadline_error::full;
         }
-        id = deadline_next_id;
-        ++deadline_next_id;
-        if (deadline_next_id == 0) {
-            deadline_next_id = 1;
+        // An assigned id never collides with a currently armed entry.
+        u32 candidate = deadline_next_id == 0 ? 1 : deadline_next_id;
+        for (u32 attempt = 0; attempt <= deadline_capacity; ++attempt) {
+            bool taken = false;
+            for (u32 index = 0; index < deadline_capacity; ++index) {
+                if (deadline_table[index].armed &&
+                    deadline_table[index].id == candidate) {
+                    taken = true;
+                    break;
+                }
+            }
+            if (!taken) {
+                break;
+            }
+            candidate = candidate == ~u32{0} ? 1 : candidate + 1;
         }
+        id                   = candidate;
+        deadline_next_id     = candidate == ~u32{0} ? 1 : candidate + 1;
         deadline_table[slot] = deadline_entry{due_ms, handler, context, id, true};
         return deadline_error::none;
     }

@@ -31,6 +31,24 @@ namespace {
         }
         probe->calls = probe->calls + 1;
     }
+
+    struct deadline_reentry_probe {
+        u64 schedule_now = 0;
+        u32 calls        = 0;
+        u32 later_calls  = 0;
+        u32 later_id     = 0;
+    };
+
+    void reschedule_deadline(void* context) {
+        auto* probe  = static_cast<deadline_reentry_probe*>(context);
+        probe->calls = probe->calls + 1;
+        u32 id       = 0;
+        if (timer::schedule_deadline(probe->schedule_now, 10, count_local_irq,
+                                     &probe->later_calls,
+                                     id) == timer::deadline_error::none) {
+            probe->later_id = id;
+        }
+    }
 } // namespace
 
 ASTIA_TEST(aarch64_gic_local_intid_validity) {
@@ -166,7 +184,9 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(ms == 10U);
     ASTIA_CHECK(timer::count_to_ms(0, 62500000U, ms));
     ASTIA_CHECK(ms == 0U);
-    ASTIA_CHECK(!timer::count_to_ms(~u64{0}, 62500000U, ms));
+    ASTIA_CHECK(timer::count_to_ms(~u64{0} / 500U, 62500000U, ms));
+    ASTIA_CHECK(ms > 500000000000U);
+    ASTIA_CHECK(!timer::count_to_ms(~u64{0}, 1U, ms));
 
     u64 due = 0;
     ASTIA_CHECK(timer::add_ms_checked(100U, 25U, due));
@@ -253,6 +273,44 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
                 timer::deadline_error::none);
     ASTIA_CHECK(fresh_id == 1U);
     ASTIA_CHECK(timer::cancel_deadline(fresh_id));
+    timer::reset_deadlines();
+
+    u32 wrapped_armed_id    = 0;
+    timer::deadline_next_id = 0xffffffffU;
+    ASTIA_CHECK(
+        timer::schedule_deadline(0, 10, count_local_irq, &calls, wrapped_armed_id) ==
+        timer::deadline_error::none);
+    ASTIA_CHECK(wrapped_armed_id == 0xffffffffU);
+    timer::deadline_next_id = 0xffffffffU;
+    u32 wrapped_new_id      = 0;
+    ASTIA_CHECK(timer::schedule_deadline(0, 20, count_local_irq, &calls,
+                                         wrapped_new_id) == timer::deadline_error::none);
+    ASTIA_CHECK(wrapped_new_id != 0U);
+    ASTIA_CHECK(wrapped_new_id != wrapped_armed_id);
+    ASTIA_CHECK(wrapped_new_id == 1U);
+    ASTIA_CHECK(timer::pending_deadlines() == 2U);
+    ASTIA_CHECK(timer::cancel_deadline(wrapped_armed_id));
+    ASTIA_CHECK(!timer::cancel_deadline(wrapped_armed_id));
+    ASTIA_CHECK(timer::pending_deadlines() == 1U);
+    ASTIA_CHECK(timer::cancel_deadline(wrapped_new_id));
+    ASTIA_CHECK(timer::pending_deadlines() == 0U);
+
+    timer::reset_deadlines();
+    deadline_reentry_probe reentry{};
+    reentry.schedule_now = 10;
+    u32 reentry_id       = 0;
+    ASTIA_CHECK(timer::schedule_deadline(0, 10, reschedule_deadline, &reentry,
+                                         reentry_id) == timer::deadline_error::none);
+    ASTIA_CHECK(timer::dispatch_due(10U) == 1U);
+    ASTIA_CHECK(reentry.calls == 1U);
+    ASTIA_CHECK(reentry.later_id != 0U);
+    ASTIA_CHECK(reentry.later_calls == 0U);
+    ASTIA_CHECK(timer::pending_deadlines() == 1U);
+    ASTIA_CHECK(timer::dispatch_due(10U) == 0U);
+    ASTIA_CHECK(timer::pending_deadlines() == 1U);
+    ASTIA_CHECK(timer::dispatch_due(20U) == 1U);
+    ASTIA_CHECK(reentry.later_calls == 1U);
+    ASTIA_CHECK(timer::pending_deadlines() == 0U);
     timer::reset_deadlines();
 }
 
