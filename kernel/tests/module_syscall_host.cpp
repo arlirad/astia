@@ -118,17 +118,23 @@ namespace astia::proc {
 
 } // namespace astia::proc
 
+#if defined(__clang__)
+#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
+#else
+#define ASTIA_NO_SANITIZE_FUNCTION
+#endif
+
 namespace astia::mod::host_test {
 
-    int invoke_entry(int (*entry)()) {
+    ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {
         return entry();
     }
 
-    void invoke_initializer(elf::loader::init_fn initializer) {
+    ASTIA_NO_SANITIZE_FUNCTION void invoke_initializer(elf::loader::init_fn initializer) {
         initializer();
     }
 
-    void invoke_finalizer(elf::loader::init_fn finalizer) {
+    ASTIA_NO_SANITIZE_FUNCTION void invoke_finalizer(elf::loader::init_fn finalizer) {
         finalizer();
     }
 

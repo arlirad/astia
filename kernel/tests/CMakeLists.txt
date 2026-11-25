@@ -818,7 +818,7 @@ target_compile_options(astia_module_syscall_test PRIVATE
 target_compile_definitions(astia_module_syscall_test PRIVATE
         ASTIA_MODULE_HOST_TEST=1)
 target_link_options(astia_module_syscall_test PRIVATE
-        "-Wl,-no-pie" "-Wl,--gc-sections")
+        "-Wl,-no-pie" "-Wl,--gc-sections" "-Wl,-z,nostart-stop-gc")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py

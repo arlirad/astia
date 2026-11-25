@@ -321,7 +321,8 @@ namespace astia::mod {
                     slot.close_wait  = nullptr;
                     slot.close_owner = false;
                     ++slot.generation;
-                    slot.module = loaded_module{};
+                    __builtin_memset(static_cast<void*>(&slot.module), 0,
+                                     sizeof slot.module);
                 }
             }
             for (usize i = 0; i < plan.wake_count; ++i) {
