@@ -170,8 +170,8 @@ public static class PkgsrvHost
         else if (!databaseOptions.InitializeSchema)
         {
             app.Services
-                .GetRequiredService<IPackageSchemaValidator>()
-                .ValidateAsync(CancellationToken.None)
+                .GetRequiredService<IPackageSchemaMigrator>()
+                .EnsureUpToDateAsync(CancellationToken.None)
                 .GetAwaiter()
                 .GetResult();
         }
@@ -188,18 +188,22 @@ public static class PkgsrvHost
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        var initializer = app.Services.GetService<IPackageSchemaInitializer>();
+        var databaseOptions = app.Services.GetRequiredService<PkgsrvDatabaseOptions>();
 
-        if (initializer is not null)
+        if (databaseOptions.Provider != PkgsrvDatabaseProvider.Postgres)
         {
-            await initializer.InitializeAsync(cancellationToken);
+            return;
         }
 
-        var validator = app.Services.GetService<IPackageSchemaValidator>();
+        var migrator = app.Services.GetRequiredService<IPackageSchemaMigrator>();
 
-        if (validator is not null)
+        if (databaseOptions.InitializeSchema)
         {
-            await validator.ValidateAsync(cancellationToken);
+            await migrator.MigrateAsync(cancellationToken);
+        }
+        else
+        {
+            await migrator.EnsureUpToDateAsync(cancellationToken);
         }
     }
 }

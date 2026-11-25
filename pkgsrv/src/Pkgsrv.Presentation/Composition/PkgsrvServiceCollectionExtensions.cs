@@ -45,12 +45,7 @@ public static class PkgsrvServiceCollectionExtensions
                 provider => provider.GetRequiredService<PostgresPackageRepository>());
             services.AddSingleton<IPackageIndex>(
                 provider => provider.GetRequiredService<PostgresPackageRepository>());
-            services.AddSingleton<IPackageSchemaValidator, PostgresPackageSchemaValidator>();
-
-            if (databaseOptions.InitializeSchema)
-            {
-                services.AddSingleton<IPackageSchemaInitializer, PostgresPackageSchemaInitializer>();
-            }
+            services.AddSingleton<IPackageSchemaMigrator, PostgresPackageSchemaMigrator>();
         }
         else
         {

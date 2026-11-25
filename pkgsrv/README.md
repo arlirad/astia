@@ -181,7 +181,7 @@ Configuration:
 | --- | --- | --- |
 | `Pkgsrv__Database__Provider` | `InMemory` fallback | `InMemory` or `Postgres`/`PostgreSQL` |
 | `Pkgsrv__Database__ConnectionString` | unset | PostgreSQL connection string; selects Postgres when set |
-| `Pkgsrv__Database__InitializeSchema` | `false` | Runs the idempotent schema script at startup when true |
+| `Pkgsrv__Database__InitializeSchema` | `false` | Applies pending EF Core migrations at startup when true |
 
 Selection is deterministic:
 
@@ -506,32 +506,53 @@ Download flow:
 No request accepts an artifact path, executable, shell command, or build output
 path.
 
-The schema lives in the default `public` schema as `packages`. It can be initialized
-by setting `InitializeSchema=true`; startup executes an idempotent upgrade to the
-current schema (equivalent to applying the versioned migrations in order) before
-listening. The initializer never drops or truncates data. The versioned DDL is
-available under `pkgsrv/db/migrations` and must be applied in order:
+The schema is owned by EF Core. `PostgresPackageDbContext`, the model snapshot, and
+the migration classes under `Persistence/Postgres/Migrations` are canonical, and
+`__EFMigrationsHistory` is the only authoritative migration state. The migration
+chain is:
+
+- `20261125182608_InitialCreate` — legacy-compatible baseline that creates the
+  package table on a fresh database and adopts an existing old table without
+  dropping or truncating data.
+- `20261125182644_AddVersionOrderColumns` — adds and backfills the numeric
+  major/minor/patch, pre-release, and build-metadata columns and their ordering
+  index.
+- `20261126095757_AddPublicationTimestamp` — adds the nullable `PublishedAt`
+  publication marker non-destructively.
+
+With `InitializeSchema=true`, startup calls `Database.MigrateAsync()` before
+listening. With `InitializeSchema=false`, startup never applies migrations; it
+checks for pending migrations and fails clearly when migrations are pending or the
+database/migration history is unavailable. PostgreSQL mode never silently falls
+back to in-memory storage.
+
+An existing old custom-v1 schema is upgraded by the same EF migration chain: the
+baseline detects the existing `packages` table, adds missing timeout/pending-event
+columns and backfills timeout ticks, then the version-order migration adds and
+backfills version columns, and the publication migration adds the nullable
+`PublishedAt` marker. Existing rows and publication state are preserved. The old
+`schema_versions` table may remain in place but is not used or treated as
+authoritative.
+
+Create a migration and apply it with the standard EF commands:
 
 ```bash
-for migration in pkgsrv/db/migrations/*.sql; do
-  psql "$PKGSRV_POSTGRES_CONNECTION" -f "$migration"
-done
+dotnet ef migrations add <MigrationName> \
+  --project pkgsrv/src/Pkgsrv.Infrastructure \
+  --startup-project pkgsrv/src/Pkgsrv.Infrastructure \
+  --output-dir Persistence/Postgres/Migrations
+
+dotnet ef database update \
+  --project pkgsrv/src/Pkgsrv.Infrastructure \
+  --startup-project pkgsrv/src/Pkgsrv.Infrastructure
 ```
 
-The required schema version is `3` (`0001_packages.sql`,
-`0002_packages_version_order.sql`, and `0003_packages_publication.sql`). Startup
-validates the exact version in `schema_versions` and the required package column
-shape. A missing table, an old schema, a future version, or missing required
-columns fails startup rather than silently claiming durability.
-`InitializeSchema=false` therefore rejects an incompatible old schema before any
-runtime query. The v3 migration adds the nullable `PublishedAt` marker
-non-destructively. For production, prefer managed migrations or a reviewed DDL
-deployment, and grant the runtime user only the required table privileges. The
-application does not create databases, roles, or extensions, and does not silently
-alter existing schemas.
+The design-time factory reads `PKGSRV_DESIGN_POSTGRES_CONNECTION` when generating or
+applying migrations.
 
-An opt-in integration test runs only when
-`PKGSRV_TEST_POSTGRES_CONNECTION` is set; otherwise it is a no-op.
+An opt-in integration test runs only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
+otherwise the PostgreSQL tests are reported as skipped. It covers fresh creation and
+old-v1 upgrade/data preservation through the EF migration chain.
 
 ## Issue #179 acceptance evidence
 
@@ -764,9 +785,10 @@ listening endpoint section.
   in-memory mode is not durable.
 - Automatic pending-event dispatch/retry is not implemented. The durable boundary
   is at-least-once, so publishers must be idempotent.
-- Versioned SQL DDL is provided under `pkgsrv/db/migrations`; EF migrations are not
-  used. `InitializeSchema=true` remains a skeleton convenience and is not an
-  automatic production migration mechanism.
+- Versioned schema DDL is owned by EF Core migrations under
+  `Persistence/Postgres/Migrations`; `__EFMigrationsHistory` is authoritative.
+  `InitializeSchema=true` applies pending migrations, while `false` fails clearly
+  when migrations are pending.
 - Full SemVer identifier precedence and version-aware search are not implemented;
   list ordering is the deterministic contract above.
 - Irva.Client authorization is pending and defaults to deny.
