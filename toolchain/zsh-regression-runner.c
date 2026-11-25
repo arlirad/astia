@@ -136,5 +136,7 @@ int main(void) {
               "[[ ${PWD:P} = " ZSH_REALPATH_DIR " ]]");
     if (remove_realpath_fixture() != 0 && result == 0)
         result = 39;
+    if (run_zsh("grep ok =(print ok) >/dev/null") != 0)
+        return 40;
     return result;
 }
