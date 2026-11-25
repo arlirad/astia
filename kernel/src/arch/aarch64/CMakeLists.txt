@@ -4,6 +4,7 @@ if (ARCH STREQUAL "aarch64")
             start.S
             gic.cpp
             page_map.cpp
+            timer.cpp
     )
     target_include_directories(arch_aarch64 PUBLIC
             ${ASTIA_KERNEL_SOURCE_DIR}/include)

@@ -93,6 +93,11 @@ extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
         write_line_field(console, "irq: iar=", result.iar, 8);
         write_line_field(console, "irq: eoi=", result.intid, 8);
         write_line_field(console, "irq: dir=", result.intid, 8);
+        if (result.timer) {
+            write_line_field(console, "irq: timer=", result.intid, 8);
+            console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER HANDLED");
+            return;
+        }
         console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ HANDLED");
         return;
     }

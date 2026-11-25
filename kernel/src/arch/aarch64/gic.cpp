@@ -12,7 +12,8 @@ namespace astia::arch::aarch64::gicv3 {
         constexpr u32 priority_registers     = 8;
         constexpr u32 wait_spin_limit        = 1000000;
 
-        volatile u32 handled_sgi_count = 0;
+        volatile u32 handled_sgi_count   = 0;
+        volatile u32 handled_timer_count = 0;
 
         [[nodiscard]] u32 read32(u64 base, u64 offset) {
             return *reinterpret_cast<volatile const u32*>(base + offset);
@@ -148,7 +149,8 @@ namespace astia::arch::aarch64::gicv3 {
                 write32(sgi, gicr_ipriorityr_offset + index * 4, gicr_priority_word);
             }
             write32(sgi, gicr_icfgr1_offset, 0);
-            write32(sgi, gicr_isenabler0_offset, 1u << self_sgi_id);
+            write32(sgi, gicr_isenabler0_offset,
+                    (1u << self_sgi_id) | (1u << timer::ppi_id));
             dsb_sy();
         }
     } // namespace
@@ -175,6 +177,8 @@ namespace astia::arch::aarch64::gicv3 {
             return "redistributor-wake-timeout";
         case error::sgi_not_enabled:
             return "sgi-not-enabled";
+        case error::timer_ppi_not_enabled:
+            return "timer-ppi-not-enabled";
         case error::sre_not_enabled:
             return "sre-not-enabled";
         case error::sre_bypass_not_disabled:
@@ -247,10 +251,15 @@ namespace astia::arch::aarch64::gicv3 {
         }
         isb();
 
+        timer::disable_and_clear();
         configure_redistributor(redistributor);
-        if ((read32(redistributor + sgi_base_offset, gicr_isenabler0_offset) &
-             (1u << self_sgi_id)) == 0) {
+        const u32 enabled =
+            read32(redistributor + sgi_base_offset, gicr_isenabler0_offset);
+        if ((enabled & (1u << self_sgi_id)) == 0) {
             return error::sgi_not_enabled;
+        }
+        if ((enabled & (1u << timer::ppi_id)) == 0) {
+            return error::timer_ppi_not_enabled;
         }
 
         u64 sre = read_icc_sre_el1();
@@ -308,22 +317,35 @@ namespace astia::arch::aarch64::gicv3 {
     }
 
     irq_result acknowledge_and_complete() {
-        const u32        iar    = static_cast<u32>(read_icc_iar1_el1());
-        const u32        intid  = iar & intid_mask;
-        const irq_action action = classify_intid(intid);
+        const u32        iar      = static_cast<u32>(read_icc_iar1_el1());
+        const u32        intid    = iar & intid_mask;
+        const irq_action action   = classify_intid(intid);
+        const bool       is_timer = intid == timer::ppi_id;
         if (action == irq_action::handled) {
-            write_icc_eoir1_el1(intid);
+            if (is_timer) {
+                timer::disable_and_clear();
+            }
+            write_icc_eoir1_el1(iar);
             write_icc_dir_el1(intid);
             isb();
             dsb_sy();
             isb();
-            handled_sgi_count = handled_sgi_count + 1;
+            if (is_timer) {
+                handled_timer_count = handled_timer_count + 1;
+            }
+            else {
+                handled_sgi_count = handled_sgi_count + 1;
+            }
         }
-        return irq_result{action, intid, iar};
+        return irq_result{action, intid, iar, is_timer};
     }
 
     u32 self_sgi_count() {
         return handled_sgi_count;
+    }
+
+    u32 timer_count() {
+        return handled_timer_count;
     }
 
 } // namespace astia::arch::aarch64::gicv3

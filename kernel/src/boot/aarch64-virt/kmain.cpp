@@ -7,6 +7,7 @@
 #include "page_map_policy.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
+#include "timer.hpp"
 
 extern "C" char              __image_start[];
 extern "C" char              __image_end[];
@@ -26,6 +27,7 @@ namespace {
 
     namespace policy = astia::arch::aarch64::page_map_policy;
     namespace gicv3  = astia::arch::aarch64::gicv3;
+    namespace timer  = astia::arch::aarch64::timer;
 
     constexpr page_flags ram_flags =
         page_flags::present | page_flags::writable | page_flags::no_execute;
@@ -519,6 +521,41 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     }
     console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ RETURNED");
     console.write_line("ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK");
+
+    write_line_field(console, "timer: ppi=", timer::ppi_id, 8);
+    timer::arm_result  armed{};
+    const timer::error timer_error = timer::arm_one_shot(armed);
+    if (timer_error != timer::error::none) {
+        console.write("timer: error=");
+        console.write_line(timer::describe(timer_error));
+        fail(console, "EL1 physical timer arm failed");
+    }
+    write_field(console, "timer: frequency=", armed.frequency_hz, 8);
+    write_line_field(console, " ticks=", armed.ticks, 8);
+    console.write("timer: ctl=");
+    console.write("0x");
+    console.write_hex(armed.control, 8);
+    write_bit(console, " enable=", armed.control, 0);
+    write_bit(console, " imask=", armed.control, 1);
+    write_bit(console, " istatus=", armed.control, 2);
+    console.write_line("");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER ARMED");
+
+    __asm__ volatile("msr daifclr, #2" : : : "memory");
+    __asm__ volatile("isb" : : : "memory");
+    constexpr astia::u32 timer_spin_limit = 100000000;
+    astia::u32           timer_spin       = 0;
+    while (gicv3::timer_count() == 0 && timer_spin < timer_spin_limit) {
+        __asm__ volatile("yield" : : : "memory");
+        ++timer_spin;
+    }
+    __asm__ volatile("msr daifset, #2" : : : "memory");
+    __asm__ volatile("isb" : : : "memory");
+    if (gicv3::timer_count() != 1) {
+        fail(console, "timer PPI was not handled exactly once");
+    }
+    console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER PPI OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
     write_line_field(console, "exception: far-seed=", brk_far_sentinel, 16);

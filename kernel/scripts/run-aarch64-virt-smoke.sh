@@ -207,6 +207,41 @@ grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ RETURNED' "$log" ||
     die "IRQ handler did not return to the interrupted context"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK' "$log" ||
     die "GICv3 self-SGI verification did not complete"
+grep -Fxq 'timer: ppi=0x0000001e' "$log" ||
+    die "timer PPI ID diagnostic is missing or unexpected"
+grep -Fxq 'timer: frequency=0x03b9aca0 ticks=0x00098968' "$log" ||
+    die "timer frequency/one-shot interval diagnostic is missing or unexpected"
+grep -Eq '^timer: ctl=0x0000000[15] enable=1 imask=0 istatus=[01]$' "$log" ||
+    die "timer CNTP_CTL_EL0 state is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER ARMED' "$log" ||
+    die "timer arm marker is missing"
+grep -Fxq 'irq: iar=0x0000001e' "$log" ||
+    die "IRQ handler did not acknowledge timer PPI 30"
+grep -Fxq 'irq: eoi=0x0000001e' "$log" ||
+    die "IRQ handler did not write EOIR1 for timer PPI 30"
+grep -Fxq 'irq: dir=0x0000001e' "$log" ||
+    die "IRQ handler did not deactivate timer PPI 30"
+grep -Fxq 'irq: timer=0x0000001e' "$log" ||
+    die "timer IRQ dispatch diagnostic is missing"
+[[ "$(grep -Fxc 'ASTIA AARCH64 VIRT BOOT: TIMER HANDLED' "$log")" -eq 1 ]] ||
+    die "timer IRQ was not handled exactly once"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER RETURNED' "$log" ||
+    die "timer IRQ handler did not return to the interrupted context"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER PPI OK' "$log" ||
+    die "timer PPI verification did not complete"
+awk '
+    /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ { armed = NR }
+    /irq: iar=0x0000001e/ { ack = NR }
+    /ASTIA AARCH64 VIRT BOOT: TIMER HANDLED/ { handled = NR }
+    /ASTIA AARCH64 VIRT BOOT: TIMER RETURNED/ { returned = NR }
+    /ASTIA AARCH64 VIRT BOOT: TIMER PPI OK/ { proven = NR }
+    /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR }
+    END {
+        exit !(armed && ack && handled && returned && proven && brk &&
+               armed < ack && ack < handled && handled < returned &&
+               returned < proven && proven < brk)
+    }
+' "$log" || die "timer proof markers are out of order"
 grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||
     die "synchronous exception did not enter the current-EL SPx slot"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC' "$log" ||
