@@ -473,7 +473,7 @@ namespace astia::test {
             }
             astia_rings* extra = nullptr;
             if (sys::io_setup(1, 0, &extra) != -ENFILE || extra != nullptr) {
-                logs::error("aio capacity fail (fifth ring)");
+                logs::error("aio capacity fail (seventeenth ring)");
                 for (astia_rings* ring : rings)
                     (void) sys::io_destroy(ring);
                 if (extra != nullptr)

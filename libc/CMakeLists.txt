@@ -79,6 +79,43 @@ add_library(astia_libc STATIC
   src/process_aio.c
 )
 
+# libc.so for dynamically linked userspace images.  It is compiled separately
+# from the archive: PIC and initial-exec TLS are mandatory for a DSO, while the
+# archive stays non-PIC so it can link into the fixed-address executables
+# (zsh, coreutils).  Visibility stays default here -- the archive hides its
+# symbols, but a shared library must export them for the interpreter.
+# ASTIA_LIBC_SHARED_BUILTINS lets a cross build point at libclang_rt.builtins.
+set(ASTIA_LIBC_SHARED_BUILTINS "" CACHE FILEPATH
+  "clang runtime builtins archive to link into libc.so")
+add_library(astia_libc_shared_objects STATIC
+  ${ASTIA_LIBC_SOURCES}
+  src/pthread.c
+  src/process_aio.c
+)
+target_include_directories(astia_libc_shared_objects PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+)
+target_compile_options(astia_libc_shared_objects PRIVATE
+  -fPIC -ftls-model=initial-exec -fno-stack-protector)
+set_target_properties(astia_libc_shared_objects PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+
+# The bare-metal driver for x86_64-unknown-elf drops -shared (and -pie), so
+# CMake's SHARED rule would silently run llvm-ar.  Link the DSO explicitly
+# with the linker-level flag, which both GNU ld and lld accept.
+set(ASTIA_LIBC_SHARED_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libc.so)
+add_custom_command(
+  OUTPUT ${ASTIA_LIBC_SHARED_OUTPUT}
+  COMMAND ${CMAKE_C_COMPILER} -nostdlib -Wl,-shared -Wl,-soname,libc.so
+          -Wl,-z,now -o ${ASTIA_LIBC_SHARED_OUTPUT}
+          -Wl,--whole-archive $<TARGET_FILE:astia_libc_shared_objects>
+          -Wl,--no-whole-archive ${ASTIA_LIBC_SHARED_BUILTINS}
+  DEPENDS $<TARGET_FILE:astia_libc_shared_objects>
+  COMMAND_EXPAND_LISTS
+  COMMENT "Linking libc.so")
+add_custom_target(astia_libc_shared ALL DEPENDS ${ASTIA_LIBC_SHARED_OUTPUT})
+
 # Host tests intentionally use the host pthread implementation as a
 # thread source for errno/TLS checks.  The astia pthread object belongs
 # to the freestanding userspace image (kernel/tests adds it directly),
@@ -151,6 +188,7 @@ set_source_files_properties(src/wchar.c PROPERTIES
 )
 
 install(TARGETS astia_libc ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${ASTIA_LIBC_SHARED_OUTPUT} DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES
   ${ASTIA_VERSION_INCLUDE_DIR}/astia/version.h

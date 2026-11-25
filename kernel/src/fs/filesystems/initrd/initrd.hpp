@@ -8,7 +8,7 @@
 
 namespace astia::fs::filesystems {
 
-    inline constexpr u32 initrd_max_entries = 64;
+    inline constexpr u32 initrd_max_entries = 128;
 
     class initrd_mount final : public mount {
         public:

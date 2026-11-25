@@ -63,7 +63,19 @@ test -f "$init_libc" || {
     exit 1
 }
 cp "$init_libc" "$out/root/bin/"
-(cd "$out/root" && find sbin bin etc -print |
+# The libc-backed fixtures are dynamically linked: stage the interpreter and
+# the shared libc next to them.
+ld_so=${ASTIA_LD_SO:-$kernel_build/tests/fixtures/ld.astia.so}
+for required in "$sysroot/lib/libc.so" "$ld_so"; do
+    test -f "$required" || {
+        echo "Astia dynamic runtime missing: $required" >&2
+        exit 1
+    }
+done
+mkdir -p "$out/root/lib"
+cp "$sysroot/lib/libc.so" "$out/root/lib/libc.so"
+cp "$ld_so" "$out/root/lib/ld.astia.so"
+(cd "$out/root" && find sbin bin etc lib -print |
     "$cpio" -o --format=newc --quiet) >"$out/initrd.cpio"
 
 log="$out/qemu.log"

@@ -187,36 +187,76 @@ namespace astia::proc {
         if (last < addr) {
             return -EINVAL;
         }
-        const u64 first = addr & ~(page_bytes - 1);
 
-        arch::interrupt_spinlock_guard guard(_mmap_lock);
-        // Resolve the whole range under one lock: a pin names exactly one
-        // region, and deriving the VMA per page would let a concurrent
-        // munmap from another thread make the range half-resolvable.
-        mmap_region* vma = nullptr;
-        for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
-            if (!it->pending && it->covers(addr)) {
-                vma = it;
-                break;
+        auto find = [this](u64 address) -> mmap_region* {
+            for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
+                if (!it->pending && it->covers(address)) {
+                    return it;
+                }
+            }
+            return nullptr;
+        };
+
+        i32 status = 0;
+        {
+            arch::interrupt_spinlock_guard guard(_mmap_lock);
+            // The caller sees one contiguous range, but the address space may
+            // split it across adjacent mappings (a DSO's copy-on-write
+            // segments are page-granular).  Consecutive pieces that continue
+            // the same backing region stay one iovec entry; a real region
+            // boundary starts the next.  Pinning is all-or-nothing: on
+            // failure the entries this call added are dropped below.
+            for (u64 cursor = addr; cursor < last;) {
+                mmap_region* vma = find(cursor);
+                if (vma == nullptr) {
+                    status = -EFAULT;
+                    break;
+                }
+                if (vma->stack && !grow_stack(vma, cursor, destination)) {
+                    status = -EFAULT;
+                    break;
+                }
+                const u64   first  = cursor & ~(page_bytes - 1);
+                const usize page   = static_cast<usize>((first - vma->base) / page_bytes);
+                const usize offset = static_cast<usize>(cursor - first);
+                u64         piece_end = vma->end() < last ? vma->end() : last;
+                usize       count =
+                    static_cast<usize>((piece_end - first + page_bytes - 1) / page_bytes);
+                usize            length      = static_cast<usize>(piece_end - cursor);
+                mm::phys_region* region      = vma->backing;
+                const usize      region_page = vma->region_page + page;
+
+                while (piece_end < last) {
+                    mmap_region* next = find(piece_end);
+                    if (next == nullptr || next->backing != region ||
+                        next->region_page != region_page + count) {
+                        break;
+                    }
+                    if (next->stack && !grow_stack(next, piece_end, destination)) {
+                        status = -EFAULT;
+                        break;
+                    }
+                    const u64 next_end = next->end() < last ? next->end() : last;
+                    count += static_cast<usize>((next_end - piece_end + page_bytes - 1) /
+                                                page_bytes);
+                    length += static_cast<usize>(next_end - piece_end);
+                    piece_end = next_end;
+                }
+                if (status < 0) {
+                    break;
+                }
+                if (!out.append(region, region_page, count, offset, length,
+                                destination)) {
+                    status = -ENOMEM;
+                    break;
+                }
+                cursor = piece_end;
             }
         }
-        if (vma == nullptr || vma->end() < last) {
-            return -EFAULT;
+        if (status < 0) {
+            out.release();
         }
-        if (vma->stack && !grow_stack(vma, addr, destination)) {
-            return -EFAULT;
-        }
-        const usize page = static_cast<usize>((first - vma->base) / page_bytes);
-        const usize count =
-            static_cast<usize>((last - first + page_bytes - 1) / page_bytes);
-        // The entry carries the range's in-page offset, so the window the
-        // operation is handed names the caller's first byte and not the page
-        // it happens to sit on.
-        if (!out.append(vma->backing, vma->region_page + page, count,
-                        static_cast<usize>(addr - first), len, destination)) {
-            return -ENOMEM;
-        }
-        return 0;
+        return status;
     }
 
     bool process::install_mapping(u64 hint, usize pages, map_protection prot,
