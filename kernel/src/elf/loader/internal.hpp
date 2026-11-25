@@ -38,6 +38,7 @@ namespace astia::elf::loader::detail {
 
     inline constexpr u32 pt_load    = 1;
     inline constexpr u32 pt_dynamic = 2;
+    inline constexpr u32 pt_interp  = 3;
     inline constexpr u32 pt_tls     = 7;
 
     inline constexpr i64 dt_null    = 0;

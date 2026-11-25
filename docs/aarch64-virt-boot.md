@@ -5,9 +5,11 @@ for `ARCH=aarch64 PLATFORM=virt BOOT=virt`. It is deliberately a **stage**, not
 a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
 driver model, a full generic IRQ subsystem, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
-boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, and a bounded
-five-tick EL1 physical-timer PPI 30 proof, but it does not expose an
-SPI/device IRQ subsystem, a scheduler tick service, or a timer queue.
+boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, a bounded
+five-tick EL1 physical-timer PPI 30 proof, and a fixed-capacity IRQ-context
+deadline queue, but it does not expose an SPI/device IRQ subsystem, a
+scheduler tick service, thread sleep/wake, or a dynamically sized or general
+timer queue.
 
 ## Target and boundary
 
@@ -54,12 +56,15 @@ The stage does exactly this:
     `ICC_IAR1_EL1`, complete it with `ICC_EOIR1_EL1` plus `ICC_DIR_EL1`
     (`EOImode == 1`), return with `ERET`, and verify the handler ran exactly
     once.
-13. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30
-    and re-arm it inside the registered handler for a fixed five-tick budget.
-    Each re-arm happens before `EOIR`/`DIR` so the level-sensitive source is
-    deasserted. Unmask IRQs, wait with a bounded spin, mask IRQs, and verify
-    exactly five timer interrupts were acknowledged, handled, completed, and
-    returned from.
+13. With IRQs masked, schedule three bounded deadlines (A at +10 ms, B at
+    +30 ms, C at +20 ms), cancel C, and arm one bounded EL1 physical-timer
+    one-shot on PPI 30 and re-arm it inside the registered handler for a fixed
+    five-tick budget. Each timer handler dispatches due deadlines before
+    `EOIR`/`DIR`; each re-arm also happens before `EOIR`/`DIR` so the
+    level-sensitive source is deasserted. Unmask IRQs, wait with a bounded
+    spin, mask IRQs, and verify exactly five timer interrupts were
+    acknowledged, handled, completed, and returned from, with deadline A and
+    B each fired once in that order, C canceled, and no pending deadlines.
 14. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
@@ -701,9 +706,10 @@ and any generic IRQ abstraction.
 ### EL1 physical timer PPI 30
 
 The stage now proves one bounded, five-tick EL1 physical-timer interrupt
-sequence with the re-arm inside the registered handler. It is not a timer
-subsystem or a scheduler tick source: there is no timer queue, scheduler
-interaction, generic timer abstraction, or EL0 access.
+sequence with the re-arm inside the registered handler, plus a fixed-capacity
+deadline table dispatched from that handler. It is not a timer subsystem or a
+scheduler tick source: there is no dynamically sized or general timer queue,
+timer wheel, scheduler interaction, generic timer abstraction, or EL0 access.
 
 The interrupt contract is:
 
@@ -768,11 +774,57 @@ The smoke runner asserts the five per-tick `IAR`/`EOIR`/`DIR`/`HANDLED` blocks
 with a state machine, and the interval bounds are covered on the host by the
 pure `timer::valid_interval` predicate.
 
+### Fixed-capacity IRQ-context deadline queue
+
+`timer.hpp` adds a bounded deadline table to the same PPI 30 path. It is a
+deadline policy inside the timer handler, not a general timer subsystem.
+
+- Capacity is eight entries (`timer::deadline_capacity`). Storage is an
+  `inline` static array (`timer::deadline_table`); scheduling performs no
+  allocation and the table never grows.
+- `schedule_deadline(now_ms, delay_ms, handler, context, id)` computes an
+  absolute `due_ms` with overflow-checked addition. It rejects
+  `delay_ms == 0` and an unrepresentable absolute deadline with
+  `invalid_delay`, a null handler with `null_handler`, and a full table with
+  `full`. Success returns `none`, arms the first free slot, and returns a
+  non-zero id. Ids increase monotonically, skip zero on wrap, and are not
+  reused until `reset_deadlines`; an assigned id never collides with a
+  currently armed entry, including across the 32-bit wrap.
+- `cancel_deadline(id)` clears the matching armed slot and returns true; an
+  unknown or already-fired id returns false. `pending_deadlines()` counts
+  armed slots and `reset_deadlines()` clears the table and restarts the id
+  sequence at one.
+- `dispatch_due(now_ms)` is earliest-deadline-first within the fixed table. It
+  repeatedly selects the armed entry with the smallest `due_ms`, breaking ties
+  by the lowest slot index, and fires every entry whose `due_ms <= now_ms`.
+  This is a catch-up policy: one call can fire several overdue entries, in
+  non-decreasing due order, and an arming never fires twice. A slot is cleared
+  before its callback runs, so a callback may schedule or cancel
+  re-entrantly; a newly scheduled future deadline does not fire in the same
+  pass.
+- Deadline callbacks run in IRQ context inside the registered PPI 30 timer
+  handler, before `ICC_EOIR1_EL1`/`ICC_DIR_EL1`. They must not block or enable
+  interrupts, and they must return promptly so the level-sensitive source is
+  deasserted.
+- `now_ms()` reads `CNTPCT_EL0` and `CNTFRQ_EL0` and converts with
+  `count_to_ms`, which rejects a zero frequency and an unrepresentable
+  quotient, using quotient/remainder arithmetic so the full counter range
+  converts without overflowing; it returns zero if the conversion is
+  unrepresentable. Reads need no `ISB`, and the function performs no
+  system-register writes.
+- The host test covers capacity, conversion and overflow, due boundaries,
+  tie-breaking, scheduling errors, cancellation, catch-up ordering, id-wrap
+  collision avoidance, callback re-entry, and reset. The boot proof schedules
+  A (+10 ms), B (+30 ms), and C (+20 ms), cancels C, and requires A then B to
+  fire exactly once each across the five-tick window with no pending
+  deadlines.
+
 Explicit timer non-goals: repeating timers beyond the fixed five-tick proof,
-`CNTV*` virtual timers, EL2/EL3 timers, timer queues, deadline scheduling,
-scheduler tick service, broadcast timers, CPU hotplug/PSCI timer state,
-`WFI`-based idle, and SPI registration. The local table is intentionally
-SGI/PPI-only.
+`CNTV*` virtual timers, EL2/EL3 timers, a dynamically sized or general timer
+queue or timer wheel, scheduler handoff, thread sleep/wake, deadline
+priorities or priority inheritance, SMP, broadcast timers, CPU hotplug/PSCI
+timer state, `WFI`-based idle, and SPI registration. The local table is
+intentionally SGI/PPI-only.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -863,14 +915,17 @@ vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
 redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
 CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
 reserved self-SGI ID, the local registration marker and IDs, the timer PPI
-30/frequency/tick-budget/arm and `CNTP_CTL_EL0` state, both handlers'
+30/frequency/tick-budget/arm, the deadline capacity/scheduled/canceled
+diagnostics, the exactly-once `deadline: fired-a=1 fired-b=1 fired-c=0`
+proof, the `DEADLINE OK` ordering between `TIMER TICK OK` and
+`EXCEPTION SYNC`, and `CNTP_CTL_EL0` state, both handlers'
 `IAR1`/`EOIR1`/`DIR` values, the five-tick timer-handled proof, the IRQ
 returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
 `FAR_EL1`, and the clean exception halt. It runs QEMU with
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
 
-Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
+Kernel CI (x86_64) (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
 pipeline. The full host CTest suite includes the exception frame/vector layout
 test and the GICv3 policy test.
@@ -898,11 +953,12 @@ lift must be recorded here with the exact source and rework.
   stubs. There is no recovery, no user fault handling, and no FIQ/SError
   dispatch.
 - No external SPI, other PPI, or device driver interrupts. The only timer is
-  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has no
-  scheduler binding, timer queue, or virtual timer. The local dispatch table
-  is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ subsystem: no SPI
-  dispatch, no dynamic registration, no per-CPU tables, and no scheduler
-  interaction.
+  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has a
+  fixed-capacity eight-entry deadline table but no scheduler binding,
+  dynamically sized or general timer queue, or virtual timer. The local
+  dispatch table is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ
+  subsystem: no SPI dispatch, no dynamic registration, no per-CPU tables, and
+  no scheduler interaction.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at
