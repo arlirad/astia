@@ -197,7 +197,7 @@ namespace astia::test {
         }
 
         bool join_checks() {
-            if (proc::current_thread()->join() != -EDEADLK) {
+            if (proc::current_thread()->join_sync() != -EDEADLK) {
                 logs::error("join: self-join was not rejected");
                 return false;
             }
@@ -207,12 +207,12 @@ namespace astia::test {
                 return false;
             }
             void*      result = nullptr;
-            const long rc     = target->join(&result);
+            const long rc     = target->join_sync(&result);
             if (rc != 0 || result != reinterpret_cast<void*>(0x42)) {
                 logs::error("join: failed rc=%ld result=%p", rc, result);
                 return false;
             }
-            if (target->join() != -EINVAL) {
+            if (target->join_sync() != -EINVAL) {
                 logs::error("join: double join was not rejected");
                 return false;
             }
@@ -224,13 +224,15 @@ namespace astia::test {
             }
             proc::scheduler::yield();
             result = nullptr;
-            if (exited->join(&result) != 0 || result != reinterpret_cast<void*>(0x42)) {
+            if (exited->join_sync(&result) != 0 ||
+                result != reinterpret_cast<void*>(0x42)) {
                 logs::error("join: pre-exited target was not joinable");
                 return false;
             }
 
             auto detached = proc::scheduler::create_kernel(join_worker, nullptr);
-            if (!detached || detached->detach() != 0 || detached->join() != -EINVAL) {
+            if (!detached || detached->detach() != 0 ||
+                detached->join_sync() != -EINVAL) {
                 logs::error("join: detached join was not rejected");
                 return false;
             }
