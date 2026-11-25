@@ -6,11 +6,13 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
+#include <astia/error.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 
 #include "../dev/chr/tty/uart16550.hpp"
 #include "../fs/filesystem.hpp"
+#include "../proc/async_syscall.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -196,8 +198,19 @@ namespace astia::test {
             proc::current_thread()->exit(reinterpret_cast<void*>(0x42));
         }
 
+        core::task<i64> join_task(proc::thread& target, void** result) {
+            auto joined = co_await target.join(result);
+            if (!joined)
+                co_return error_errno(joined.error);
+            co_return joined.value;
+        }
+
+        long join_blocking(proc::thread& target, void** result = nullptr) {
+            return static_cast<long>(proc::run_async_syscall(join_task(target, result)));
+        }
+
         bool join_checks() {
-            if (proc::current_thread()->join() != -EDEADLK) {
+            if (join_blocking(*proc::current_thread()) != -EDEADLK) {
                 logs::error("join: self-join was not rejected");
                 return false;
             }
@@ -207,12 +220,12 @@ namespace astia::test {
                 return false;
             }
             void*      result = nullptr;
-            const long rc     = target->join(&result);
+            const long rc     = join_blocking(*target, &result);
             if (rc != 0 || result != reinterpret_cast<void*>(0x42)) {
                 logs::error("join: failed rc=%ld result=%p", rc, result);
                 return false;
             }
-            if (target->join() != -EINVAL) {
+            if (join_blocking(*target) != -EINVAL) {
                 logs::error("join: double join was not rejected");
                 return false;
             }
@@ -224,13 +237,15 @@ namespace astia::test {
             }
             proc::scheduler::yield();
             result = nullptr;
-            if (exited->join(&result) != 0 || result != reinterpret_cast<void*>(0x42)) {
+            if (join_blocking(*exited, &result) != 0 ||
+                result != reinterpret_cast<void*>(0x42)) {
                 logs::error("join: pre-exited target was not joinable");
                 return false;
             }
 
             auto detached = proc::scheduler::create_kernel(join_worker, nullptr);
-            if (!detached || detached->detach() != 0 || detached->join() != -EINVAL) {
+            if (!detached || detached->detach() != 0 ||
+                join_blocking(*detached) != -EINVAL) {
                 logs::error("join: detached join was not rejected");
                 return false;
             }

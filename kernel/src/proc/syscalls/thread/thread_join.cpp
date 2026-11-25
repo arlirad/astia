@@ -3,6 +3,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
+#include <astia/error.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
@@ -19,32 +20,35 @@
 namespace astia::proc::syscalls {
 
     struct thread_join : sys::syscall_handler<thread_join, sys::syscall_id::thread_join,
-                                              sys::syscall_mode::sync> {
-        static i64 invoke(u32 tid, sys::user_ptr<void*> output) {
+                                              sys::syscall_mode::async> {
+        static core::task<i64> invoke(u32 tid, sys::user_ptr<void*> output) {
             auto* owner = current_process();
             if (owner == nullptr) {
-                return -ESRCH;
+                co_return -ESRCH;
             }
             const auto validated_output = output.null()
                                               ? optional<sys::validated_user_ptr<void*>>{}
                                               : output.validate();
             if (!output.null() && !validated_output) {
-                return -EFAULT;
+                co_return -EFAULT;
             }
             auto target = owner->thread_by_tid(tid);
             if (!target) {
-                return -ESRCH;
+                co_return -ESRCH;
             }
-            void*      result = nullptr;
-            const long rc     = target->join(output.null() ? nullptr : &result);
+            void* result = nullptr;
+            auto  joined = co_await target->join(output.null() ? nullptr : &result);
+            if (!joined)
+                co_return error_errno(joined.error);
+            const long rc = joined.value;
             if (rc < 0) {
-                return rc;
+                co_return rc;
             }
             if (!output.null() &&
                 !sys::copy_out(validated_output.value.bytes(), &result)) {
-                return -EFAULT;
+                co_return -EFAULT;
             }
-            return 0;
+            co_return 0;
         }
     };
 
