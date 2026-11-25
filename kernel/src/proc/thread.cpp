@@ -186,8 +186,10 @@ namespace astia::proc {
             arch::interrupt_spinlock_guard guard(_wait_lock);
             _async_wait_handle = {};
         }
-        if (_owner != nullptr)
+        if (_owner != nullptr) {
             _owner->remove_waiter(this);
+            _owner->remove_signal_waiter(this);
+        }
         if (_owner != nullptr) {
             const bool owner_reaped = _owner->thread_exited(
                 this, static_cast<i32>(reinterpret_cast<usize>(_result)));

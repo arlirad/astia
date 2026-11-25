@@ -280,7 +280,9 @@ namespace astia::proc {
         void wake_waiters();
         bool add_signal_waiter(thread* value);
         bool add_signal_waiter(thread* value, bool timed, u64 deadline);
-        bool block_signal_waiter(thread* value);
+        /// Arm a signal wait and park the thread in one step.  Returns false
+        /// when a wake is already pending, so the caller re-scans instead.
+        bool arm_signal_waiter(thread* value, std::coroutine_handle<> continuation);
         void remove_signal_waiter(thread* value);
         bool signal_waiter_timed_out(thread* value);
         void expire_signal_waiters(u64 now);
