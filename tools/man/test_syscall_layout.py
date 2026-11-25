@@ -50,7 +50,21 @@ def check_production_layout(repository: Path) -> None:
         assert "/// ABI ID:" not in text
         assert "/// Sync/async mode:" not in text
         if mode == "async":
-            assert name in {"execve", "spawnve", "mmap", "msync", "mount", "unmount", "shm_open", "shm_unlink", "thread_join", "waitpid"}, (
+            assert name in {
+                "execve",
+                "spawnve",
+                "mmap",
+                "msync",
+                "mount",
+                "unmount",
+                "shm_open",
+                "shm_unlink",
+                "thread_join",
+                "waitpid",
+                "sigsuspend",
+                "sigwait",
+                "sigtimedwait",
+            }, (
                 f"unexpected async production wrapper: {path}"
             )
             assert re.search(r"static\s+core::task<i64>\s+invoke\s*\(", handler)
@@ -72,6 +86,7 @@ def check_production_layout(repository: Path) -> None:
     assert shared_headers == {
         "proc/syscalls/ipc/shm_common.hpp",
         "proc/syscalls/process/argv.hpp",
+        "proc/syscalls/signal/signal_park.hpp",
         "proc/syscalls/thread/thread_create_common.hpp",
     }
     invoke_sync_files = {

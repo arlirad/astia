@@ -6,21 +6,21 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/fs.hpp>
-#include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 
 #include "../../../ipc/mapping.hpp"
 #include "../../mapping.hpp"
 #include "../../proc.hpp"
 #include "../../scheduler.hpp"
+#include "../../task_run.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
 #include <syscall.hpp>
 namespace astia::proc {
-    i64 futex_wait(u64 address, u32 expected, u64 timeout, bool cancellation_point,
-                   bool shared);
-    i64 futex_wake(u64 address, u32 count, bool shared);
+    core::task<i64> futex_wait(u64 address, u32 expected, u64 timeout,
+                               bool cancellation_point, bool shared);
+    i64             futex_wake(u64 address, u32 count, bool shared);
 }
 
 namespace astia::proc::syscalls {
@@ -36,8 +36,13 @@ namespace astia::proc::syscalls {
                 return -EINVAL;
             const bool shared = (op & ipc::futex_private_bit) == 0;
             if (operation.value == ipc::futex_operation::wait) {
-                return proc::futex_wait(address.address(), expected, timeout.address(),
-                                        cancellation_point, shared);
+                // WAIT can sleep, so it runs as a task and parks this thread
+                // through the generic runner.  WAKE stays a direct call:
+                // mutex unlock wakes an empty bucket thousands of times per
+                // boot, and the async boundary is too expensive for that.
+                return proc::run_task(proc::futex_wait(address.address(), expected,
+                                                       timeout.address(),
+                                                       cancellation_point, shared));
             }
             if (operation.value == ipc::futex_operation::wake) {
                 if (!timeout.null())

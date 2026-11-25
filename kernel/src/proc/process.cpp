@@ -809,10 +809,11 @@ namespace astia::proc {
         return _signal_waiters.add(value, timed, deadline);
     }
 
-    bool process::block_signal_waiter(thread* value) {
+    bool process::arm_signal_waiter(thread* value, std::coroutine_handle<> continuation) {
         arch::interrupt_spinlock_guard guard(process_wait_lock);
         if (_signal_waiters.consume_wake(value))
             return false;
+        value->arm_wait(continuation);
         value->state(thread_state::blocked);
         return true;
     }
@@ -835,9 +836,12 @@ namespace astia::proc {
             count =
                 _signal_waiters.expire(now, wake_list, max_signal_waiters_per_process);
         }
-        for (u32 i = 0; i < count; ++i)
-            if (wake_list[i]->state() == thread_state::blocked)
-                scheduler::wake(wake_list[i]);
+        for (u32 i = 0; i < count; ++i) {
+            if (wake_list[i]->state() != thread_state::blocked)
+                continue;
+            if (wake_list[i]->wake_wait())
+                (void) scheduler::wake(wake_list[i]);
+        }
     }
 
     void process::wake_signal_waiters() {
@@ -847,9 +851,12 @@ namespace astia::proc {
             arch::interrupt_spinlock_guard guard(process_wait_lock);
             count = _signal_waiters.wake(wake_list, max_signal_waiters_per_process);
         }
-        for (u32 i = 0; i < count; ++i)
-            if (wake_list[i]->state() == thread_state::blocked)
-                scheduler::wake(wake_list[i]);
+        for (u32 i = 0; i < count; ++i) {
+            if (wake_list[i]->state() != thread_state::blocked)
+                continue;
+            if (wake_list[i]->wake_wait())
+                (void) scheduler::wake(wake_list[i]);
+        }
     }
 
     bool process::install_standard_streams() {
