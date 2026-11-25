@@ -1102,13 +1102,27 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -Wl,-e,_start -o ${_fix_dir}/ld.stub.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
+                -Wl,--dynamic-linker=/lib/ld.stub.so -o ${_fix_dir}/interp_main
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/ld.stub.so ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_main ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
-                hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc etc/passwd etc/group
+                hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
+                bin/interp_main lib/ld.stub.so etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"
@@ -1147,6 +1161,7 @@ if (ARCH STREQUAL "x86_64")
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
+                "astia: interp ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
 

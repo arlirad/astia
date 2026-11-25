@@ -21,7 +21,13 @@ namespace astia::dl::syscalls {
             if (!range)
                 co_return -EFAULT;
 
-            auto mapped = co_await astia::dl::map(*process, fd_t{fd}, flags);
+            if (fd < 0)
+                co_return -EBADF;
+            auto file = process->descriptor(fd_t{fd});
+            if (!file)
+                co_return -EBADF;
+
+            auto mapped = co_await astia::dl::map(*process, file, flags);
             if (!mapped)
                 co_return error_errno(mapped.error);
 
