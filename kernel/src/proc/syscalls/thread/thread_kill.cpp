@@ -49,8 +49,10 @@ namespace astia::proc::syscalls {
                      disposition.action == signal_action::default_action)
                 owner->signal_state_change(signal);
             owner->wake_signal_waiters();
-            if (!futex_woken && target->state() == thread_state::blocked)
+            if (!futex_woken && target->state() == thread_state::blocked) {
+                (void) target->wake_wait();
                 scheduler::wake(target.get());
+            }
             return 0;
         }
     };
