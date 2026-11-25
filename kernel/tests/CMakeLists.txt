@@ -828,8 +828,11 @@ target_compile_options(astia_module_syscall_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_compile_definitions(astia_module_syscall_test PRIVATE
         ASTIA_MODULE_HOST_TEST=1)
+# Discovery walks the astia_syscall_handlers section, which --gc-sections
+# drops for executable targets.  Keep the section only for this test target.
 target_link_options(astia_module_syscall_test PRIVATE
-        "-Wl,-no-pie" "-Wl,--gc-sections" "-Wl,-z,nostart-stop-gc")
+        "-Wl,-no-pie" "-Wl,--gc-sections"
+        "-Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/keep_syscall_handlers.ld")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/symbol_table_visibility_test.py
