@@ -186,6 +186,23 @@ int wctob(wint_t c) {
     return c < 0x80 ? (int) c : EOF;
 }
 
+int wcwidth(wchar_t wc) {
+    if (wc == L'\0')
+        return 0;
+    if (wc >= 0x20 && wc <= 0x7e)
+        return 1;
+    return -1;
+}
+
+size_t mbrlen(const char* src, size_t n, mbstate_t* state) {
+    if (src == NULL) {
+        if (state != NULL)
+            state->pending = 0;
+        return 0;
+    }
+    return mbrtowc(NULL, src, n, state);
+}
+
 size_t mbrtowc(wchar_t* dst, const char* src, size_t n, mbstate_t* state) {
     (void) state;
     if (src == NULL)
