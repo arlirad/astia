@@ -70,9 +70,11 @@ public sealed class RequestPackageBuildCommandHandler
         package.RequestBuild(_clock.UtcNow);
         await _repository.UpdateAsync(package, cancellationToken).ConfigureAwait(false);
 
+        var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(
-            package.DequeueDomainEvents(),
+            domainEvents,
             cancellationToken).ConfigureAwait(false);
+        package.AcknowledgeDomainEvents(domainEvents);
 
         var result = await _buildSandbox.ExecuteAsync(
             new BuildSandboxRequest(package.Key, package.Manifest.Source, package.BuildPolicy),

@@ -5,6 +5,7 @@ using Pkgsrv.Application.Abstractions.Persistence;
 using Pkgsrv.Application.Abstractions.Security;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
+using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Validation;
@@ -56,6 +57,48 @@ public sealed class PackageEndpointHandlerTests
 
         var query = Assert.IsType<ListPackagesQuery>(mediator.LastRequest);
         Assert.True(query.Actor.IsAnonymous);
+    }
+
+    [Fact]
+    public async Task Get_ReturnsPackageDetailsAndPropagatesActor()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                PackageDetailsDto.From(TestPackages.CreatePackage()))
+        };
+
+        var result = await PackageEndpointHandlers.GetAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("reader"),
+            CancellationToken.None);
+
+        var ok = Assert.IsType<Ok<PackageResponse>>(result);
+        Assert.Equal("widget", ok.Value!.Name);
+
+        var query = Assert.IsType<GetPackageQuery>(mediator.LastRequest);
+        Assert.Equal("reader", query.Actor.ActorId);
+    }
+
+    [Fact]
+    public async Task Get_MapsMissingPackageToNotFound()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new PackageNotFoundException("widget@1.2.3")
+        };
+
+        var result = await PackageEndpointHandlers.GetAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("reader"),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(404, problem.ProblemDetails.Status);
     }
 
     [Fact]

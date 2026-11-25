@@ -1,3 +1,4 @@
+using Pkgsrv.Application.Abstractions.Events;
 using Pkgsrv.Application.Abstractions.Security;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.Register;
@@ -30,6 +31,26 @@ public sealed class RegisterPackageCommandHandlerTests
             CancellationToken.None);
         Assert.NotNull(stored);
         Assert.IsType<PackageRegistered>(Assert.Single(harness.Events.Events));
+        Assert.Empty(stored.DomainEvents);
+    }
+
+    [Fact]
+    public async Task Register_RetainsDomainEventsWhenPublicationFails()
+    {
+        var publisher = new ThrowingEventPublisher();
+        var harness = new RegistrationHarness(publisher);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await harness.Handler.Handle(
+                TestPackages.CreateRegistrationCommand(),
+                CancellationToken.None));
+
+        var stored = await harness.Repository.FindAsync(
+            PackageKey.Create("widget", "1.2.3"),
+            CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.IsType<PackageRegistered>(Assert.Single(stored.DomainEvents));
+        Assert.Single(publisher.Attempted);
     }
 
     [Fact]
@@ -119,6 +140,11 @@ public sealed class RegisterPackageCommandHandlerTests
 
     private sealed class RegistrationHarness
     {
+        public RegistrationHarness(IDomainEventPublisher? publisher = null)
+        {
+            Publisher = publisher ?? Events;
+        }
+
         public TestRepository Repository { get; } = new();
 
         public TestAuthorization Authorization { get; } = new();
@@ -127,13 +153,15 @@ public sealed class RegisterPackageCommandHandlerTests
 
         public TestEventPublisher Events { get; } = new();
 
+        public IDomainEventPublisher Publisher { get; }
+
         public TestClock Clock { get; } = new();
 
         public RegisterPackageCommandHandler Handler => new(
             Repository,
             Allowlist,
             Authorization,
-            Events,
+            Publisher,
             Clock);
     }
 }

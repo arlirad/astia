@@ -175,7 +175,7 @@ public sealed class SafetyAdapterTests
         var publisher = new InMemoryDomainEventPublisher();
         var package = TestPackages.CreatePackage();
 
-        await publisher.PublishAsync(package.DequeueDomainEvents(), CancellationToken.None);
+        await publisher.PublishAsync(package.PeekDomainEvents(), CancellationToken.None);
 
         Assert.Single(publisher.Events);
     }

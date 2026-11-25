@@ -1,5 +1,4 @@
 using Pkgsrv.Application.Features.Packages.RequestBuild;
-using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Application.Validation;
 
@@ -9,12 +8,6 @@ public static class RequestBuildValidator
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        var failures = new List<ValidationFailure>();
-        DomainValueValidator.Collect(
-            () => PackageKey.Create(command.Name, command.Version),
-            nameof(RequestPackageBuildCommand.Name),
-            failures);
-
-        return failures;
+        return PackageKeyValidator.Validate(command.Name, command.Version);
     }
 }

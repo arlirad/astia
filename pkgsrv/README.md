@@ -140,6 +140,8 @@ identity propagation when wired into Ervan.
   same package identity with a matching content hash can pass.
 - Package build-request transitions are atomic under concurrent requests; one
   transition wins, raises one domain event, and the rest are rejected.
+- Domain events are published from a stable snapshot and acknowledged only after
+  publication succeeds; a publisher failure retains the events on the aggregate.
 - `PendingPackageSigner` returns a pending signature; it does not sign.
 - `ConfiguredSourceAllowlist` denies everything unless hosts are configured.
   Wildcards such as `*.example.com` are supported.
@@ -164,7 +166,31 @@ the explicit TCP override are configured under `Pkgsrv:Listen`:
 
 TCP is an explicit local/dev override, not an additional listener. Non-loopback
 hosts, HTTPS, and URL paths are rejected. When TCP is enabled, the Unix socket is
-not bound.
+not bound. Kestrel URL settings such as `ASPNETCORE_URLS` and `--urls` are
+intentionally cleared so only the settings above control the listener.
+
+Configuration uses the standard ASP.NET Core chain from
+`WebApplication.CreateBuilder`. The highest-priority source wins, with this
+precedence:
+
+1. command line
+2. environment variables
+3. `appsettings.{DOTNET_ENVIRONMENT}.json`
+4. `appsettings.json`
+5. built-in defaults shown above
+
+For example, the command line wins over the environment:
+
+```bash
+Pkgsrv__Listen__UnixSocketPath=/tmp/from-env/pkgsrv.sock \
+dotnet run --project pkgsrv/src/Pkgsrv.Presentation/Pkgsrv.Presentation.csproj -- \
+  --Pkgsrv:Listen:UnixSocketPath=/tmp/from-cli/pkgsrv.sock
+```
+
+Only a missing key selects the built-in default. An explicitly supplied empty or
+whitespace value for `Pkgsrv:Listen:UnixSocketPath`, `Pkgsrv:Listen:Tcp:Enabled`,
+or `Pkgsrv:Listen:Tcp:Url` fails startup validation instead of silently falling
+back.
 
 For local development without a provisioned `/run/pkgsrv`:
 
@@ -216,6 +242,7 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 | `GET` | `/healthz` | `200` health marker |
 | `POST` | `/packages` | `201` registered package, `400`/`403`/`409`/`422` on failure |
 | `GET` | `/packages` | `200` package summaries |
+| `GET` | `/packages/{name}/{version}` | `200` package details; location returned by registration |
 | `POST` | `/packages/{name}/{version}/build` | `202` with `NotExecuted`, or `403`/`404`/`409` |
 
 Registration request fields:

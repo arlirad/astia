@@ -15,6 +15,11 @@ public static class PackageEndpointRoutes
             (IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
                 PackageEndpointHandlers.ListAsync(mediator, actors, cancellationToken));
 
+        packages.MapGet(
+            "/{name}/{version}",
+            (string name, string version, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
+                PackageEndpointHandlers.GetAsync(name, version, mediator, actors, cancellationToken));
+
         packages.MapPost(
             string.Empty,
             (RegisterPackageRequest request, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
