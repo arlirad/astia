@@ -12,7 +12,7 @@
 
 #include "../dev/chr/tty/uart16550.hpp"
 #include "../fs/filesystem.hpp"
-#include "../proc/async_syscall.hpp"
+#include "../proc/task_run.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -206,7 +206,7 @@ namespace astia::test {
         }
 
         long join_blocking(proc::thread& target, void** result = nullptr) {
-            return static_cast<long>(proc::run_async_syscall(join_task(target, result)));
+            return static_cast<long>(proc::run_task(join_task(target, result)));
         }
 
         bool join_checks() {

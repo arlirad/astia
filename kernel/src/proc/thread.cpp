@@ -182,6 +182,12 @@ namespace astia::proc {
         // this dead context before wake(_joiner) and lose the wakeup forever.
         arch::cpu::nointerrupts();
         state(thread_state::dead);
+        {
+            arch::interrupt_spinlock_guard guard(_wait_lock);
+            _async_wait_handle = {};
+        }
+        if (_owner != nullptr)
+            _owner->remove_waiter(this);
         if (_owner != nullptr) {
             const bool owner_reaped = _owner->thread_exited(
                 this, static_cast<i32>(reinterpret_cast<usize>(_result)));
@@ -254,6 +260,24 @@ namespace astia::proc {
         if (state() == thread_state::dead)
             return false;
         _async_join_handle = continuation;
+        return true;
+    }
+
+    void thread::arm_wait(std::coroutine_handle<> continuation) {
+        arch::interrupt_spinlock_guard guard(_wait_lock);
+        _async_wait_handle = continuation;
+    }
+
+    bool thread::wake_wait() {
+        std::coroutine_handle<> continuation{};
+        {
+            arch::interrupt_spinlock_guard guard(_wait_lock);
+            continuation       = _async_wait_handle;
+            _async_wait_handle = {};
+        }
+        if (!continuation.address())
+            return false;
+        request_resume(continuation);
         return true;
     }
 

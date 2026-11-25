@@ -180,6 +180,8 @@ namespace astia::proc {
         void             finish();
         core::task<long> join(void** result = nullptr);
         bool             arm_join(std::coroutine_handle<> continuation);
+        void             arm_wait(std::coroutine_handle<> continuation);
+        bool             wake_wait();
         void             request_resume(std::coroutine_handle<> continuation);
         void             resume_pending();
         long             detach();
@@ -308,6 +310,8 @@ namespace astia::proc {
         u32                     _kernel_stack_sample_count     = 0;
         thread*                 _joiner                        = nullptr;
         std::coroutine_handle<> _async_join_handle{};
+        std::coroutine_handle<> _async_wait_handle{};
+        core::spinlock          _wait_lock;
         core::spinlock          _resume_lock;
         std::coroutine_handle<> _pending_resume[2]{};
         u32                     _pending_resume_count = 0;

@@ -1,6 +1,6 @@
 #include <astia/api/errno.h>
 
-#include "../proc/async_syscall.hpp"
+#include "../proc/task_run.hpp"
 #include "syscall.hpp"
 
 namespace astia::sys {
@@ -64,7 +64,7 @@ namespace astia::sys {
         if (entry->sync != nullptr)
             return entry->sync(a0, a1, a2, a3, a4, a5, image);
 
-        return proc::run_async_syscall(entry->async(a0, a1, a2, a3, a4, a5, image));
+        return proc::run_task(entry->async(a0, a1, a2, a3, a4, a5, image));
     }
 
 } // namespace astia::sys
