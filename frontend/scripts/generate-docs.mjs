@@ -20,7 +20,9 @@ const guides = [
   'pkg/README.md',
 ];
 const EXCLUDED_DOCS = new Set(['aarch64-virt-boot.md']);
-const CANONICAL_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index)];
+const AUTHORED_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index)];
+const DL_SYSCALL_IDS = [71, 72];
+const CANONICAL_SYSCALL_IDS = [...AUTHORED_SYSCALL_IDS, ...DL_SYSCALL_IDS];
 
 if (!existsSync(docsDir)) {
   console.log('Documentation sources are unavailable; keeping the existing docs manifest.');
@@ -100,7 +102,17 @@ const slugOf = (path) =>
 const readAuthoredManifest = () => {
   requireValue(existsSync(authoredManifestPath), `missing authored docs manifest: ${authoredManifestPath}`);
   const manifest = JSON.parse(readFileSync(authoredManifestPath, 'utf8'));
-  requireValue(manifest?.section2?.pages?.length === CANONICAL_SYSCALL_IDS.length, 'authored manifest must contain 71 syscall pages');
+  requireValue(manifest?.section2?.pages?.length === CANONICAL_SYSCALL_IDS.length, 'authored manifest must contain 71 syscall pages and 2 dl pages');
+  const authoredIds = manifest.section2.pages
+    .filter((page) => AUTHORED_SYSCALL_IDS.includes(page.id))
+    .map((page) => page.id);
+  const dlPages = manifest.section2.pages.filter((page) => DL_SYSCALL_IDS.includes(page.id));
+  requireValue(authoredIds.length === AUTHORED_SYSCALL_IDS.length, 'authored manifest must contain 71 syscall pages');
+  requireValue(dlPages.length === DL_SYSCALL_IDS.length, 'authored manifest must contain 2 dl pages');
+  for (const page of dlPages) {
+    requireValue(page.subsystem === 'dl' && page.category === 'dl', `${page.name}: dl pages must declare the dl taxonomy`);
+    requireValue(page.sourcePath === `docs/2/dl/${page.name}.md`, `${page.name}: dl pages must use docs/2/dl`);
+  }
   requireValue(manifest?.section7?.pages?.length === 7, 'authored manifest must contain 7 overview pages');
   for (const page of manifest.section2.pages) {
     requireValue(!('content' in page), 'authored syscall metadata must not embed Markdown bodies');
@@ -173,7 +185,7 @@ requireValue(manifest.pages.length === CANONICAL_SYSCALL_IDS.length, 'section-2 
 const syscallIds = manifest.pages.map((page) => page.id);
 const sortedSyscallIds = [...syscallIds].sort((a, b) => a - b);
 requireValue(new Set(syscallIds).size === CANONICAL_SYSCALL_IDS.length, 'section-2 export has duplicate IDs');
-requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..70');
+requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..72');
 
 const seenSlugs = new Set(basePages.map((page) => page.slug));
 const seenSourcePaths = new Set(basePages.map((page) => page.sourcePath));
