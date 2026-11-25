@@ -1,0 +1,109 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+/* The ELF64 subset the linker needs.  Deliberately not <elf.h>: this runs
+ * freestanding, and the layout is the ABI, not the host's headers. */
+typedef struct {
+    uint32_t p_type;
+    uint32_t p_flags;
+    uint64_t p_offset;
+    uint64_t p_vaddr;
+    uint64_t p_paddr;
+    uint64_t p_filesz;
+    uint64_t p_memsz;
+    uint64_t p_align;
+} Elf64_Phdr;
+
+typedef struct {
+    int64_t  d_tag;
+    uint64_t d_val;
+} Elf64_Dyn;
+
+typedef struct {
+    uint32_t st_name;
+    uint8_t  st_info;
+    uint8_t  st_other;
+    uint16_t st_shndx;
+    uint64_t st_value;
+    uint64_t st_size;
+} Elf64_Sym;
+
+typedef struct {
+    uint64_t r_offset;
+    uint64_t r_info;
+    int64_t  r_addend;
+} Elf64_Rela;
+
+enum {
+    PT_LOAD    = 1,
+    PT_DYNAMIC = 2,
+    PT_PHDR    = 6,
+    PT_TLS     = 7,
+};
+
+enum {
+    DT_NULL         = 0,
+    DT_NEEDED       = 1,
+    DT_PLTRELSZ     = 2,
+    DT_HASH         = 4,
+    DT_STRTAB       = 5,
+    DT_SYMTAB       = 6,
+    DT_RELA         = 7,
+    DT_RELASZ       = 8,
+    DT_RELAENT      = 9,
+    DT_SYMENT       = 11,
+    DT_SONAME       = 14,
+    DT_PLTREL       = 20,
+    DT_GNU_HASH     = 0x6ffffef5,
+    DT_INIT         = 12,
+    DT_FINI         = 13,
+    DT_INIT_ARRAY   = 25,
+    DT_FINI_ARRAY   = 26,
+    DT_INIT_ARRAYSZ = 27,
+    DT_FINI_ARRAYSZ = 28,
+    DT_JMPREL       = 23,
+};
+
+/* Auxiliary vector tags. */
+enum {
+    AT_NULL   = 0,
+    AT_PHDR   = 3,
+    AT_PHENT  = 4,
+    AT_PHNUM  = 5,
+    AT_BASE   = 7,
+    AT_ENTRY  = 9,
+    AT_EXECFN = 31,
+    /* astia extensions: the static TLS arena the kernel reserved. */
+    AT_ASTIA_TLS_BASE  = 0x41,
+    AT_ASTIA_TLS_TP    = 0x42,
+    AT_ASTIA_TLS_LIMIT = 0x43,
+};
+
+#define LD_MAX_MODULES 8
+#define LD_PATH_MAX 64
+
+typedef struct {
+    uint64_t          base;
+    const Elf64_Dyn*  dynamic;
+    const char*       strtab;
+    const Elf64_Sym*  symtab;
+    const uint32_t*   hash;     /* DT_HASH, when present */
+    const uint32_t*   gnu_hash; /* DT_GNU_HASH, when present */
+    const char*       soname;
+    const Elf64_Rela* rela;
+    uint64_t          rela_size;
+    const Elf64_Rela* jmprel;
+    uint64_t          pltrel_size;
+    uint64_t          init;
+    const uint64_t*   init_array;
+    uint64_t          init_array_size;
+    uint32_t          symbol_count;
+    /* PT_TLS template and the static-TLS offset assigned to this module. */
+    uint64_t tls_vaddr;
+    uint64_t tls_filesz;
+    uint64_t tls_memsz;
+    uint64_t tls_align;
+    int64_t  tls_offset;
+} ld_module;
