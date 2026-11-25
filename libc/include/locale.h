@@ -1,6 +1,6 @@
 #pragma once
 
-#define MB_CUR_MAX 4
+#define MB_CUR_MAX 1
 
 /* The first libc locale is the ISO C/POSIX locale only. */
 

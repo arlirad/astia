@@ -57,6 +57,10 @@ foreach(_t string ctype stdlib malloc snprintf)
   add_test(NAME libc_${_t}_test COMMAND libc_${_t}_test)
 endforeach()
 
+add_executable(libc_wchar_test wchar_test.c)
+target_link_libraries(libc_wchar_test PRIVATE astia_libc)
+add_test(NAME libc_wchar_test COMMAND libc_wchar_test)
+
 add_executable(libc_headers_test headers_test.c)
 target_link_libraries(libc_headers_test PRIVATE astia_libc)
 add_test(NAME libc_headers_test COMMAND libc_headers_test)
