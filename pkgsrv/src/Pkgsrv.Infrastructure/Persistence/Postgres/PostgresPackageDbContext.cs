@@ -31,6 +31,17 @@ public sealed class PostgresPackageDbContext : DbContext
         package.HasIndex(record => record.Name).HasDatabaseName("IX_packages_Name");
         package.HasIndex(record => record.State).HasDatabaseName("IX_packages_State");
         package.HasIndex(record => record.RegisteredAt).HasDatabaseName("IX_packages_RegisteredAt");
+        package.HasIndex(record => new
+            {
+                record.Name,
+                record.VersionMajor,
+                record.VersionMinor,
+                record.VersionPatch,
+                record.VersionPreRelease,
+                record.VersionBuildMetadata,
+                record.Version
+            })
+            .HasDatabaseName("IX_packages_VersionOrder");
 
         base.OnModelCreating(modelBuilder);
     }

@@ -80,7 +80,6 @@ public static class PackageEndpointHandlers
         RegisterPackageRequest? request,
         IMediator mediator,
         IActorContextAccessor actors,
-        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         if (request is null)
@@ -115,7 +114,6 @@ public static class PackageEndpointHandlers
                     actors.GetCurrent()),
                 cancellationToken);
 
-            cache.InvalidateAfterMutation();
             var body = PackageResponse.From(result.Package);
 
             return Results.Created(PackageLocation(body.Name, body.Version), body);
@@ -131,7 +129,6 @@ public static class PackageEndpointHandlers
         string version,
         IMediator mediator,
         IActorContextAccessor actors,
-        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         try
@@ -139,8 +136,6 @@ public static class PackageEndpointHandlers
             var result = await mediator.Send(
                 new RequestPackageBuildCommand(name, version, actors.GetCurrent()),
                 cancellationToken);
-
-            cache.InvalidateAfterMutation();
 
             return Results.Accepted(
                 PackageLocation(result.Name, result.Version),

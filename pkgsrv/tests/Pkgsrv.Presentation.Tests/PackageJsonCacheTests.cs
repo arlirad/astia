@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Internal;
 using Pkgsrv.Application.Contracts;
+using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Domain.Packages;
@@ -24,7 +25,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageListResponse> Load(CancellationToken _)
@@ -51,7 +52,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageListResponse> Load(CancellationToken _)
@@ -76,7 +77,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageListResponse> Load(CancellationToken _)
@@ -111,7 +112,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var loadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseLoad = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -153,7 +154,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var firstActor = AuthorizationContext.Create("alice", ["reader,writer"]);
         var secondActor = AuthorizationContext.Create("alice", ["reader", "writer"]);
         var calls = 0;
@@ -195,7 +196,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageResponse> Load(CancellationToken _)
@@ -231,7 +232,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageListResponse> Load(CancellationToken _)
@@ -256,7 +257,7 @@ public sealed class PackageJsonCacheTests
             Clock = clock,
             SizeLimit = Options.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, Options);
+        var cache = CreateCache(memory);
         var calls = 0;
 
         Task<PackageListResponse> Load(CancellationToken _)
@@ -271,6 +272,79 @@ public sealed class PackageJsonCacheTests
 
         Assert.Equal(2, calls);
     }
+
+    [Fact]
+    public async Task ListCacheHit_StillRequiresAuthorization()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var authorization = new ToggleAuthorization();
+        var cache = CreateCache(memory, authorization);
+        var calls = 0;
+
+        Task<PackageListResponse> Load(CancellationToken _)
+        {
+            calls++;
+            return Task.FromResult(CreateListResponse());
+        }
+
+        await cache.GetListJsonAsync(TestPackages.Actor, null, Load, CancellationToken.None);
+        authorization.Allow = false;
+
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(
+            () => cache.GetListJsonAsync(TestPackages.Actor, null, Load, CancellationToken.None));
+
+        Assert.Equal(1, calls);
+        Assert.Equal(2, authorization.Calls);
+    }
+
+    [Fact]
+    public async Task PackageCacheHit_StillRequiresAuthorization()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var authorization = new ToggleAuthorization();
+        var cache = CreateCache(memory, authorization);
+        var calls = 0;
+
+        Task<PackageResponse> Load(CancellationToken _)
+        {
+            calls++;
+            return Task.FromResult(CreatePackageResponse());
+        }
+
+        await cache.GetPackageJsonAsync(
+            TestPackages.Actor,
+            "widget",
+            "1.2.3",
+            Load,
+            CancellationToken.None);
+        authorization.Allow = false;
+
+        await Assert.ThrowsAsync<AuthorizationDeniedException>(
+            () => cache.GetPackageJsonAsync(
+                TestPackages.Actor,
+                "widget",
+                "1.2.3",
+                Load,
+                CancellationToken.None));
+
+        Assert.Equal(1, calls);
+        Assert.Equal(2, authorization.Calls);
+    }
+
+    private static PackageJsonCache CreateCache(
+        IMemoryCache memory,
+        IIrvaAuthorization? authorization = null) =>
+        new(memory, Options, authorization ?? new AlwaysAllowAuthorization());
 
     private static PackageListResponse CreateListResponse(string name = "widget") => new(
     [
@@ -292,5 +366,34 @@ public sealed class PackageJsonCacheTests
     private sealed class ManualClock : ISystemClock
     {
         public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UnixEpoch;
+    }
+
+    private sealed class AlwaysAllowAuthorization : IIrvaAuthorization
+    {
+        public Task<AuthorizationResult> AuthorizeAsync(
+            AuthorizationContext context,
+            PackageAction action,
+            PackageKey? package,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(AuthorizationResult.Allow());
+    }
+
+    private sealed class ToggleAuthorization : IIrvaAuthorization
+    {
+        public bool Allow { get; set; } = true;
+
+        public int Calls { get; private set; }
+
+        public Task<AuthorizationResult> AuthorizeAsync(
+            AuthorizationContext context,
+            PackageAction action,
+            PackageKey? package,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(Allow
+                ? AuthorizationResult.Allow()
+                : AuthorizationResult.Deny("permission revoked"));
+        }
     }
 }

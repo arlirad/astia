@@ -1,4 +1,5 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -19,19 +20,22 @@ public sealed class RegisterPackageCommandHandler
     private readonly IIrvaAuthorization _authorization;
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
+    private readonly IPackageCacheInvalidator? _cacheInvalidator;
 
     public RegisterPackageCommandHandler(
         IPackageRepository repository,
         ISourceAllowlist sourceAllowlist,
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
-        ISystemClock clock)
+        ISystemClock clock,
+        IPackageCacheInvalidator? cacheInvalidator = null)
     {
         _repository = repository;
         _sourceAllowlist = sourceAllowlist;
         _authorization = authorization;
         _eventPublisher = eventPublisher;
         _clock = clock;
+        _cacheInvalidator = cacheInvalidator;
     }
 
     public async ValueTask<RegisterPackageResult> Handle(
@@ -88,6 +92,8 @@ public sealed class RegisterPackageCommandHandler
         {
             throw new PackageConflictException(package.Key.ToString());
         }
+
+        _cacheInvalidator?.InvalidateAfterMutation();
 
         var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(

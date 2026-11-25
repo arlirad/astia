@@ -17,6 +17,4 @@ public interface IPackageJsonCache
         string version,
         Func<CancellationToken, Task<PackageResponse>> load,
         CancellationToken cancellationToken);
-
-    void InvalidateAfterMutation();
 }

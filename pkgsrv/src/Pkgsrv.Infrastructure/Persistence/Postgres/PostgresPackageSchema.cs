@@ -2,7 +2,34 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
 public static class PostgresPackageSchema
 {
-    public const int RequiredVersion = 1;
+    public const int RequiredVersion = 2;
+
+    public static readonly string[] RequiredColumns =
+    [
+        "Name",
+        "Version",
+        "VersionMajor",
+        "VersionMinor",
+        "VersionPatch",
+        "VersionPreRelease",
+        "VersionBuildMetadata",
+        "SourceUrl",
+        "SourceCommit",
+        "ToolchainName",
+        "ToolchainVersion",
+        "ContentHash",
+        "Provenance",
+        "SignatureStatus",
+        "SignatureAlgorithm",
+        "SignatureValue",
+        "BuildIsolation",
+        "AllowNetwork",
+        "TimeoutTicks",
+        "State",
+        "PendingEventsJson",
+        "RegisteredAt",
+        "BuildRequestedAt"
+    ];
 
     public const string CreateSql = """
         CREATE TABLE IF NOT EXISTS schema_versions (
@@ -13,6 +40,11 @@ public static class PostgresPackageSchema
         CREATE TABLE IF NOT EXISTS packages (
             "Name" text NOT NULL,
             "Version" text NOT NULL,
+            "VersionMajor" integer NOT NULL,
+            "VersionMinor" integer NOT NULL,
+            "VersionPatch" integer NOT NULL,
+            "VersionPreRelease" text NULL,
+            "VersionBuildMetadata" text NULL,
             "SourceUrl" text NOT NULL,
             "SourceCommit" text NOT NULL,
             "ToolchainName" text NOT NULL,
@@ -39,6 +71,49 @@ public static class PostgresPackageSchema
         ALTER TABLE packages
             ADD COLUMN IF NOT EXISTS "TimeoutTicks" bigint NOT NULL DEFAULT 0;
 
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "VersionMajor" integer NOT NULL DEFAULT 0;
+
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "VersionMinor" integer NOT NULL DEFAULT 0;
+
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "VersionPatch" integer NOT NULL DEFAULT 0;
+
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "VersionPreRelease" text NULL;
+
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "VersionBuildMetadata" text NULL;
+
+        DO $pkgsrv$
+        BEGIN
+            UPDATE packages p
+            SET
+                "VersionMajor" = COALESCE(parsed.parts[1]::integer, 0),
+                "VersionMinor" = COALESCE(parsed.parts[2]::integer, 0),
+                "VersionPatch" = COALESCE(parsed.parts[3]::integer, 0),
+                "VersionPreRelease" = parsed.parts[4],
+                "VersionBuildMetadata" = parsed.parts[5]
+            FROM (
+                SELECT
+                    "Name",
+                    "Version",
+                    regexp_match(
+                        "Version",
+                        '^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$'
+                    ) AS parts
+                FROM packages
+                WHERE "VersionMajor" = 0
+                  AND "VersionMinor" = 0
+                  AND "VersionPatch" = 0
+            ) AS parsed
+            WHERE p."Name" = parsed."Name"
+              AND p."Version" = parsed."Version"
+              AND parsed.parts IS NOT NULL;
+        END
+        $pkgsrv$;
+
         DO $pkgsrv$
         BEGIN
             IF EXISTS (
@@ -58,15 +133,46 @@ public static class PostgresPackageSchema
         CREATE INDEX IF NOT EXISTS "IX_packages_Name" ON packages ("Name");
         CREATE INDEX IF NOT EXISTS "IX_packages_State" ON packages ("State");
         CREATE INDEX IF NOT EXISTS "IX_packages_RegisteredAt" ON packages ("RegisteredAt");
+        CREATE INDEX IF NOT EXISTS "IX_packages_VersionOrder" ON packages (
+            "Name",
+            "VersionMajor",
+            "VersionMinor",
+            "VersionPatch",
+            "VersionPreRelease",
+            "VersionBuildMetadata",
+            "Version"
+        );
 
         INSERT INTO schema_versions (version)
-        VALUES (1)
+        VALUES (1), (2)
         ON CONFLICT (version) DO NOTHING;
         """;
 
-    public const string ValidationSql = """
-        SELECT
-            to_regclass('packages') IS NOT NULL,
-            COALESCE((SELECT MAX(version) FROM schema_versions), 0)
-        """;
+    public static readonly string ValidationSql = BuildValidationSql();
+
+    private static string BuildValidationSql()
+    {
+        var requiredValues = string.Join(
+            ",\n",
+            RequiredColumns.Select(column => $"                ('{column}')"));
+
+        return $$"""
+            SELECT
+                to_regclass('packages') IS NOT NULL,
+                COALESCE((SELECT MAX(version) FROM schema_versions), 0),
+                COALESCE((
+                    SELECT string_agg(required.column_name, ',' ORDER BY required.column_name)
+                    FROM (VALUES
+            {{requiredValues}}
+                    ) AS required(column_name)
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns c
+                        WHERE c.table_schema = current_schema()
+                          AND c.table_name = 'packages'
+                          AND c.column_name = required.column_name
+                    )
+                ), '')
+            """;
+    }
 }

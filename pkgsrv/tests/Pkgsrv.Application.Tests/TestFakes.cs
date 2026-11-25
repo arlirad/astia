@@ -1,5 +1,6 @@
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -165,4 +166,19 @@ internal sealed class TestBuildSandbox : IBuildSandbox
         LastRequest = request;
         return Task.FromResult(Result);
     }
+}
+
+internal sealed class ThrowingBuildSandbox : IBuildSandbox
+{
+    public Task<BuildSandboxResult> ExecuteAsync(
+        BuildSandboxRequest request,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("sandbox failed");
+}
+
+internal sealed class RecordingPackageCacheInvalidator : IPackageCacheInvalidator
+{
+    public int Calls { get; private set; }
+
+    public void InvalidateAfterMutation() => Calls++;
 }

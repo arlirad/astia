@@ -16,8 +16,10 @@ public sealed class PostgresPackageSchemaTests
         Assert.Contains("\"PendingEventsJson\" text NOT NULL", sql, StringComparison.Ordinal);
         Assert.Contains("ADD COLUMN IF NOT EXISTS \"PendingEventsJson\"", sql, StringComparison.Ordinal);
         Assert.Contains("\"TimeoutTicks\" bigint NOT NULL", sql, StringComparison.Ordinal);
+        Assert.Contains("\"VersionMajor\" integer NOT NULL", sql, StringComparison.Ordinal);
+        Assert.Contains("IX_packages_VersionOrder", sql, StringComparison.Ordinal);
         Assert.Contains("schema_versions", sql, StringComparison.Ordinal);
-        Assert.Contains("VALUES (1)", sql, StringComparison.Ordinal);
+        Assert.Contains("VALUES (1), (2)", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("DROP TABLE", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("TRUNCATE", sql, StringComparison.OrdinalIgnoreCase);
     }
@@ -45,25 +47,43 @@ public sealed class PostgresPackageSchemaTests
     }
 
     [Fact]
-    public void MigrationScript_MatchesRequiredSchemaVersionAndTimeoutColumn()
+    public void MigrationScripts_RecordVersionOneAndVersionTwoInOrder()
     {
-        var script = File.ReadAllText(FindMigrationScript());
+        var versionOne = File.ReadAllText(FindMigrationScript("0001_packages.sql"));
+        var versionTwo = File.ReadAllText(FindMigrationScript("0002_packages_version_order.sql"));
 
-        Assert.Contains("CREATE TABLE IF NOT EXISTS schema_versions", script, StringComparison.Ordinal);
-        Assert.Contains("PRIMARY KEY (\"Name\", \"Version\")", script, StringComparison.Ordinal);
-        Assert.Contains("\"TimeoutTicks\" bigint NOT NULL", script, StringComparison.Ordinal);
-        Assert.Contains("VALUES (1)", script, StringComparison.Ordinal);
-        Assert.DoesNotContain("DROP TABLE", script, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("TRUNCATE", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, PostgresPackageSchema.RequiredVersion);
+        Assert.Contains("CREATE TABLE IF NOT EXISTS schema_versions", versionOne, StringComparison.Ordinal);
+        Assert.Contains("\"TimeoutTicks\" bigint NOT NULL", versionOne, StringComparison.Ordinal);
+        Assert.Contains("VALUES (1)", versionOne, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"VersionMajor\"", versionOne, StringComparison.Ordinal);
+
+        Assert.Contains("\"VersionMajor\" integer", versionTwo, StringComparison.Ordinal);
+        Assert.Contains("IX_packages_VersionOrder", versionTwo, StringComparison.Ordinal);
+        Assert.Contains("VALUES (2)", versionTwo, StringComparison.Ordinal);
+
+        Assert.DoesNotContain("DROP TABLE", versionOne, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP TABLE", versionTwo, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", versionOne, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", versionTwo, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FindMigrationScript()
+    [Fact]
+    public void RequiredShape_ListsVersionOrderingColumns()
+    {
+        Assert.Contains("VersionMajor", PostgresPackageSchema.RequiredColumns);
+        Assert.Contains("VersionPreRelease", PostgresPackageSchema.RequiredColumns);
+        Assert.Contains("VersionBuildMetadata", PostgresPackageSchema.RequiredColumns);
+        Assert.Contains("TimeoutTicks", PostgresPackageSchema.RequiredColumns);
+    }
+
+    private static string FindMigrationScript(string fileName)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (directory is not null)
         {
-            var candidate = Path.Combine(directory.FullName, "db", "migrations", "0001_packages.sql");
+            var candidate = Path.Combine(directory.FullName, "db", "migrations", fileName);
 
             if (File.Exists(candidate))
             {
@@ -73,6 +93,6 @@ public sealed class PostgresPackageSchemaTests
             directory = directory.Parent;
         }
 
-        throw new FileNotFoundException("Could not locate pkgsrv/db/migrations/0001_packages.sql.");
+        throw new FileNotFoundException($"Could not locate pkgsrv/db/migrations/{fileName}.");
     }
 }

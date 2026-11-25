@@ -22,6 +22,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
     public async Task<Package?> FindAsync(PackageKey key, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(key);
+        cancellationToken.ThrowIfCancellationRequested();
 
         await using var context = await _contextFactory
             .CreateDbContextAsync(cancellationToken)
@@ -40,6 +41,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
     public async Task<bool> TryAddAsync(Package package, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
+        cancellationToken.ThrowIfCancellationRequested();
 
         await using var context = await _contextFactory
             .CreateDbContextAsync(cancellationToken)
@@ -60,6 +62,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
     public async Task UpdateAsync(Package package, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
+        cancellationToken.ThrowIfCancellationRequested();
 
         await using var context = await _contextFactory
             .CreateDbContextAsync(cancellationToken)
@@ -123,6 +126,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
     {
         ArgumentNullException.ThrowIfNull(key);
         ArgumentNullException.ThrowIfNull(publishedEvents);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var name = key.Name.Value;
         var version = key.Version.ToString();
@@ -166,27 +170,49 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
             cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<PackageIndexEntry>> SearchAsync(
-        string? search,
-        CancellationToken cancellationToken)
+    public static IQueryable<PackageRecord> BuildSearchQuery(
+        IQueryable<PackageRecord> source,
+        string? search)
     {
-        await using var context = await _contextFactory
-            .CreateDbContextAsync(cancellationToken)
-            .ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(source);
 
-        IQueryable<PackageRecord> query = context.Packages.AsNoTracking();
         var term = search?.Trim();
 
         if (!string.IsNullOrWhiteSpace(term))
         {
-            var pattern = $"%{term}%";
-            query = query.Where(record =>
-                EF.Functions.ILike(record.Name, pattern)
-                || record.SourceCommit.StartsWith(term)
-                || EF.Functions.ILike(record.Provenance, pattern));
+            var contains = PostgresLikePattern.Contains(term);
+            var prefix = PostgresLikePattern.Prefix(term);
+
+            source = source.Where(record =>
+                EF.Functions.ILike(record.Name, contains, "\\")
+                || EF.Functions.ILike(record.SourceCommit, prefix, "\\")
+                || EF.Functions.ILike(record.Provenance, contains, "\\"));
         }
 
-        var records = await query
+        return source
+            .OrderBy(record => EF.Functions.Collate(record.Name, "C"))
+            .ThenBy(record => record.VersionMajor)
+            .ThenBy(record => record.VersionMinor)
+            .ThenBy(record => record.VersionPatch)
+            .ThenBy(record => record.VersionPreRelease == null)
+            .ThenBy(record => EF.Functions.Collate(record.VersionPreRelease!, "C"))
+            .ThenBy(record => record.VersionBuildMetadata == null ? 0 : 1)
+            .ThenBy(record => EF.Functions.Collate(record.VersionBuildMetadata!, "C"))
+            .ThenBy(record => EF.Functions.Collate(record.Version, "C"))
+            .Take(MaxListResults);
+    }
+
+    public async Task<IReadOnlyList<PackageIndexEntry>> SearchAsync(
+        string? search,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await using var context = await _contextFactory
+            .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var records = await BuildSearchQuery(context.Packages.AsNoTracking(), search)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -195,9 +221,6 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
                 PostgresPackageMapper.ToManifest(record),
                 PostgresPackageMapper.ToState(record.State),
                 record.RegisteredAt))
-            .OrderBy(entry => entry.Manifest.Name.Value, StringComparer.Ordinal)
-            .ThenBy(entry => entry.Manifest.Version, PackageVersionOrder.Comparer)
-            .Take(MaxListResults)
             .ToArray();
     }
 

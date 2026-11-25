@@ -23,13 +23,13 @@ public static class PackageEndpointRoutes
 
         packages.MapPost(
             string.Empty,
-            (RegisterPackageRequest request, IMediator mediator, IActorContextAccessor actors, IPackageJsonCache cache, CancellationToken cancellationToken) =>
-                PackageEndpointHandlers.RegisterAsync(request, mediator, actors, cache, cancellationToken));
+            (RegisterPackageRequest request, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
+                PackageEndpointHandlers.RegisterAsync(request, mediator, actors, cancellationToken));
 
         packages.MapPost(
             "/{name}/{version}/build",
-            (string name, string version, IMediator mediator, IActorContextAccessor actors, IPackageJsonCache cache, CancellationToken cancellationToken) =>
-                PackageEndpointHandlers.RequestBuildAsync(name, version, mediator, actors, cache, cancellationToken));
+            (string name, string version, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
+                PackageEndpointHandlers.RequestBuildAsync(name, version, mediator, actors, cancellationToken));
 
         return endpoints;
     }

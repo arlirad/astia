@@ -6,6 +6,16 @@ public sealed class PackageRecord
 
     public string Version { get; set; } = string.Empty;
 
+    public int VersionMajor { get; set; }
+
+    public int VersionMinor { get; set; }
+
+    public int VersionPatch { get; set; }
+
+    public string? VersionPreRelease { get; set; }
+
+    public string? VersionBuildMetadata { get; set; }
+
     public string SourceUrl { get; set; } = string.Empty;
 
     public string SourceCommit { get; set; } = string.Empty;

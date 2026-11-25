@@ -91,7 +91,7 @@ public sealed class PackageEndpointHandlerTests
         {
             SizeLimit = PackageJsonCacheOptions.Default.SizeLimit
         });
-        var cache = new PackageJsonCache(memory, PackageJsonCacheOptions.Default);
+        var cache = new PackageJsonCache(memory, PackageJsonCacheOptions.Default, new AlwaysAllowAuthorization());
         var accessor = CreateAccessor("reader");
 
         await PackageEndpointHandlers.ListAsync(
@@ -157,26 +157,23 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Register_ReturnsCreatedWithPackageBodyAndInvalidatesCache()
+    public async Task Register_ReturnsCreatedWithPackageBody()
     {
         var mediator = new StubMediator
         {
             Handler = (_, _) => ValueTask.FromResult<object>(
                 new RegisterPackageResult(PackageDetailsDto.From(TestPackages.CreatePackage())))
         };
-        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RegisterAsync(
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
-            cache,
             CancellationToken.None);
 
         var created = Assert.IsType<Created<PackageResponse>>(result);
         Assert.Equal("/packages/widget/1.2.3", created.Location);
         Assert.Equal("widget", created.Value!.Name);
-        Assert.Equal(1, cache.Invalidations);
 
         var command = Assert.IsType<RegisterPackageCommand>(mediator.LastRequest);
         Assert.Equal("publisher", command.Actor.ActorId);
@@ -184,23 +181,20 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Register_RejectsMissingBodyWithoutDispatchingOrInvalidating()
+    public async Task Register_RejectsMissingBodyWithoutDispatching()
     {
         var mediator = new StubMediator();
-        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RegisterAsync(
             null,
             mediator,
             CreateAccessor("publisher"),
-            cache,
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
         Assert.Equal(400, problem.ProblemDetails.Status);
         Assert.Equal("request.body.required", problem.ProblemDetails.Extensions["code"]);
         Assert.Equal(0, mediator.Calls);
-        Assert.Equal(0, cache.Invalidations);
     }
 
     [Fact]
@@ -219,7 +213,6 @@ public sealed class PackageEndpointHandlerTests
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
-            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -241,7 +234,6 @@ public sealed class PackageEndpointHandlerTests
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
-            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -250,27 +242,24 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Build_MapsScheduledSafeBuildToAcceptedAndInvalidatesCache()
+    public async Task Build_MapsScheduledSafeBuildToAccepted()
     {
         var mediator = new StubMediator
         {
             Handler = (_, _) => ValueTask.FromResult<object>(
                 new RequestBuildResult("widget", "1.2.3", "NotExecuted", "safe default", false))
         };
-        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RequestBuildAsync(
             "widget",
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
-            cache,
             CancellationToken.None);
 
         var accepted = Assert.IsType<Accepted<BuildResponse>>(result);
         Assert.Equal("NotExecuted", accepted.Value!.Status);
         Assert.False(accepted.Value.Executed);
-        Assert.Equal(1, cache.Invalidations);
     }
 
     [Fact]
@@ -286,7 +275,6 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
-            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -309,7 +297,6 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
-            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -331,7 +318,6 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
-            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -415,10 +401,18 @@ public sealed class PackageEndpointHandlerTests
         return (httpContext.Response.StatusCode, httpContext.Response.ContentType ?? string.Empty, body);
     }
 
+    private sealed class AlwaysAllowAuthorization : IIrvaAuthorization
+    {
+        public Task<AuthorizationResult> AuthorizeAsync(
+            AuthorizationContext context,
+            PackageAction action,
+            PackageKey? package,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(AuthorizationResult.Allow());
+    }
+
     private sealed class TestPackageJsonCache : IPackageJsonCache
     {
-        public int Invalidations { get; private set; }
-
         public async Task<string> GetListJsonAsync(
             AuthorizationContext actor,
             string? search,
@@ -433,10 +427,5 @@ public sealed class PackageEndpointHandlerTests
             Func<CancellationToken, Task<PackageResponse>> load,
             CancellationToken cancellationToken) =>
             JsonSerializer.Serialize(await load(cancellationToken), JsonOptions);
-
-        public void InvalidateAfterMutation()
-        {
-            Invalidations++;
-        }
     }
 }

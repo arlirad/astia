@@ -20,6 +20,11 @@ public static class PostgresPackageMapper
 
         record.Name = package.Manifest.Name.Value;
         record.Version = package.Manifest.Version.ToString();
+        record.VersionMajor = package.Manifest.Version.Major;
+        record.VersionMinor = package.Manifest.Version.Minor;
+        record.VersionPatch = package.Manifest.Version.Patch;
+        record.VersionPreRelease = package.Manifest.Version.PreRelease;
+        record.VersionBuildMetadata = package.Manifest.Version.BuildMetadata;
         record.SourceUrl = package.Manifest.Source.RepositoryUri.ToString();
         record.SourceCommit = package.Manifest.Source.CommitSha;
         record.ToolchainName = package.Manifest.Toolchain.Name;
@@ -42,9 +47,21 @@ public static class PostgresPackageMapper
     {
         ArgumentNullException.ThrowIfNull(record);
 
+        var version = PackageVersion.Create(record.Version);
+
+        if (version.Major != record.VersionMajor
+            || version.Minor != record.VersionMinor
+            || version.Patch != record.VersionPatch
+            || version.PreRelease != record.VersionPreRelease
+            || version.BuildMetadata != record.VersionBuildMetadata)
+        {
+            throw new InvalidOperationException(
+                "Persisted package version columns do not match the version string.");
+        }
+
         return PackageManifest.Create(
             PackageName.Create(record.Name),
-            PackageVersion.Create(record.Version),
+            version,
             PackageSource.Create(record.SourceUrl, record.SourceCommit),
             Toolchain.Create(record.ToolchainName, record.ToolchainVersion),
             ContentHash.Create(record.ContentHash),

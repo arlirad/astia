@@ -17,6 +17,11 @@ public sealed class PostgresPackageMapperTests
 
         Assert.Equal(package.Key.Name.Value, record.Name);
         Assert.Equal(package.Key.Version.ToString(), record.Version);
+        Assert.Equal(package.Manifest.Version.Major, record.VersionMajor);
+        Assert.Equal(package.Manifest.Version.Minor, record.VersionMinor);
+        Assert.Equal(package.Manifest.Version.Patch, record.VersionPatch);
+        Assert.Equal(package.Manifest.Version.PreRelease, record.VersionPreRelease);
+        Assert.Equal(package.Manifest.Version.BuildMetadata, record.VersionBuildMetadata);
         Assert.Equal(package.Manifest.Source.RepositoryUri.ToString(), record.SourceUrl);
         Assert.Equal(package.Manifest.Source.CommitSha, record.SourceCommit);
         Assert.Equal(package.Manifest.Toolchain.Name, record.ToolchainName);

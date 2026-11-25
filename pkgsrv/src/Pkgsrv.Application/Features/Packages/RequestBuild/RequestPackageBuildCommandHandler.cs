@@ -1,5 +1,6 @@
 using Arlirad.Ervi.Mediator.Interfaces;
 using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -19,19 +20,22 @@ public sealed class RequestPackageBuildCommandHandler
     private readonly IIrvaAuthorization _authorization;
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
+    private readonly IPackageCacheInvalidator? _cacheInvalidator;
 
     public RequestPackageBuildCommandHandler(
         IPackageRepository repository,
         IBuildSandbox buildSandbox,
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
-        ISystemClock clock)
+        ISystemClock clock,
+        IPackageCacheInvalidator? cacheInvalidator = null)
     {
         _repository = repository;
         _buildSandbox = buildSandbox;
         _authorization = authorization;
         _eventPublisher = eventPublisher;
         _clock = clock;
+        _cacheInvalidator = cacheInvalidator;
     }
 
     public async ValueTask<RequestBuildResult> Handle(
@@ -69,6 +73,8 @@ public sealed class RequestPackageBuildCommandHandler
 
         package.RequestBuild(_clock.UtcNow);
         await _repository.UpdateAsync(package, cancellationToken).ConfigureAwait(false);
+
+        _cacheInvalidator?.InvalidateAfterMutation();
 
         var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(

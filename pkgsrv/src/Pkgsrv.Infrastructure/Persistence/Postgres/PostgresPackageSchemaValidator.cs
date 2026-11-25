@@ -26,8 +26,21 @@ public sealed class PostgresPackageSchemaValidator : IPackageSchemaValidator
             throw new InvalidOperationException(
                 "PostgreSQL package storage schema version "
                 + $"{installedVersion} is not supported; expected version "
-                + $"{PostgresPackageSchema.RequiredVersion}. Apply the matching migration under "
-                + "pkgsrv/db/migrations.");
+                + $"{PostgresPackageSchema.RequiredVersion}. Apply the migrations under "
+                + "pkgsrv/db/migrations in order.");
+        }
+    }
+
+    public static void EnsureSupportedShape(IReadOnlyCollection<string> missingColumns)
+    {
+        ArgumentNullException.ThrowIfNull(missingColumns);
+
+        if (missingColumns.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL package storage schema is missing required columns: "
+                + string.Join(", ", missingColumns)
+                + ". Apply the migrations under pkgsrv/db/migrations in order.");
         }
     }
 
@@ -60,6 +73,10 @@ public sealed class PostgresPackageSchemaValidator : IPackageSchemaValidator
             }
 
             EnsureSupportedVersion(reader.GetInt32(1));
+
+            var missingColumns = reader.GetString(2)
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            EnsureSupportedShape(missingColumns);
         }
         catch (PostgresException exception) when (
             exception.SqlState is PostgresErrorCodes.UndefinedTable

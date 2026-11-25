@@ -194,7 +194,9 @@ mapped to HTTP `409`.
 
 List results are ordered deterministically by name, numeric major/minor/patch,
 pre-release text with releases after pre-releases, build-metadata text, and
-canonical version. The result set is capped at 1000 entries.
+canonical version. Filtering, ordering, escaping, and the 1000-entry cap are applied
+in SQL before materialization. Search treats `%` and `_` in user input literally by
+escaping them, matching the in-memory `Contains`/`StartsWith` behavior.
 
 Pending domain events are stored in the same row in `PendingEventsJson` and are
 written atomically with registration/build state. Only the supported
@@ -211,15 +213,26 @@ This is an **at-least-once durable pending-event/outbox boundary**. Publishers m
 be idempotent. Automatic outbox dispatch/retry is not implemented yet.
 
 The schema lives in the default `public` schema as `packages`. It can be initialized
-by setting `InitializeSchema=true`; startup executes idempotent
-`CREATE TABLE IF NOT EXISTS` and index statements before listening. The initializer
-never drops or truncates data. The versioned DDL is also available as
-`pkgsrv/db/migrations/0001_packages.sql`. Startup validates the exact schema version
-in `schema_versions`; a missing table or an older/future version fails startup
-rather than silently claiming durability. For production, prefer managed migrations
-or a reviewed DDL deployment, and grant the runtime user only the required table
-privileges. The application does not create databases, roles, or extensions, and
-does not silently alter existing schemas.
+by setting `InitializeSchema=true`; startup executes an idempotent upgrade to the
+current schema (equivalent to applying the versioned migrations in order) before
+listening. The initializer never drops or truncates data. The versioned DDL is
+available under `pkgsrv/db/migrations` and must be applied in order:
+
+```bash
+for migration in pkgsrv/db/migrations/*.sql; do
+  psql "$PKGSRV_POSTGRES_CONNECTION" -f "$migration"
+done
+```
+
+The required schema version is `2` (`0001_packages.sql` plus
+`0002_packages_version_order.sql`). Startup validates the exact version in
+`schema_versions` and the required package column shape. A missing table, an old v1
+schema, a future version, or missing required columns fails startup rather than
+silently claiming durability. `InitializeSchema=false` therefore rejects an
+incompatible old schema before any runtime query. For production, prefer managed
+migrations or a reviewed DDL deployment, and grant the runtime user only the
+required table privileges. The application does not create databases, roles, or
+extensions, and does not silently alter existing schemas.
 
 An opt-in integration test runs only when
 `PKGSRV_TEST_POSTGRES_CONNECTION` is set; otherwise it is a no-op.
@@ -227,23 +240,29 @@ An opt-in integration test runs only when
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
-served from a bounded in-process JSON cache. The cache key includes the caller
-identity, the list query, and the package key. Actor identity fields and roles are
-length-prefixed before being combined, so delimiter-bearing header values cannot
-collide. Unfiltered list results use an explicit `all` key segment; filtered results
-use `search:<query>`, so a literal `*` search cannot collide with the unfiltered
-list. JSON is generated only on a cache miss, then returned with `application/json`.
+served from a bounded in-process JSON cache. Every cache request authorizes the
+actor before checking the cache, so a cached response is never returned without a
+fresh authorization decision. Authorization decisions and errors are not cached.
+The cache key includes the caller identity, the list query, and the package key.
+Actor identity fields and roles are length-prefixed before being combined, so
+delimiter-bearing header values cannot collide. Unfiltered list results use an
+explicit `all` key segment; filtered results use `search:<query>`, so a literal `*`
+search cannot collide with the unfiltered list. JSON is generated only on a cache
+miss, then returned with `application/json`.
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
 | `Pkgsrv__Cache__TtlSeconds` | `5` | Absolute entry lifetime |
 | `Pkgsrv__Cache__SizeLimit` | `1024` | Maximum cached entries |
 
-Successful registration and build mutations invalidate list/detail entries by
-advancing a cache generation. A load captures the generation before it starts; if a
-mutation invalidates the cache while that load is in flight, the stale result is not
-stored for future reads. Entries also expire by absolute TTL, and the `MemoryCache`
-size limit prevents unbounded growth.
+Successful registration invalidates the cache immediately after the package insert
+commits, before domain-event publication or acknowledgement. Build requests
+invalidate immediately after the state transition commits, before publication,
+acknowledgement, or sandbox execution. A later workflow failure therefore cannot
+leave a stale detail/list entry behind. A load captures the generation before it
+starts; if a mutation invalidates the cache while that load is in flight, the stale
+result is not stored for future reads. Entries also expire by absolute TTL, and the
+`MemoryCache` size limit prevents unbounded growth.
 
 ## Listening endpoint
 

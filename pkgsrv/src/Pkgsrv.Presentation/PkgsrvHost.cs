@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.Presentation.Api;
 using Pkgsrv.Presentation.Caching;
@@ -49,7 +50,11 @@ public static class PkgsrvHost
         builder.Services.AddSingleton(listenOptions);
         builder.Services.AddSingleton(cacheOptions);
         builder.Services.AddMemoryCache(options => options.SizeLimit = cacheOptions.SizeLimit);
-        builder.Services.AddSingleton<IPackageJsonCache, PackageJsonCache>();
+        builder.Services.AddSingleton<PackageJsonCache>();
+        builder.Services.AddSingleton<IPackageJsonCache>(provider =>
+            provider.GetRequiredService<PackageJsonCache>());
+        builder.Services.AddSingleton<IPackageCacheInvalidator>(provider =>
+            provider.GetRequiredService<PackageJsonCache>());
         builder.Services.AddPkgsrv(allowedSourceHosts, databaseOptions);
         configureServices?.Invoke(builder.Services);
 
