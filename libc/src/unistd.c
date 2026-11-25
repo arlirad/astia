@@ -363,35 +363,75 @@ unsigned int sleep(unsigned int seconds) {
         return (unsigned int) remaining.tv_sec + (remaining.tv_nsec != 0 ? 1u : 0u);
     return seconds;
 }
-char* mktemp(char* template_name) {
-    (void) template_name;
-    errno = ENOSYS;
-    return NULL;
-}
-int mkstemp(char* template_name) {
-    static unsigned long sequence;
-    static const char    alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-    unsigned long        seed;
-    size_t               length;
-    int                  attempt;
+#define ASTIA_TEMP_SUFFIX "XXXXXX"
+#define ASTIA_TEMP_SUFFIX_LENGTH 6
+#define ASTIA_TEMP_ATTEMPTS 100
+
+static int __astia_temp_length(const char* template_name, size_t* length) {
+    size_t template_length;
 
     if (template_name == NULL) {
         errno = EINVAL;
         return -1;
     }
-    length = strlen(template_name);
-    if (length < 6 || memcmp(template_name + length - 6, "XXXXXX", 6) != 0) {
+    template_length = strlen(template_name);
+    if (template_length < ASTIA_TEMP_SUFFIX_LENGTH ||
+        memcmp(template_name + template_length - ASTIA_TEMP_SUFFIX_LENGTH,
+               ASTIA_TEMP_SUFFIX, ASTIA_TEMP_SUFFIX_LENGTH) != 0) {
         errno = EINVAL;
         return -1;
     }
-    seed = (unsigned long) getpid() ^ ++sequence;
-    for (attempt = 0; attempt < 100; ++attempt) {
-        unsigned long value = seed + (unsigned long) attempt;
-        for (size_t i = 0; i < 6; ++i) {
-            template_name[length - 1 - i] = alphabet[value % 36];
-            value /= 36;
+    *length = template_length;
+    return 0;
+}
+
+static void __astia_temp_suffix(char* template_name, size_t length, unsigned long value) {
+    static const char alphabet[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+    for (size_t i = 0; i < ASTIA_TEMP_SUFFIX_LENGTH; ++i) {
+        template_name[length - 1 - i] = alphabet[value % (sizeof alphabet - 1)];
+        value /= sizeof alphabet - 1;
+    }
+}
+
+static unsigned long __astia_temp_seed(void) {
+    static unsigned long sequence;
+
+    return (unsigned long) getpid() ^ ++sequence;
+}
+
+char* mktemp(char* template_name) {
+    size_t        length;
+    unsigned long seed;
+    int           saved_errno = errno;
+
+    if (__astia_temp_length(template_name, &length) != 0)
+        return NULL;
+    seed = __astia_temp_seed();
+    for (int attempt = 0; attempt < ASTIA_TEMP_ATTEMPTS; ++attempt) {
+        struct stat status;
+
+        __astia_temp_suffix(template_name, length, seed + (unsigned long) attempt);
+        if (lstat(template_name, &status) != 0 && errno == ENOENT) {
+            errno = saved_errno;
+            return template_name;
         }
-        int fd = open(template_name, O_RDWR | O_CREAT | O_EXCL, 0600);
+    }
+    errno = EEXIST;
+    return NULL;
+}
+int mkstemp(char* template_name) {
+    size_t        length;
+    unsigned long seed;
+
+    if (__astia_temp_length(template_name, &length) != 0)
+        return -1;
+    seed = __astia_temp_seed();
+    for (int attempt = 0; attempt < ASTIA_TEMP_ATTEMPTS; ++attempt) {
+        int fd;
+
+        __astia_temp_suffix(template_name, length, seed + (unsigned long) attempt);
+        fd = open(template_name, O_RDWR | O_CREAT | O_EXCL, 0600);
         if (fd >= 0)
             return fd;
         if (errno != EEXIST)
