@@ -10,11 +10,10 @@
 
 namespace astia::mod::syscalls {
 
-    struct modstat
-        : sys::syscall_handler<modstat, sys::syscall_id::modstat,
-                               sys::syscall_mode::sync> {
+    struct modstat : sys::syscall_handler<modstat, sys::syscall_id::modstat,
+                                          sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<const astia_module_id> input,
-                          sys::user_ptr<astia_module_stat> output) {
+                          sys::user_ptr<astia_module_stat>     output) {
             auto* process = proc::current_process();
             if (process == nullptr) {
                 return -ESRCH;
@@ -35,18 +34,17 @@ namespace astia::mod::syscalls {
             if (!sys::copy_in(&public_id, handle.value.bytes())) {
                 return -EFAULT;
             }
-            module_id id{};
+            module_id          id{};
             const module_error decoded = decode_public_id(public_id, id);
             if (decoded != module_error::ok) {
                 return module_errno(decoded);
             }
 
-            module_info info{};
-            module_id   dependencies[ASTIA_MODULE_MAX_DEPENDENCIES]{};
-            usize       dependency_total = 0;
-            const module_error snap = snapshot_module(
-                id, info,
-                span<module_id>(dependencies, ASTIA_MODULE_MAX_DEPENDENCIES),
+            module_info        info{};
+            module_id          dependencies[ASTIA_MODULE_MAX_DEPENDENCIES]{};
+            usize              dependency_total = 0;
+            const module_error snap             = snapshot_module(
+                id, info, span<module_id>(dependencies, ASTIA_MODULE_MAX_DEPENDENCIES),
                 dependency_total);
             if (snap != module_error::ok) {
                 return module_errno(snap);

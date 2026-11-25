@@ -10,9 +10,8 @@
 
 namespace astia::mod::syscalls {
 
-    struct modopen
-        : sys::syscall_handler<modopen, sys::syscall_id::modopen,
-                               sys::syscall_mode::async> {
+    struct modopen : sys::syscall_handler<modopen, sys::syscall_id::modopen,
+                                          sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::user_ptr<const char> path, u32 flags,
                                       sys::user_ptr<astia_module_id> output) {
             auto* process = proc::current_process();

@@ -11,8 +11,7 @@
 namespace astia::mod::syscalls {
 
     struct modls
-        : sys::syscall_handler<modls, sys::syscall_id::modls,
-                               sys::syscall_mode::sync> {
+        : sys::syscall_handler<modls, sys::syscall_id::modls, sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<astia_module_record> records, u32 capacity,
                           sys::user_ptr<astia_module_list_info> output) {
             auto* process = proc::current_process();
@@ -39,9 +38,8 @@ namespace astia::mod::syscalls {
             }
 
             module_info infos[ASTIA_MODULE_LIST_MAX]{};
-            usize       total = 0;
-            const usize written = snapshot(
-                span<module_info>(infos, capacity), &total);
+            usize       total   = 0;
+            const usize written = snapshot(span<module_info>(infos, capacity), &total);
 
             astia_module_record result[ASTIA_MODULE_LIST_MAX]{};
             for (usize i = 0; i < written; ++i) {
@@ -58,9 +56,8 @@ namespace astia::mod::syscalls {
                 return -EFAULT;
             }
             if (written != 0 &&
-                !sys::copy_out(span<u8>::bytes(
-                                   reinterpret_cast<u64>(range.value.get()),
-                                   written * sizeof(astia_module_record)),
+                !sys::copy_out(span<u8>::bytes(reinterpret_cast<u64>(range.value.get()),
+                                               written * sizeof(astia_module_record)),
                                result)) {
                 return -EFAULT;
             }

@@ -149,47 +149,47 @@ namespace astia::mod {
 
         static constexpr usize max_exit_handlers = 64;
 
-        module_id id{};                          ///< Stable registry handle.
-        char      name[max_module_name] = {};    ///< Module name (for diagnostics).
-        void*       base = nullptr;    ///< Load address of the image allocation.
-        usize       size = 0;          ///< Bytes allocated for the image.
-        int (*entry)()   = nullptr;    ///< Resolved module_main().
-        bool           running     = false; ///< True once entry() has been called.
-        bool           initialized = false;
-        elf::loader::init_fn init_array[elf::loader::max_init_array_entries] = {};
-        usize                init_count                                      = 0;
-        elf::loader::init_fn fini_array[elf::loader::max_init_array_entries] = {};
-        usize                fini_count                                      = 0;
-        void*                loader_context                                  = nullptr;
-        elf::loader::unmap_fn loader_unmap                                   = nullptr;
-        exit_handler          exit_handlers[max_exit_handlers]               = {};
-        usize                 exit_count                                     = 0;
-        void*                 dso_identity                                   = nullptr;
+        module_id id{};                       ///< Stable registry handle.
+        char      name[max_module_name] = {}; ///< Module name (for diagnostics).
+        void*     base = nullptr;             ///< Load address of the image allocation.
+        usize     size = 0;                   ///< Bytes allocated for the image.
+        int (*entry)() = nullptr;             ///< Resolved module_main().
+        bool                  running     = false; ///< True once entry() has been called.
+        bool                  initialized = false;
+        elf::loader::init_fn  init_array[elf::loader::max_init_array_entries] = {};
+        usize                 init_count                                      = 0;
+        elf::loader::init_fn  fini_array[elf::loader::max_init_array_entries] = {};
+        usize                 fini_count                                      = 0;
+        void*                 loader_context                                  = nullptr;
+        elf::loader::unmap_fn loader_unmap                                    = nullptr;
+        exit_handler          exit_handlers[max_exit_handlers]                = {};
+        usize                 exit_count                                      = 0;
+        void*                 dso_identity                                    = nullptr;
 
-        u32                 active_refs     = 0;
-        u32                 dependent_count = 0;
-        usize               dependency_count = 0;
-        module_id           dependencies[max_module_dependencies] = {};
-        bool                resident   = false;
-        bool                quiescing  = false;
-        bool                entry_active = false;
-        u32                 callback_inflight = 0;
+        u32       active_refs                           = 0;
+        u32       dependent_count                       = 0;
+        usize     dependency_count                      = 0;
+        module_id dependencies[max_module_dependencies] = {};
+        bool      resident                              = false;
+        bool      quiescing                             = false;
+        bool      entry_active                          = false;
+        u32       callback_inflight                     = 0;
     };
 
     /// Bounded snapshot of one published module.
     struct module_info {
-        module_id      id{};
-        char           name[max_module_name] = {};
-        module_state   state              = module_state::free;
-        usize          image_size         = 0;
-        u32            active_refs        = 0;
-        usize          dependency_count   = 0;
-        u32            dependent_count    = 0;
-        bool           running            = false;
-        bool           initialized        = false;
-        bool           resident           = false;
-        bool           quiescing          = false;
-        bool           unloadable         = false;
+        module_id    id{};
+        char         name[max_module_name] = {};
+        module_state state                 = module_state::free;
+        usize        image_size            = 0;
+        u32          active_refs           = 0;
+        usize        dependency_count      = 0;
+        u32          dependent_count       = 0;
+        bool         running               = false;
+        bool         initialized           = false;
+        bool         resident              = false;
+        bool         quiescing             = false;
+        bool         unloadable            = false;
     };
 
     /// Result of the task-shaped open operation.
@@ -213,10 +213,9 @@ namespace astia::mod {
     /// no waiting: image validation, relocation, and dependency pinning all
     /// complete before the first suspension point that a streaming image source
     /// can introduce.
-    core::task<module_open_result> open(span<const u8> image,
-                                        const elf::loader::env& env,
+    core::task<module_open_result> open(span<const u8> image, const elf::loader::env& env,
                                         const module_load_options& options = {});
-    core::task<module_open_result> open(span<const u8> image,
+    core::task<module_open_result> open(span<const u8>             image,
                                         const module_load_options& options = {});
 
     /// Resolve `path` in `caller`'s VFS namespace, verify read permission and
@@ -281,7 +280,7 @@ namespace astia::mod {
 
     /// Nonblocking lookup. Copies bounded metadata; returns `busy` while a slot
     /// is loading/unloading and `stale_id` for a released generation.
-    module_error lookup(module_id id, module_info& out);
+    module_error        lookup(module_id id, module_info& out);
     inline module_error stat(module_id id, module_info& out) {
         return lookup(id, out);
     }
@@ -296,8 +295,7 @@ namespace astia::mod {
     /// `dependency_total` receives the stored edge count regardless of the
     /// output span size.  Returns `busy` for an unpublished slot.
     module_error snapshot_module(module_id id, module_info& out,
-                                 span<module_id> dependencies,
-                                 usize& dependency_total);
+                                 span<module_id> dependencies, usize& dependency_total);
 
     /// Bounded dependency enumeration for a module.
     module_error dependency_at(module_id id, usize index, module_id& out);

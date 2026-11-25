@@ -44,12 +44,12 @@ namespace astia::mod {
 
     inline u32 public_state(module_state state) {
         switch (state) {
-            case module_state::running:
-                return ASTIA_MODULE_STATE_RUNNING;
-            case module_state::exiting:
-                return ASTIA_MODULE_STATE_EXITING;
-            default:
-                return ASTIA_MODULE_STATE_LOADED;
+        case module_state::running:
+            return ASTIA_MODULE_STATE_RUNNING;
+        case module_state::exiting:
+            return ASTIA_MODULE_STATE_EXITING;
+        default:
+            return ASTIA_MODULE_STATE_LOADED;
         }
     }
 
@@ -96,51 +96,48 @@ namespace astia::mod {
             }
         }
         usize destination = 0;
-        for (usize i = start;
-             path[i] != '\0' && destination + 1 < ASTIA_MODULE_NAME_MAX; ++i) {
+        for (usize i = start; path[i] != '\0' && destination + 1 < ASTIA_MODULE_NAME_MAX;
+             ++i) {
             out[destination++] = path[i];
         }
         out[destination] = '\0';
     }
 
-    inline void fill_module_record(const module_info& info,
-                                   astia_module_record& record) {
-        record                 = {};
-        record.size            = sizeof(astia_module_record);
-        record.version         = ASTIA_MODULE_INFO_VERSION;
-        record.id.slot         = info.id.slot;
-        record.id.reserved     = 0;
-        record.id.generation   = info.id.generation;
-        record.state           = public_state(info.state);
-        record.flags           = public_flags(info);
-        record.image_size      = static_cast<u64>(info.image_size);
-        record.active_refs     = info.active_refs;
-        record.dependent_count = info.dependent_count;
-        record.dependency_count =
-            static_cast<u32>(info.dependency_count);
+    inline void fill_module_record(const module_info& info, astia_module_record& record) {
+        record                  = {};
+        record.size             = sizeof(astia_module_record);
+        record.version          = ASTIA_MODULE_INFO_VERSION;
+        record.id.slot          = info.id.slot;
+        record.id.reserved      = 0;
+        record.id.generation    = info.id.generation;
+        record.state            = public_state(info.state);
+        record.flags            = public_flags(info);
+        record.image_size       = static_cast<u64>(info.image_size);
+        record.active_refs      = info.active_refs;
+        record.dependent_count  = info.dependent_count;
+        record.dependency_count = static_cast<u32>(info.dependency_count);
         copy_public_name(record.name, info.name);
     }
 
     inline void fill_module_stat(const module_info& info, const module_id* dependencies,
                                  usize dependency_total, astia_module_stat& out) {
-        out                      = {};
-        out.size                 = sizeof(astia_module_stat);
-        out.version              = ASTIA_MODULE_STAT_VERSION;
-        out.id.slot              = info.id.slot;
-        out.id.reserved          = 0;
-        out.id.generation        = info.id.generation;
-        out.state                = public_state(info.state);
-        out.flags                = public_flags(info);
-        out.image_size           = static_cast<u64>(info.image_size);
-        out.active_refs          = info.active_refs;
-        out.dependent_count      = info.dependent_count;
-        out.dependency_count     = static_cast<u32>(dependency_total);
+        out                  = {};
+        out.size             = sizeof(astia_module_stat);
+        out.version          = ASTIA_MODULE_STAT_VERSION;
+        out.id.slot          = info.id.slot;
+        out.id.reserved      = 0;
+        out.id.generation    = info.id.generation;
+        out.state            = public_state(info.state);
+        out.flags            = public_flags(info);
+        out.image_size       = static_cast<u64>(info.image_size);
+        out.active_refs      = info.active_refs;
+        out.dependent_count  = info.dependent_count;
+        out.dependency_count = static_cast<u32>(dependency_total);
         copy_public_name(out.name, info.name);
 
-        const usize capacity =
-            dependency_total < ASTIA_MODULE_MAX_DEPENDENCIES
-                ? dependency_total
-                : static_cast<usize>(ASTIA_MODULE_MAX_DEPENDENCIES);
+        const usize capacity     = dependency_total < ASTIA_MODULE_MAX_DEPENDENCIES
+                                       ? dependency_total
+                                       : static_cast<usize>(ASTIA_MODULE_MAX_DEPENDENCIES);
         out.dependencies_written = static_cast<u32>(capacity);
         for (usize i = 0; i < capacity; ++i) {
             out.dependencies[i].id.slot       = dependencies[i].slot;

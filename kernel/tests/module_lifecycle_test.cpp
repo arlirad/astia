@@ -1,8 +1,8 @@
+#include <astia/core/resume_queue.hpp>
+
 #include "../src/mod/module.hpp"
 #include "support/test.hpp"
 #include <sys/mman.h>
-
-#include <astia/core/resume_queue.hpp>
 
 #include <atomic>
 #include <cstdint>
@@ -390,9 +390,9 @@ ASTIA_TEST(module_lifecycle_rolls_back_failed_load) {
 }
 
 ASTIA_TEST(module_lifecycle_async_open_publishes_after_complete_load) {
-    loader_state                     state{};
-    const astia::elf::loader::env    env = environment(state);
-    auto opening = astia::mod::open(
+    loader_state                  state{};
+    const astia::elf::loader::env env     = environment(state);
+    auto                          opening = astia::mod::open(
         blob(module_lifecycle_no_fini_blob, module_lifecycle_no_fini_blob_len), env);
     ASTIA_CHECK(!opening.done());
     opening.resume();
@@ -415,26 +415,24 @@ ASTIA_TEST(module_lifecycle_async_open_publishes_after_complete_load) {
 }
 
 ASTIA_TEST(module_lifecycle_rolls_back_unpublished_dependency_failure) {
-    loader_state                     state{};
-    const astia::elf::loader::env    env = environment(state);
-    astia::mod::module_id            stale{};
-    astia::mod::module_load_options  options{};
-    const astia::usize               before = astia::mod::count();
+    loader_state                    state{};
+    const astia::elf::loader::env   env = environment(state);
+    astia::mod::module_id           stale{};
+    astia::mod::module_load_options options{};
+    const astia::usize              before = astia::mod::count();
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, stale) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, stale) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(stale) == astia::mod::module_error::ok);
     ASTIA_CHECK(state.mapped == 1);
     ASTIA_CHECK(state.unmapped == 1);
 
     options.dependencies = astia::span<const astia::mod::module_id>(&stale, 1);
     astia::mod::module_id unpublished{};
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, options, unpublished) ==
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, options, unpublished) ==
                 astia::mod::module_error::stale_id);
     ASTIA_CHECK(!unpublished.valid());
     ASTIA_CHECK(astia::mod::count() == before);
@@ -448,20 +446,18 @@ ASTIA_TEST(module_lifecycle_rejects_stale_ids_after_slot_reuse) {
     astia::mod::module_id         first{};
     astia::mod::module_id         second{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, first) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, first) == astia::mod::module_error::ok);
     ASTIA_CHECK(first.valid());
     ASTIA_CHECK(astia::mod::unload(first) == astia::mod::module_error::ok);
 
     astia::mod::module_info info{};
     ASTIA_CHECK(astia::mod::lookup(first, info) == astia::mod::module_error::stale_id);
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, second) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, second) == astia::mod::module_error::ok);
     ASTIA_CHECK(second.valid());
     ASTIA_CHECK(second.slot == first.slot);
     ASTIA_CHECK(second.generation != first.generation);
@@ -478,12 +474,11 @@ ASTIA_TEST(module_lifecycle_resident_modules_are_not_unloadable) {
     loader_state                    state{};
     const astia::elf::loader::env   env = environment(state);
     astia::mod::module_load_options options{};
-    options.resident            = true;
+    options.resident = true;
     astia::mod::module_id id{};
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, options, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, options, id) == astia::mod::module_error::ok);
     int result = 0;
     ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
     ASTIA_CHECK(result == 17);
@@ -514,14 +509,14 @@ ASTIA_TEST(module_lifecycle_dependencies_block_unload_and_reject_cycles) {
     astia::mod::module_id         dependent{};
     astia::mod::module_id         provider{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, dependent) == astia::mod::module_error::ok);
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, provider) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {},
+                                       dependent) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {},
+                                       provider) == astia::mod::module_error::ok);
 
     ASTIA_CHECK(astia::mod::add_dependency(dependent, provider) ==
                 astia::mod::module_error::ok);
@@ -554,10 +549,9 @@ ASTIA_TEST(module_lifecycle_close_awaits_active_reference_drain) {
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::busy);
@@ -596,14 +590,14 @@ ASTIA_TEST(module_lifecycle_close_awaits_dependent_detach) {
     astia::mod::module_id         dependent{};
     astia::mod::module_id         provider{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, dependent) == astia::mod::module_error::ok);
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, provider) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {},
+                                       dependent) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {},
+                                       provider) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::add_dependency(dependent, provider) ==
                 astia::mod::module_error::ok);
 
@@ -624,10 +618,9 @@ ASTIA_TEST(module_lifecycle_cancel_close_reopens_module) {
     loader_state                  state{};
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
 
     auto closing = astia::mod::close(id);
@@ -649,10 +642,9 @@ ASTIA_TEST(module_lifecycle_destroying_parked_close_reopens_module) {
     loader_state                  state{};
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
     {
         auto closing = astia::mod::close(id);
@@ -674,14 +666,12 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
     astia::mod::module_id         first{};
     astia::mod::module_id         second{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, first) == astia::mod::module_error::ok);
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, second) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, first) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, second) == astia::mod::module_error::ok);
 
     const astia::usize total = astia::mod::count();
     ASTIA_CHECK(total >= 2);
@@ -692,7 +682,7 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
     ASTIA_CHECK(bounded[0].id.valid());
 
     astia::mod::module_info all[astia::mod::max_modules]{};
-    const astia::usize     written = astia::mod::snapshot(
+    const astia::usize      written = astia::mod::snapshot(
         astia::span<astia::mod::module_info>(all, astia::mod::max_modules));
     ASTIA_CHECK(written == total);
     bool saw_first  = false;
@@ -713,20 +703,20 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
 }
 
 ASTIA_TEST(module_lifecycle_open_captures_temporary_env_and_options) {
-    loader_state                  state{};
-    astia::mod::module_id         provider{};
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    environment(state), {}, provider) == astia::mod::module_error::ok);
+    loader_state          state{};
+    astia::mod::module_id provider{};
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       environment(state), {},
+                                       provider) == astia::mod::module_error::ok);
 
     astia::core::task<astia::mod::module_open_result> pending;
     {
-        const astia::elf::loader::env env = environment(state);
-        astia::mod::module_id         dependencies[1] = {provider};
+        const astia::elf::loader::env   env             = environment(state);
+        astia::mod::module_id           dependencies[1] = {provider};
         astia::mod::module_load_options options{};
         options.dependencies = astia::span<const astia::mod::module_id>(dependencies, 1);
-        pending = astia::mod::open(
+        pending              = astia::mod::open(
             blob(module_lifecycle_no_fini_blob, module_lifecycle_no_fini_blob_len), env,
             options);
     }
@@ -752,10 +742,9 @@ ASTIA_TEST(module_lifecycle_unload_cannot_bypass_pending_close) {
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
     auto closing = astia::mod::close(id);
     closing.resume();
@@ -782,10 +771,9 @@ ASTIA_TEST(module_lifecycle_destroying_close_after_wake_is_safe) {
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == astia::mod::module_error::ok);
     {
         auto closing = astia::mod::close(id);
@@ -812,12 +800,10 @@ ASTIA_TEST(module_lifecycle_serializes_execution_and_finalization_context) {
     astia::mod::module_id second{};
 
     ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_atexit_blob,
-                         module_lifecycle_atexit_blob_len),
+                    blob(module_lifecycle_atexit_blob, module_lifecycle_atexit_blob_len),
                     env, {}, first) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_atexit_blob,
-                         module_lifecycle_atexit_blob_len),
+                    blob(module_lifecycle_atexit_blob, module_lifecycle_atexit_blob_len),
                     env, {}, second) == astia::mod::module_error::ok);
 
     std::atomic<bool> failed{false};
@@ -894,16 +880,16 @@ ASTIA_TEST(module_lifecycle_c_abi_ownership_rejects_external_contexts) {
     lifecycle_external_count.store(0, std::memory_order_release);
 
     ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_wait_blob, module_lifecycle_wait_blob_len),
-                    env, {}, waiting) == astia::mod::module_error::ok);
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_reentrant_blob,
-                         module_lifecycle_reentrant_blob_len),
-                    env, {}, reentrant) == astia::mod::module_error::ok);
+                    blob(module_lifecycle_wait_blob, module_lifecycle_wait_blob_len), env,
+                    {}, waiting) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_reentrant_blob,
+                                            module_lifecycle_reentrant_blob_len),
+                                       env, {},
+                                       reentrant) == astia::mod::module_error::ok);
 
     std::atomic<astia::mod::module_error> wait_error{astia::mod::module_error::ok};
-    std::atomic<int>                     wait_result{0};
-    std::thread                          waiter([&]() {
+    std::atomic<int>                      wait_result{0};
+    std::thread                           waiter([&]() {
         int result = 0;
         wait_error.store(astia::mod::run(waiting, result), std::memory_order_release);
         wait_result.store(result, std::memory_order_release);
@@ -928,12 +914,11 @@ ASTIA_TEST(module_lifecycle_c_abi_ownership_rejects_external_contexts) {
     ASTIA_CHECK(astia::mod::unload(waiting) == astia::mod::module_error::ok);
 
     int run_result = -1;
-    ASTIA_CHECK(astia::mod::run(reentrant, run_result) ==
-                astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::run(reentrant, run_result) == astia::mod::module_error::ok);
     ASTIA_CHECK(run_result == 0);
 
     std::atomic<astia::mod::module_error> exit_error{astia::mod::module_error::ok};
-    std::thread exiter([&]() {
+    std::thread                           exiter([&]() {
         exit_error.store(astia::mod::exit(reentrant), std::memory_order_release);
     });
     while (!lifecycle_outer_entered.load(std::memory_order_acquire)) {
@@ -974,12 +959,12 @@ ASTIA_TEST(module_lifecycle_c_abi_ownership_rejects_external_contexts) {
 }
 
 ASTIA_TEST(module_lifecycle_concurrent_slot_reuse_is_generation_safe) {
-    constexpr unsigned        thread_count = 4;
-    constexpr unsigned        iterations   = 25;
-    std::atomic<bool>         failed{false};
-    std::mutex                id_mutex;
+    constexpr unsigned                 thread_count = 4;
+    constexpr unsigned                 iterations   = 25;
+    std::atomic<bool>                  failed{false};
+    std::mutex                         id_mutex;
     std::vector<astia::mod::module_id> ids;
-    std::vector<std::thread>  workers;
+    std::vector<std::thread>           workers;
 
     for (unsigned thread_index = 0; thread_index < thread_count; ++thread_index) {
         workers.emplace_back([&]() {
@@ -987,10 +972,10 @@ ASTIA_TEST(module_lifecycle_concurrent_slot_reuse_is_generation_safe) {
             const astia::elf::loader::env env = environment(state);
             for (unsigned i = 0; i < iterations; ++i) {
                 astia::mod::module_id id{};
-                const auto            loaded = astia::mod::load_image(
-                    blob(module_lifecycle_no_fini_blob,
-                         module_lifecycle_no_fini_blob_len),
-                    env, {}, id);
+                const auto            loaded =
+                    astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                                module_lifecycle_no_fini_blob_len),
+                                           env, {}, id);
                 if (loaded != astia::mod::module_error::ok ||
                     astia::mod::acquire(id) != astia::mod::module_error::ok) {
                     failed.store(true, std::memory_order_release);

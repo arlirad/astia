@@ -6,7 +6,6 @@
 
 #include "../src/mod/module.hpp"
 #include "../src/proc/process.hpp"
-
 #include <sys/mman.h>
 
 #include <cstring>
@@ -19,7 +18,7 @@ namespace {
     alignas(astia::proc::process) unsigned char process_storage[sizeof(
         astia::proc::process)]{};
 
-    char last_path[ASTIA_MODULE_PATH_MAX]{};
+    char                     last_path[ASTIA_MODULE_PATH_MAX]{};
     astia::mod::module_error next_error = astia::mod::module_error::ok;
 
     void* map_image(void*, astia::u64, astia::usize size, astia::usize, bool fixed) {
@@ -139,10 +138,9 @@ namespace astia::mod {
 
     module_error load_test_module(module_id& out, const module_load_options& options) {
         const elf::loader::env env = ::host_environment();
-        return load_image(
-            span<const u8>(module_lifecycle_no_fini_blob,
-                           module_lifecycle_no_fini_blob_len),
-            env, options, out);
+        return load_image(span<const u8>(module_lifecycle_no_fini_blob,
+                                         module_lifecycle_no_fini_blob_len),
+                          env, options, out);
     }
 
     const char* last_open_path() {

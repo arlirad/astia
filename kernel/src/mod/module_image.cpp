@@ -1,5 +1,3 @@
-#include "module.hpp"
-
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/error.hpp>
@@ -7,6 +5,7 @@
 #include <astia/mm/frame_allocator.hpp>
 
 #include "../io/aio/dispatch.hpp"
+#include "module.hpp"
 
 namespace astia::mod {
 
@@ -16,7 +15,7 @@ namespace astia::mod {
         /// coroutine frame is destroyed, including a canceled read.
         class image_buffer {
             public:
-            image_buffer() = default;
+            image_buffer()                               = default;
             image_buffer(const image_buffer&)            = delete;
             image_buffer& operator=(const image_buffer&) = delete;
 
@@ -29,9 +28,8 @@ namespace astia::mod {
                 if (bytes == 0) {
                     return false;
                 }
-                const usize frames =
-                    (bytes + mm::frame_allocator::frame_size - 1) /
-                    mm::frame_allocator::frame_size;
+                const usize frames = (bytes + mm::frame_allocator::frame_size - 1) /
+                                     mm::frame_allocator::frame_size;
                 const u64 physical =
                     mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
                 if (physical == mm::frame_allocator::invalid_frame) {
@@ -44,8 +42,7 @@ namespace astia::mod {
             }
 
             span<u8> view() const {
-                auto* address = static_cast<u8*>(
-                    mm::kernel_frames().to_virt(_physical));
+                auto* address = static_cast<u8*>(mm::kernel_frames().to_virt(_physical));
                 return span<u8>(address, _bytes);
             }
 
@@ -66,16 +63,16 @@ namespace astia::mod {
 
         module_error path_error(long result) {
             switch (-result) {
-                case ENOENT:
-                case ENOTDIR:
-                    return module_error::not_found;
-                case EACCES:
-                    return module_error::access;
-                case ENAMETOOLONG:
-                case EINVAL:
-                    return module_error::invalid_argument;
-                default:
-                    return module_error::invalid_argument;
+            case ENOENT:
+            case ENOTDIR:
+                return module_error::not_found;
+            case EACCES:
+                return module_error::access;
+            case ENAMETOOLONG:
+            case EINVAL:
+                return module_error::invalid_argument;
+            default:
+                return module_error::invalid_argument;
             }
         }
 
@@ -89,9 +86,9 @@ namespace astia::mod {
             co_return result;
         }
 
-        char resolved[fs::path_max]{};
-        const long composed = io::aio::dispatch::resolve_at(
-            &caller, -1, path, resolved, sizeof resolved);
+        char       resolved[fs::path_max]{};
+        const long composed =
+            io::aio::dispatch::resolve_at(&caller, -1, path, resolved, sizeof resolved);
         if (composed < 0) {
             result.error = path_error(composed);
             co_return result;
@@ -141,20 +138,19 @@ namespace astia::mod {
         }
         const auto read = co_await file->read_exact(image.view(), 0, {});
         if (!read) {
-            result.error =
-                read.error == error_t::enomem ? module_error::no_space
-                                              : module_error::load_failed;
+            result.error = read.error == error_t::enomem ? module_error::no_space
+                                                         : module_error::load_failed;
             co_return result;
         }
 
-        result.error = validate_module_image_format(
-            span<const u8>(image.view().data(), bytes));
+        result.error =
+            validate_module_image_format(span<const u8>(image.view().data(), bytes));
         if (result.error != module_error::ok) {
             co_return result;
         }
 
-        const auto loaded = co_await open(
-            span<const u8>(image.view().data(), bytes), options);
+        const auto loaded =
+            co_await open(span<const u8>(image.view().data(), bytes), options);
         if (!loaded) {
             result.error = loaded.error == error_t::enomem ? module_error::no_space
                                                            : module_error::load_failed;

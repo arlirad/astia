@@ -39,8 +39,7 @@ int main(void) {
     astia_stack_t stack = {0};
     (void) astia_sigaltstack(&stack, 0);
     return sizeof(stack) == 24 && sizeof(astia_module_id) == 16 &&
-                   sizeof(astia_module_record) == 120 &&
-                   sizeof(astia_module_stat) == 312
+                   sizeof(astia_module_record) == 120 && sizeof(astia_module_stat) == 312
                ? 0
                : 1;
 }

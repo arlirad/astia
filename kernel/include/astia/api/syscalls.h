@@ -257,10 +257,10 @@ typedef struct astia_module_id {
 #define ASTIA_MODULE_SLOT_NONE 0xffffffffu
 
 enum {
-    ASTIA_MODULE_NAME_MAX          = 64,
-    ASTIA_MODULE_PATH_MAX          = 64,
-    ASTIA_MODULE_MAX_DEPENDENCIES  = 8,
-    ASTIA_MODULE_LIST_MAX          = 16,
+    ASTIA_MODULE_NAME_MAX         = 64,
+    ASTIA_MODULE_PATH_MAX         = 64,
+    ASTIA_MODULE_MAX_DEPENDENCIES = 8,
+    ASTIA_MODULE_LIST_MAX         = 16,
 };
 
 enum {
@@ -329,17 +329,17 @@ typedef struct astia_module_list_info {
  * stored edges; `dependencies_written` is how many were copied into the
  * bounded inline array. */
 typedef struct astia_module_stat {
-    uint32_t               size;
-    uint32_t               version;
-    astia_module_id        id;
-    uint32_t               state;
-    uint32_t               flags;
-    uint64_t               image_size;
-    uint32_t               active_refs;
-    uint32_t               dependent_count;
-    uint32_t               dependency_count;
-    uint32_t               dependencies_written;
-    char                   name[ASTIA_MODULE_NAME_MAX];
+    uint32_t                size;
+    uint32_t                version;
+    astia_module_id         id;
+    uint32_t                state;
+    uint32_t                flags;
+    uint64_t                image_size;
+    uint32_t                active_refs;
+    uint32_t                dependent_count;
+    uint32_t                dependency_count;
+    uint32_t                dependencies_written;
+    char                    name[ASTIA_MODULE_NAME_MAX];
     astia_module_dependency dependencies[ASTIA_MODULE_MAX_DEPENDENCIES];
 } astia_module_stat;
 
@@ -496,8 +496,7 @@ static inline long astia_dlunmap(uint64_t base) {
 /* Loads and publishes the kernel module image at `path`.  Resolution,
  * permission checks, file type, ELF class and dependency pinning all happen
  * before publication; a failure leaves no visible module.  Root only. */
-static inline long astia_modopen(const char* path, uint32_t flags,
-                                 astia_module_id* out) {
+static inline long astia_modopen(const char* path, uint32_t flags, astia_module_id* out) {
     return astia_raw6(SYS_MODOPEN, (long) path, (long) flags, (long) out, 0, 0, 0);
 }
 /* Copies up to `capacity` bounded module records and always reports the
@@ -508,8 +507,7 @@ static inline long astia_modls(astia_module_record* records, uint32_t capacity,
 }
 /* Copies one stable module snapshot, including its bounded dependency
  * list.  Root only. */
-static inline long astia_modstat(const astia_module_id* id,
-                                 astia_module_stat* out) {
+static inline long astia_modstat(const astia_module_id* id, astia_module_stat* out) {
     return astia_raw6(SYS_MODSTAT, (long) id, (long) out, 0, 0, 0, 0);
 }
 /* Quiesces and unloads a module, waiting for active references and
