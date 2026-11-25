@@ -37,6 +37,21 @@ describe('GitHubDocsSource', () => {
     );
   });
 
+  it('prefers the authoritative implementation path for source links', () => {
+    const source = new GitHubDocsSource(DEFAULT_DOCS_REPOSITORY_CONFIG);
+
+    expect(
+      source.sourceUrl(
+        page({
+          sourcePath: 'docs/2/io_setup.md',
+          implementationPath: 'kernel/src/fs/syscalls/io_setup.cpp',
+        }),
+      ),
+    ).toBe(
+      'https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.cpp',
+    );
+  });
+
   it('switches every URL to a different ref through one config change', () => {
     const source = new GitHubDocsSource({
       ...DEFAULT_DOCS_REPOSITORY_CONFIG,

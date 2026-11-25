@@ -38,13 +38,14 @@ const markdownPage = (): DocPage => ({
   contentKind: 'markdown',
 });
 
-const sourcePage = (): DocPage => ({
+const syscallPage = (): DocPage => ({
   slug: 'syscall-0-io-setup',
   title: 'io_setup(2)',
   group: 'Syscall (2)',
   summary: 'Create an asynchronous I/O ring.',
-  sourcePath: 'kernel/src/fs/syscalls/io_setup.cpp',
-  contentKind: 'source',
+  sourcePath: 'docs/2/io_setup.md',
+  contentKind: 'markdown',
+  implementationPath: 'kernel/src/fs/syscalls/io_setup.cpp',
   synopsisKind: 'public',
   synopsis: 'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
 });
@@ -69,11 +70,18 @@ describe('Authored documentation sources', () => {
     }
   });
 
-  it('does not migrate design notes, section 3, or the aarch64 drift', () => {
+  it('does not migrate design notes or the aarch64 drift', () => {
     expect(DOC_PAGES.some((page) => page.slug === 'docs-aarch64-virt-boot')).toBeFalse();
     expect(DOC_PAGES.some((page) => page.sourcePath === 'docs/aarch64-virt-boot.md')).toBeFalse();
-    expect(DOC_PAGES.some((page) => page.sourcePath.startsWith('docs/2/'))).toBeFalse();
     expect(DOC_PAGES.filter((page) => page.group === 'Manual page').length).toBe(7);
+
+    const syscalls = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
+    expect(syscalls.length).toBe(71);
+    for (const page of syscalls) {
+      expect(page.sourcePath).toBe(`docs/2/${page.slug.replace(/^syscall-\d+-/, '').replace(/-/g, '_')}.md`);
+      expect(page.contentKind).toBe('markdown');
+      expect(page.implementationPath).toBeTruthy();
+    }
 
     for (const page of DOC_PAGES) {
       expect('content' in page).toBeFalse();
@@ -107,19 +115,33 @@ describe('Authored documentation sources', () => {
     );
   });
 
-  it('keeps section-2 source pages distinct from authored Markdown pages', async () => {
-    const body = 'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out) {}';
+  it('loads authored syscall Markdown and links the implementation source', async () => {
+    const body = [
+      '# io_setup(2)',
+      '',
+      '## DESCRIPTION',
+      '',
+      'Create an asynchronous I/O ring.',
+      '',
+      '## RETURN VALUE',
+      '',
+      'Returns zero.',
+      '',
+      '## ERRORS',
+      '',
+      '- `-EINVAL`: Invalid arguments.',
+    ].join('\n');
     const source = new GitHubDocsSource(
       DEFAULT_DOCS_REPOSITORY_CONFIG,
       fetchMock(() => Promise.resolve(fetchResponse(body))),
     );
 
-    const markdown = await source.load(sourcePage());
-    expect(markdown).toContain('## SYNOPSIS');
-    expect(markdown).toContain('## REPOSITORY SOURCE');
-    expect(markdown).toContain(body);
-    expect(source.sourceUrl(sourcePage())).toContain(
-      'kernel/src/fs/syscalls/io_setup.cpp',
+    const markdown = await source.load(syscallPage());
+    expect(markdown).toBe(body);
+    expect(markdown).toContain('## DESCRIPTION');
+    expect(markdown).not.toContain('## REPOSITORY SOURCE');
+    expect(source.sourceUrl(syscallPage())).toBe(
+      'https://github.com/arlirad/astia/blob/main/kernel/src/fs/syscalls/io_setup.cpp',
     );
   });
 

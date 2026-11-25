@@ -1,11 +1,13 @@
 #pragma once
 
-#include "../ipc/signal.hpp"
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/task.hpp>
 #include <astia/mm/shptr.hpp>
+
+#include "../ipc/signal.hpp"
 
 namespace astia::proc {
 
@@ -173,13 +175,16 @@ namespace astia::proc {
         /// syscall register image (arch::context_prepare_fork) — the
         /// thread starts *inside* the parent's ring-3 call site with
         /// rax = 0.
-        bool prepare_fork_user(const arch::user_context& uctx);
-        void run_entry();
-        void finish();
-        long join(void** result = nullptr);
-        long detach();
-        void exit(void* result = nullptr);
-        bool idle() const {
+        bool             prepare_fork_user(const arch::user_context& uctx);
+        void             run_entry();
+        void             finish();
+        core::task<long> join(void** result = nullptr);
+        bool             arm_join(std::coroutine_handle<> continuation);
+        void             request_resume(std::coroutine_handle<> continuation);
+        void             resume_pending();
+        long             detach();
+        void             exit(void* result = nullptr);
+        bool             idle() const {
             return _idle;
         }
         void idle(bool value) {
@@ -278,51 +283,55 @@ namespace astia::proc {
         bool allocate_kernel_stack();
         void release_kernel_stack();
 
-        process*         _owner;
-        tid_t            _tid;
-        thread_state     _state                         = thread_state::fresh;
-        scheduling_class _sched_class                   = scheduling_class::normal;
-        i32              _nice                          = 0;
-        u8               _rt_priority                   = 0;
-        u64              _vruntime                      = 0;
-        u64              _entry                         = 0;
-        u64              _kernel_stack_top              = 0;
-        u64              _user_stack_top                = 0;
-        u64              _user_stack_base               = 0;
-        usize            _user_stack_size               = 0;
-        bool             _user_stack_metadata_supported = false;
-        u64              _tls_mapping_base              = 0;
-        usize            _tls_mapping_pages             = 0;
-        arch::context*   _context                       = nullptr;
-        kernel_entry     _entry_function                = nullptr;
-        void*            _entry_argument                = nullptr;
-        void*            _kernel_stack                  = nullptr;
-        usize            _kernel_stack_size             = 0;
-        usize            _kernel_stack_high_water       = 0;
-        usize            _kernel_stack_scan_offset      = 0;
-        u32              _kernel_stack_sample_count     = 0;
-        thread*          _joiner                        = nullptr;
-        void*            _result                        = nullptr;
-        u8               _detached                      = 0;
-        u8               _owns_user_stack               = 0;
-        u8               _cancellation_pending          = 0;
-        u8               _exit_requested                = 0;
-        u8               _kill_pending                  = 0;
-        thread*          _joining                       = nullptr;
-        bool             _join_cancel_wakeup            = false;
-        bool             _idle                          = false;
-        bool             _gate_open                     = true;
-        bool             _queued                        = false;
-        bool             _migratable                    = false;
-        core::spinlock   _lifecycle_lock                = {};
-        u32              _cpu_owner                     = 0;
-        u32              _signal_restore_mask           = 0;
-        bool             _signal_restore_armed          = false;
-        signal_state     _signals{};
-        uintptr_t        _signal_stack_sp     = 0;
-        u64              _signal_stack_size   = 0;
-        i32              _signal_stack_flags  = ASTIA_SS_DISABLE;
-        bool             _signal_stack_on_alt = false;
+        process*                _owner;
+        tid_t                   _tid;
+        thread_state            _state                         = thread_state::fresh;
+        scheduling_class        _sched_class                   = scheduling_class::normal;
+        i32                     _nice                          = 0;
+        u8                      _rt_priority                   = 0;
+        u64                     _vruntime                      = 0;
+        u64                     _entry                         = 0;
+        u64                     _kernel_stack_top              = 0;
+        u64                     _user_stack_top                = 0;
+        u64                     _user_stack_base               = 0;
+        usize                   _user_stack_size               = 0;
+        bool                    _user_stack_metadata_supported = false;
+        u64                     _tls_mapping_base              = 0;
+        usize                   _tls_mapping_pages             = 0;
+        arch::context*          _context                       = nullptr;
+        kernel_entry            _entry_function                = nullptr;
+        void*                   _entry_argument                = nullptr;
+        void*                   _kernel_stack                  = nullptr;
+        usize                   _kernel_stack_size             = 0;
+        usize                   _kernel_stack_high_water       = 0;
+        usize                   _kernel_stack_scan_offset      = 0;
+        u32                     _kernel_stack_sample_count     = 0;
+        thread*                 _joiner                        = nullptr;
+        std::coroutine_handle<> _async_join_handle{};
+        core::spinlock          _resume_lock;
+        std::coroutine_handle<> _pending_resume[2]{};
+        u32                     _pending_resume_count = 0;
+        void*                   _result               = nullptr;
+        u8                      _detached             = 0;
+        u8                      _owns_user_stack      = 0;
+        u8                      _cancellation_pending = 0;
+        u8                      _exit_requested       = 0;
+        u8                      _kill_pending         = 0;
+        thread*                 _joining              = nullptr;
+        bool                    _join_cancel_wakeup   = false;
+        bool                    _idle                 = false;
+        bool                    _gate_open            = true;
+        bool                    _queued               = false;
+        bool                    _migratable           = false;
+        core::spinlock          _lifecycle_lock       = {};
+        u32                     _cpu_owner            = 0;
+        u32                     _signal_restore_mask  = 0;
+        bool                    _signal_restore_armed = false;
+        signal_state            _signals{};
+        uintptr_t               _signal_stack_sp     = 0;
+        u64                     _signal_stack_size   = 0;
+        i32                     _signal_stack_flags  = ASTIA_SS_DISABLE;
+        bool                    _signal_stack_on_alt = false;
     };
 
 } // namespace astia::proc

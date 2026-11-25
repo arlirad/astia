@@ -34,6 +34,9 @@ namespace astia::proc {
         bool wait_park(volatile bool& done, core::spinlock& lock,
                        const mm::shptr<process>& owner, const mm::shptr<thread>& self) {
             for (;;) {
+                // A wait queue may have handed this thread a continuation to
+                // run on its own stack.  Do that before parking again.
+                self->resume_pending();
                 {
                     arch::interrupt_spinlock_guard guard(lock);
                     if (done)
