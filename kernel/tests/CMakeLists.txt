@@ -190,6 +190,11 @@ astia_add_host_test(astia_time_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/time.cpp)
 target_compile_options(astia_time_test PRIVATE -ffunction-sections -fdata-sections)
 target_link_options(astia_time_test PRIVATE -Wl,--gc-sections)
+astia_add_host_test(astia_clock_syscalls_test clock_syscalls_test.cpp)
+target_compile_options(astia_clock_syscalls_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_clock_syscalls_test PRIVATE -Wl,--gc-sections)
+astia_add_test_label(astia_clock_syscalls_test "deterministic;sys")
 astia_add_host_test(astia_syscall_handler_prototype_test
         syscall_handler_prototype_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp

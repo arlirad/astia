@@ -8,7 +8,8 @@ long astia_clock_getres(uint32_t clock_id, astia_timespec* out);
 
 ## DESCRIPTION
 
-Reads the supported resolution for a kernel clock. Passing a null output requests validation only.
+Reads the supported resolution for a kernel clock: `CLOCK_MONOTONIC`,
+`CLOCK_BOOTTIME` or `CLOCK_REALTIME`, the same set `clock_gettime` accepts. Passing a null output requests validation only.
 
 ## RETURN VALUE
 
@@ -22,4 +23,6 @@ Returns zero or a negative errno.
 
 ## NOTES
 
-Resolution is derived from the active timer frequency.
+Resolution is derived from the active timer frequency (one tick, rounded up to
+whole nanoseconds). All three clocks share the tick source, so they report the
+same resolution.

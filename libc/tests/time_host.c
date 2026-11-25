@@ -39,8 +39,12 @@ long __astia_time_clock_gettime(int clock_id, int64_t* sec, int64_t* nsec) {
     return 0;
 }
 
+/* Mirrors the kernel contract: every ID clock_gettime accepts has a
+ * resolution, CLOCK_BOOTTIME included. */
 long __astia_time_clock_getres(int clock_id, int64_t* sec, int64_t* nsec) {
-    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+    __astia_time_host_clock_id = clock_id;
+    if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC &&
+        clock_id != CLOCK_BOOTTIME)
         return -EINVAL;
     *sec  = 0;
     *nsec = 1000000;

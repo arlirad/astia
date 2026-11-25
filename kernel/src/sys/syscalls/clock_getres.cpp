@@ -13,8 +13,16 @@ namespace astia::sys::syscalls {
         : sys::syscall_handler<clock_getres, sys::syscall_id::clock_getres,
                                sys::syscall_mode::sync> {
         static i64 invoke(i32 clock_id, sys::user_ptr<astia_timespec> out) {
-            if (clock_id != CLOCK_REALTIME && clock_id != CLOCK_MONOTONIC)
+            // Every ID clock_gettime reads has a resolution (POSIX); BOOTTIME
+            // shares the monotonic tick source, so it reports the same one.
+            switch (clock_id) {
+            case CLOCK_MONOTONIC:
+            case CLOCK_BOOTTIME:
+            case CLOCK_REALTIME:
+                break;
+            default:
                 return -EINVAL;
+            }
             const u32 hz = arch::timer_hz();
             if (hz == 0)
                 return -EIO;
