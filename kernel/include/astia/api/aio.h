@@ -76,7 +76,7 @@ enum { IO_MAX_ENTRIES = 4096 };
    values are a read-only capacity contract: exceeding the ring pool returns
    -ENFILE, and exhausting one ring's parked-operation queue posts -EBUSY. */
 enum {
-    ASTIA_AIO_MAX_RING_SLOTS        = 4,
+    ASTIA_AIO_MAX_RING_SLOTS        = 16,
     ASTIA_AIO_MAX_RING_ENTRIES      = 64,
     ASTIA_AIO_MAX_PARKED_OPERATIONS = 64,
     ASTIA_AIO_MAX_OPERATION_BYTES   = 0x7ffff000,

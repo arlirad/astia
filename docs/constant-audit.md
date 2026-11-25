@@ -13,7 +13,7 @@ are checked against that header at compile time.
 | Area | Name | Value | Class | Full-boundary result |
 | --- | --- | ---: | --- | --- |
 | CPU topology | `arch::platform::max_cpu_count` | 256 | platform | CPU counts clamp at 256; per-CPU arrays never index beyond it. |
-| AIO ring pool | `ASTIA_AIO_MAX_RING_SLOTS` / `queue::aio_ring_slots` | 4 | ABI / queue | Fifth live ring returns `-ENFILE`. |
+| AIO ring pool | `ASTIA_AIO_MAX_RING_SLOTS` / `queue::aio_ring_slots` | 16 | ABI / queue | Seventeenth live ring returns `-ENFILE`. |
 | AIO SQ | `ASTIA_AIO_MAX_RING_ENTRIES` / `queue::aio_ring_entries` | 64 | ABI / policy | Entries above 64 return `-EINVAL`; 64 is accepted. |
 | AIO parked operations | `ASTIA_AIO_MAX_PARKED_OPERATIONS` / `queue::aio_parked_operations` | 64 per ring | ABI / queue | A 65th park completes with `-EBUSY`; 64 is retained. |
 | AIO operation bytes | `ASTIA_AIO_MAX_OPERATION_BYTES` | `0x7ffff000` | ABI / policy | Larger requests return `-EINVAL`. |

@@ -11,7 +11,7 @@
 #include <astia/resource_limits.hpp>
 
 ASTIA_TEST(resource_limits_publish_fixed_contracts) {
-    ASTIA_CHECK(astia::resource_limits::abi::aio_ring_slots == 4);
+    ASTIA_CHECK(astia::resource_limits::abi::aio_ring_slots == 16);
     ASTIA_CHECK(astia::resource_limits::abi::aio_ring_entries == 64);
     ASTIA_CHECK(astia::resource_limits::abi::aio_parked_operations == 64);
     ASTIA_CHECK(astia::resource_limits::abi::syscall_table_capacity == 128);
