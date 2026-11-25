@@ -1,6 +1,8 @@
 import type { DocPage } from './docs.model';
 
 export const DOC_TREE_ALL = 'all';
+export const DOC_SYSCALLS_KEY = 'taxonomy:syscalls';
+export const DOC_SYSCALLS_LABEL = 'Syscalls (2)';
 export const DOC_SUBSYSTEM_ORDER = ['proc', 'fs', 'abi', 'dl'] as const;
 export const DOC_CATEGORY_ORDER = [
   'core',
@@ -97,7 +99,7 @@ const taxonomyKey = (subsystem: string, category?: string): string =>
 const isTaxonomyPage = (page: DocPage): boolean =>
   page.group === 'Syscall (2)' && Boolean(page.subsystem);
 
-const buildTaxonomyNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
+const buildSubsystemNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
   const bySubsystem = new Map<string, DocPage[]>();
   for (const page of pages) {
     if (!page.subsystem) {
@@ -144,6 +146,13 @@ const buildTaxonomyNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNod
       ),
     );
   });
+};
+
+const buildTaxonomyNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
+  const subsystems = buildSubsystemNodes(pages);
+  return subsystems.length > 0
+    ? [groupNode(DOC_SYSCALLS_KEY, DOC_SYSCALLS_LABEL, subsystems)]
+    : [];
 };
 
 const buildGroupNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
@@ -228,7 +237,7 @@ export const flattenDocTree = (
 
 export const docTreeAncestorKeys = (page: DocPage): readonly string[] => {
   if (isTaxonomyPage(page) && page.subsystem) {
-    const keys = [taxonomyKey(page.subsystem)];
+    const keys = [DOC_SYSCALLS_KEY, taxonomyKey(page.subsystem)];
     if (page.subsystem === 'proc' && page.category) {
       keys.push(taxonomyKey(page.subsystem, page.category));
     }
