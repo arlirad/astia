@@ -42,6 +42,11 @@ namespace astia::proc::syscalls {
             }
             for (;;) {
                 arch::interrupt_guard gate;
+                if (self->cancellation_pending()) {
+                    owner->remove_signal_waiter(self);
+                    self->signal_restore_mask(previous_mask);
+                    co_return -EINTR;
+                }
                 if (self->signals().has_unblocked_pending() ||
                     owner->signals().has_pending_for(~self->signals().blocked()))
                     break;

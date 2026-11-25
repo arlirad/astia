@@ -19,7 +19,11 @@ namespace astia::proc::syscalls {
                 return -ESRCH;
             target->request_cancellation();
             target->wake_join_for_cancellation();
-            (void) futex_interrupt_thread(target.get());
+            const bool futex_woken = futex_interrupt_thread(target.get());
+            if (!futex_woken && target->state() == thread_state::blocked) {
+                (void) target->wake_wait();
+                (void) scheduler::wake(target.get());
+            }
             return 0;
         }
     };

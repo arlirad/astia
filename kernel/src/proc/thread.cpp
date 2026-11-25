@@ -270,6 +270,14 @@ namespace astia::proc {
         _async_wait_handle = continuation;
     }
 
+    bool thread::arm_wait_unless_cancelled(std::coroutine_handle<> continuation) {
+        arch::interrupt_spinlock_guard guard(_wait_lock);
+        if (cancellation_pending())
+            return false;
+        _async_wait_handle = continuation;
+        return true;
+    }
+
     bool thread::wake_wait() {
         std::coroutine_handle<> continuation{};
         {

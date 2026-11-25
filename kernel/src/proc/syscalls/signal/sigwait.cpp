@@ -37,7 +37,12 @@ namespace astia::proc::syscalls {
             }
             for (;;) {
                 arch::interrupt_guard gate;
-                signal_number         signal = self->signals().take_matching(mask);
+                if (self->cancellation_pending()) {
+                    owner->remove_signal_waiter(self);
+                    self->signals().set_blocked(previous_mask);
+                    co_return -EINTR;
+                }
+                signal_number signal = self->signals().take_matching(mask);
                 if (!valid_signal(signal))
                     signal = owner->signals().take_matching(mask);
                 if (valid_signal(signal)) {
