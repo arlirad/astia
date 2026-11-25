@@ -12,6 +12,12 @@ namespace astia::arch::aarch64::timer {
             return static_cast<u32>(value);
         }
 
+        [[nodiscard]] u64 read_count() {
+            u64 value = 0;
+            __asm__ volatile("mrs %0, cntpct_el0" : "=r"(value));
+            return value;
+        }
+
         void write_control(u32 value) {
             __asm__ volatile("msr cntp_ctl_el0, %0" : : "r"(u64{value}) : "memory");
             isb();
@@ -73,6 +79,14 @@ namespace astia::arch::aarch64::timer {
         u64 value = 0;
         __asm__ volatile("mrs %0, cntp_ctl_el0" : "=r"(value));
         return static_cast<u32>(value);
+    }
+
+    u64 now_ms() {
+        u64 ms = 0;
+        if (!count_to_ms(read_count(), read_frequency(), ms)) {
+            return 0;
+        }
+        return ms;
     }
 
 } // namespace astia::arch::aarch64::timer
