@@ -86,6 +86,11 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
     }
 }
 
+static void ld_close(long fd) {
+    if (fd >= 0)
+        (void) aio_op(OP_CLOSE, (int32_t) fd, 0, 0, 0, 0, 0);
+}
+
 static long ld_open(const char* path) {
     return aio_op(OP_OPENAT, AT_FDCWD, ASTIA_AIO_O_RDONLY, 0, (uint64_t) (uintptr_t) path,
                   0, 0);
@@ -236,7 +241,8 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
         if (type == LD_R_NONE)
             continue;
         if (type == LD_R_RELATIVE) {
-            *where = module->base + (uint64_t) entry->r_addend;
+            // The kernel applied RELATIVE relocations when it mapped the
+            // image; writing them again can fault on a read-only PT_LOAD.
             continue;
         }
         if (type == LD_R_TPOFF64 || type == LD_R_TPOFF32) {
@@ -435,8 +441,10 @@ uint64_t ld_main(uint64_t* sp) {
             if (fd < 0)
                 astia_exit(113);
 
-            astia_dl_info info = {0};
-            if (astia_dlmap((int32_t) fd, 0, &info) < 0)
+            astia_dl_info info   = {0};
+            const long    mapped = astia_dlmap((int32_t) fd, 0, &info);
+            ld_close(fd);
+            if (mapped < 0)
                 astia_exit(114);
 
             int seen = 0;

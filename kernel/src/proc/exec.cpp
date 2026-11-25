@@ -220,6 +220,7 @@ namespace astia::proc {
             const u64 align = image.tls_align == 0 ? 1 : image.tls_align;
             if (image.tls_filesz > image.tls_memsz || !is_power_of_two(align) ||
                 !checked_align_up(image.tls_memsz, align, tls_span) ||
+                tls_span > user_address_limit - user_tls_base ||
                 tls_span > ~u64{0} - user_tls_tcb_headroom ||
                 tls_span + user_tls_tcb_headroom > ~u64{0} - (elf::loader::page_size - 1))
                 return false;
