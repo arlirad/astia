@@ -91,8 +91,11 @@ namespace astia::proc {
         // A reserved mapping is in the VMA list only to claim its address
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.
-        bool             pending      = false;
-        bool             stack        = false;
+        bool pending = false;
+        bool stack   = false;
+        /// A lazy region whose untouched pages fault in zeroed on first
+        /// access; kept on the VMA so clones inherit the same behaviour.
+        bool             demand_zero  = false;
         usize            mapped_pages = 0;
         bool             holds_ref    = false;
         mm::phys_region* backing      = nullptr;

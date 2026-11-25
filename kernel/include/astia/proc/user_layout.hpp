@@ -26,8 +26,9 @@ namespace astia::proc {
 
     /// Space reserved below the payload's static TLS block for the static TLS
     /// blocks of interpreted shared objects.  The interpreter lays them out
-    /// downward from `user_tls_base`; the block is mapped writable for the
-    /// whole span so thread clones carry them too.
+    /// downward from `user_tls_base`; the kernel keeps the span as address
+    /// space and materialises only the pages a probe or template copy
+    /// touches, so an unused reserve costs no frames.
     inline constexpr u64 user_dso_tls_reserve = 64_kib;
 
     static_assert(user_tls_base - user_dso_tls_reserve >=

@@ -6,6 +6,7 @@ add_library(proc STATIC
         proc.cpp
         process.cpp
         exec.cpp
+        tls_arena.cpp
         exec_hooks.cpp
         fork.cpp
         mmap.cpp

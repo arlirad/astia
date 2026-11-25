@@ -79,6 +79,11 @@ namespace astia::mm {
             return _pages;
         }
 
+        /// True when pages are materialised individually on demand.
+        bool lazy() const {
+            return _page_bases != nullptr;
+        }
+
         /// Physical base of a page, or invalid_frame when a lazy page has
         /// not been materialized yet.
         u64 page_base(usize index) const;

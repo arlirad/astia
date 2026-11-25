@@ -1228,41 +1228,42 @@ namespace astia::proc {
         if (!free) {
             return false;
         }
-        // Share the process TLS image and let each side copy-on-write.  A
-        // thread that never writes TLS costs no frames, and the template's
-        // initialized values are what a new thread must start with.
-        if (!source->backing->share_range(source->region_page, source->pages))
+        // Give the thread its own lazy TLS image: only pages the process has
+        // already materialised are copied, the unused reserve stays
+        // demand-zero.  Sharing the region itself would require lazy page
+        // references, and each thread needs a private copy of the template
+        // anyway for its own errno and TLS variables.
+        auto* copy = mm::phys_region::create_lazy(source->pages);
+        if (copy == nullptr)
             return false;
-        const auto read_only = mm::mapping_flags::present | mm::mapping_flags::user |
-                               mm::mapping_flags::no_execute;
+        const usize tp_index = source->region_page +
+                               static_cast<usize>((_tls_tp - source->base) / page_bytes);
         for (usize page = 0; page < source->pages; ++page) {
-            const u64 virt = source->base + page * page_bytes;
-            if (_address_space.translate(virt) != mm::address_space::invalid)
-                (void) _address_space.protect_4k(virt, read_only);
+            const bool materialized =
+                source->backing->page_base(page) != mm::frame_allocator::invalid_frame;
+            if (!materialized && page != tp_index)
+                continue;
+            if (!copy->ensure_page(page, true)) {
+                copy->release();
+                return false;
+            }
+            if (materialized)
+                __builtin_memcpy(copy->page_direct(page),
+                                 source->backing->page_direct(page), page_bytes);
         }
         u64 installed = 0;
         if (!install_mapping(base, source->pages,
-                             map_protection::read | map_protection::write,
-                             source->backing, {}, 0, installed, source->region_page,
-                             false, false, base, /*cow=*/true)) {
-            source->backing->release_range(source->region_page, source->pages);
+                             map_protection::read | map_protection::write, copy, {}, 0,
+                             installed, 0, false, false, base, /*cow=*/false)) {
+            copy->release();
             return false;
         }
-        // The thread pointer's self-reference is the one word that is always
-        // per thread; copying its page first keeps every other page shared.
-        fs_base = base + (_tls_tp - source->base);
-        if (!cow_fault(fs_base, true)) {
-            (void) unmap(base, source->pages * page_bytes);
-            return false;
-        }
-        const u64 phys = _address_space.translate(fs_base);
-        if (phys == mm::address_space::invalid) {
-            (void) unmap(base, source->pages * page_bytes);
-            return false;
-        }
-        auto* tcb =
-            static_cast<u8*>(mm::kernel_frames().to_virt(phys & ~(page_bytes - 1)));
-        *reinterpret_cast<u64*>(tcb + (fs_base & (page_bytes - 1))) = fs_base;
+        // The thread pointer's self-reference is per thread; its page was
+        // materialised above so it cannot be a demand-zero mapping.
+        fs_base   = base + (_tls_tp - source->base);
+        auto* tcb = static_cast<u8*>(copy->page_direct(tp_index)) +
+                    ((fs_base - base) % page_bytes);
+        *reinterpret_cast<u64*>(tcb) = fs_base;
 
         mapping_base  = base;
         mapping_pages = source->pages;

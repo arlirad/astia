@@ -915,6 +915,16 @@ astia_add_arena_test(astia_phys_region_test
         support/interrupts_host.cpp
 )
 
+# proc TLS arena: the DSO reserve is address space until a probe touches it.
+astia_add_arena_test(astia_tls_arena_test
+        tls_arena_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/tls_arena.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/phys_region.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
+)
+
 astia_add_arena_test(astia_ext4_vfs_test
         ext4_vfs_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
