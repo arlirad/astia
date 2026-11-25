@@ -36,7 +36,7 @@ namespace astia::arch::aarch64::timer {
     }
 
     error arm_interval(u32 ticks, u32& control) {
-        if (ticks == 0 || ticks > tval_max_positive) {
+        if (!valid_interval(ticks)) {
             return error::interval_unrepresentable;
         }
 

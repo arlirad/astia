@@ -60,6 +60,10 @@ namespace astia::arch::aarch64::timer {
         return true;
     }
 
+    [[nodiscard]] constexpr bool valid_interval(u32 ticks) {
+        return ticks != 0 && ticks <= tval_max_positive;
+    }
+
     struct arm_result {
         u32 frequency_hz = 0;
         u32 ticks        = 0;

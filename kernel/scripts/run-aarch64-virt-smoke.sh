@@ -241,15 +241,50 @@ grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER RETURNED' "$log" ||
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER TICK OK' "$log" ||
     die "periodic timer tick verification did not complete"
 awk '
-    /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ { armed = NR }
-    /irq: iar=0x0000001e/ { if (!ack) ack = NR }
-    /ASTIA AARCH64 VIRT BOOT: TIMER HANDLED/ { handled = NR }
-    /ASTIA AARCH64 VIRT BOOT: TIMER RETURNED/ { returned = NR }
-    /ASTIA AARCH64 VIRT BOOT: TIMER TICK OK/ { tick_ok = NR }
-    /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR }
+    /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ { armed = NR; next }
+    /irq: iar=0x0000001e/ {
+        if (state != 0 || handled >= 5) bad = 1
+        if (!first_ack) first_ack = NR
+        state = 1
+        next
+    }
+    /irq: eoi=0x0000001e/ {
+        if (state != 1) bad = 1
+        state = 2
+        next
+    }
+    /irq: dir=0x0000001e/ {
+        if (state != 2) bad = 1
+        state = 3
+        next
+    }
+    /irq: timer=0x0000001e/ {
+        if (state != 3) bad = 1
+        state = 4
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: TIMER HANDLED/ {
+        if (state != 4) bad = 1
+        handled++
+        last_handled = NR
+        state = 0
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: TIMER RETURNED/ {
+        if (state != 0) bad = 1
+        returned = NR
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: TIMER TICK OK/ {
+        if (state != 0) bad = 1
+        tick_ok = NR
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR; next }
     END {
-        exit !(armed && ack && handled && returned && tick_ok && brk &&
-               armed < ack && ack < handled && handled < returned &&
+        exit !(armed && first_ack && returned && tick_ok && brk &&
+               handled == 5 && !bad && state == 0 &&
+               armed < first_ack && last_handled < returned &&
                returned < tick_ok && tick_ok < brk)
     }
 ' "$log" || die "timer proof markers are out of order"

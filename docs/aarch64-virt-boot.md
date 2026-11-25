@@ -764,6 +764,9 @@ counter reaches the budget, masks IRQs, and requires exactly five handled
 timer interrupts with no failed re-arm before printing `TIMER RETURNED` and
 `TIMER TICK OK`. The deliberate BRK64 fatal proof follows immediately. A
 missing, failed, or extra timer interrupt is a printed failure, not a hang.
+The smoke runner asserts the five per-tick `IAR`/`EOIR`/`DIR`/`HANDLED` blocks
+with a state machine, and the interval bounds are covered on the host by the
+pure `timer::valid_interval` predicate.
 
 Explicit timer non-goals: repeating timers beyond the fixed five-tick proof,
 `CNTV*` virtual timers, EL2/EL3 timers, timer queues, deadline scheduling,

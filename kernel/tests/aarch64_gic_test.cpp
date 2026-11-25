@@ -125,6 +125,13 @@ ASTIA_TEST(aarch64_timer_periodic_policy) {
     ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
     ASTIA_CHECK(ticks > 0);
     ASTIA_CHECK(ticks <= timer::tval_max_positive);
+
+    ASTIA_CHECK(!timer::valid_interval(0));
+    ASTIA_CHECK(timer::valid_interval(1));
+    ASTIA_CHECK(timer::valid_interval(timer::tval_max_positive));
+    ASTIA_CHECK(!timer::valid_interval(timer::tval_max_positive + 1));
+    ASTIA_CHECK(!timer::valid_interval(0x80000000U));
+    ASTIA_CHECK(!timer::valid_interval(0xffffffffU));
 }
 
 ASTIA_TEST(aarch64_gic_register_policy) {
