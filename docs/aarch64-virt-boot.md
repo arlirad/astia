@@ -6,8 +6,8 @@ a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
 driver model, a full generic IRQ subsystem, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
 boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, and a bounded
-EL1 physical-timer PPI 30 proof, but it does not expose an SPI/device IRQ
-subsystem or a periodic tick.
+five-tick EL1 physical-timer PPI 30 proof, but it does not expose an
+SPI/device IRQ subsystem, a scheduler tick service, or a timer queue.
 
 ## Target and boundary
 
@@ -54,18 +54,21 @@ The stage does exactly this:
     `ICC_IAR1_EL1`, complete it with `ICC_EOIR1_EL1` plus `ICC_DIR_EL1`
     (`EOImode == 1`), return with `ERET`, and verify the handler ran exactly
     once.
-13. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30,
-    unmask IRQs, wait with a bounded spin, mask IRQs, and verify exactly one
-    timer interrupt was acknowledged, handled, completed, and returned from.
+13. With IRQs masked, arm one bounded EL1 physical-timer one-shot on PPI 30
+    and re-arm it inside the registered handler for a fixed five-tick budget.
+    Each re-arm happens before `EOIR`/`DIR` so the level-sensitive source is
+    deasserted. Unmask IRQs, wait with a bounded spin, mask IRQs, and verify
+    exactly five timer interrupts were acknowledged, handled, completed, and
+    returned from.
 14. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
 
 Explicit non-goals: scheduler, full virtual-memory management, user address
 spaces, cache maintenance policy, a full generic IRQ subsystem, SPI or device
-IRQ dispatch, a generic timer abstraction, periodic tick or timer queue, other
-PPI/SPI drivers, external device interrupts, modules, userspace, SMP,
-secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
+IRQ dispatch, a generic timer abstraction, a scheduler tick service or timer
+queue, other PPI/SPI drivers, external device interrupts, modules, userspace,
+SMP, secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
 generic-kernel boot.
 
 ## Direct ELF boot contract
@@ -649,10 +652,11 @@ fit in the 128-byte slot. The trampoline:
 The IRQ handler reads `ICC_IAR1_EL1` once and preserves the complete value for
 the `ICC_EOIR1_EL1` priority drop. It dispatches the registered local handler
 for the acknowledged INTID before writing `ICC_EOIR1_EL1` (priority drop)
-followed by `ICC_DIR_EL1` (deactivation). For PPI 30 the timer handler first
-disables and masks the timer and moves the compare point to a bounded positive
-value, so the level-sensitive source is deasserted before EOIR/DIR and does
-not re-fire. INTID 1023 is the architectural spurious value and returns
+followed by `ICC_DIR_EL1` (deactivation). For PPI 30 the timer handler either
+re-arms the next bounded positive TVAL or, on the final tick, disables and
+masks the timer and moves the compare point to a bounded positive value. Both
+paths run before EOIR/DIR, so the level-sensitive source is deasserted and
+does not re-fire. INTID 1023 is the architectural spurious value and returns
 without EOI; every unregistered local INTID, SPI, extended PPI, and special
 INTID 1020-1022 is fatal and halts through PSCI `SYSTEM_OFF`. All other vector
 slots remain the existing deterministic fatal stubs.
@@ -679,8 +683,9 @@ to `ICC_DIR_EL1` for deactivation (`EOImode == 1`). A handler for a
 level-sensitive source must make that source inactive before returning,
 because the priority drop happens before deactivation and an asserted level
 would otherwise leave the interrupt active-and-pending. The timer handler
-therefore disables and masks `CNTP_CTL_EL0` and moves the compare point before
-returning; the SGI handler only counts the event.
+therefore re-arms a positive interval, or disables and masks `CNTP_CTL_EL0`
+and moves the compare point on the final tick, before returning; the SGI
+handler only counts the event.
 
 INTIDs 0-15 are SGIs, 16-31 are PPIs, 32-1019 are SPIs, and 1020-1023 are
 special (IHI 0069G Table 2-1, §2.2). Only a registered INTID in 0-31 is
@@ -695,8 +700,9 @@ and any generic IRQ abstraction.
 
 ### EL1 physical timer PPI 30
 
-The stage now proves one bounded, one-shot EL1 physical-timer interrupt. It is
-not a timer subsystem: there is no periodic tick, timer queue, scheduler
+The stage now proves one bounded, five-tick EL1 physical-timer interrupt
+sequence with the re-arm inside the registered handler. It is not a timer
+subsystem or a scheduler tick source: there is no timer queue, scheduler
 interaction, generic timer abstraction, or EL0 access.
 
 The interrupt contract is:
@@ -713,10 +719,11 @@ The interrupt contract is:
   §D24.10.22).
 - Arming uses `CNTP_TVAL_EL0` rather than `CNTP_CVAL_EL0`. A TVAL write sets
   `CNTP_CVAL_EL0 = CNTPCT_EL0 + SignExtend(TimerValue[31:0])`, so the policy
-  accepts only a positive interval below `0x8000_0000` and derives it from
-  `CNTFRQ_EL0` with checked 64-bit arithmetic (DDI 0487 M.d §D12.2.4.2,
-  §D24.10.24). A zero frequency or unrepresentable interval fails before any
-  sysreg write.
+  accepts only a positive interval below `0x8000_0000` (DDI 0487 M.d
+  §D12.2.4.2, §D24.10.24). A zero frequency or unrepresentable interval fails
+  before any sysreg write. `timer::arm_interval` rejects `ticks == 0` and
+  `ticks > timer::tval_max_positive` with `interval-unrepresentable` before
+  any sysreg write; the one-shot path derives ticks and delegates to it.
 - The fixed interval is 10 ms (`timer::one_shot_interval_ms`). Ticks are
   `ceil(frequency_hz * 10 / 1000)` with overflow and `INT32_MAX` checks. On
   QEMU `cortex-a57`, `CNTFRQ_EL0 = 0x03B9_ACA0` (62.5 MHz) and the interval is
@@ -725,10 +732,19 @@ The interrupt contract is:
   then writes `ENABLE = 1, IMASK = 0`, with `ISB` after each timer system
   register write. The read-back control line records `ENABLE`, `IMASK`, and
   the observed `ISTATUS`.
-- On acknowledge, the handler disables and masks the timer and moves the
-  compare point to the maximum positive TVAL before any priority drop. This
-  deasserts the level source, so `EOIR`/`DIR` cannot leave the PPI active and
-  pending. The timer is not masked or disabled after EOI.
+- On acknowledge, the handler counts the tick and asks
+  `timer::next_tick_action(handled_before, timer::periodic_tick_budget)`, where
+  `handled_before` is the count before the current tick and the budget is five
+  (`timer::periodic_tick_budget`). For `handled_before` 0-3 it re-arms the next
+  10 ms interval with `timer::arm_interval`; for `handled_before` 4 it returns
+  `tick_action::stop` and the handler disables and masks the timer and moves
+  the compare point to the maximum positive TVAL. A zero budget or
+  `handled_before >= budget` also stops, and the last permitted tick stops
+  rather than re-arming. Both branches run inside the handler before any
+  priority drop. This deasserts the level source, so `EOIR`/`DIR` cannot leave
+  the PPI active and pending. The timer is not masked or disabled after EOI.
+  A rejected re-arm disables the timer and records a printed failure instead of
+  retrying.
 - `ICC_CTLR_EL1.EOImode == 1` splits the completion: the write to
   `ICC_EOIR1_EL1` drops priority and the write to `ICC_DIR_EL1` deactivates
   the interrupt. The entire `ICC_IAR1_EL1` value is preserved for the EOIR
@@ -741,17 +757,22 @@ The interrupt contract is:
   existing GIC barriers.
 
 The boot path proves this sequence: after the self-SGI proof and with IRQs
-masked, it prints the PPI and frequency/interval diagnostics, arms the
-one-shot, prints `TIMER ARMED`, unmasks IRQs, waits with a bounded `YIELD`
-loop for the timer counter, masks IRQs, and requires exactly one handled
-timer interrupt before printing `TIMER RETURNED` and `TIMER PPI OK`. The
-deliberate BRK64 fatal proof follows immediately. A missing or repeated timer
-interrupt is a printed failure, not a hang.
+masked, it prints the PPI, frequency/interval, and
+`timer: tick-budget=0x00000005` diagnostics, arms the one-shot, prints
+`TIMER ARMED`, unmasks IRQs, waits with a bounded `YIELD` loop until the timer
+counter reaches the budget, masks IRQs, and requires exactly five handled
+timer interrupts with no failed re-arm before printing `TIMER RETURNED` and
+`TIMER TICK OK`. The deliberate BRK64 fatal proof follows immediately. A
+missing, failed, or extra timer interrupt is a printed failure, not a hang.
+The smoke runner asserts the five per-tick `IAR`/`EOIR`/`DIR`/`HANDLED` blocks
+with a state machine, and the interval bounds are covered on the host by the
+pure `timer::valid_interval` predicate.
 
-Explicit timer non-goals: periodic/repeating timers, `CNTV*` virtual timers,
-EL2/EL3 timers, timer queues, deadline scheduling, broadcast timers, CPU
-hotplug/PSCI timer state, `WFI`-based idle, and SPI registration. The local
-table is intentionally SGI/PPI-only.
+Explicit timer non-goals: repeating timers beyond the fixed five-tick proof,
+`CNTV*` virtual timers, EL2/EL3 timers, timer queues, deadline scheduling,
+scheduler tick service, broadcast timers, CPU hotplug/PSCI timer state,
+`WFI`-based idle, and SPI registration. The local table is intentionally
+SGI/PPI-only.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -842,9 +863,9 @@ vector-table base and all 16 slot offsets, the GICv3 DTB windows, the matched
 redistributor affinity, `GICD_CTLR` `DS`/`ARE_NS`/`EnableGrp1NS`, the
 CPU-interface `SRE`/`DIB`/`DFB`/`PMR`/`BPR1`/`EOImode`/`IGRPEN1` state, the
 reserved self-SGI ID, the local registration marker and IDs, the timer PPI
-30/frequency/arm and `CNTP_CTL_EL0` state, both handlers'
-`IAR1`/`EOIR1`/`DIR` values, the single timer-handled proof, the IRQ returns,
-the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
+30/frequency/tick-budget/arm and `CNTP_CTL_EL0` state, both handlers'
+`IAR1`/`EOIR1`/`DIR` values, the five-tick timer-handled proof, the IRQ
+returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
 `FAR_EL1`, and the clean exception halt. It runs QEMU with
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
@@ -877,10 +898,11 @@ lift must be recorded here with the exact source and rework.
   stubs. There is no recovery, no user fault handling, and no FIQ/SError
   dispatch.
 - No external SPI, other PPI, or device driver interrupts. The only timer is
-  a single 10 ms one-shot on PPI 30; there is no periodic tick, timer queue,
-  or virtual timer. The local dispatch table is a fixed boot-CPU SGI/PPI
-  foundation, not a generic IRQ subsystem: no SPI dispatch, no dynamic
-  registration, no per-CPU tables, and no scheduler interaction.
+  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has no
+  scheduler binding, timer queue, or virtual timer. The local dispatch table
+  is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ subsystem: no SPI
+  dispatch, no dynamic registration, no per-CPU tables, and no scheduler
+  interaction.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at

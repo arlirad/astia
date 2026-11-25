@@ -30,8 +30,10 @@ namespace {
     namespace timer  = astia::arch::aarch64::timer;
 
     struct local_irq_state {
-        volatile astia::u32 self_sgi_count = 0;
-        volatile astia::u32 timer_count    = 0;
+        volatile astia::u32 self_sgi_count     = 0;
+        volatile astia::u32 timer_count        = 0;
+        astia::u32          timer_ticks        = 0;
+        volatile bool       timer_rearm_failed = false;
     };
 
     void handle_self_sgi(void* context) {
@@ -40,9 +42,20 @@ namespace {
     }
 
     void handle_timer(void* context) {
-        timer::disable_and_clear();
-        auto* state        = static_cast<local_irq_state*>(context);
-        state->timer_count = state->timer_count + 1;
+        auto*            state   = static_cast<local_irq_state*>(context);
+        const astia::u32 handled = state->timer_count;
+        state->timer_count       = handled + 1;
+        if (timer::next_tick_action(handled, timer::periodic_tick_budget) ==
+            timer::tick_action::rearm) {
+            astia::u32 control = 0;
+            if (timer::arm_interval(state->timer_ticks, control) != timer::error::none) {
+                timer::disable_and_clear();
+                state->timer_rearm_failed = true;
+            }
+        }
+        else {
+            timer::disable_and_clear();
+        }
     }
 
     constexpr page_flags ram_flags =
@@ -572,23 +585,29 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_bit(console, " imask=", armed.control, 1);
     write_bit(console, " istatus=", armed.control, 2);
     console.write_line("");
+    local_irqs.timer_ticks = armed.ticks;
+    write_line_field(console, "timer: tick-budget=", timer::periodic_tick_budget, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER ARMED");
 
     __asm__ volatile("msr daifclr, #2" : : : "memory");
     __asm__ volatile("isb" : : : "memory");
     constexpr astia::u32 timer_spin_limit = 100000000;
     astia::u32           timer_spin       = 0;
-    while (local_irqs.timer_count == 0 && timer_spin < timer_spin_limit) {
+    while (local_irqs.timer_count != timer::periodic_tick_budget &&
+           timer_spin < timer_spin_limit) {
         __asm__ volatile("yield" : : : "memory");
         ++timer_spin;
     }
     __asm__ volatile("msr daifset, #2" : : : "memory");
     __asm__ volatile("isb" : : : "memory");
-    if (local_irqs.timer_count != 1) {
-        fail(console, "timer PPI was not handled exactly once");
+    if (local_irqs.timer_rearm_failed) {
+        fail(console, "EL1 physical timer periodic re-arm failed");
+    }
+    if (local_irqs.timer_count != timer::periodic_tick_budget) {
+        fail(console, "periodic timer tick budget was not handled");
     }
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
-    console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER PPI OK");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER TICK OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
     write_line_field(console, "exception: far-seed=", brk_far_sentinel, 16);
