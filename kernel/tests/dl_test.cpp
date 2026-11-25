@@ -1,5 +1,4 @@
 #include "dl/dl.hpp"
-
 #include "support/test.hpp"
 
 namespace {
