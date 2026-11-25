@@ -1,6 +1,5 @@
 import type { DocPage } from './docs.model';
 
-export const DOC_TREE_ALL = 'all';
 export const DOC_SYSCALLS_KEY = 'taxonomy:syscalls';
 export const DOC_SYSCALLS_LABEL = 'Syscalls (2)';
 export const DOC_SUBSYSTEM_ORDER = ['proc', 'fs', 'abi', 'dl'] as const;
@@ -54,17 +53,6 @@ export const pageMatches = (page: DocPage, query: string): boolean => {
     `${page.title} ${page.group} ${page.subsystem ?? ''} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
     `${page.synopsisKind ?? ''} ${page.summary}`;
   return searchable.toLowerCase().includes(query);
-};
-
-export const taxonomyMatches = (
-  page: DocPage,
-  subsystem: string,
-  category: string,
-): boolean => {
-  if (subsystem !== DOC_TREE_ALL && page.subsystem !== subsystem) {
-    return false;
-  }
-  return category === DOC_TREE_ALL || page.category === category;
 };
 
 const rank = (name: string, order: readonly string[]): number => {
