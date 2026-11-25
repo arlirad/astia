@@ -137,7 +137,7 @@ export class GitHubDocsSource implements DocsSource {
       encodeURIComponent(this.config.repo),
       'blob',
       encodeSegments(this.config.ref),
-      encodePath(page.sourcePath),
+      encodePath(page.implementationPath ?? page.sourcePath),
     ].join('/');
   }
 

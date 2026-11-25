@@ -26,6 +26,22 @@ describe('Application routes', () => {
           }),
         );
       }
+      if (url.endsWith('/docs/2/io_setup.md')) {
+        return Promise.resolve(
+          new Response(
+            '# io_setup(2)\n\n## DESCRIPTION\n\nCreate an asynchronous I/O ring.\n\n## RETURN VALUE\n\nReturns zero.\n\n## ERRORS\n\n- `-EINVAL`: Invalid arguments.',
+            { status: 200 },
+          ),
+        );
+      }
+      if (url.endsWith('/docs/2/uname.md')) {
+        return Promise.resolve(
+          new Response(
+            '# uname(2)\n\n## DESCRIPTION\n\nRead the system identity.\n\n## RETURN VALUE\n\nReturns zero.\n\n## ERRORS\n\n- `-EFAULT`: Invalid output.',
+            { status: 200 },
+          ),
+        );
+      }
       return Promise.resolve(
         new Response('long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out) {\n  return 0;\n}', {
           status: 200,
@@ -99,7 +115,7 @@ describe('Application routes', () => {
     );
   });
 
-  it('renders a deep-linked section-2 syscall page', async () => {
+  it('renders a deep-linked authored section-2 syscall page', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/documentation/syscall-0-io-setup', DocumentationPage);
     await settle(harness);
@@ -109,10 +125,37 @@ describe('Application routes', () => {
       'io_setup(2)',
     );
     expect(element.querySelector('.doc-markdown')?.textContent).toContain(
-      'REPOSITORY SOURCE',
+      'Create an asynchronous I/O ring.',
     );
     expect(element.querySelector('.doc-markdown')?.textContent).toContain(
-      'astia_io_setup',
+      'RETURN VALUE',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).not.toContain(
+      'REPOSITORY SOURCE',
+    );
+    expect(element.querySelector('.docs-source')?.getAttribute('href')).toContain(
+      'kernel/src/fs/syscalls/io_setup.cpp',
+    );
+  });
+
+  it('serves syscall-70 uname on its stable route', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation/syscall-70-uname', DocumentationPage);
+    await settle(harness);
+    const element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'uname(2)',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain(
+      'Read the system identity.',
+    );
+    expect(element.querySelector('.doc-markdown')?.textContent).toContain('ERRORS');
+    expect(element.querySelector('.doc-markdown')?.textContent).not.toContain(
+      'REPOSITORY SOURCE',
+    );
+    expect(element.querySelector('.docs-source')?.getAttribute('href')).toBe(
+      'https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/uname.cpp',
     );
   });
 

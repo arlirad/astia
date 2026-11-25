@@ -10,6 +10,7 @@ export interface DocPage {
   readonly summary: string;
   readonly sourcePath: string;
   readonly contentKind: DocContentKind;
+  readonly implementationPath?: string;
   readonly aliases?: readonly string[];
   readonly category?: string;
   readonly syscallId?: number;
