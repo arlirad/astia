@@ -107,6 +107,26 @@ ASTIA_TEST(aarch64_timer_ppi_policy) {
     ASTIA_CHECK(!timer::one_shot_ticks(0xffffffffU, 0xffffffffU, ticks));
 }
 
+ASTIA_TEST(aarch64_timer_periodic_policy) {
+    ASTIA_CHECK(timer::periodic_tick_budget == 5U);
+    ASTIA_CHECK(timer::next_tick_action(0, timer::periodic_tick_budget) ==
+                timer::tick_action::rearm);
+    ASTIA_CHECK(timer::next_tick_action(3, timer::periodic_tick_budget) ==
+                timer::tick_action::rearm);
+    ASTIA_CHECK(timer::next_tick_action(4, timer::periodic_tick_budget) ==
+                timer::tick_action::stop);
+    ASTIA_CHECK(timer::next_tick_action(5, timer::periodic_tick_budget) ==
+                timer::tick_action::stop);
+    ASTIA_CHECK(timer::next_tick_action(0, 0) == timer::tick_action::stop);
+    ASTIA_CHECK(timer::next_tick_action(6, timer::periodic_tick_budget) ==
+                timer::tick_action::stop);
+
+    u32 ticks = 0;
+    ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(ticks > 0);
+    ASTIA_CHECK(ticks <= timer::tval_max_positive);
+}
+
 ASTIA_TEST(aarch64_gic_register_policy) {
     ASTIA_CHECK(gicv3::redistributor_stride == 0x20000ULL);
     ASTIA_CHECK(gicv3::sgi_base_offset == 0x10000ULL);

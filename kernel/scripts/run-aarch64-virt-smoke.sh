@@ -226,33 +226,31 @@ grep -Fxq 'timer: frequency=0x03b9aca0 ticks=0x00098968' "$log" ||
     die "timer frequency/one-shot interval diagnostic is missing or unexpected"
 grep -Eq '^timer: ctl=0x0000000[15] enable=1 imask=0 istatus=[01]$' "$log" ||
     die "timer CNTP_CTL_EL0 state is missing or unexpected"
+grep -Fxq 'timer: tick-budget=0x00000005' "$log" ||
+    die "timer periodic tick budget diagnostic is missing or unexpected"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER ARMED' "$log" ||
     die "timer arm marker is missing"
-grep -Fxq 'irq: iar=0x0000001e' "$log" ||
-    die "IRQ handler did not acknowledge timer PPI 30"
-grep -Fxq 'irq: eoi=0x0000001e' "$log" ||
-    die "IRQ handler did not write EOIR1 for timer PPI 30"
-grep -Fxq 'irq: dir=0x0000001e' "$log" ||
-    die "IRQ handler did not deactivate timer PPI 30"
-grep -Fxq 'irq: timer=0x0000001e' "$log" ||
-    die "timer IRQ dispatch diagnostic is missing"
-[[ "$(grep -Fxc 'ASTIA AARCH64 VIRT BOOT: TIMER HANDLED' "$log")" -eq 1 ]] ||
-    die "timer IRQ was not handled exactly once"
+for irq_line in 'irq: iar=0x0000001e' 'irq: eoi=0x0000001e' \
+    'irq: dir=0x0000001e' 'irq: timer=0x0000001e' \
+    'ASTIA AARCH64 VIRT BOOT: TIMER HANDLED'; do
+    [[ "$(grep -Fxc "$irq_line" "$log")" -eq 5 ]] ||
+        die "expected five '$irq_line' lines"
+done
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER RETURNED' "$log" ||
     die "timer IRQ handler did not return to the interrupted context"
-grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER PPI OK' "$log" ||
-    die "timer PPI verification did not complete"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER TICK OK' "$log" ||
+    die "periodic timer tick verification did not complete"
 awk '
     /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ { armed = NR }
-    /irq: iar=0x0000001e/ { ack = NR }
+    /irq: iar=0x0000001e/ { if (!ack) ack = NR }
     /ASTIA AARCH64 VIRT BOOT: TIMER HANDLED/ { handled = NR }
     /ASTIA AARCH64 VIRT BOOT: TIMER RETURNED/ { returned = NR }
-    /ASTIA AARCH64 VIRT BOOT: TIMER PPI OK/ { proven = NR }
+    /ASTIA AARCH64 VIRT BOOT: TIMER TICK OK/ { tick_ok = NR }
     /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR }
     END {
-        exit !(armed && ack && handled && returned && proven && brk &&
+        exit !(armed && ack && handled && returned && tick_ok && brk &&
                armed < ack && ack < handled && handled < returned &&
-               returned < proven && proven < brk)
+               returned < tick_ok && tick_ok < brk)
     }
 ' "$log" || die "timer proof markers are out of order"
 grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||

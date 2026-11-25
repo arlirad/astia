@@ -35,6 +35,18 @@ namespace astia::arch::aarch64::timer {
         return "unknown";
     }
 
+    error arm_interval(u32 ticks, u32& control) {
+        if (ticks == 0 || ticks > tval_max_positive) {
+            return error::interval_unrepresentable;
+        }
+
+        write_control(ctl_disabled_masked);
+        write_tval(ticks);
+        write_control(ctl_enable);
+        control = read_control();
+        return error::none;
+    }
+
     error arm_one_shot(arm_result& result) {
         const u32 frequency = read_frequency();
         u32       ticks     = 0;
@@ -43,10 +55,12 @@ namespace astia::arch::aarch64::timer {
                                   : error::interval_unrepresentable;
         }
 
-        write_control(ctl_disabled_masked);
-        write_tval(ticks);
-        write_control(ctl_enable);
-        result = arm_result{frequency, ticks, read_control()};
+        u32         control   = 0;
+        const error arm_error = arm_interval(ticks, control);
+        if (arm_error != error::none) {
+            return arm_error;
+        }
+        result = arm_result{frequency, ticks, control};
         return error::none;
     }
 

@@ -3,9 +3,10 @@
 #include <astia/common.hpp>
 
 // Bounded EL1 physical timer contract for the QEMU virt boot stage:
-// PPI 30, Non-secure Group 1, priority 0xa0, level-sensitive, one-shot TVAL
-// below INT32_MAX.  The timer is disabled and masked before EOIR/DIR so the
-// level remains deasserted; no periodic or generic timer abstraction exists.
+// PPI 30, Non-secure Group 1, priority 0xa0, level-sensitive, positive TVAL
+// intervals below INT32_MAX.  The boot proof re-arms a bounded periodic tick
+// inside the registered handler before EOIR/DIR so the level source is
+// deasserted; no timer queue, scheduler, or generic abstraction exists.
 namespace astia::arch::aarch64::timer {
 
     inline constexpr u32 ppi_id               = 30;
@@ -15,6 +16,19 @@ namespace astia::arch::aarch64::timer {
     inline constexpr u32 ctl_disabled_masked  = ctl_imask;
     inline constexpr u32 one_shot_interval_ms = 10;
     inline constexpr u32 tval_max_positive    = 0x7fffffffu;
+    inline constexpr u32 periodic_tick_budget = 5;
+
+    enum class tick_action : u8 {
+        rearm,
+        stop,
+    };
+
+    [[nodiscard]] constexpr tick_action next_tick_action(u32 handled_ticks, u32 budget) {
+        if (budget == 0 || handled_ticks >= budget) {
+            return tick_action::stop;
+        }
+        return handled_ticks + 1 < budget ? tick_action::rearm : tick_action::stop;
+    }
 
     enum class error : u8 {
         none,
@@ -53,6 +67,7 @@ namespace astia::arch::aarch64::timer {
     };
 
     error arm_one_shot(arm_result& result);
+    error arm_interval(u32 ticks, u32& control);
     void  disable_and_clear();
     u32   read_control();
 
