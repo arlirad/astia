@@ -625,6 +625,17 @@ static void* libc_cancel_joiner(void* opaque) {
     return result;
 }
 
+static volatile int libc_cancel_sigsuspend_started;
+
+static void* libc_cancel_sigsuspend_worker(void* opaque) {
+    (void) opaque;
+    sigset_t mask;
+    sigfillset(&mask);
+    libc_cancel_sigsuspend_started = 1;
+    (void) sigsuspend(&mask);
+    return (void*) (unsigned long) 0x1357;
+}
+
 static void* libc_cancel_sem_worker(void* opaque) {
     void* result;
     (void) opaque;
@@ -2462,6 +2473,22 @@ int main(int argc, char** argv) {
         if (pthread_join(target, &result) != 0 ||
             result != (void*) (unsigned long) 0x5678)
             return 76;
+    }
+
+    /* A deferred cancellation must also wake a thread blocked in sigsuspend. */
+    {
+        pthread_t worker;
+        void*     result               = NULL;
+        libc_cancel_sigsuspend_started = 0;
+        if (pthread_create(&worker, NULL, libc_cancel_sigsuspend_worker, NULL) != 0)
+            return 167;
+        while (!libc_cancel_sigsuspend_started)
+            sched_yield();
+        for (int i = 0; i < 4; ++i)
+            sched_yield();
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x1357)
+            return 168;
     }
 
     {

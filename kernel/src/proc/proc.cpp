@@ -519,7 +519,10 @@ namespace astia::proc {
                 return false;
             }
             bool await_suspend(std::coroutine_handle<> continuation) {
-                self.arm_wait(continuation);
+                if (!self.arm_wait_unless_cancelled(continuation)) {
+                    arch::cpu::interrupts();
+                    return false;
+                }
                 self.state(thread_state::blocked);
                 arch::cpu::interrupts();
                 return true;
@@ -632,7 +635,8 @@ namespace astia::proc {
                 break;
             }
 
-            if (parent->signals().has_unblocked_interrupting_for(
+            if (self->cancellation_pending() ||
+                parent->signals().has_unblocked_interrupting_for(
                     self->signals().blocked())) {
                 parent->remove_waiter(self);
                 self->state(thread_state::running);
