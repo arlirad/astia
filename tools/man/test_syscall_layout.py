@@ -61,6 +61,7 @@ def check_production_layout(repository: Path) -> None:
                 "shm_unlink",
                 "thread_join",
                 "waitpid",
+                "futex",
                 "sigsuspend",
                 "sigwait",
                 "sigtimedwait",
