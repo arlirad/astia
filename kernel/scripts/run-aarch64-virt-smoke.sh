@@ -288,6 +288,24 @@ awk '
                returned < tick_ok && tick_ok < brk)
     }
 ' "$log" || die "timer proof markers are out of order"
+grep -Fxq 'deadline: capacity=0x00000008' "$log" ||
+    die "deadline capacity diagnostic is missing or unexpected"
+grep -Fxq 'deadline: scheduled=0x00000003' "$log" ||
+    die "deadline scheduled diagnostic is missing or unexpected"
+grep -Fxq 'deadline: canceled=0x00000001' "$log" ||
+    die "deadline canceled diagnostic is missing or unexpected"
+[[ "$(grep -Fxc 'deadline: fired-a=1 fired-b=1 fired-c=0' "$log")" -eq 1 ]] ||
+    die "deadline fired proof was not reported exactly once"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: DEADLINE OK' "$log" ||
+    die "deadline verification did not complete"
+awk '
+    /ASTIA AARCH64 VIRT BOOT: TIMER TICK OK/ { tick = NR }
+    /ASTIA AARCH64 VIRT BOOT: DEADLINE OK/ { deadline = NR }
+    /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR }
+    END {
+        exit !(tick && deadline && brk && tick < deadline && deadline < brk)
+    }
+' "$log" || die "deadline proof markers are out of order"
 grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||
     die "synchronous exception did not enter the current-EL SPx slot"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC' "$log" ||

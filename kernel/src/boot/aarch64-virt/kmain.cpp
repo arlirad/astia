@@ -30,21 +30,69 @@ namespace {
     namespace timer  = astia::arch::aarch64::timer;
 
     struct local_irq_state {
-        volatile astia::u32 self_sgi_count     = 0;
-        volatile astia::u32 timer_count        = 0;
-        astia::u32          timer_ticks        = 0;
-        volatile bool       timer_rearm_failed = false;
+        volatile astia::u32 self_sgi_count       = 0;
+        volatile astia::u32 timer_count          = 0;
+        astia::u32          timer_ticks          = 0;
+        volatile bool       timer_rearm_failed   = false;
+        volatile astia::u32 deadline_a           = 0;
+        volatile astia::u32 deadline_b           = 0;
+        volatile astia::u32 deadline_c           = 0;
+        volatile astia::u32 deadline_fired       = 0;
+        volatile astia::u32 deadline_order[3]    = {0, 0, 0};
+        volatile astia::u32 deadline_order_count = 0;
     };
+
+    const char* describe(timer::deadline_error value) {
+        switch (value) {
+        case timer::deadline_error::none:
+            return "none";
+        case timer::deadline_error::full:
+            return "full";
+        case timer::deadline_error::invalid_delay:
+            return "invalid-delay";
+        case timer::deadline_error::null_handler:
+            return "null-handler";
+        }
+        return "unknown";
+    }
+
+    void append_deadline_order(local_irq_state& state, astia::u32 label) {
+        const astia::u32 index = state.deadline_order_count;
+        if (index < 3) {
+            state.deadline_order[index] = label;
+            state.deadline_order_count  = index + 1;
+        }
+    }
 
     void handle_self_sgi(void* context) {
         auto* state           = static_cast<local_irq_state*>(context);
         state->self_sgi_count = state->self_sgi_count + 1;
     }
 
+    void handle_deadline_a(void* context) {
+        auto* state       = static_cast<local_irq_state*>(context);
+        state->deadline_a = state->deadline_a + 1;
+        append_deadline_order(*state, 1);
+    }
+
+    void handle_deadline_b(void* context) {
+        auto* state       = static_cast<local_irq_state*>(context);
+        state->deadline_b = state->deadline_b + 1;
+        append_deadline_order(*state, 2);
+    }
+
+    void handle_deadline_c(void* context) {
+        auto* state       = static_cast<local_irq_state*>(context);
+        state->deadline_c = state->deadline_c + 1;
+        append_deadline_order(*state, 3);
+    }
+
     void handle_timer(void* context) {
         auto*            state   = static_cast<local_irq_state*>(context);
         const astia::u32 handled = state->timer_count;
         state->timer_count       = handled + 1;
+        state->deadline_fired =
+            state->deadline_fired + timer::dispatch_due(timer::now_ms());
         if (timer::next_tick_action(handled, timer::periodic_tick_budget) ==
             timer::tick_action::rearm) {
             astia::u32 control = 0;
@@ -568,6 +616,34 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ RETURNED");
     console.write_line("ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK");
 
+    const astia::u64            deadline_base    = timer::now_ms();
+    astia::u32                  deadline_a_id    = 0;
+    astia::u32                  deadline_b_id    = 0;
+    astia::u32                  deadline_c_id    = 0;
+    const timer::deadline_error deadline_a_error = timer::schedule_deadline(
+        deadline_base, 10, handle_deadline_a, &local_irqs, deadline_a_id);
+    const timer::deadline_error deadline_b_error = timer::schedule_deadline(
+        deadline_base, 30, handle_deadline_b, &local_irqs, deadline_b_id);
+    const timer::deadline_error deadline_c_error = timer::schedule_deadline(
+        deadline_base, 20, handle_deadline_c, &local_irqs, deadline_c_id);
+    if (deadline_a_error != timer::deadline_error::none ||
+        deadline_b_error != timer::deadline_error::none ||
+        deadline_c_error != timer::deadline_error::none) {
+        console.write("deadline: error-a=");
+        console.write_line(describe(deadline_a_error));
+        console.write("deadline: error-b=");
+        console.write_line(describe(deadline_b_error));
+        console.write("deadline: error-c=");
+        console.write_line(describe(deadline_c_error));
+        fail(console, "deadline scheduling failed");
+    }
+    if (!timer::cancel_deadline(deadline_c_id)) {
+        fail(console, "deadline C cancel failed");
+    }
+    write_line_field(console, "deadline: capacity=", timer::deadline_capacity, 8);
+    write_line_field(console, "deadline: scheduled=", 3, 8);
+    write_line_field(console, "deadline: canceled=", 1, 8);
+
     write_line_field(console, "timer: ppi=", timer::ppi_id, 8);
     timer::arm_result  armed{};
     const timer::error timer_error = timer::arm_one_shot(armed);
@@ -608,6 +684,15 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     }
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER TICK OK");
+
+    if (local_irqs.deadline_a != 1 || local_irqs.deadline_b != 1 ||
+        local_irqs.deadline_c != 0 || local_irqs.deadline_fired != 2 ||
+        local_irqs.deadline_order_count != 2 || local_irqs.deadline_order[0] != 1 ||
+        local_irqs.deadline_order[1] != 2 || timer::pending_deadlines() != 0) {
+        fail(console, "deadline proof did not fire exactly A then B");
+    }
+    console.write_line("deadline: fired-a=1 fired-b=1 fired-c=0");
+    console.write_line("ASTIA AARCH64 VIRT BOOT: DEADLINE OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
     write_line_field(console, "exception: far-seed=", brk_far_sentinel, 16);
