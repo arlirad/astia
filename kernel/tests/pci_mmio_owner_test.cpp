@@ -107,10 +107,8 @@ namespace astia::arch {
 
 namespace astia::log::detail {
 
-    void put(level, char) {}
-    void prefix(level, const char*, astia::u32) {}
-    void number(level, astia::u64, unsigned, bool) {}
-    void signed_number(level, astia::i64) {}
+    void emit(level, const char*, astia::u32) {}
+    void prefix(record_builder&, level, const char*, astia::u32) {}
 
 } // namespace astia::log::detail
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+
 #include <type_traits>
 
 namespace astia::log {
@@ -55,86 +56,165 @@ namespace astia::log {
             }
         }
 
-        void put(level severity, char c);
-        void prefix(level severity, const char* context, u32 length);
-        void number(level severity, u64 value, unsigned base, bool upper);
-        void signed_number(level severity, i64 value);
+        inline constexpr u32 record_capacity = 512;
 
-        inline void write_arg(level severity, char spec, const char* value) {
+        /// One record, formatted before it is handed to the writer so a
+        /// concurrent log source cannot interleave inside it.  A record
+        /// longer than the buffer is truncated and closed with `...`.
+        class record_builder {
+            public:
+            void append(char c) {
+                if (_length < record_capacity) {
+                    _text[_length++] = c;
+                }
+                else {
+                    _overflow = true;
+                }
+            }
+
+            void append(const char* text, u32 length) {
+                for (u32 i = 0; i < length; ++i) {
+                    append(text[i]);
+                }
+            }
+
+            /// Close the record with a newline, or with `...\n` when the
+            /// body did not fit.
+            void close() {
+                if (!_overflow) {
+                    append('\n');
+                    if (!_overflow) {
+                        return;
+                    }
+                }
+                constexpr u32 ellipsis = 4;
+                _length                = record_capacity - ellipsis;
+                _text[_length + 0]     = '.';
+                _text[_length + 1]     = '.';
+                _text[_length + 2]     = '.';
+                _text[_length + 3]     = '\n';
+                _length                = record_capacity;
+            }
+
+            const char* data() const {
+                return _text;
+            }
+            u32 length() const {
+                return _length;
+            }
+
+            private:
+            char _text[record_capacity]{};
+            u32  _length   = 0;
+            bool _overflow = false;
+        };
+
+        /// Write one complete record.  The writer serialises records so
+        /// that they cannot be interleaved by another CPU or an interrupt.
+        void emit(level severity, const char* data, u32 length);
+
+        /// The `[time LEVEL] context: ` a line opens with.
+        void prefix(record_builder& record, level severity, const char* context,
+                    u32 length);
+
+        inline void number(record_builder& record, u64 value, unsigned base, bool upper) {
+            char        buffer[32];
+            u32         count  = 0;
+            const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+            do {
+                buffer[count++] = digits[value % base];
+                value /= base;
+            } while (value != 0 && count < sizeof(buffer));
+            while (count != 0) {
+                record.append(buffer[--count]);
+            }
+        }
+
+        inline void signed_number(record_builder& record, i64 value) {
+            if (value < 0) {
+                record.append('-');
+                number(record, static_cast<u64>(-(value + 1)) + 1, 10, false);
+            }
+            else {
+                number(record, static_cast<u64>(value), 10, false);
+            }
+        }
+
+        inline void write_arg(record_builder& record, char spec, const char* value) {
             if (spec == 's') {
                 if (value == nullptr) {
                     value = "(null)";
                 }
                 while (*value != '\0') {
-                    put(severity, *value++);
+                    record.append(*value++);
                 }
                 return;
             }
-            put(severity, '0');
-            put(severity, 'x');
-            number(severity, reinterpret_cast<u64>(value), 16, false);
+            record.append('0');
+            record.append('x');
+            number(record, reinterpret_cast<u64>(value), 16, false);
         }
 
-        inline void write_arg(level severity, char spec, char value) {
+        inline void write_arg(record_builder& record, char spec, char value) {
             if (spec == 'c') {
-                put(severity, value);
+                record.append(value);
             }
             else if (spec == 'd' || spec == 'i') {
-                signed_number(severity, value);
+                signed_number(record, value);
             }
             else {
-                number(severity, static_cast<u64>(static_cast<unsigned char>(value)),
+                number(record, static_cast<u64>(static_cast<unsigned char>(value)),
                        spec == 'x' || spec == 'X' ? 16 : 10, spec == 'X');
             }
         }
 
         template <typename value_type>
-        void write_arg(level severity, char spec, value_type value) {
+        void write_arg(record_builder& record, char spec, value_type value) {
             static_assert(std::is_integral_v<value_type> || std::is_pointer_v<value_type>,
                           "unsupported astia::log format argument");
             if constexpr (std::is_pointer_v<value_type>) {
-                put(severity, '0');
-                put(severity, 'x');
-                number(severity, reinterpret_cast<u64>(value), 16, false);
+                record.append('0');
+                record.append('x');
+                number(record, reinterpret_cast<u64>(value), 16, false);
             }
             else if constexpr (std::is_signed_v<value_type>) {
                 if (spec == 'd' || spec == 'i') {
-                    signed_number(severity, static_cast<i64>(value));
+                    signed_number(record, static_cast<i64>(value));
                 }
                 else {
-                    number(severity, static_cast<u64>(value),
+                    number(record, static_cast<u64>(value),
                            spec == 'x' || spec == 'X' ? 16 : 10, spec == 'X');
                 }
             }
             else {
-                number(severity, static_cast<u64>(value),
+                number(record, static_cast<u64>(value),
                        spec == 'x' || spec == 'X' ? 16 : 10, spec == 'X');
             }
         }
 
-        inline void write_format(level severity, const char* format) {
+        inline void write_format(record_builder& record, const char* format) {
             while (*format != '\0') {
                 if (*format == '%' && format[1] == '%') {
-                    put(severity, '%');
+                    record.append('%');
                     format += 2;
                 }
                 else {
-                    put(severity, *format++);
+                    record.append(*format++);
                 }
             }
         }
 
         template <typename value_type, typename... rest_types>
-        void write_format(level severity, const char* format, value_type&& value,
+        void write_format(record_builder& record, const char* format, value_type&& value,
                           rest_types&&... rest) {
             while (*format != '\0') {
                 if (*format != '%') {
-                    put(severity, *format++);
+                    record.append(*format++);
                     continue;
                 }
                 ++format;
                 if (*format == '%') {
-                    put(severity, '%');
+                    record.append('%');
                     ++format;
                     continue;
                 }
@@ -143,12 +223,12 @@ namespace astia::log {
                     ++format;
                 }
                 if (*format == '\0') {
-                    put(severity, '%');
+                    record.append('%');
                     return;
                 }
                 const char spec = *format++;
-                write_arg(severity, spec, static_cast<value_type&&>(value));
-                write_format(severity, format, static_cast<rest_types&&>(rest)...);
+                write_arg(record, spec, static_cast<value_type&&>(value));
+                write_format(record, format, static_cast<rest_types&&>(rest)...);
                 return;
             }
         }
@@ -156,9 +236,11 @@ namespace astia::log {
         template <u32 N, typename... arg_types>
         void print(level severity, const name<N>& context, const char* format,
                    arg_types&&... args) {
-            prefix(severity, context.text, name<N>::length);
-            write_format(severity, format, static_cast<arg_types&&>(args)...);
-            put(severity, '\n');
+            record_builder record;
+            prefix(record, severity, context.text, name<N>::length);
+            write_format(record, format, static_cast<arg_types&&>(args)...);
+            record.close();
+            emit(severity, record.data(), record.length());
         }
     } // namespace detail
 
