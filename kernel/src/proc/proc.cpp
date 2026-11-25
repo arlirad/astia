@@ -12,6 +12,7 @@
 
 #include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
+#include "events.hpp"
 #include "scheduler.hpp"
 
 void* operator new[](astia::usize size, void* where) noexcept;

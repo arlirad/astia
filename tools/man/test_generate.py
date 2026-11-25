@@ -101,6 +101,8 @@ class GenerateTest(unittest.TestCase):
         'shm_unlink': 'kernel/include/astia/api/syscalls.h',
         'fchdir': 'kernel/include/astia/api/syscalls.h',
         'uname': 'kernel/src/proc/syscalls/process/uname.cpp',
+        'dlmap': 'kernel/src/dl/syscalls/dlmap.cpp',
+        'dlunmap': 'kernel/src/dl/syscalls/dlunmap.cpp',
     }
     EXPECTED_TAXONOMY = {
         'io_setup': ('fs', 'fs'),
@@ -174,6 +176,7 @@ class GenerateTest(unittest.TestCase):
         'shm_unlink': ('abi', 'abi'),
         'fchdir': ('abi', 'abi'),
         'uname': ('proc', 'process'),
+        'dlmap': ('dl', 'dl'), 'dlunmap': ('dl', 'dl'),
     }
     EXPECTED_SHARED_SOURCES = {
         'kernel/include/astia/api/syscalls.h': 26,
@@ -207,7 +210,7 @@ class GenerateTest(unittest.TestCase):
         }
         self.assertEqual([(page["id"], page["name"]) for page in docs.section2], canonical)
         self.assertEqual(docs.section2[0]["id"], 0)
-        self.assertEqual(docs.section2[-1]["id"], 70)
+        self.assertEqual(docs.section2[-1]["id"], 72)
         slugs = [page["slug"] for page in docs.section2]
         self.assertEqual(len(slugs), len(set(slugs)))
         for page in docs.section2:
@@ -272,8 +275,8 @@ class GenerateTest(unittest.TestCase):
         shared = {source: count for source, count in counts.items() if count > 1}
         self.assertEqual(shared, self.EXPECTED_SHARED_SOURCES)
         self.assertEqual(set(counts), set(self.EXPECTED_SOURCES.values()))
-        self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 38)
-        self.assertEqual(len(docs.section2), 71)
+        self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 40)
+        self.assertEqual(len(docs.section2), 73)
 
     def test_section7_authored_pages_and_aliases_are_exact(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
@@ -321,6 +324,7 @@ class GenerateTest(unittest.TestCase):
             counts,
             Counter({
                 ("abi", "abi"): 25,
+                ("dl", "dl"): 2,
                 ("fs", "fs"): 6,
                 ("proc", "core"): 9,
                 ("proc", "ipc"): 1,
@@ -339,6 +343,7 @@ class GenerateTest(unittest.TestCase):
             directories,
             {
                 "abi",
+                "dl",
                 "fs",
                 "proc",
                 "proc/core",
@@ -349,7 +354,7 @@ class GenerateTest(unittest.TestCase):
                 "proc/thread",
             },
         )
-        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 71)
+        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 73)
 
     def test_manifest_has_no_markdown_bodies(self):
         manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
@@ -417,7 +422,7 @@ class GenerateTest(unittest.TestCase):
             )
             manifest = json.loads((root / "section2/manifest.json").read_text())
             docs = docs_manifest.load_authored_docs(REPO_ROOT)
-            self.assertEqual(manifest["count"], 71)
+            self.assertEqual(manifest["count"], 73)
             for page in docs.section2:
                 exported = (root / "section2" / f"{page['slug']}.md").read_text()
                 authored = (REPO_ROOT / page["sourcePath"]).read_text()

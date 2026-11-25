@@ -319,6 +319,18 @@ namespace astia::proc {
         u64 tls_tp() const {
             return _tls_tp;
         }
+        /// Cancellation token for I/O this process starts (dlmap image
+        /// reads, file mappings).  Execve retires it with the old image.
+        core::cltoken io_token() {
+            return _cancellation_root.token();
+        }
+        /// Map an already-backed physical range at an exact address.  The
+        /// caller owns a `share_range` reference on `region` covering
+        /// `region_page..+pages`; this mapping adopts it.  `cow` installs the
+        /// page table entries read-only (the VMA stays writable) so the first
+        /// store faults into a private copy.
+        bool map_shared_range(u64 base, usize pages, map_protection prot,
+                              mm::phys_region* region, u32 region_page, bool cow);
         /// Create the process's first user thread.  Builds the
         /// userspace startup frame (argc/argv/envp, arch-neutral
         /// content) on the freshly mapped user stack and enters at
@@ -483,16 +495,17 @@ namespace astia::proc {
         /// Reserve an address, install PTEs without _mmap_lock, then publish
         /// the VMA.  On failure the reservation and PTEs are rolled back and
         /// `region` stays the caller's.
-        bool   install_mapping(u64 hint, usize pages, map_protection prot,
-                               mm::phys_region*                region,
-                               const mm::shptr<fs::open_file>& file, u64 file_offset,
-                               u64& base_out, usize region_page = 0, bool shared = false,
-                               bool stack = false);
-        bool   grow_stack(mmap_region* vma, u64 addr, bool write);
-        pid_t  _pid;
-        pid_t  _parent_pid;
-        pgrp_t _process_group;
-        pid_t  _session;
+        bool install_mapping(u64 hint, usize pages, map_protection prot,
+                             mm::phys_region*                region,
+                             const mm::shptr<fs::open_file>& file, u64 file_offset,
+                             u64& base_out, usize region_page = 0, bool shared = false,
+                             bool stack = false, u64 fixed_base = 0, bool cow = false);
+
+        bool                     grow_stack(mmap_region* vma, u64 addr, bool write);
+        pid_t                    _pid;
+        pid_t                    _parent_pid;
+        pgrp_t                   _process_group;
+        pid_t                    _session;
         mm::shptr<fs::open_file> _controlling_terminal;
         u32                      _uid = 0, _euid = 0, _gid = 0, _egid = 0;
         u32                      _umask = 0;
