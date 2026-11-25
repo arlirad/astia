@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+    <ProjectReference Include="..\..\test-support\Pkgsrv.TestSupport\Pkgsrv.TestSupport.csproj" />
+  </ItemGroup>
+</Project>

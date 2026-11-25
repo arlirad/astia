@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pkgsrv.Domain</RootNamespace>
+    <AssemblyName>Pkgsrv.Domain</AssemblyName>
+  </PropertyGroup>
+</Project>

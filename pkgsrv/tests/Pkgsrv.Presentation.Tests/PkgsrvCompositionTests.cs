@@ -1,0 +1,77 @@
+using Arlirad.Ervi.Mediator.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
+using Pkgsrv.Application.Abstractions.Builds;
+using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Features.Packages.List;
+using Pkgsrv.Domain.Packages;
+using Pkgsrv.Presentation.Composition;
+using Pkgsrv.TestSupport;
+
+namespace Pkgsrv.Presentation.Tests;
+
+public sealed class PkgsrvCompositionTests
+{
+    [Fact]
+    public async Task PkgsrvHost_BuildsWithPackageRoutesAndErviMediator()
+    {
+        await using var app = PkgsrvHost.Create([]);
+
+        Assert.NotNull(app.Services.GetRequiredService<IMediator>());
+    }
+
+    [Fact]
+    public async Task AddPkgsrv_RegistersErviMediatorAndDefaultDenyAuthorization()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv(["github.com"]);
+
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+
+        var authorization = scope.ServiceProvider.GetRequiredService<IIrvaAuthorization>();
+        var decision = await authorization.AuthorizeAsync(
+            TestPackages.Actor,
+            PackageAction.Read,
+            null,
+            CancellationToken.None);
+
+        Assert.False(decision.IsAllowed);
+
+        var sandbox = scope.ServiceProvider.GetRequiredService<IBuildSandbox>();
+        var package = TestPackages.CreatePackage();
+        var build = await sandbox.ExecuteAsync(
+            new BuildSandboxRequest(package.Key, package.Manifest.Source, package.BuildPolicy),
+            CancellationToken.None);
+
+        Assert.Equal(BuildExecutionStatus.NotExecuted, build.Status);
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMediator>());
+    }
+
+    [Fact]
+    public async Task AddPkgsrv_DispatchesThroughErviAndSurfacesAuthorizedReads()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv([]);
+        services.AddScoped<IIrvaAuthorization, AlwaysAllowAuthorization>();
+
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+        var mediator = scope.ServiceProvider.GetRequiredService<IMediator>();
+
+        var packages = await mediator.Send(
+            new ListPackagesQuery(null, TestPackages.Actor),
+            CancellationToken.None);
+
+        Assert.Empty(packages);
+    }
+
+    private sealed class AlwaysAllowAuthorization : IIrvaAuthorization
+    {
+        public Task<AuthorizationResult> AuthorizeAsync(
+            AuthorizationContext context,
+            PackageAction action,
+            PackageKey? package,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(AuthorizationResult.Allow());
+    }
+}
