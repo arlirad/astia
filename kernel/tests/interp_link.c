@@ -9,6 +9,7 @@
 extern int fixture_answer(void);
 extern int fixture_optional_value(void);
 extern int fixture_tls_value(void);
+extern int fixture_imported_tls(void);
 
 void _start(void) {
     if (fixture_answer() != 42)
@@ -17,6 +18,8 @@ void _start(void) {
         astia_exit(22);
     if (fixture_tls_value() != 40)
         astia_exit(23);
+    if (fixture_imported_tls() != 1)
+        astia_exit(24);
     astia_exit(0);
     for (;;)
         __asm__ volatile("hlt");

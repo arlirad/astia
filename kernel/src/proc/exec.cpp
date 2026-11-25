@@ -22,6 +22,13 @@ namespace astia::proc {
             return true;
         }
 
+        bool checked_add(u64 left, u64 right, u64& result) {
+            if (left > ~u64{0} - right)
+                return false;
+            result = left + right;
+            return true;
+        }
+
         /// One PT_LOAD segment's physical run, recorded at map time so
         /// the load can file it as a VMA afterwards.
         struct mapped_segment {
@@ -216,8 +223,11 @@ namespace astia::proc {
                 tls_span > ~u64{0} - user_tls_tcb_headroom ||
                 tls_span + user_tls_tcb_headroom > ~u64{0} - (elf::loader::page_size - 1))
                 return false;
-            const u64 total = user_dso_tls_reserve + tls_span + user_tls_tcb_headroom +
-                              elf::loader::page_size - 1;
+            u64 total = 0;
+            if (!checked_add(user_dso_tls_reserve, tls_span, total) ||
+                !checked_add(total, user_tls_tcb_headroom, total) ||
+                !checked_add(total, elf::loader::page_size - 1, total))
+                return false;
             pages = total / elf::loader::page_size;
             return pages != 0;
         }

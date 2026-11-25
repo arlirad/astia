@@ -202,6 +202,26 @@ static uint64_t lookup_symbol(const ld_module* modules, int count, const char* n
     return 0;
 }
 
+/// The module that defines `name`, with visibility rules matching
+/// lookup_symbol.  TLS relocations need the *defining* module's offset, not
+/// the referring one's.
+static const Elf64_Sym* find_definition(const ld_module* modules, int count,
+                                        const char* name, const ld_module** owner) {
+    for (int m = 0; m < count; ++m) {
+        const ld_module* image = &modules[m];
+        for (uint32_t i = 1; i < image->symbol_count; ++i) {
+            const Elf64_Sym* symbol = &image->symtab[i];
+            if (symbol->st_shndx == 0 || (symbol->st_info >> 4) == 0)
+                continue;
+            if (ld_streq(image->strtab + symbol->st_name, name)) {
+                *owner = image;
+                return symbol;
+            }
+        }
+    }
+    return 0;
+}
+
 static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t bytes,
                       const ld_module* modules, int count) {
     if (rela == 0 || bytes == 0)
@@ -219,12 +239,36 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             *where = module->base + (uint64_t) entry->r_addend;
             continue;
         }
-        if (type == LD_R_TPOFF64) {
-            *where = (uint64_t) (module->tls_offset + entry->r_addend);
-            continue;
-        }
-        if (type == LD_R_TPOFF32) {
-            *(int32_t*) where = (int32_t) (module->tls_offset + entry->r_addend);
+        if (type == LD_R_TPOFF64 || type == LD_R_TPOFF32) {
+            // *where = defining_module->tls_offset + sym->st_value + addend.
+            // The offset of the variable inside its block lives in st_value,
+            // and a cross-DSO reference must use the provider's block offset.
+            int64_t          value = 0;
+            const ld_module* owner = module;
+            const Elf64_Sym* symbol =
+                index != 0 && index < module->symbol_count ? &module->symtab[index] : 0;
+            if (symbol == 0) {
+                value = module->tls_offset + entry->r_addend;
+            }
+            else if (symbol->st_shndx != 0) {
+                value = module->tls_offset + (int64_t) symbol->st_value + entry->r_addend;
+            }
+            else {
+                const Elf64_Sym* definition = find_definition(
+                    modules, count, module->strtab + symbol->st_name, &owner);
+                if (definition == 0) {
+                    if ((symbol->st_info >> 4) != 2)
+                        return 3;
+                }
+                else {
+                    value = owner->tls_offset + (int64_t) definition->st_value +
+                            entry->r_addend;
+                }
+            }
+            if (type == LD_R_TPOFF64)
+                *where = (uint64_t) value;
+            else
+                *(int32_t*) where = (int32_t) value;
             continue;
         }
         if (type == LD_R_DTPMOD64 || type == LD_R_DTPOFF64)
@@ -255,6 +299,12 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
  * relocations so template pointers are already relocated. */
 static int layout_tls(ld_module* modules, int count, uint64_t tls_base, uint64_t tls_tp,
                       uint64_t tls_limit) {
+    if (tls_tp == 0 || tls_base == 0)
+        return -1;
+    // The payload's own TLS sits immediately below TP; the reserve extends
+    // further down, so module 0's block starts at the reserve bottom.
+    modules[0].tls_offset = (int64_t) (tls_base - tls_tp);
+
     uint64_t cursor = tls_base;
     for (int module = 1; module < count; ++module) {
         ld_module* image = &modules[module];

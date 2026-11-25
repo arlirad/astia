@@ -1159,6 +1159,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/interp_main ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -fno-stack-protector -fno-plt -ffreestanding -mno-red-zone
+                -fno-builtin -fno-asynchronous-unwind-tables -Wall -Wextra
                 -Wl,-e,ld_start
                 -Wl,--hash-style=sysv -Wl,-Bsymbolic -Wl,-z,now
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/include
@@ -1202,7 +1203,9 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c

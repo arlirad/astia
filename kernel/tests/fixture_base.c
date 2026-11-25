@@ -1,10 +1,10 @@
 /* Second-level library: imported by libfixture.so, which is imported by the
  * payload.  Its constructor proves DT_INIT_ARRAY runs before the payload, and
- * its _Thread_local proves the interpreter laid out and populated a static
- * TLS block for a shared object. */
+ * its thread-locals cover block offsets and cross-DSO TLS references. */
 static int base_ready;
 
-_Thread_local int fixture_tls = 40;
+_Thread_local int fixture_tls        = 40;
+_Thread_local int fixture_tls_second = 1;
 
 __attribute__((constructor)) static void fixture_base_init(void) {
     base_ready = 40;
@@ -15,5 +15,7 @@ int fixture_base(void) {
 }
 
 int fixture_base_tls(void) {
-    return fixture_tls;
+    /* Both reads must land on their own slots: at least one is at a
+       non-zero offset in the block. */
+    return fixture_tls + fixture_tls_second - 1;
 }

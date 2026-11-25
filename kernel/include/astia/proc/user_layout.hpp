@@ -30,7 +30,8 @@ namespace astia::proc {
     /// whole span so thread clones carry them too.
     inline constexpr u64 user_dso_tls_reserve = 64_kib;
 
-    static_assert(user_tls_base >= user_dso_tls_reserve);
+    static_assert(user_tls_base - user_dso_tls_reserve >=
+                  user_layout_policy::process_tls_first);
 
     constexpr bool is_user_address_canonical(u64 address) {
         return user_layout_policy::is_canonical(address);
