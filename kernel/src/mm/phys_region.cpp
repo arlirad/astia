@@ -1,3 +1,4 @@
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/mm/phys_region.hpp>
 
@@ -172,14 +173,14 @@ namespace astia::mm {
             return false;
         }
         {
-            core::spinlock_guard guard(_lock);
+            arch::interrupt_spinlock_guard guard(_lock);
             if (_refs == ~u32{0}) {
                 return false;
             }
             ++_refs;
         }
         if (!retain_mapping(first, count)) {
-            core::spinlock_guard guard(_lock);
+            arch::interrupt_spinlock_guard guard(_lock);
             --_refs;
             return false;
         }
@@ -193,7 +194,7 @@ namespace astia::mm {
     }
 
     u32 phys_region::references() {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         return _refs;
     }
 
@@ -222,7 +223,7 @@ namespace astia::mm {
         if (_page_bases == nullptr) {
             return page_base(index) != frame_allocator::invalid_frame;
         }
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (_page_bases[index] != frame_allocator::invalid_frame) {
             return true;
         }
@@ -241,7 +242,7 @@ namespace astia::mm {
         child*       orphans = nullptr;
         phys_region* parent  = nullptr;
         {
-            core::spinlock_guard guard(_lock);
+            arch::interrupt_spinlock_guard guard(_lock);
             if (_refs == 0) {
                 return;
             }
@@ -308,8 +309,8 @@ namespace astia::mm {
     void phys_region::unlink_child(phys_region* target) {
         child* dead = nullptr;
         {
-            core::spinlock_guard guard(_lock);
-            child**              link = &_children;
+            arch::interrupt_spinlock_guard guard(_lock);
+            child**                        link = &_children;
             while (*link != nullptr) {
                 if ((*link)->region == target) {
                     dead  = *link;
@@ -329,7 +330,7 @@ namespace astia::mm {
     }
 
     void phys_region::detach_parent(const phys_region* expected) {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (_parent == expected) {
             _parent = nullptr;
         }
@@ -380,7 +381,7 @@ namespace astia::mm {
 
         auto* list_node = static_cast<child*>(static_cast<void*>(node.value));
         {
-            core::spinlock_guard guard(_lock);
+            arch::interrupt_spinlock_guard guard(_lock);
             list_node->region      = copy;
             list_node->parent_page = index;
             list_node->next        = _children;

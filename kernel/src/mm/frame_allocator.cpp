@@ -1,3 +1,4 @@
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
@@ -14,7 +15,7 @@ namespace astia::mm {
     }
 
     void frame_allocator::init(const memory_map& map) {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
 
         // Track everything up to the highest usable byte.
         u64 limit = 0;
@@ -41,8 +42,8 @@ namespace astia::mm {
         // is not published until the bitmap has been initialized below.
         const frame_access_fn access = _access;
         guard.unlock();
-        u64* const           bitmap = static_cast<u64*>(access(bitmap_base));
-        core::spinlock_guard publish(_lock);
+        u64* const                     bitmap = static_cast<u64*>(access(bitmap_base));
+        arch::interrupt_spinlock_guard publish(_lock);
         _bitmap = bitmap;
 
         for (usize i = 0; i < _words; ++i) {
@@ -71,7 +72,7 @@ namespace astia::mm {
     }
 
     void frame_allocator::configure_access(frame_access_fn access) {
-        core::spinlock_guard  guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         const frame_access_fn selected = access == nullptr ? identity_access : access;
         const u64             physical = _bitmap_physical;
         guard.unlock();
@@ -81,7 +82,7 @@ namespace astia::mm {
         // in the allocator's critical section.
         u64* bitmap = physical == 0 ? nullptr : static_cast<u64*>(selected(physical));
 
-        core::spinlock_guard publish(_lock);
+        arch::interrupt_spinlock_guard publish(_lock);
         _access = selected;
         if (physical != 0) {
             _bitmap = bitmap;
@@ -89,7 +90,7 @@ namespace astia::mm {
     }
 
     void frame_allocator::reserve(u64 physical, u64 size) {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (_ready)
             mark_range(physical, size, true);
     }
@@ -131,7 +132,7 @@ namespace astia::mm {
         if (count == 0) {
             return invalid_frame;
         }
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (!_ready || count > _free_count) {
             return invalid_frame;
         }
@@ -174,7 +175,7 @@ namespace astia::mm {
     }
 
     void frame_allocator::release(u64 frame, usize count) {
-        core::spinlock_guard guard(_lock);
+        arch::interrupt_spinlock_guard guard(_lock);
         if (!_ready) {
             return;
         }
