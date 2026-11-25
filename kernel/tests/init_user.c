@@ -444,6 +444,16 @@ void c_main(const long* frame) {
             astia_exit(21);
         if (astia_waitpid((int32_t) child, &child_status) != child || child_status != 0)
             astia_exit(21);
+
+        /* The first program linked against libc.so instead of the archive. */
+        char*   dyn_argv[] = {(char*) "/bin/dyn_libc", NULL};
+        long    dyn_child  = astia_spawnve("/bin/dyn_libc", dyn_argv, NULL);
+        int32_t dyn_status = -1;
+        if (dyn_child <= 0)
+            astia_exit(26); /* spawn itself failed */
+        if (astia_waitpid((int32_t) dyn_child, &dyn_status) != dyn_child ||
+            dyn_status != 0)
+            astia_exit(25);
     }
 
     astia_exit(0);

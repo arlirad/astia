@@ -188,9 +188,22 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->symtab   = (const Elf64_Sym*) (base + symtab);
     module->hash     = hash != 0 ? (const uint32_t*) (base + hash) : 0;
     module->gnu_hash = gnu != 0 ? (const uint32_t*) (base + gnu) : 0;
-    /* SysV hash: nbucket, nchain — nchain is the dynamic symbol count. */
-    module->symbol_count =
-        module->hash != 0 ? module->hash[1] : gnu_symbol_count(module->gnu_hash);
+    /* SysV hash: nbucket, nchain — nchain is the dynamic symbol count.  GNU
+       hash alone cannot count undefined imports (they are not hashed), so
+       fall back to the .dynsym/.dynstr adjacency when it holds. */
+    if (module->hash != 0) {
+        module->symbol_count = module->hash[1];
+    }
+    else {
+        module->symbol_count = gnu_symbol_count(module->gnu_hash);
+        if (module->strtab > (const char*) module->symtab) {
+            const uint64_t adjacent =
+                (uint64_t) ((const char*) module->strtab - (const char*) module->symtab) /
+                sizeof(Elf64_Sym);
+            if (adjacent < 0x10000 && adjacent > module->symbol_count)
+                module->symbol_count = (uint32_t) adjacent;
+        }
+    }
 
     const uint64_t soname = dyn_tag(module, DT_SONAME);
     module->soname        = soname != 0 ? module->strtab + soname : 0;
