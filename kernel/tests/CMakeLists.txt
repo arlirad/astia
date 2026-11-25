@@ -127,9 +127,6 @@ astia_add_host_test(astia_optional_test optional_test.cpp)
 astia_add_host_test(astia_completion_test completion_test.cpp)
 astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_dl_test dl_test.cpp)
-astia_add_host_test(astia_path_service_test
-        path_service_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp)
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -683,6 +680,36 @@ astia_add_host_test(astia_initrd_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
 )
 
+# The initrd VFS allocation-failure path needs the kernel allocator itself, so
+# this target deliberately omits the host new shim: `new` returns null exactly
+# as it does in the kernel when the heap is exhausted.
+add_executable(astia_initrd_fs_test
+        initrd_fs_test.cpp
+        support/arena.cpp
+        support/interrupts_host.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+)
+set_target_properties(astia_initrd_fs_test PROPERTIES LINK_OPTIONS "")
+target_link_libraries(astia_initrd_fs_test PRIVATE c astia_test_support fs)
+target_include_directories(astia_initrd_fs_test PRIVATE ${_astia_test_includes}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+target_compile_options(astia_initrd_fs_test PRIVATE
+        -fno-rtti -fno-threadsafe-statics -fno-pie)
+target_link_options(astia_initrd_fs_test PRIVATE
+        "-Wl,-no-pie"
+        "-Wl,--defsym=__kernel_start=0x08000000"
+        "-Wl,--defsym=__kernel_end=0x08002000")
+astia_apply_host_sanitizers(astia_initrd_fs_test)
+find_program(ASTIA_INITRD_FS_SETARCH setarch REQUIRED)
+add_test(NAME astia_initrd_fs_test
+        COMMAND ${ASTIA_INITRD_FS_SETARCH} -R $<TARGET_FILE:astia_initrd_fs_test>)
+astia_add_test_label(astia_initrd_fs_test "sanitizer-host-partial;filesystem")
+
 # mod: the linked kernel symbol resolver (the ELF loader itself is covered by astia_elf_test).
 astia_add_host_test(astia_mod_test
         mod_test.cpp
@@ -789,7 +816,8 @@ set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_page_map_test
         astia_address_space_test
         astia_heap_test
-        astia_phys_region_test)
+        astia_phys_region_test
+        astia_path_service_test)
 
 function(astia_add_arena_test name)
     if (name IN_LIST ASTIA_ARENA_ASLR_TEST_NAMES)
@@ -847,6 +875,18 @@ astia_add_arena_test(astia_heap_test
         heap_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
+)
+
+# Path resolution uses heap-backed scratch so its frame fits the kernel's
+# 16 KiB boot/thread stacks even at PATH_MAX=4096.
+astia_add_arena_test(astia_path_service_test
+        path_service_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+        support/arena.cpp
         support/interrupts_host.cpp
 )
 

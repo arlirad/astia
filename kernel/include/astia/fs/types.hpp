@@ -155,8 +155,10 @@ namespace astia::fs {
     };
 
     inline constexpr u32 max_nodes      = 32;
-    inline constexpr u32 path_max       = 64;
+    inline constexpr u32 path_max       = 4096;
     inline constexpr u64 offset_current = ~u64{0};
+
+    static_assert(path_max == 4096, "VFS path limit must match libc PATH_MAX");
 
     inline constexpr file_type directory_unknown = file_type::unknown;
     inline constexpr file_type directory_fifo    = file_type::fifo;

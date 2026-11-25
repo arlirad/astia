@@ -158,6 +158,9 @@ namespace astia::fs::filesystems {
             mm::shptr<tmpfs_file> target;
         };
         entry _entries[tmpfs_max_entries]{};
+        // rename/link run entirely under _namespace_lock and share this
+        // scratch so their 4096-byte working path stays off the kernel stack.
+        char _path_scratch[path_max]{};
         // Namespace lock protects entry publication and path identity.
         // Callers may then acquire a file lock, never the reverse.
         mutable core::spinlock _namespace_lock;

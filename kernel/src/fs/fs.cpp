@@ -161,16 +161,20 @@ namespace astia::fs {
             return target[i] == '\0' && (path[i] == '\0' || path[i] == '/');
         }
 
+        // Callers serialize publication with mount_registry_lock (or run before
+        // concurrency during init), so one bounded scratch copy is enough.
+        mount_snapshot_entry mount_snapshot_scratch[max_mounts];
+
         void publish_mount_snapshot_locked() {
-            mount_snapshot_entry entries[max_mounts]{};
             for (u32 i = 0; i < max_mounts; ++i) {
-                entries[i].used  = mounts[i].used;
-                entries[i].index = i;
-                if (entries[i].used)
-                    copy_path(entries[i].target, mounts[i].target);
+                mount_snapshot_scratch[i].used      = mounts[i].used;
+                mount_snapshot_scratch[i].index     = i;
+                mount_snapshot_scratch[i].target[0] = '\0';
+                if (mount_snapshot_scratch[i].used)
+                    copy_path(mount_snapshot_scratch[i].target, mounts[i].target);
             }
             (void) mount_snapshot.replace(
-                span<const mount_snapshot_entry>(entries, max_mounts));
+                span<const mount_snapshot_entry>(mount_snapshot_scratch, max_mounts));
         }
 
         u32 find_mount_snapshot_index(const char* path) {
@@ -739,12 +743,20 @@ namespace astia::fs {
             return -ENOENT;
         const char* relative = relative_path(*operation.entry(), resolved);
         rc = operation.instance()->read_directory(relative, index, name, capacity, type);
-        if (rc > 0)
+        if (rc > 0 || rc == -ENAMETOOLONG)
             return rc;
         u64 base = 0;
-        while (operation.instance()->read_directory(relative, base, name, capacity,
-                                                    type) > 0)
-            ++base;
+        for (;;) {
+            rc = operation.instance()->read_directory(relative, base, name, capacity,
+                                                      type);
+            if (rc > 0) {
+                ++base;
+                continue;
+            }
+            if (rc == -ENAMETOOLONG)
+                return rc;
+            break;
+        }
         return read_unix_directory(resolved, operation.instance(), index - base,
                                    astia::span<char>(name, capacity), type);
     }
