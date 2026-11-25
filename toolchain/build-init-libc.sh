@@ -73,6 +73,7 @@ if [ ! -f "$cache" ] || [ ! -f "$libc_build/.astia-config-key" ] ||
     cmake -S "$root/libc" -B "$libc_build" \
         -DCMAKE_TOOLCHAIN_FILE="$root/toolchain/astia-x86_64-clang.cmake" \
         -DASTIA_BUILD_TESTS=OFF \
+        -DASTIA_LIBC_SHARED_BUILTINS="$builtins" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$sysroot"
     printf '%s\n' "$libc_revision" >"$libc_build/.astia-config-key"
@@ -80,10 +81,16 @@ fi
 cmake --build "$libc_build" -j "${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
 cmake --install "$libc_build"
 
+libc_so="$sysroot/lib/libc.so"
+if [ ! -f "$libc_so" ]; then
+    echo "Astia sysroot missing: $libc_so" >&2
+    exit 1
+fi
+
 mkdir -p "$build/image"
-common_flags="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
+common_flags="--target=$target -ffreestanding -fPIE -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 compile_flags() {
-    "$clang" --target="$target" -ffreestanding -fno-pic -fno-pie \
+    "$clang" --target="$target" -ffreestanding -fPIE \
         -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone "$@"
 }
 
@@ -107,7 +114,7 @@ fi
 init_key=$(
     {
         sha256sum "$root/kernel/tests/init_libc.c" \
-            "$sysroot/lib/libastia_libc.a"
+            "$sysroot/lib/libastia_libc.a" "$libc_so"
         printf '%s\n' "$image_revision"
     } | sha256sum | awk '{print $1}'
 )
@@ -122,18 +129,19 @@ fi
 link_key=$(
     {
         sha256sum "$build/image/crt0.o" "$build/image/init_libc.o" \
-            "$sysroot/lib/libastia_libc.a" "$builtins"
+            "$libc_so" "$builtins"
         printf '%s\n' "$image_revision"
     } | sha256sum | awk '{print $1}'
 )
 if [ ! -f "$build/image/init_libc" ] ||
     [ ! -f "$build/image/init_libc.link-key" ] ||
     [ "$(cat "$build/image/init_libc.link-key")" != "$link_key" ]; then
-    compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
-        -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+    compile_flags -nostdlib -Wl,-Bdynamic -Wl,-pie -Wl,-e,_start \
+        -Wl,--dynamic-linker=/lib/ld.astia.so -Wl,-rpath-link,"$sysroot/lib" \
         -o "$build/image/init_libc" "$build/image/crt0.o" "$build/image/init_libc.o" \
-        "$sysroot/lib/libastia_libc.a" "$builtins"
+        "$libc_so" "$builtins"
     printf '%s\n' "$link_key" >"$build/image/init_libc.link-key"
 fi
+cp -f "$libc_so" "$build/image/libc.so"
 
 file "$build/image/init_libc"

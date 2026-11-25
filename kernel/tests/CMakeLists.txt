@@ -1109,6 +1109,7 @@ if (ARCH STREQUAL "x86_64")
         target_link_libraries(astia_userspace_libc_shared PRIVATE gcc)
         set_target_properties(astia_userspace_libc_shared PROPERTIES
                 PREFIX "" OUTPUT_NAME libc SUFFIX ".so")
+        set(_libc_shared_so $<TARGET_FILE:astia_userspace_libc_shared>)
 
         # A real userspace program: CRT0 unpacks the kernel's startup
         # frame into main(argc, argv, envp) and leaves via libc exit().
@@ -1118,7 +1119,7 @@ if (ARCH STREQUAL "x86_64")
         add_custom_command(
                 OUTPUT ${_fix_dir}/crt0.o
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fPIE -fno-builtin
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
@@ -1129,6 +1130,7 @@ if (ARCH STREQUAL "x86_64")
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
             add_custom_command(
                     OUTPUT ${_cross_dir}/image/init_libc
+                    BYPRODUCTS ${_cross_dir}/image/libc.so
                     COMMAND ${CMAKE_COMMAND} -E env
                     ASTIA_CROSS_BUILD=${_cross_dir}
                     ASTIA_SYSROOT=${_cross_dir}/sysroot
@@ -1144,21 +1146,24 @@ if (ARCH STREQUAL "x86_64")
                     COMMENT "Cross-building libc-backed userspace image init_libc"
             )
             set(_init_libc_image ${_cross_dir}/image/init_libc)
+            set(_libc_shared_so ${_cross_dir}/image/libc.so)
         else ()
             add_custom_command(
                     OUTPUT ${_fix_dir}/init_libc
-                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                     -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/include
                     -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                     -o ${_fix_dir}/init_libc_main.o
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
-                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -lgcc
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
+                    -Wl,--dynamic-linker=/lib/ld.astia.so
+                    -Wl,-rpath-link,${_fix_dir} -lgcc
                     -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
-                    ${_fix_dir}/init_libc_main.o $<TARGET_FILE:astia_userspace_libc>
+                    ${_fix_dir}/init_libc_main.o ${_libc_shared_so}
                     DEPENDS ${_fix_dir}/crt0.o
-                    ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c astia_userspace_libc
+                    ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
+                    astia_userspace_libc_shared
                     COMMENT "Linking libc-backed userspace image init_libc"
             )
             set(_init_libc_image ${_fix_dir}/init_libc)
@@ -1241,10 +1246,10 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,--dynamic-linker=/lib/ld.astia.so
                 -Wl,-rpath-link,${_fix_dir}
                 -o ${_fix_dir}/dyn_libc ${_fix_dir}/crt0.o
-                ${_fix_dir}/dyn_libc_main.o $<TARGET_FILE:astia_userspace_libc_shared>
+                ${_fix_dir}/dyn_libc_main.o ${_libc_shared_so}
                 -lgcc
                 COMMAND ${CMAKE_COMMAND} -E copy
-                $<TARGET_FILE:astia_userspace_libc_shared> ${_fix_dir}/boot_stage/lib/
+                ${_libc_shared_so} ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/dyn_libc ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
@@ -1267,7 +1272,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
-                $<TARGET_FILE:astia_userspace_libc_shared>
+                ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"
@@ -1334,20 +1339,22 @@ if (ARCH STREQUAL "x86_64")
             endif ()
             add_custom_command(
                     OUTPUT ${_fix_dir}/${name}
-                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                     -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                     -I${ASTIA_KERNEL_SOURCE_DIR}/include ${_native_extra_include}
                     -o ${_native_object} ${source}
-                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
-                    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
+                    -Wl,--dynamic-linker=/lib/ld.astia.so
+                    -Wl,-rpath-link,${_fix_dir}
                     -o ${_fix_dir}/${name} ${_fix_dir}/crt0.o ${_native_object}
-                    $<TARGET_FILE:astia_userspace_libc> -lgcc
+                    ${_libc_shared_so} -lgcc
                     DEPENDS ${source}
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
-                    ${_fix_dir}/crt0.o astia_userspace_libc
+                    ${_fix_dir}/crt0.o astia_userspace_libc_shared
+                    ${_libc_shared_so}
                     COMMENT "Building native ${name} image")
         endfunction()
         astia_add_native_program(native_init
@@ -1371,6 +1378,11 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_stage/lib/ld.astia.so
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_stage/sbin/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_stage/bin/daemonctl
@@ -1381,9 +1393,12 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_stage ${_fix_dir}/native_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
                 ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc
+                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
         add_test(NAME astia_native_daemond_boot
@@ -1400,6 +1415,11 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_service_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_service_stage/lib/ld.astia.so
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_service_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_service_stage/sbin/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_true ${_fix_dir}/native_service_stage/bin/true
@@ -1409,8 +1429,11 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_service_stage ${_fix_dir}/native_service_boot_initrd.cpio
                 sbin/init sbin/daemond bin/true bin/init_libc etc/rc
+                lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_true ${_init_libc_image}
+                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_userspace_libc_shared
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native service supervision initrd")
@@ -1431,6 +1454,11 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/sbin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_failure_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_failure_stage/lib/ld.astia.so
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_failure_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_failure_stage/sbin/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_failure_stage/bin/daemonctl
@@ -1441,9 +1469,12 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_failure_stage ${_fix_dir}/native_failure_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
                 ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc
+                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing failing native daemond initrd")
         add_test(NAME astia_native_daemond_failure
