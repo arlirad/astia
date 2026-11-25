@@ -26,7 +26,7 @@ describe('Application routes', () => {
           }),
         );
       }
-      if (url.endsWith('/docs/2/io_setup.md')) {
+      if (url.endsWith('/docs/2/fs/io_setup.md')) {
         return Promise.resolve(
           new Response(
             '# io_setup(2)\n\n## DESCRIPTION\n\nCreate an asynchronous I/O ring.\n\n## RETURN VALUE\n\nReturns zero.\n\n## ERRORS\n\n- `-EINVAL`: Invalid arguments.',
@@ -34,7 +34,7 @@ describe('Application routes', () => {
           ),
         );
       }
-      if (url.endsWith('/docs/2/uname.md')) {
+      if (url.endsWith('/docs/2/proc/process/uname.md')) {
         return Promise.resolve(
           new Response(
             '# uname(2)\n\n## DESCRIPTION\n\nRead the system identity.\n\n## RETURN VALUE\n\nReturns zero.\n\n## ERRORS\n\n- `-EFAULT`: Invalid output.',
@@ -195,5 +195,50 @@ describe('Application routes', () => {
       'manual',
     );
     expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
+  });
+
+  it('keeps taxonomy facet state across result navigation', async () => {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/documentation', DocumentationPage);
+    let element = harness.routeNativeElement as HTMLElement;
+
+    const subsystem = element.querySelector<HTMLSelectElement>('.docs-subsystem-filter');
+    const category = element.querySelector<HTMLSelectElement>('.docs-category-filter');
+    if (subsystem && category) {
+      subsystem.value = 'proc';
+      subsystem.dispatchEvent(new Event('change', { bubbles: true }));
+      harness.detectChanges();
+      category.value = 'core';
+      category.dispatchEvent(new Event('change', { bubbles: true }));
+      harness.detectChanges();
+    }
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
+
+    await TestBed.inject(Router).navigateByUrl('/documentation/syscall-10-getpid');
+    harness.detectChanges();
+    element = harness.routeNativeElement as HTMLElement;
+
+    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
+      'getpid(2)',
+    );
+    expect(
+      (element.querySelector('.docs-subsystem-filter') as HTMLSelectElement).value,
+    ).toBe('proc');
+    expect(
+      (element.querySelector('.docs-category-filter') as HTMLSelectElement).value,
+    ).toBe('core');
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
+
+    await TestBed.inject(Router).navigateByUrl('/documentation');
+    harness.detectChanges();
+    element = harness.routeNativeElement as HTMLElement;
+
+    expect(
+      (element.querySelector('.docs-subsystem-filter') as HTMLSelectElement).value,
+    ).toBe('proc');
+    expect(
+      (element.querySelector('.docs-category-filter') as HTMLSelectElement).value,
+    ).toBe('core');
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
   });
 });

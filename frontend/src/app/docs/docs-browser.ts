@@ -17,14 +17,44 @@ interface DocGroupView {
   readonly pages: readonly DocPage[];
 }
 
+interface FacetCount {
+  readonly name: string;
+  readonly count: number;
+}
+
+const TAXONOMY_ALL = 'all';
+const SUBSYSTEM_ORDER = ['proc', 'fs', 'abi'];
+const CATEGORY_ORDER = ['core', 'ipc', 'memory', 'process', 'signal', 'thread', 'fs', 'abi'];
+
+const orderFacets = (
+  facets: readonly FacetCount[],
+  order: readonly string[],
+): readonly FacetCount[] => {
+  const rank = (name: string): number => {
+    const index = order.indexOf(name);
+    return index < 0 ? order.length : index;
+  };
+  return [...facets].sort(
+    (left, right) => rank(left.name) - rank(right.name)
+    || left.name.localeCompare(right.name),
+  );
+};
+
 const pageMatches = (page: DocPage, query: string): boolean => {
   if (!query) {
     return true;
   }
   const searchable =
-    `${page.title} ${page.group} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
+    `${page.title} ${page.group} ${page.subsystem ?? ''} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
     `${page.synopsisKind ?? ''} ${page.summary}`;
   return searchable.toLowerCase().includes(query);
+};
+
+const taxonomyMatches = (page: DocPage, subsystem: string, category: string): boolean => {
+  if (subsystem !== TAXONOMY_ALL && page.subsystem !== subsystem) {
+    return false;
+  }
+  return category === TAXONOMY_ALL || page.category === category;
 };
 
 @Component({
@@ -45,6 +75,8 @@ export class DocsBrowser {
   readonly retryRequested = output<void>();
 
   protected readonly query = signal('');
+  protected readonly subsystemFilter = signal(TAXONOMY_ALL);
+  protected readonly categoryFilter = signal(TAXONOMY_ALL);
   private readonly expandedGroups = signal<ReadonlySet<string>>(new Set());
   private firstSelectionChange = true;
   private lastSelectedSlug: string | null = null;
@@ -53,11 +85,34 @@ export class DocsBrowser {
     const slug = this.selectedSlug();
     return slug ? (this.pages().find((page) => page.slug === slug) ?? null) : null;
   });
+  protected readonly subsystemFacets = computed<readonly FacetCount[]>(() =>
+    orderFacets(this.facetCounts(this.pages(), (page) => page.subsystem), SUBSYSTEM_ORDER),
+  );
+  protected readonly categoryFacets = computed<readonly FacetCount[]>(() => {
+    const subsystem = this.subsystemFilter();
+    const pages = this.pages().filter(
+      (page) => subsystem === TAXONOMY_ALL || page.subsystem === subsystem,
+    );
+    return orderFacets(this.facetCounts(pages, (page) => page.category), CATEGORY_ORDER);
+  });
+  protected readonly taxonomyPageCount = computed(
+    () => this.pages().filter((page) => page.subsystem).length,
+  );
+  protected readonly categoryPageCount = computed(() => {
+    const subsystem = this.subsystemFilter();
+    return this.pages().filter(
+      (page) =>
+        page.category
+        && (subsystem === TAXONOMY_ALL || page.subsystem === subsystem),
+    ).length;
+  });
   protected readonly filteredGroups = computed<readonly DocGroupView[]>(() => {
     const query = this.query().trim().toLowerCase();
+    const subsystem = this.subsystemFilter();
+    const category = this.categoryFilter();
     const groups = new Map<string, DocPage[]>();
     for (const page of this.pages()) {
-      if (!pageMatches(page, query)) {
+      if (!pageMatches(page, query) || !taxonomyMatches(page, subsystem, category)) {
         continue;
       }
       const pages = groups.get(page.group) ?? [];
@@ -147,16 +202,62 @@ export class DocsBrowser {
     });
   }
 
+  protected taxonomyLabel(page: DocPage): string {
+    if (!page.subsystem) {
+      return '';
+    }
+    return page.category && page.category !== page.subsystem
+      ? `${page.subsystem} / ${page.category}`
+      : page.subsystem;
+  }
+
   protected setQuery(event: Event): void {
     const query = (event.target as HTMLInputElement).value;
     this.query.set(query);
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) {
+    if (!query.trim()) {
       return;
     }
+    this.expandMatchingGroups();
+  }
+
+  protected setSubsystem(event: Event): void {
+    this.subsystemFilter.set((event.target as HTMLSelectElement).value);
+    const categories = new Set(this.categoryFacets().map((facet) => facet.name));
+    if (this.categoryFilter() !== TAXONOMY_ALL && !categories.has(this.categoryFilter())) {
+      this.categoryFilter.set(TAXONOMY_ALL);
+    }
+    this.expandMatchingGroups();
+  }
+
+  protected setCategory(event: Event): void {
+    this.categoryFilter.set((event.target as HTMLSelectElement).value);
+    this.expandMatchingGroups();
+  }
+
+  private facetCounts(
+    pages: readonly DocPage[],
+    keyOf: (page: DocPage) => string | undefined,
+  ): readonly FacetCount[] {
+    const counts = new Map<string, number>();
+    for (const page of pages) {
+      const key = keyOf(page);
+      if (key) {
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return [...counts].map(([name, count]) => ({ name, count }));
+  }
+
+  private expandMatchingGroups(): void {
+    const query = this.query().trim().toLowerCase();
+    const subsystem = this.subsystemFilter();
+    const category = this.categoryFilter();
     const matching = new Set(
       this.pages()
-        .filter((page) => pageMatches(page, normalized))
+        .filter(
+          (page) =>
+            pageMatches(page, query) && taxonomyMatches(page, subsystem, category),
+        )
         .map((page) => page.group),
     );
     this.expandedGroups.update((groups) => {

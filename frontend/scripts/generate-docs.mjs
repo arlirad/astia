@@ -104,6 +104,9 @@ const readAuthoredManifest = () => {
   requireValue(manifest?.section7?.pages?.length === 7, 'authored manifest must contain 7 overview pages');
   for (const page of manifest.section2.pages) {
     requireValue(!('content' in page), 'authored syscall metadata must not embed Markdown bodies');
+    requireValue(typeof page.sourcePath === 'string' && page.sourcePath.startsWith('docs/2/'), `${page.name}: missing authored sourcePath`);
+    requireValue(typeof page.subsystem === 'string' && page.subsystem.length > 0, `${page.name}: missing subsystem`);
+    requireValue(typeof page.category === 'string' && page.category.length > 0, `${page.name}: missing category`);
   }
   for (const page of manifest.section7.pages) {
     requireValue(!('content' in page), 'authored overview metadata must not embed Markdown bodies');
@@ -191,12 +194,16 @@ const syscallPages = manifest.pages.map((entry) => {
   requireValue(authored.id === entry.id, `${entry.name}: exported ID differs from the authored manifest`);
   requireValue(authored.slug === entry.slug, `${entry.name}: exported slug differs from the authored manifest`);
   requireValue(authored.source === entry.source, `${entry.name}: exported source differs from the authored manifest`);
+  requireValue(authored.sourcePath === entry.source_path, `${entry.name}: exported source path differs from the authored manifest`);
+  requireValue(authored.subsystem === entry.subsystem, `${entry.name}: exported subsystem differs from the authored manifest`);
   requireValue(authored.category === entry.category, `${entry.name}: exported category differs from the authored manifest`);
   requireValue(authored.synopsisKind === entry.synopsis_kind, `${entry.name}: exported synopsis kind differs from the authored manifest`);
   requireValue(authored.synopsis === entry.synopsis, `${entry.name}: exported synopsis differs from the authored manifest`);
   requireValue(!seenSlugs.has(entry.slug), `duplicate syscall slug: ${entry.slug}`);
   seenSlugs.add(entry.slug);
-  const sourcePath = `docs/2/${entry.name}.md`;
+  const sourcePath = entry.source_path;
+  requireValue(!seenSourcePaths.has(sourcePath), `duplicate syscall source: ${sourcePath}`);
+  seenSourcePaths.add(sourcePath);
   requireValue(existsSync(join(repoRoot, sourcePath)), `missing authored syscall page: ${sourcePath}`);
   const content = normalize(readFileSync(join(repoRoot, sourcePath), 'utf8'));
   requireValue(synopsisOf(content) === entry.synopsis, `${entry.name}: authored Markdown synopsis differs`);
@@ -208,6 +215,7 @@ const syscallPages = manifest.pages.map((entry) => {
     sourcePath,
     contentKind: 'markdown',
     implementationPath: entry.source,
+    subsystem: entry.subsystem,
     category: entry.category,
     syscallId: entry.id,
     synopsisKind: entry.synopsis_kind,
@@ -231,6 +239,9 @@ const body = pages
     }
     if (page.aliases?.length) {
       fields.push(`aliases: ${JSON.stringify(page.aliases)}`);
+    }
+    if (page.subsystem) {
+      fields.push(`subsystem: ${JSON.stringify(page.subsystem)}`);
     }
     if (page.category) {
       fields.push(`category: ${JSON.stringify(page.category)}`);

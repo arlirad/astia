@@ -11,6 +11,37 @@
         (input)="setQuery($event)"
       >
     </label>
+
+    <fieldset class="docs-taxonomy">
+      <legend>Taxonomy</legend>
+      <label class="docs-facet">
+        <span>Subsystem</span>
+        <select
+          class="docs-subsystem-filter"
+          [value]="subsystemFilter()"
+          (change)="setSubsystem($event)"
+        >
+          <option value="all">All ({{ taxonomyPageCount() }})</option>
+          @for (facet of subsystemFacets(); track facet.name) {
+            <option [value]="facet.name">{{ facet.name }} ({{ facet.count }})</option>
+          }
+        </select>
+      </label>
+      <label class="docs-facet">
+        <span>Category</span>
+        <select
+          class="docs-category-filter"
+          [value]="categoryFilter()"
+          (change)="setCategory($event)"
+        >
+          <option value="all">All ({{ categoryPageCount() }})</option>
+          @for (facet of categoryFacets(); track facet.name) {
+            <option [value]="facet.name">{{ facet.name }} ({{ facet.count }})</option>
+          }
+        </select>
+      </label>
+    </fieldset>
+
     <p class="docs-count" aria-live="polite">{{ resultCount() }} pages</p>
 
     <nav class="docs-groups" aria-label="Documentation pages" tabindex="0">
@@ -44,8 +75,8 @@
                 >
                   <span>{{ page.title }}</span>
                   <small>
-                    @if (page.category) {
-                      {{ page.category }} ·
+                    @if (taxonomyLabel(page); as taxonomy) {
+                      {{ taxonomy }} ·
                     }
                     {{ page.summary }}
                   </small>
@@ -66,7 +97,10 @@
         <div class="docs-page-top">
           <button type="button" class="docs-back" (click)="backToIndex()">All docs</button>
           <span class="tag tag-core">{{ page.group }}</span>
-          @if (page.category) {
+          @if (page.subsystem) {
+            <span class="tag">{{ page.subsystem }}</span>
+          }
+          @if (page.category && page.category !== page.subsystem) {
             <span class="tag">{{ page.category }}</span>
           }
           @if (page.syscallId !== undefined) {

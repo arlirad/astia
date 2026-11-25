@@ -39,7 +39,7 @@ describe('Runtime section-2 syscall docs', () => {
 
     const loaded = await source.load(page);
     expect(fetchSpy.calls.mostRecent().args[0]).toBe(
-      `https://raw.githubusercontent.com/arlirad/astia/main/docs/2/${page.slug.replace(/^syscall-\d+-/, '').replace(/-/g, '_')}.md`,
+      `https://raw.githubusercontent.com/arlirad/astia/main/${page.sourcePath}`,
     );
 
     const fixture = TestBed.createComponent(DocsBrowser);
@@ -84,25 +84,31 @@ describe('Runtime section-2 syscall docs', () => {
 
     expect(ioSetup?.title).toBe('io_setup(2)');
     expect(ioSetup?.category).toBe('fs');
+    expect(ioSetup?.subsystem).toBe('fs');
     expect(ioSetup?.contentKind).toBe('markdown');
-    expect(ioSetup?.sourcePath).toBe('docs/2/io_setup.md');
+    expect(ioSetup?.sourcePath).toBe('docs/2/fs/io_setup.md');
     expect(ioSetup?.implementationPath).toBe('kernel/src/fs/syscalls/io_setup.cpp');
     expect(ioSetup?.synopsis).toBe(
       'long astia_io_setup(uint32_t entries, uint32_t flags, astia_rings** out);',
     );
 
     expect(alarm?.title).toBe('alarm(2)');
-    expect(alarm?.sourcePath).toBe('docs/2/alarm.md');
+    expect(alarm?.subsystem).toBe('proc');
+    expect(alarm?.category).toBe('core');
+    expect(alarm?.sourcePath).toBe('docs/2/proc/core/alarm.md');
     expect(alarm?.implementationPath).toBe('kernel/src/proc/syscalls/alarm.cpp');
 
     expect(fchdir?.title).toBe('fchdir(2)');
-    expect(fchdir?.sourcePath).toBe('docs/2/fchdir.md');
+    expect(fchdir?.subsystem).toBe('abi');
+    expect(fchdir?.category).toBe('abi');
+    expect(fchdir?.sourcePath).toBe('docs/2/abi/fchdir.md');
     expect(fchdir?.implementationPath).toBe('kernel/include/astia/api/syscalls.h');
 
     expect(uname?.title).toBe('uname(2)');
     expect(uname?.slug).toBe('syscall-70-uname');
-    expect(uname?.category).toBe('proc/process');
-    expect(uname?.sourcePath).toBe('docs/2/uname.md');
+    expect(uname?.subsystem).toBe('proc');
+    expect(uname?.category).toBe('process');
+    expect(uname?.sourcePath).toBe('docs/2/proc/process/uname.md');
     expect(uname?.implementationPath).toBe('kernel/src/proc/syscalls/process/uname.cpp');
     expect(uname?.synopsisKind).toBe('public');
     expect(uname?.synopsis).toBe('long astia_uname(astia_utsname* output);');
@@ -112,8 +118,12 @@ describe('Runtime section-2 syscall docs', () => {
     expect(sigreturn?.synopsis).toContain('Raw kernel ABI');
 
     for (const page of SYSCALL_PAGES) {
-      expect(page.sourcePath).toMatch(/^docs\/2\/[a-z0-9_]+\.md$/);
+      expect(page.sourcePath).toMatch(
+        /^docs\/2\/(?:abi|fs|proc\/(?:core|ipc|memory|process|signal|thread))\/[a-z0-9_]+\.md$/,
+      );
       expect(page.contentKind).toBe('markdown');
+      expect(page.subsystem).toBeTruthy();
+      expect(page.category).toBeTruthy();
       expect(page.implementationPath).toMatch(/^(kernel\/src|kernel\/include|libc)\//);
       expect(page.synopsisKind).toBeTruthy();
       expect('content' in page).toBeFalse();
@@ -153,15 +163,48 @@ describe('Runtime section-2 syscall docs', () => {
     );
   });
 
+  it('assigns exact taxonomy and physical paths for all 71 syscall pages', () => {
+    const expected: Record<string, number[]> = {
+      'fs/fs': [0, 1, 2, 3, 46, 47],
+      'abi/abi': [6, 7, 32, 33, 34, 35, 48, 49, 50, 51, 54, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+      'proc/core': [10, 11, 20, 26, 27, 28, 52, 53, 55],
+      'proc/ipc': [12],
+      'proc/memory': [4, 5],
+      'proc/process': [8, 13, 14, 15, 24, 30, 31, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 70],
+      'proc/signal': [21, 22, 25, 29],
+      'proc/thread': [9, 16, 17, 18, 19, 23],
+    };
+    const actual = new Map<string, number[]>();
+    for (const page of SYSCALL_PAGES) {
+      const key = `${page.subsystem}/${page.category}`;
+      actual.set(key, [...(actual.get(key) ?? []), page.syscallId!]);
+    }
+    expect(Object.fromEntries(actual)).toEqual(expected);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'proc').length).toBe(40);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'fs').length).toBe(6);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'abi').length).toBe(25);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(71);
+    expect(SYSCALL_PAGES.some((page) => /^docs\/2\/[^/]+\.md$/.test(page.sourcePath))).toBeFalse();
+    for (const page of SYSCALL_PAGES) {
+      expect(page.sourcePath).toBe(
+        `docs/2/${page.subsystem}/${
+          page.subsystem === 'proc' ? `${page.category}/` : ''
+        }${page.title.replace(/\(2\)$/, '')}.md`,
+      );
+    }
+  });
+
   it('preserves canonical titles, categories, synopses, and public/raw kinds', () => {
     const categories = new Set(
       SYSCALL_PAGES.map((page) => page.category).filter((value): value is string => !!value),
     );
-    expect(categories.size).toBeGreaterThan(0);
+    expect(categories).toEqual(
+      new Set(['abi', 'fs', 'core', 'ipc', 'memory', 'process', 'signal', 'thread']),
+    );
     for (const page of SYSCALL_PAGES) {
       const name = (page.slug ?? '').replace(/^syscall-\d+-/, '').replace(/-/g, '_');
       expect(page.title).toBe(`${name}(2)`);
-      expect(page.sourcePath).toBe(`docs/2/${name}.md`);
+      expect(page.sourcePath).toMatch(new RegExp(`^docs/2/(?:abi|fs|proc/[a-z]+)/${name}\\.md$`));
       expect(page.category).toBeTruthy();
       expect(page.synopsis).toBeTruthy();
       expect(page.aliases).toBeUndefined();
@@ -211,7 +254,7 @@ describe('Runtime section-2 syscall docs', () => {
     ].join('\n');
     const { page, element, headings } = await renderAuthoredSyscall(0, markdown);
 
-    expect(page.sourcePath).toBe('docs/2/io_setup.md');
+    expect(page.sourcePath).toBe('docs/2/fs/io_setup.md');
     expect(element.querySelector('.docs-page-title')?.textContent).toContain(
       'io_setup(2)',
     );
@@ -253,7 +296,7 @@ describe('Runtime section-2 syscall docs', () => {
     const { page, element, headings } = await renderAuthoredSyscall(70, markdown);
 
     expect(page.slug).toBe('syscall-70-uname');
-    expect(page.sourcePath).toBe('docs/2/uname.md');
+    expect(page.sourcePath).toBe('docs/2/proc/process/uname.md');
     expect(element.querySelector('.docs-page-title')?.textContent).toContain(
       'uname(2)',
     );

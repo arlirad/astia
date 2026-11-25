@@ -34,7 +34,7 @@ const markdownPage = (): DocPage => ({
   title: 'io_setup(2)',
   group: 'Syscall (2)',
   summary: 'Create an asynchronous I/O ring.',
-  sourcePath: 'docs/2/io_setup.md',
+  sourcePath: 'docs/2/fs/io_setup.md',
   contentKind: 'markdown',
 });
 
@@ -43,7 +43,7 @@ const syscallPage = (): DocPage => ({
   title: 'io_setup(2)',
   group: 'Syscall (2)',
   summary: 'Create an asynchronous I/O ring.',
-  sourcePath: 'docs/2/io_setup.md',
+  sourcePath: 'docs/2/fs/io_setup.md',
   contentKind: 'markdown',
   implementationPath: 'kernel/src/fs/syscalls/io_setup.cpp',
   synopsisKind: 'public',
@@ -78,9 +78,13 @@ describe('Authored documentation sources', () => {
     const syscalls = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
     expect(syscalls.length).toBe(71);
     for (const page of syscalls) {
-      expect(page.sourcePath).toBe(`docs/2/${page.slug.replace(/^syscall-\d+-/, '').replace(/-/g, '_')}.md`);
+      const name = page.title.replace(/\(2\)$/, '');
+      const folder = page.subsystem === 'proc' ? `proc/${page.category}/` : `${page.subsystem}/`;
+      expect(page.sourcePath).toBe(`docs/2/${folder}${name}.md`);
       expect(page.contentKind).toBe('markdown');
       expect(page.implementationPath).toBeTruthy();
+      expect(page.subsystem).toBeTruthy();
+      expect(page.category).toBeTruthy();
     }
 
     for (const page of DOC_PAGES) {
@@ -105,7 +109,7 @@ describe('Authored documentation sources', () => {
     await source.load(aio);
 
     expect(calls[0]).toBe(
-      'https://raw.githubusercontent.com/arlirad/astia/main/docs/2/io_setup.md',
+      'https://raw.githubusercontent.com/arlirad/astia/main/docs/2/fs/io_setup.md',
     );
     expect(calls[1]).toBe(
       'https://raw.githubusercontent.com/arlirad/astia/main/docs/7/aio.md',
@@ -145,9 +149,9 @@ describe('Authored documentation sources', () => {
     );
   });
 
-  it('resolves relative links and anchors from the new docs/7 source paths', () => {
+  it('resolves relative links and anchors from docs/7 through the nested docs/2 tree', () => {
     const markdown = [
-      '[syscall](../2/io_setup.md#synopsis)',
+      '[syscall](../2/fs/io_setup.md#synopsis)',
       '',
       '[external](https://example.com)',
       '',
@@ -158,11 +162,30 @@ describe('Authored documentation sources', () => {
     const html = MARKDOWN.render(markdown, 'docs/7/aio.md');
 
     expect(html).toContain(
-      'href="https://github.com/arlirad/astia/blob/main/docs/2/io_setup.md#synopsis"',
+      'href="https://github.com/arlirad/astia/blob/main/docs/2/fs/io_setup.md#synopsis"',
     );
     expect(html).toContain('href="https://example.com"');
     expect(html).toContain('id="doc-operation-registry"');
     expect(html).not.toContain('javascript:');
     expect(html).toContain('unsafe');
+  });
+
+  it('resolves relative links and anchors from nested docs/2 source paths', () => {
+    const markdown = [
+      '[overview](../../../7/aio.md#operation-registry)',
+      '',
+      '[sibling](../process/uname.md)',
+      '',
+      '## SYNOPSIS REGISTRY',
+    ].join('\n');
+    const html = MARKDOWN.render(markdown, 'docs/2/proc/core/getpid.md');
+
+    expect(html).toContain(
+      'href="https://github.com/arlirad/astia/blob/main/docs/7/aio.md#operation-registry"',
+    );
+    expect(html).toContain(
+      'href="https://github.com/arlirad/astia/blob/main/docs/2/proc/process/uname.md"',
+    );
+    expect(html).toContain('id="doc-synopsis-registry"');
   });
 });

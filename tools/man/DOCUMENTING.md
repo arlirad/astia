@@ -20,15 +20,20 @@ Handler comments are no longer documentation sources. Do not add `///`
 man-page blocks to syscall handlers. The authored documentation is:
 
 ```text
-docs/2/<canonical>.md         71 public syscall pages, IDs 0..70
-docs/7/<name>.md              seven subsystem overviews
-docs/manifest.json            IDs, names, slugs, sources, synopsis metadata
+docs/2/<subsystem>/<category>/<canonical>.md
+                             71 public syscall pages, IDs 0..70
+docs/2/fs/<canonical>.md     fs pages
+docs/2/abi/<canonical>.md    public ABI pages
+docs/7/<name>.md             seven subsystem overviews
+docs/manifest.json           IDs, names, slugs, sources, taxonomy, synopsis metadata
 ```
 
-The manifest preserves canonical names, numeric IDs, categories, source
-paths, stable route slugs, synopsis text, and `public`/`raw` kind. Source
-paths intentionally repeat where several syscalls share an ABI header or
-process implementation; the manifest records those expected duplicates.
+The manifest preserves canonical names, numeric IDs, subsystems, categories,
+authored source paths, stable route slugs, synopsis text, and `public`/`raw`
+kind. Every page records an explicit authored `sourcePath`; the canonical
+handler or public wrapper remains in `source`. Source paths intentionally
+repeat where several syscalls share an ABI header or process implementation;
+the manifest records those expected duplicates.
 Section 3 remains a separate, generator-owned `LIBC_PAGES` inventory and must
 not be copied into `docs/2` or `docs/7`.
 
