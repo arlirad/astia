@@ -13,6 +13,7 @@ import tempfile
 import unittest
 import warnings
 from collections import Counter
+from html.parser import HTMLParser
 from pathlib import Path
 from contextlib import redirect_stderr
 from unittest.mock import patch
@@ -101,31 +102,78 @@ class GenerateTest(unittest.TestCase):
         'fchdir': 'kernel/include/astia/api/syscalls.h',
         'uname': 'kernel/src/proc/syscalls/process/uname.cpp',
     }
-    EXPECTED_CATEGORIES = {
-        'io_setup': 'fs', 'io_destroy': 'fs', 'io_submit': 'fs', 'io_register': 'fs',
-        'mmap': 'proc/memory', 'munmap': 'proc/memory', 'mprotect': 'abi',
-        'clock_gettime': 'abi', 'exit': 'proc/process', 'yield': 'proc/thread',
-        'getpid': 'proc', 'gettid': 'proc', 'futex': 'proc/ipc',
-        'waitpid': 'proc/process', 'spawnve': 'proc/process', 'fork': 'proc/process',
-        'thread_create': 'proc/thread', 'thread_exit': 'proc/thread',
-        'thread_join': 'proc/thread', 'thread_detach': 'proc/thread', 'kill': 'proc',
-        'sigaction': 'proc/signal', 'sigprocmask': 'proc/signal',
-        'thread_create2': 'proc/thread', 'execve': 'proc/process',
-        'sigsuspend': 'proc/signal', 'getpgrp': 'proc', 'setpgid': 'proc',
-        'setsid': 'proc', 'sigreturn': 'proc/signal', 'chdir': 'proc/process',
-        'getcwd': 'proc/process', 'getuid': 'abi', 'geteuid': 'abi',
-        'getgid': 'abi', 'getegid': 'abi', 'setuid': 'proc', 'seteuid': 'proc',
-        'setgid': 'proc', 'setegid': 'proc', 'setreuid': 'proc',
-        'setregid': 'proc', 'getgroups': 'proc', 'setgroups': 'proc',
-        'process_snapshot': 'proc', 'getsid': 'proc', 'unmount': 'fs',
-        'mount': 'fs', 'getrlimit': 'abi', 'setrlimit': 'abi', 'sigwait': 'abi',
-        'sigaltstack': 'abi', 'getpgid': 'proc', 'getppid': 'proc',
-        'thread_cancel': 'abi', 'alarm': 'proc', 'thread_create_owned': 'abi',
-        'thread_cancel_pending': 'abi', 'thread_exists': 'abi',
-        'thread_kill': 'abi', 'sigpending': 'abi', 'sigtimedwait': 'abi',
-        'clock_getres': 'abi', 'thread_getattr': 'abi', 'msync': 'abi',
-        'lseek': 'abi', 'umask': 'abi', 'shm_open': 'abi', 'shm_unlink': 'abi',
-        'fchdir': 'abi', 'uname': 'proc/process',
+    EXPECTED_TAXONOMY = {
+        'io_setup': ('fs', 'fs'),
+        'io_destroy': ('fs', 'fs'),
+        'io_submit': ('fs', 'fs'),
+        'io_register': ('fs', 'fs'),
+        'mmap': ('proc', 'memory'),
+        'munmap': ('proc', 'memory'),
+        'mprotect': ('abi', 'abi'),
+        'clock_gettime': ('abi', 'abi'),
+        'exit': ('proc', 'process'),
+        'yield': ('proc', 'thread'),
+        'getpid': ('proc', 'core'),
+        'gettid': ('proc', 'core'),
+        'futex': ('proc', 'ipc'),
+        'waitpid': ('proc', 'process'),
+        'spawnve': ('proc', 'process'),
+        'fork': ('proc', 'process'),
+        'thread_create': ('proc', 'thread'),
+        'thread_exit': ('proc', 'thread'),
+        'thread_join': ('proc', 'thread'),
+        'thread_detach': ('proc', 'thread'),
+        'kill': ('proc', 'core'),
+        'sigaction': ('proc', 'signal'),
+        'sigprocmask': ('proc', 'signal'),
+        'thread_create2': ('proc', 'thread'),
+        'execve': ('proc', 'process'),
+        'sigsuspend': ('proc', 'signal'),
+        'getpgrp': ('proc', 'core'),
+        'setpgid': ('proc', 'core'),
+        'setsid': ('proc', 'core'),
+        'sigreturn': ('proc', 'signal'),
+        'chdir': ('proc', 'process'),
+        'getcwd': ('proc', 'process'),
+        'getuid': ('abi', 'abi'),
+        'geteuid': ('abi', 'abi'),
+        'getgid': ('abi', 'abi'),
+        'getegid': ('abi', 'abi'),
+        'setuid': ('proc', 'process'),
+        'seteuid': ('proc', 'process'),
+        'setgid': ('proc', 'process'),
+        'setegid': ('proc', 'process'),
+        'setreuid': ('proc', 'process'),
+        'setregid': ('proc', 'process'),
+        'getgroups': ('proc', 'process'),
+        'setgroups': ('proc', 'process'),
+        'process_snapshot': ('proc', 'process'),
+        'getsid': ('proc', 'process'),
+        'unmount': ('fs', 'fs'),
+        'mount': ('fs', 'fs'),
+        'getrlimit': ('abi', 'abi'),
+        'setrlimit': ('abi', 'abi'),
+        'sigwait': ('abi', 'abi'),
+        'sigaltstack': ('abi', 'abi'),
+        'getpgid': ('proc', 'core'),
+        'getppid': ('proc', 'core'),
+        'thread_cancel': ('abi', 'abi'),
+        'alarm': ('proc', 'core'),
+        'thread_create_owned': ('abi', 'abi'),
+        'thread_cancel_pending': ('abi', 'abi'),
+        'thread_exists': ('abi', 'abi'),
+        'thread_kill': ('abi', 'abi'),
+        'sigpending': ('abi', 'abi'),
+        'sigtimedwait': ('abi', 'abi'),
+        'clock_getres': ('abi', 'abi'),
+        'thread_getattr': ('abi', 'abi'),
+        'msync': ('abi', 'abi'),
+        'lseek': ('abi', 'abi'),
+        'umask': ('abi', 'abi'),
+        'shm_open': ('abi', 'abi'),
+        'shm_unlink': ('abi', 'abi'),
+        'fchdir': ('abi', 'abi'),
+        'uname': ('proc', 'process'),
     }
     EXPECTED_SHARED_SOURCES = {
         'kernel/include/astia/api/syscalls.h': 26,
@@ -153,6 +201,10 @@ class GenerateTest(unittest.TestCase):
     def test_authored_section2_metadata_is_exact(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
         canonical = generate.syscall_abi(ABI_HEADER)
+        handlers = {
+            path.stem: path
+            for path in (REPO_ROOT / "kernel/src").glob("*/syscalls/**/*.cpp")
+        }
         self.assertEqual([(page["id"], page["name"]) for page in docs.section2], canonical)
         self.assertEqual(docs.section2[0]["id"], 0)
         self.assertEqual(docs.section2[-1]["id"], 70)
@@ -160,13 +212,23 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(len(slugs), len(set(slugs)))
         for page in docs.section2:
             name = page["name"]
+            subsystem, category = self.EXPECTED_TAXONOMY[name]
+            suffix = f"{category}/{name}.md" if subsystem == "proc" else f"{name}.md"
+            expected_path = f"docs/2/{subsystem}/{suffix}"
             self.assertEqual(page["slug"], f"syscall-{page['id']}-{name.replace('_', '-')}")
             self.assertEqual(page["title"], f"{name}(2)")
             self.assertEqual(page["source"], self.EXPECTED_SOURCES[name])
-            self.assertEqual(page["category"], self.EXPECTED_CATEGORIES[name])
+            self.assertEqual(page["subsystem"], subsystem)
+            self.assertEqual(page["category"], category)
+            self.assertEqual(page["sourcePath"], expected_path)
             self.assertEqual(page["synopsisKind"], "raw" if name == "sigreturn" else "public")
             self.assertEqual((REPO_ROOT / page["source"]).is_file(), True, page["source"])
-            self.assertEqual((REPO_ROOT / "docs/2" / f"{name}.md").is_file(), True)
+            self.assertEqual((REPO_ROOT / page["sourcePath"]).is_file(), True, page["sourcePath"])
+            self.assertIn(name, handlers)
+            if subsystem == "proc":
+                relative = handlers[name].relative_to(REPO_ROOT / "kernel/src/proc/syscalls")
+                expected_category = "core" if len(relative.parts) == 1 else relative.parts[0]
+                self.assertEqual(category, expected_category)
         self.assertEqual(
             sorted(page["name"] for page in docs.section2 if page["synopsisKind"] == "raw"),
             ["sigreturn"],
@@ -190,15 +252,19 @@ class GenerateTest(unittest.TestCase):
     def test_authored_markdown_presence_and_structure(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
         for page in docs.section2:
-            text = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+            text = (REPO_ROOT / page["sourcePath"]).read_text()
             self.assertTrue(text.startswith(f"# {page['name']}(2)\n"))
             self.assertIn("## SYNOPSIS", text)
             self.assertIn("## DESCRIPTION", text)
             self.assertIn(page["synopsis"], text)
         self.assertEqual(
-            sorted(path.name for path in (REPO_ROOT / "docs/2").glob("*.md")),
-            sorted(f"{page['name']}.md" for page in docs.section2),
+            sorted(
+                path.relative_to(REPO_ROOT).as_posix()
+                for path in (REPO_ROOT / "docs/2").rglob("*.md")
+            ),
+            sorted(page["sourcePath"] for page in docs.section2),
         )
+        self.assertEqual(list((REPO_ROOT / "docs/2").glob("*.md")), [])
 
     def test_shared_source_paths_are_exact_and_otherwise_unique(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
@@ -228,12 +294,17 @@ class GenerateTest(unittest.TestCase):
 
     def test_migration_contains_only_section2_section7_and_metadata(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
-        authored = {path.name for path in (REPO_ROOT / "docs/2").glob("*")}
+        authored = {
+            path.relative_to(REPO_ROOT).as_posix()
+            for path in (REPO_ROOT / "docs/2").rglob("*")
+            if path.is_file()
+        }
         overviews = {path.name for path in (REPO_ROOT / "docs/7").glob("*")}
-        self.assertEqual(authored, {f"{page['name']}.md" for page in docs.section2})
+        self.assertEqual(authored, {page["sourcePath"] for page in docs.section2})
         self.assertEqual(overviews, {f"{page['name']}.md" for page in docs.section7})
+        names = {path.name for path in (REPO_ROOT / "docs/2").rglob("*.md")}
         for name in ("aarch64-virt-boot", "README", "ctest", "module-abi", "architecture-boundaries"):
-            self.assertNotIn(f"{name}.md", authored | overviews)
+            self.assertNotIn(f"{name}.md", names)
         self.assertEqual(len(generate.libc_pages()), 51)
         self.assertTrue(all(section == 3 for _, _, _, section in generate.libc_pages()))
         libc_names = {name for name, _, _, _ in generate.libc_pages()}
@@ -242,6 +313,43 @@ class GenerateTest(unittest.TestCase):
             {page["name"] for page in docs.section2},
             {name for _, name in generate.syscall_abi(ABI_HEADER)},
         )
+
+    def test_docs2_taxonomy_directories_and_counts_are_exact(self):
+        docs = docs_manifest.load_authored_docs(REPO_ROOT)
+        counts = Counter((page["subsystem"], page["category"]) for page in docs.section2)
+        self.assertEqual(
+            counts,
+            Counter({
+                ("abi", "abi"): 25,
+                ("fs", "fs"): 6,
+                ("proc", "core"): 9,
+                ("proc", "ipc"): 1,
+                ("proc", "memory"): 2,
+                ("proc", "process"): 18,
+                ("proc", "signal"): 4,
+                ("proc", "thread"): 6,
+            }),
+        )
+        directories = {
+            path.relative_to(REPO_ROOT / "docs/2").as_posix()
+            for path in (REPO_ROOT / "docs/2").rglob("*")
+            if path.is_dir()
+        }
+        self.assertEqual(
+            directories,
+            {
+                "abi",
+                "fs",
+                "proc",
+                "proc/core",
+                "proc/ipc",
+                "proc/memory",
+                "proc/process",
+                "proc/signal",
+                "proc/thread",
+            },
+        )
+        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 71)
 
     def test_manifest_has_no_markdown_bodies(self):
         manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
@@ -255,7 +363,7 @@ class GenerateTest(unittest.TestCase):
         self.assertNotRegex(generated, r"\bcontent\s*:")
         self.assertNotIn("# io_setup(2)", generated)
         for page in docs_manifest.load_authored_docs(REPO_ROOT).section2:
-            body = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+            body = (REPO_ROOT / page["sourcePath"]).read_text()
             self.assertNotIn(body.strip(), generated)
 
     def test_handler_documentation_blocks_are_removed(self):
@@ -268,14 +376,14 @@ class GenerateTest(unittest.TestCase):
             self.assertIsNone(block.search(path.read_text()), path)
 
     def test_execve_waitpid_and_sigsuspend_semantics(self):
-        execve = (REPO_ROOT / "docs/2/execve.md").read_text()
+        execve = (REPO_ROOT / "docs/2/proc/process/execve.md").read_text()
         self.assertIn("-1 and sets errno", execve)
         self.assertIn("FD_CLOEXEC", execve)
         self.assertIn("null path returns EINVAL", execve)
         self.assertIn("ENAMETOOLONG", execve)
         self.assertIn("libc/src/unistd.c", execve)
         self.assertIn("exec_loader.cpp", execve)
-        waitpid = (REPO_ROOT / "docs/2/waitpid.md").read_text()
+        waitpid = (REPO_ROOT / "docs/2/proc/process/waitpid.md").read_text()
         self.assertIn("astia_waitpid_options", waitpid)
         self.assertIn("WNOHANG", waitpid)
         self.assertIn("WUNTRACED", waitpid)
@@ -284,7 +392,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("-EINTR", waitpid)
         self.assertIn("without a wake slot", waitpid)
         self.assertIn("negative errno", waitpid)
-        sigsuspend = (REPO_ROOT / "docs/2/sigsuspend.md").read_text()
+        sigsuspend = (REPO_ROOT / "docs/2/proc/signal/sigsuspend.md").read_text()
         self.assertIn("Never returns 0", sigsuspend)
         self.assertIn("errno to EINTR", sigsuspend)
         self.assertIn("EAGAIN", sigsuspend)
@@ -312,10 +420,106 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual(manifest["count"], 71)
             for page in docs.section2:
                 exported = (root / "section2" / f"{page['slug']}.md").read_text()
-                authored = (REPO_ROOT / "docs/2" / f"{page['name']}.md").read_text()
+                authored = (REPO_ROOT / page["sourcePath"]).read_text()
                 self.assertEqual(exported, authored, page["name"])
             for page in docs.section7:
                 self.assertTrue((root / "site" / f"{page['name']}.7.html").is_file())
+
+    def test_static_man_index_nests_proc_taxonomy_with_exact_counts(self):
+        class IndexParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.stack: list[str | None] = []
+                self.pending: list[str] | None = None
+                self.current: str | None = None
+                self.parents: dict[str, tuple[str, ...]] = {}
+                self.links: dict[str, int] = {}
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "section":
+                    self.stack.append(None)
+                elif tag == "h3":
+                    self.pending = []
+                elif tag == "li" and self.current is not None:
+                    self.links[self.current] += 1
+
+            def handle_data(self, data):
+                if self.pending is not None:
+                    self.pending.append(data)
+
+            def handle_endtag(self, tag):
+                if tag == "h3" and self.pending is not None:
+                    name = "".join(self.pending).strip()
+                    self.pending = None
+                    self.parents[name] = tuple(value for value in self.stack if value)
+                    if self.stack:
+                        self.stack[-1] = name
+                    self.current = name
+                    self.links.setdefault(name, 0)
+                elif tag == "section" and self.stack:
+                    self.stack.pop()
+
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
+            root = Path(temporary)
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOLS_MAN / "generate.py"),
+                    str(REPO_ROOT / "kernel/src"),
+                    str(root / "site"),
+                    "--docs",
+                    str(REPO_ROOT / "docs"),
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            parser = IndexParser()
+            parser.feed((root / "site/index.html").read_text())
+            expected = {
+                "core": 9,
+                "ipc": 1,
+                "memory": 2,
+                "process": 18,
+                "signal": 4,
+                "thread": 6,
+            }
+            for category, count in expected.items():
+                self.assertEqual(parser.parents[category], ("proc",), category)
+                self.assertEqual(parser.links[category], count, category)
+            self.assertEqual(sum(expected.values()), 40)
+            self.assertEqual(parser.parents["proc"], ())
+            self.assertEqual(parser.parents["fs"], ())
+            self.assertEqual(parser.parents["abi"], ())
+            self.assertEqual(parser.links["fs"], 6)
+            self.assertEqual(parser.links["abi"], 25)
+
+    def test_export_fallback_source_paths_follow_the_taxonomy_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            export_dir = root / "section2"
+            canonical, pages, _ = self._export_pages(count=3)
+            sources = {
+                (name, 2): REPO_ROOT / "kernel/src/proc/syscalls/getpid.cpp"
+                for _, name in canonical
+            }
+            generate.export_section2(
+                export_dir,
+                canonical,
+                pages,
+                sources,
+                REPO_ROOT / "kernel/src",
+                ABI_HEADER,
+                trusted_root=root,
+            )
+            current = json.loads((export_dir / "manifest.json").read_text())
+            self.assertEqual(
+                [page["source_path"] for page in current["pages"]],
+                [f"docs/2/proc/core/fake_{index}.md" for index in range(3)],
+            )
+            self.assertEqual(
+                {(page["subsystem"], page["category"]) for page in current["pages"]},
+                {("proc", "core")},
+            )
 
     def _export_pages(self, count: int = 70, version: str = "old"):
         canonical = [(index, f"fake_{index}") for index in range(count)]

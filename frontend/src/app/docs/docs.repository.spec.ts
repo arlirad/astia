@@ -43,7 +43,7 @@ describe('GitHubDocsSource', () => {
     expect(
       source.sourceUrl(
         page({
-          sourcePath: 'docs/2/io_setup.md',
+          sourcePath: 'docs/2/fs/io_setup.md',
           implementationPath: 'kernel/src/fs/syscalls/io_setup.cpp',
         }),
       ),

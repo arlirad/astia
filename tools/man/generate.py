@@ -352,6 +352,22 @@ def group_for_source(source: Path | None, source_root: Path) -> str:
     return root
 
 
+def taxonomy_for_group(group: str) -> tuple[str, str]:
+    root, _, child = group.partition("/")
+    if root == "proc":
+        return root, child or "core"
+    return root, root
+
+
+def taxonomy_group(subsystem: str, category: str) -> str:
+    return f"{subsystem}/{category}" if subsystem == "proc" else subsystem
+
+
+def authored_source_path(name: str, subsystem: str, category: str) -> str:
+    suffix = f"{category}/{name}.md" if subsystem == "proc" else f"{name}.md"
+    return f"docs/2/{subsystem}/{suffix}"
+
+
 GENERATED_SYSCALL_ASSET = re.compile(
     r"^syscall-(0|[1-9][0-9]?)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$"
 )
@@ -1418,14 +1434,18 @@ def export_section2(
                 source_path = source.resolve().relative_to(repo_root).as_posix()
             except ValueError:
                 source_path = source.as_posix()
+            group = group_for_source(source, source_root)
+            subsystem, category = taxonomy_for_group(group)
             record = {
                 "id": syscall_id,
                 "name": name,
                 "slug": slug,
                 "title": f"{name}(2)",
-                "category": declared["category"]
+                "subsystem": declared["subsystem"] if declared else subsystem,
+                "category": declared["category"] if declared else category,
+                "source_path": declared["sourcePath"]
                 if declared
-                else group_for_source(source, source_root),
+                else authored_source_path(name, subsystem, category),
                 "source": declared["source"] if declared else source_path,
                 "markdown": markdown_name,
                 "synopsis_kind": declared["synopsisKind"]
@@ -1548,7 +1568,8 @@ def main() -> int:
     sources: dict[tuple[str, int], Path] = {}
     metadata: dict[str, dict] = {}
     for record in authored.section2:
-        pages[(record["name"], 2)] = (record["markdown"], record["category"])
+        group = taxonomy_group(record["subsystem"], record["category"])
+        pages[(record["name"], 2)] = (record["markdown"], group)
         sources[(record["name"], 2)] = repo_root / record["source"]
         metadata[record["name"]] = record
 
