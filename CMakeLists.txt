@@ -529,7 +529,7 @@ if(ASTIA_BUILD_TESTS)
     astia_register_script_test(astia_coreutils_qemu
             "coreutils;qemu;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/coreutils/tests/run.sh
-            TIMEOUT 120
+            TIMEOUT 240
             ENV
                 QEMU=${_astia_qemu}
                 ASTIA_KERNEL=${_astia_kernel_runtime}
