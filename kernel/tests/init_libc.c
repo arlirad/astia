@@ -3241,6 +3241,7 @@ int main(int argc, char** argv) {
         if (child == 0) {
             char* child_argv[] = {(char*) "/bin/interp_main", NULL};
             execv("/bin/interp_main", child_argv);
+            printf("astia: interp exec failed errno=%d\n", errno);
             _Exit(143); /* fixture not staged in this initrd */
         }
         int status = 0;
