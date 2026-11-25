@@ -2,7 +2,7 @@ file(GLOB_RECURSE ASTIA_PROC_SYSCALL_SOURCES CONFIGURE_DEPENDS syscalls/*.cpp)
 add_library(proc STATIC
         ${ASTIA_PROC_SYSCALL_SOURCES}
         cwd_context.cpp
-        async_syscall.cpp
+        task_run.cpp
         proc.cpp
         process.cpp
         exec.cpp

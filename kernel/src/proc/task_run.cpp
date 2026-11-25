@@ -1,4 +1,4 @@
-#include "async_syscall.hpp"
+#include "task_run.hpp"
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
@@ -63,7 +63,7 @@ namespace astia::proc {
         }
     } // namespace
 
-    i64 run_async_syscall(core::task<i64> operation) {
+    i64 run_task(core::task<i64> operation) {
         if (!operation.valid()) {
             const error_t error = operation.error();
             return error == error_t::enone ? -ENOMEM : -errno_value(error);
