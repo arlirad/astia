@@ -199,8 +199,6 @@ namespace astia::proc {
                 _async_join_handle = {};
                 joiner             = _joiner;
                 reclaim            = joiner == nullptr && detached();
-                if (join_handle.address() == nullptr && joiner != nullptr)
-                    scheduler::wake(joiner);
             }
             if (join_handle.address() != nullptr && joiner != nullptr) {
                 joiner->request_resume(join_handle);
@@ -218,8 +216,6 @@ namespace astia::proc {
                 join_handle        = _async_join_handle;
                 _async_join_handle = {};
                 joiner             = _joiner;
-                if (join_handle.address() == nullptr && joiner != nullptr)
-                    scheduler::wake(joiner);
             }
             if (join_handle.address() != nullptr && joiner != nullptr) {
                 joiner->request_resume(join_handle);
@@ -230,58 +226,6 @@ namespace astia::proc {
         for (;;) {
             arch::cpu::halt();
         }
-    }
-
-    long thread::join_sync(void** result) {
-        thread* current = proc::current_thread();
-        if (current == nullptr) {
-            return -ESRCH;
-        }
-        if (current == this) {
-            return -EDEADLK;
-        }
-        bool wait = false;
-        {
-            arch::interrupt_spinlock_guard guard(_lifecycle_lock);
-            if (detached() || _joiner != nullptr) {
-                return -EINVAL;
-            }
-            _joiner = current;
-            if (state() != thread_state::dead) {
-                wait = true;
-                __atomic_store_n(&current->_joining, this, __ATOMIC_RELEASE);
-                current->state(thread_state::blocked);
-                if (__atomic_exchange_n(&current->_join_cancel_wakeup, false,
-                                        __ATOMIC_ACQ_REL)) {
-                    __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
-                                     __ATOMIC_RELEASE);
-                    _joiner = nullptr;
-                    current->state(thread_state::running);
-                    wait = false;
-                }
-            }
-        }
-        if (wait) {
-            scheduler::yield();
-            if (__atomic_exchange_n(&current->_join_cancel_wakeup, false,
-                                    __ATOMIC_ACQ_REL)) {
-                arch::interrupt_spinlock_guard guard(_lifecycle_lock);
-                if (_joiner == current)
-                    _joiner = nullptr;
-                __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
-                                 __ATOMIC_RELEASE);
-                return -EINTR;
-            }
-        }
-        if (result != nullptr)
-            *result = _result;
-        __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
-                         __ATOMIC_RELEASE);
-        if (_owner != nullptr)
-            _owner->release_thread_stack(this);
-        if (_owner != nullptr)
-            defer_dead_thread(_owner->take_thread(this));
-        return 0;
     }
 
     bool thread::wake_join_for_cancellation() {

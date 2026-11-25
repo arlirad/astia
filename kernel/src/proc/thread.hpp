@@ -178,7 +178,6 @@ namespace astia::proc {
         bool             prepare_fork_user(const arch::user_context& uctx);
         void             run_entry();
         void             finish();
-        long             join_sync(void** result = nullptr);
         core::task<long> join(void** result = nullptr);
         bool             arm_join(std::coroutine_handle<> continuation);
         void             request_resume(std::coroutine_handle<> continuation);
