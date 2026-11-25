@@ -11,7 +11,7 @@ namespace astia::boot::virt {
     ///
     /// `start_info` is the physical address QEMU's PVH option ROM leaves in
     /// %ebx (see pc-bios/optionrom/pvh_main.c); our boot trampoline forwards
-    /// it to kmain and it is reachable through the identity map.
+    /// it to kmain_entry and it is reachable through the identity map.
     ///
     /// Returns false if the pointer is null, the magic is wrong, or the
     /// structure carries no memory map. `out` is left untouched on failure.
