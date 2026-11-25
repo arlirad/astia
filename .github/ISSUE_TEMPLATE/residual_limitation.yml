@@ -1,0 +1,63 @@
+name: Residual risk or limitation
+description: Track a known limitation, deferred risk, or follow-up that outlives the current change.
+title: "[residual] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for known limitations and risks that remain after a
+        change. Link the originating PR or issue and keep the evidence
+        actionable. Redact secrets, credentials, private hostnames, and
+        personal paths.
+  - type: textarea
+    id: limitation
+    attributes:
+      label: Limitation or residual risk
+      description: State exactly what is not handled or what remains unsafe, incomplete, or unproven.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and impact
+      description: Affected subsystem, users, and the conditions that trigger the limitation.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and current coverage
+      description: Tests, logs, benchmarks, or code paths that demonstrate the gap. Include exact commands where useful.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: disposition
+    attributes:
+      label: Proposed disposition
+      description: Select the expected handling. Maintainers may revise it during triage.
+      options:
+        - Document the limitation
+        - Track for a follow-up fix
+        - Accept the risk with a mitigation
+        - Needs triage
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: ABI, security, and compatibility impact
+      description: Required; write "None known" with a short reason if there is no impact.
+      placeholder: "Kernel/module/libc/syscall ABI, trust boundaries, migration, or versioning."
+    validations:
+      required: true
+  - type: textarea
+    id: related
+    attributes:
+      label: Origin and follow-up links
+      description: Link the originating PR or issue, dependencies, and any follow-up work.
+      placeholder: |
+        Origin: #...
+        Follow-ups: #...
+    validations:
+      required: true

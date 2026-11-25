@@ -1,0 +1,95 @@
+name: Bug or regression
+description: Report reproducible incorrect behavior or a regression with evidence.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for bugs and regressions. Include exact revisions and
+        commands so the result is reproducible. Redact secrets, credentials,
+        private hostnames, and personal paths.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence describing the observable failure.
+      placeholder: "Boot hangs after..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and regression status
+      description: Affected subsystem, and whether this worked before. Name the last known-good revision if known.
+      placeholder: "kernel/mm; regression since..."
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Revision and environment
+      description: Commit, branch, architecture/platform, build configuration, and QEMU or hardware.
+      placeholder: |
+        Commit:
+        Arch/platform:
+        Build:
+        QEMU/hardware:
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Exact commands from a clean tree, plus any fixture or input.
+      render: shell
+      placeholder: |
+        cmake -S . -B build-tests ...
+        cmake --build build-tests
+        ctest --test-dir build-tests -R ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual
+      description: What should happen, what happens, and how often.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Test output, serial log excerpt, CI run URL, or screenshot. Redact private data.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Security, ABI, or compatibility impact
+      description: Select the highest impact. Explain it in the next field when not "None known".
+      options:
+        - None known
+        - Security or privilege boundary
+        - Kernel/module/libc/syscall ABI
+        - Compatibility or data format
+        - Unknown; needs triage
+    validations:
+      required: true
+  - type: textarea
+    id: impact_details
+    attributes:
+      label: Impact details
+      description: Required when the impact is not "None known". Include rebuild or migration needs.
+      placeholder: "None, or describe affected ABI, modules, userspace, or data."
+    validations:
+      required: false
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues and residual links
+      description: Link duplicates, follow-ups, and known limitations with issue numbers.
+      placeholder: "Refs #..."
+    validations:
+      required: false

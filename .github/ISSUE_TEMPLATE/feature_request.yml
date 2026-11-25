@@ -1,0 +1,80 @@
+name: Feature or design proposal
+description: Propose a feature or design change with scope, evidence, and compatibility impact.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for features and design proposals. Add the existing
+        `to evaluate` label when a contract or design decision is required;
+        this form does not apply it automatically. Redact secrets,
+        credentials, private hostnames, and personal paths.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What user-visible or engineering problem does this solve? Do not start with the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Proposed scope
+      description: State what is in scope and, explicitly, what is out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed design or evaluation question
+      description: Describe the design, alternatives considered, and the decision needed. Link related designs or issues.
+    validations:
+      required: true
+  - type: dropdown
+    id: evaluation
+    attributes:
+      label: Design evaluation needed
+      description: Select whether this needs the `to evaluate` label before implementation.
+      options:
+        - "No: implementation is well-scoped"
+        - "Yes: contract or design evaluation needed"
+        - Unsure; needs triage
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation plan and evidence
+      description: Tests, exact commands, prototype results, measurements, or acceptance evidence.
+      placeholder: |
+        Host tests:
+        CTest label/suite:
+        QEMU/hardware:
+        Sanitizers:
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: ABI, security, and compatibility impact
+      description: Required; write "None known" with a short reason if there is no impact.
+      placeholder: "Kernel/module/libc/syscall ABI, trust boundaries, migration, or versioning."
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Configuration, deployment, and privacy
+      description: New configuration or deployment surface, safe defaults, and handling of secrets or private data.
+      placeholder: "None, or describe config/deploy changes and privacy constraints."
+    validations:
+      required: true
+  - type: textarea
+    id: related
+    attributes:
+      label: Residual and follow-up links
+      description: Link dependencies, residual risks, and deferred work with issue numbers.
+      placeholder: "Refs #..."
+    validations:
+      required: false
