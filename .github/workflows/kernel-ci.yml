@@ -1,4 +1,6 @@
-name: Kernel CI
+# Display name only: required status-check contexts are job ids (build-and-test, asan-ubsan, tsan, clang-tidy, clang-format-pr), not this workflow name.
+# Keep job ids unique across workflows so a future AArch64 kernel workflow cannot collide with them.
+name: Kernel CI (x86_64)
 
 on:
   pull_request:
