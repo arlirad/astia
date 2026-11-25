@@ -925,7 +925,7 @@ returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
 
-Kernel CI (`.github/workflows/kernel-ci.yml`) runs the focused host parser
+Kernel CI (x86_64) (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
 pipeline. The full host CTest suite includes the exception frame/vector layout
 test and the GICv3 policy test.

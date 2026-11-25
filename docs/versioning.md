@@ -97,7 +97,7 @@ discover the enclosing Git repository when their source directory is a
 subdirectory of it.
 
 Set `ASTIA_VERSION_REQUIRE_RELEASE=ON` (or pass `--reject-dirty`) to fail
-configuration unless the version is a clean exact release tag. Kernel CI runs
+configuration unless the version is a clean exact release tag. Kernel CI (x86_64) runs
 that check for `v*` tag pushes. Use a full-history checkout for authoritative
 distances; a shallow clone can only count the commits it contains, and a
 release tag outside the clone is invisible.
