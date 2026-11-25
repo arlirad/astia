@@ -4,6 +4,7 @@
  * entering the payload so argc/argv/auxv are where its _start expects them.
  */
     .globl ld_start
+    .hidden ld_main
 ld_start:
     movq %rsp, ld_saved_stack(%rip)
     andq $-16, %rsp

@@ -190,7 +190,7 @@ namespace astia::dl {
 
         core::task<mm::shptr<image>> load_image(mm::shptr<fs::open_file> file, u64 mount,
                                                 u64 inode, u64 size, core::cltoken token,
-                                                u64 base) {
+                                                u64 base, bool defer_symbols) {
             auto value = mm::share<image>();
             if (!value)
                 co_return error_t::enomem;
@@ -201,7 +201,7 @@ namespace astia::dl {
             elf::loader::async_env environment{&context,  map_span,  nullptr,
                                                read_span, copy_span, unmap_span};
             environment.read_to             = read_to_span;
-            environment.defer_symbol_relocs = true;
+            environment.defer_symbol_relocs = defer_symbols;
             auto loaded = co_await elf::loader::load_executable_stream(environment, size);
             if (!loaded) {
                 unmap_span(&context, nullptr, 0);
@@ -304,7 +304,7 @@ namespace astia::dl {
                 co_return error_t::enoent;
             if (file->size() <= 0)
                 co_return error_t::einval;
-            auto mapped = co_await map(target, file, 0);
+            auto mapped = co_await map(target, file, 0, /*defer_symbols=*/false);
             if (!mapped)
                 co_return mapped.error;
             co_return proc::interpreter_info{mapped.value.base, mapped.value.entry};
@@ -338,7 +338,8 @@ namespace astia::dl {
         return true;
     }
 
-    core::task<info> map(process& target, mm::shptr<fs::open_file> file, u32 flags) {
+    core::task<info> map(process& target, mm::shptr<fs::open_file> file, u32 flags,
+                         bool defer_symbols) {
         if (flags != 0)
             co_return error_t::einval;
         if (!file)
@@ -385,7 +386,7 @@ namespace astia::dl {
 
         if (created) {
             auto loaded = co_await load_image(file, mount, inode, static_cast<u64>(size),
-                                              target.io_token(), base);
+                                              target.io_token(), base, defer_symbols);
             if (!loaded) {
                 core::spinlock_guard guard(g_lock);
                 g_loading = false;

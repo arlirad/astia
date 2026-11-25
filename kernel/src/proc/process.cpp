@@ -1209,8 +1209,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64 base = process_tls_first -
-                   (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
+        u64  base = process_tls_first -
+                    (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_threads_per_process; ++attempt) {
             free = true;

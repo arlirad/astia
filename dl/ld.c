@@ -55,7 +55,7 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
     if (slot == NULL)
         return -EBUSY;
 
-    *slot           = (astia_sqe){0};
+    *slot           = (astia_sqe) {0};
     slot->op        = op;
     slot->fd        = fd;
     slot->op_flags  = flags;
@@ -399,7 +399,7 @@ static int build_path(char* out, const char* name) {
     }
 }
 
-uint64_t ld_main(uint64_t* sp) {
+__attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t* at_phdr  = auxv_value(sp, AT_PHDR);
     const uint64_t* at_phnum = auxv_value(sp, AT_PHNUM);
     const uint64_t* at_phent = auxv_value(sp, AT_PHENT);
