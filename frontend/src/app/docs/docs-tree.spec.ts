@@ -7,7 +7,6 @@ import {
   filterDocTree,
   flattenDocTree,
   pageMatches,
-  taxonomyMatches,
 } from './docs-tree';
 
 const page = (
@@ -214,12 +213,7 @@ describe('docs tree', () => {
     expect(none).toEqual([]);
   });
 
-  it('combines taxonomy and text filters', () => {
-    expect(taxonomyMatches(PAGES[0], 'proc', 'all')).toBeTrue();
-    expect(taxonomyMatches(PAGES[0], 'proc', 'core')).toBeTrue();
-    expect(taxonomyMatches(PAGES[0], 'proc', 'process')).toBeFalse();
-    expect(taxonomyMatches(PAGES[6], 'all', 'all')).toBeTrue();
-    expect(taxonomyMatches(PAGES[6], 'proc', 'all')).toBeFalse();
+  it('matches pages by title, taxonomy, and summary text', () => {
     expect(pageMatches(PAGES[0], 'alpha')).toBeTrue();
     expect(pageMatches(PAGES[0], 'proc core')).toBeTrue();
     expect(pageMatches(PAGES[0], 'missing')).toBeFalse();

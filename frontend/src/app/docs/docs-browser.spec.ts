@@ -126,6 +126,8 @@ describe('DocsBrowser', () => {
     expect(treeRows[0].tabIndex).toBe(0);
     expect(treeRows[1].tabIndex).toBe(-1);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
+    expect(element.querySelector('.docs-taxonomy')).toBeNull();
+    expect(element.querySelectorAll('.docs-index select').length).toBe(0);
     expect(element.querySelector('.docs-count')?.textContent).toContain('3 pages');
     expect(element.querySelector('.docs-count')?.textContent).toContain(
       'matching descendant pages',

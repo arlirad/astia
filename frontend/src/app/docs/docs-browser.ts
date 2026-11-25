@@ -11,9 +11,6 @@ import {
 } from '@angular/core';
 import type { DocPage, DocsLoadStatus } from './docs.model';
 import {
-  DOC_CATEGORY_ORDER,
-  DOC_SUBSYSTEM_ORDER,
-  DOC_TREE_ALL,
   buildDocTree,
   countDocTreePages,
   docTreeAncestorKeys,
@@ -21,29 +18,9 @@ import {
   filterDocTree,
   flattenDocTree,
   pageMatches,
-  taxonomyMatches,
   type DocTreeRow,
 } from './docs-tree';
 import { slugify } from './docs-utils';
-
-interface FacetCount {
-  readonly name: string;
-  readonly count: number;
-}
-
-const orderFacets = (
-  facets: readonly FacetCount[],
-  order: readonly string[],
-): readonly FacetCount[] => {
-  const rank = (name: string): number => {
-    const index = order.indexOf(name);
-    return index < 0 ? order.length : index;
-  };
-  return [...facets].sort(
-    (left, right) => rank(left.name) - rank(right.name)
-    || left.name.localeCompare(right.name),
-  );
-};
 
 @Component({
   selector: 'app-docs-browser',
@@ -63,8 +40,6 @@ export class DocsBrowser {
   readonly retryRequested = output<void>();
 
   protected readonly query = signal('');
-  protected readonly subsystemFilter = signal(DOC_TREE_ALL);
-  protected readonly categoryFilter = signal(DOC_TREE_ALL);
   protected readonly expandedNodes = signal<ReadonlySet<string>>(new Set());
   protected readonly activeKey = signal<string | null>(null);
   private firstSelectionChange = true;
@@ -74,35 +49,9 @@ export class DocsBrowser {
     const slug = this.selectedSlug();
     return slug ? (this.pages().find((page) => page.slug === slug) ?? null) : null;
   });
-  protected readonly subsystemFacets = computed<readonly FacetCount[]>(() =>
-    orderFacets(this.facetCounts(this.pages(), (page) => page.subsystem), DOC_SUBSYSTEM_ORDER),
-  );
-  protected readonly categoryFacets = computed<readonly FacetCount[]>(() => {
-    const subsystem = this.subsystemFilter();
-    const pages = this.pages().filter(
-      (page) => subsystem === DOC_TREE_ALL || page.subsystem === subsystem,
-    );
-    return orderFacets(this.facetCounts(pages, (page) => page.category), DOC_CATEGORY_ORDER);
-  });
-  protected readonly taxonomyPageCount = computed(
-    () => this.pages().filter((page) => page.subsystem).length,
-  );
-  protected readonly categoryPageCount = computed(() => {
-    const subsystem = this.subsystemFilter();
-    return this.pages().filter(
-      (page) =>
-        page.category
-        && (subsystem === DOC_TREE_ALL || page.subsystem === subsystem),
-    ).length;
-  });
   protected readonly filteredTree = computed(() => {
     const query = this.query().trim().toLowerCase();
-    const subsystem = this.subsystemFilter();
-    const category = this.categoryFilter();
-    return filterDocTree(
-      buildDocTree(this.pages()),
-      (page) => pageMatches(page, query) && taxonomyMatches(page, subsystem, category),
-    );
+    return filterDocTree(buildDocTree(this.pages()), (page) => pageMatches(page, query));
   });
   protected readonly visibleRows = computed(() =>
     flattenDocTree(this.filteredTree(), this.expandedNodes()),
@@ -278,37 +227,6 @@ export class DocsBrowser {
       return;
     }
     this.expandMatchingNodes();
-  }
-
-  protected setSubsystem(event: Event): void {
-    this.subsystemFilter.set((event.target as HTMLSelectElement).value);
-    const categories = new Set(this.categoryFacets().map((facet) => facet.name));
-    if (
-      this.categoryFilter() !== DOC_TREE_ALL
-      && !categories.has(this.categoryFilter())
-    ) {
-      this.categoryFilter.set(DOC_TREE_ALL);
-    }
-    this.expandMatchingNodes();
-  }
-
-  protected setCategory(event: Event): void {
-    this.categoryFilter.set((event.target as HTMLSelectElement).value);
-    this.expandMatchingNodes();
-  }
-
-  private facetCounts(
-    pages: readonly DocPage[],
-    keyOf: (page: DocPage) => string | undefined,
-  ): readonly FacetCount[] {
-    const counts = new Map<string, number>();
-    for (const page of pages) {
-      const key = keyOf(page);
-      if (key) {
-        counts.set(key, (counts.get(key) ?? 0) + 1);
-      }
-    }
-    return [...counts].map(([name, count]) => ({ name, count }));
   }
 
   private expandMatchingNodes(): void {

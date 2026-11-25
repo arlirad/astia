@@ -263,48 +263,21 @@ describe('Application routes', () => {
     expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
   });
 
-  it('keeps taxonomy facet state across result navigation', async () => {
+  it('keeps the taxonomy tree on the index without filter controls', async () => {
     const harness = await RouterTestingHarness.create();
     await harness.navigateByUrl('/documentation', DocumentationPage);
-    let element = harness.routeNativeElement as HTMLElement;
+    const element = harness.routeNativeElement as HTMLElement;
 
-    const subsystem = element.querySelector<HTMLSelectElement>('.docs-subsystem-filter');
-    const category = element.querySelector<HTMLSelectElement>('.docs-category-filter');
-    if (subsystem && category) {
-      subsystem.value = 'proc';
-      subsystem.dispatchEvent(new Event('change', { bubbles: true }));
-      harness.detectChanges();
-      category.value = 'core';
-      category.dispatchEvent(new Event('change', { bubbles: true }));
-      harness.detectChanges();
-    }
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
+    expect(element.querySelector('.docs-taxonomy')).toBeNull();
+    expect(element.querySelectorAll('.docs-index select').length).toBe(0);
+    expect(element.querySelector('[data-tree-key="taxonomy:syscalls"]')).toBeTruthy();
+    expect(element.querySelector('[data-tree-key="taxonomy:proc"]')).toBeNull();
 
-    await TestBed.inject(Router).navigateByUrl('/documentation/syscall-10-getpid');
+    element.querySelector<HTMLElement>('[data-tree-key="taxonomy:syscalls"]')?.click();
     harness.detectChanges();
-    element = harness.routeNativeElement as HTMLElement;
 
-    expect(element.querySelector('.docs-page-title')?.textContent).toContain(
-      'getpid(2)',
-    );
-    expect(
-      (element.querySelector('.docs-subsystem-filter') as HTMLSelectElement).value,
-    ).toBe('proc');
-    expect(
-      (element.querySelector('.docs-category-filter') as HTMLSelectElement).value,
-    ).toBe('core');
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
-
-    await TestBed.inject(Router).navigateByUrl('/documentation');
-    harness.detectChanges();
-    element = harness.routeNativeElement as HTMLElement;
-
-    expect(
-      (element.querySelector('.docs-subsystem-filter') as HTMLSelectElement).value,
-    ).toBe('proc');
-    expect(
-      (element.querySelector('.docs-category-filter') as HTMLSelectElement).value,
-    ).toBe('core');
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(9);
+    expect(element.querySelector('[data-tree-key="taxonomy:proc"]')).toBeTruthy();
+    expect(element.querySelector('[data-tree-key="taxonomy:proc/process"]')).toBeNull();
+    expect(element.querySelector('.docs-count')?.textContent).toContain('pages');
   });
 });
