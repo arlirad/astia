@@ -1,6 +1,6 @@
 using Arlirad.Ervi.Mediator.Interfaces;
-using Pkgsrv.Application.Abstractions.Persistence;
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Validation;

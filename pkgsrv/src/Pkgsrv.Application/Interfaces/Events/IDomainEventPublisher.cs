@@ -1,6 +1,6 @@
 using Pkgsrv.Domain.Events;
 
-namespace Pkgsrv.Application.Abstractions.Events;
+namespace Pkgsrv.Application.Interfaces.Events;
 
 public interface IDomainEventPublisher
 {

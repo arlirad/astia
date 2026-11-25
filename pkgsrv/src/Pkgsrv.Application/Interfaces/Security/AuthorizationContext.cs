@@ -1,4 +1,4 @@
-namespace Pkgsrv.Application.Abstractions.Security;
+namespace Pkgsrv.Application.Interfaces.Security;
 
 public enum PackageAction
 {

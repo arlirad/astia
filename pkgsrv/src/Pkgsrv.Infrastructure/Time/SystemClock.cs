@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Time;
+using Pkgsrv.Application.Interfaces.Time;
 
 namespace Pkgsrv.Infrastructure.Time;
 

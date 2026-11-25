@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Security;
 
 namespace Pkgsrv.Presentation.Security;
 

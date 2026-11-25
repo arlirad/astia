@@ -1,17 +1,21 @@
 using System.Reflection;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
-using Pkgsrv.Application.Abstractions.Persistence;
-using Pkgsrv.Application.Abstractions.Security;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Application.Features.Packages.Register;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Validation;
 using Pkgsrv.Domain.Errors;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.Presentation.Api;
+using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Contracts;
 using Pkgsrv.Presentation.Security;
 using Pkgsrv.TestSupport;
@@ -20,6 +24,8 @@ namespace Pkgsrv.Presentation.Tests;
 
 public sealed class PackageEndpointHandlerTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task List_MapsSuccessfulQueryAndPropagatesActorHeaders()
     {
@@ -30,10 +36,20 @@ public sealed class PackageEndpointHandlerTests
         };
         var accessor = CreateAccessor("alice", "reader, builder", AccountId);
 
-        var result = await PackageEndpointHandlers.ListAsync(mediator, accessor, CancellationToken.None);
+        var result = await PackageEndpointHandlers.ListAsync(
+            mediator,
+            accessor,
+            new TestPackageJsonCache(),
+            CancellationToken.None);
 
-        var ok = Assert.IsType<Ok<PackageListResponse>>(result);
-        Assert.Equal("widget", Assert.Single(ok.Value!.Packages).Name);
+        var response = await ExecuteAsync(result);
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("application/json", response.ContentType, StringComparison.OrdinalIgnoreCase);
+
+        using var document = JsonDocument.Parse(response.Body);
+        Assert.Equal(
+            "widget",
+            document.RootElement.GetProperty("packages")[0].GetProperty("name").GetString());
 
         var query = Assert.IsType<ListPackagesQuery>(mediator.LastRequest);
         Assert.Equal("alice", query.Actor.ActorId);
@@ -53,10 +69,43 @@ public sealed class PackageEndpointHandlerTests
             HttpContext = new DefaultHttpContext()
         });
 
-        await PackageEndpointHandlers.ListAsync(mediator, accessor, CancellationToken.None);
+        await PackageEndpointHandlers.ListAsync(
+            mediator,
+            accessor,
+            new TestPackageJsonCache(),
+            CancellationToken.None);
 
         var query = Assert.IsType<ListPackagesQuery>(mediator.LastRequest);
         Assert.True(query.Actor.IsAnonymous);
+    }
+
+    [Fact]
+    public async Task List_SecondReadUsesCachedJsonAndSkipsMediator()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                new[] { PackageSummaryDto.From(SummaryEntry()) })
+        };
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            SizeLimit = PackageJsonCacheOptions.Default.SizeLimit
+        });
+        var cache = new PackageJsonCache(memory, PackageJsonCacheOptions.Default);
+        var accessor = CreateAccessor("reader");
+
+        await PackageEndpointHandlers.ListAsync(
+            mediator,
+            accessor,
+            cache,
+            CancellationToken.None);
+        await PackageEndpointHandlers.ListAsync(
+            mediator,
+            accessor,
+            cache,
+            CancellationToken.None);
+
+        Assert.Equal(1, mediator.Calls);
     }
 
     [Fact]
@@ -73,10 +122,15 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("reader"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
-        var ok = Assert.IsType<Ok<PackageResponse>>(result);
-        Assert.Equal("widget", ok.Value!.Name);
+        var response = await ExecuteAsync(result);
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("application/json", response.ContentType, StringComparison.OrdinalIgnoreCase);
+
+        var body = JsonSerializer.Deserialize<PackageResponse>(response.Body, JsonOptions);
+        Assert.Equal("widget", body!.Name);
 
         var query = Assert.IsType<GetPackageQuery>(mediator.LastRequest);
         Assert.Equal("reader", query.Actor.ActorId);
@@ -95,6 +149,7 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("reader"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -102,23 +157,26 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Register_ReturnsCreatedWithPackageBody()
+    public async Task Register_ReturnsCreatedWithPackageBodyAndInvalidatesCache()
     {
         var mediator = new StubMediator
         {
             Handler = (_, _) => ValueTask.FromResult<object>(
                 new RegisterPackageResult(PackageDetailsDto.From(TestPackages.CreatePackage())))
         };
+        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RegisterAsync(
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
+            cache,
             CancellationToken.None);
 
         var created = Assert.IsType<Created<PackageResponse>>(result);
         Assert.Equal("/packages/widget/1.2.3", created.Location);
         Assert.Equal("widget", created.Value!.Name);
+        Assert.Equal(1, cache.Invalidations);
 
         var command = Assert.IsType<RegisterPackageCommand>(mediator.LastRequest);
         Assert.Equal("publisher", command.Actor.ActorId);
@@ -126,20 +184,23 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Register_RejectsMissingBodyWithoutDispatching()
+    public async Task Register_RejectsMissingBodyWithoutDispatchingOrInvalidating()
     {
         var mediator = new StubMediator();
+        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RegisterAsync(
             null,
             mediator,
             CreateAccessor("publisher"),
+            cache,
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
         Assert.Equal(400, problem.ProblemDetails.Status);
         Assert.Equal("request.body.required", problem.ProblemDetails.Extensions["code"]);
         Assert.Equal(0, mediator.Calls);
+        Assert.Equal(0, cache.Invalidations);
     }
 
     [Fact]
@@ -158,6 +219,7 @@ public sealed class PackageEndpointHandlerTests
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -179,6 +241,7 @@ public sealed class PackageEndpointHandlerTests
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -187,24 +250,27 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
-    public async Task Build_MapsScheduledSafeBuildToAccepted()
+    public async Task Build_MapsScheduledSafeBuildToAcceptedAndInvalidatesCache()
     {
         var mediator = new StubMediator
         {
             Handler = (_, _) => ValueTask.FromResult<object>(
                 new RequestBuildResult("widget", "1.2.3", "NotExecuted", "safe default", false))
         };
+        var cache = new TestPackageJsonCache();
 
         var result = await PackageEndpointHandlers.RequestBuildAsync(
             "widget",
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
+            cache,
             CancellationToken.None);
 
         var accepted = Assert.IsType<Accepted<BuildResponse>>(result);
         Assert.Equal("NotExecuted", accepted.Value!.Status);
         Assert.False(accepted.Value.Executed);
+        Assert.Equal(1, cache.Invalidations);
     }
 
     [Fact]
@@ -220,6 +286,7 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -242,6 +309,29 @@ public sealed class PackageEndpointHandlerTests
             "1.2.3",
             mediator,
             CreateAccessor("builder"),
+            new TestPackageJsonCache(),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(409, problem.ProblemDetails.Status);
+    }
+
+    [Fact]
+    public async Task Build_MapsStaleRepositoryTransitionToConflict()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new PackageConflictException(
+                "widget@1.2.3",
+                "Package widget@1.2.3 was modified by another request.")
+        };
+
+        var result = await PackageEndpointHandlers.RequestBuildAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("builder"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -306,5 +396,47 @@ public sealed class PackageEndpointHandlerTests
         {
             HttpContext = httpContext
         });
+    }
+
+    private static async Task<(int StatusCode, string ContentType, string Body)> ExecuteAsync(IResult result)
+    {
+        var httpContext = new DefaultHttpContext
+        {
+            RequestServices = new ServiceCollection().AddLogging().BuildServiceProvider()
+        };
+        httpContext.Response.Body = new MemoryStream();
+
+        await result.ExecuteAsync(httpContext);
+
+        httpContext.Response.Body.Position = 0;
+        using var reader = new StreamReader(httpContext.Response.Body);
+        var body = await reader.ReadToEndAsync();
+
+        return (httpContext.Response.StatusCode, httpContext.Response.ContentType ?? string.Empty, body);
+    }
+
+    private sealed class TestPackageJsonCache : IPackageJsonCache
+    {
+        public int Invalidations { get; private set; }
+
+        public async Task<string> GetListJsonAsync(
+            AuthorizationContext actor,
+            string? search,
+            Func<CancellationToken, Task<PackageListResponse>> load,
+            CancellationToken cancellationToken) =>
+            JsonSerializer.Serialize(await load(cancellationToken), JsonOptions);
+
+        public async Task<string> GetPackageJsonAsync(
+            AuthorizationContext actor,
+            string name,
+            string version,
+            Func<CancellationToken, Task<PackageResponse>> load,
+            CancellationToken cancellationToken) =>
+            JsonSerializer.Serialize(await load(cancellationToken), JsonOptions);
+
+        public void InvalidateAfterMutation()
+        {
+            Invalidations++;
+        }
     }
 }

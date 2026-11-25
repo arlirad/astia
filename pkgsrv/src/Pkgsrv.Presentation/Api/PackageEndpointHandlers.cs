@@ -1,8 +1,10 @@
+using System.Text;
 using Arlirad.Ervi.Mediator.Interfaces;
 using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Features.Packages.RequestBuild;
+using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Contracts;
 using Pkgsrv.Presentation.Security;
 
@@ -13,16 +15,27 @@ public static class PackageEndpointHandlers
     public static async Task<IResult> ListAsync(
         IMediator mediator,
         IActorContextAccessor actors,
+        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         try
         {
-            var packages = await mediator.Send(
-                new ListPackagesQuery(null, actors.GetCurrent()),
+            var actor = actors.GetCurrent();
+            var json = await cache.GetListJsonAsync(
+                actor,
+                null,
+                async token =>
+                {
+                    var packages = await mediator.Send(
+                        new ListPackagesQuery(null, actor),
+                        token);
+
+                    return new PackageListResponse(
+                        packages.Select(PackageSummaryResponse.From).ToArray());
+                },
                 cancellationToken);
 
-            return Results.Ok(new PackageListResponse(
-                packages.Select(PackageSummaryResponse.From).ToArray()));
+            return Results.Text(json, "application/json", Encoding.UTF8);
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
         {
@@ -35,15 +48,27 @@ public static class PackageEndpointHandlers
         string version,
         IMediator mediator,
         IActorContextAccessor actors,
+        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         try
         {
-            var package = await mediator.Send(
-                new GetPackageQuery(name, version, actors.GetCurrent()),
+            var actor = actors.GetCurrent();
+            var json = await cache.GetPackageJsonAsync(
+                actor,
+                name,
+                version,
+                async token =>
+                {
+                    var package = await mediator.Send(
+                        new GetPackageQuery(name, version, actor),
+                        token);
+
+                    return PackageResponse.From(package);
+                },
                 cancellationToken);
 
-            return Results.Ok(PackageResponse.From(package));
+            return Results.Text(json, "application/json", Encoding.UTF8);
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
         {
@@ -55,6 +80,7 @@ public static class PackageEndpointHandlers
         RegisterPackageRequest? request,
         IMediator mediator,
         IActorContextAccessor actors,
+        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         if (request is null)
@@ -89,6 +115,7 @@ public static class PackageEndpointHandlers
                     actors.GetCurrent()),
                 cancellationToken);
 
+            cache.InvalidateAfterMutation();
             var body = PackageResponse.From(result.Package);
 
             return Results.Created(PackageLocation(body.Name, body.Version), body);
@@ -104,6 +131,7 @@ public static class PackageEndpointHandlers
         string version,
         IMediator mediator,
         IActorContextAccessor actors,
+        IPackageJsonCache cache,
         CancellationToken cancellationToken)
     {
         try
@@ -111,6 +139,8 @@ public static class PackageEndpointHandlers
             var result = await mediator.Send(
                 new RequestPackageBuildCommand(name, version, actors.GetCurrent()),
                 cancellationToken);
+
+            cache.InvalidateAfterMutation();
 
             return Results.Accepted(
                 PackageLocation(result.Name, result.Version),

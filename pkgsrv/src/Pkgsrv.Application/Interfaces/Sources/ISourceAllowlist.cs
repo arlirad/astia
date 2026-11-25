@@ -1,6 +1,6 @@
 using Pkgsrv.Domain.Packages;
 
-namespace Pkgsrv.Application.Abstractions.Sources;
+namespace Pkgsrv.Application.Interfaces.Sources;
 
 public interface ISourceAllowlist
 {

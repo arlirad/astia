@@ -1,9 +1,10 @@
-using Pkgsrv.Application.Abstractions.Builds;
-using Pkgsrv.Application.Abstractions.Events;
-using Pkgsrv.Application.Abstractions.Persistence;
-using Pkgsrv.Application.Abstractions.Security;
-using Pkgsrv.Application.Abstractions.Sources;
-using Pkgsrv.Application.Abstractions.Time;
+using Pkgsrv.Application.Errors;
+using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Events;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
+using Pkgsrv.Application.Interfaces.Sources;
+using Pkgsrv.Application.Interfaces.Time;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.TestSupport;
@@ -13,6 +14,12 @@ namespace Pkgsrv.Application.Tests;
 internal sealed class TestRepository : IPackageRepository, IPackageIndex
 {
     private readonly Dictionary<PackageKey, Package> _packages = new();
+
+    public List<(PackageKey Key, IReadOnlyCollection<IDomainEvent> Events)> Acknowledgements { get; } = new();
+
+    public bool ThrowOnAcknowledge { get; set; }
+
+    public bool ThrowOnUpdate { get; set; }
 
     public async Task<Package?> FindAsync(PackageKey key, CancellationToken cancellationToken)
     {
@@ -30,12 +37,34 @@ internal sealed class TestRepository : IPackageRepository, IPackageIndex
     {
         await Task.CompletedTask;
 
+        if (ThrowOnUpdate)
+        {
+            throw new PackageConflictException(
+                package.Key.ToString(),
+                $"Package {package.Key} was modified by another request.");
+        }
+
         if (!_packages.ContainsKey(package.Key))
         {
             throw new InvalidOperationException($"Package {package.Key} does not exist.");
         }
 
         _packages[package.Key] = package;
+    }
+
+    public async Task AcknowledgeDomainEventsAsync(
+        PackageKey key,
+        IReadOnlyCollection<IDomainEvent> publishedEvents,
+        CancellationToken cancellationToken)
+    {
+        await Task.CompletedTask;
+
+        if (ThrowOnAcknowledge)
+        {
+            throw new InvalidOperationException("event acknowledgement persistence failed");
+        }
+
+        Acknowledgements.Add((key, publishedEvents));
     }
 
     public async Task<IReadOnlyList<PackageIndexEntry>> SearchAsync(

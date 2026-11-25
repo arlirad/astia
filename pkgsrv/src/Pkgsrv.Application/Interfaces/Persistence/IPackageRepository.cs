@@ -1,6 +1,7 @@
+using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
 
-namespace Pkgsrv.Application.Abstractions.Persistence;
+namespace Pkgsrv.Application.Interfaces.Persistence;
 
 public interface IPackageRepository
 {
@@ -9,6 +10,11 @@ public interface IPackageRepository
     Task<bool> TryAddAsync(Package package, CancellationToken cancellationToken);
 
     Task UpdateAsync(Package package, CancellationToken cancellationToken);
+
+    Task AcknowledgeDomainEventsAsync(
+        PackageKey key,
+        IReadOnlyCollection<IDomainEvent> publishedEvents,
+        CancellationToken cancellationToken);
 }
 
 public sealed record PackageIndexEntry(

@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Persistence;
+using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Application.Contracts;

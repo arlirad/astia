@@ -14,4 +14,5 @@ public static class DomainErrorCodes
     public const string SignaturePending = "package.signature.pending";
     public const string BuildPolicyInvalid = "package.build.policy.invalid";
     public const string BuildAlreadyRequested = "package.build.already-requested";
+    public const string PackageStateInvalid = "package.state.invalid";
 }

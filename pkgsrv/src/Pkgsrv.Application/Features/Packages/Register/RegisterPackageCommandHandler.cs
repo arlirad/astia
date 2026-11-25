@@ -1,9 +1,9 @@
 using Arlirad.Ervi.Mediator.Interfaces;
-using Pkgsrv.Application.Abstractions.Events;
-using Pkgsrv.Application.Abstractions.Persistence;
-using Pkgsrv.Application.Abstractions.Security;
-using Pkgsrv.Application.Abstractions.Sources;
-using Pkgsrv.Application.Abstractions.Time;
+using Pkgsrv.Application.Interfaces.Events;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
+using Pkgsrv.Application.Interfaces.Sources;
+using Pkgsrv.Application.Interfaces.Time;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Validation;
@@ -91,6 +91,10 @@ public sealed class RegisterPackageCommandHandler
 
         var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(
+            domainEvents,
+            cancellationToken).ConfigureAwait(false);
+        await _repository.AcknowledgeDomainEventsAsync(
+            package.Key,
             domainEvents,
             cancellationToken).ConfigureAwait(false);
         package.AcknowledgeDomainEvents(domainEvents);

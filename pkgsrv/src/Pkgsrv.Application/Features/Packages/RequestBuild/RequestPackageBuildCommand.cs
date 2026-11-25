@@ -1,5 +1,5 @@
 using Arlirad.Ervi.Mediator.Interfaces;
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Contracts;
 
 namespace Pkgsrv.Application.Features.Packages.RequestBuild;

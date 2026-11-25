@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Pkgsrv.Application.Abstractions.Artifacts;
+using Pkgsrv.Application.Interfaces.Artifacts;
 using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Infrastructure.Artifacts;

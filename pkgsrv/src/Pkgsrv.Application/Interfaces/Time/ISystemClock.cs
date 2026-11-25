@@ -1,4 +1,4 @@
-namespace Pkgsrv.Application.Abstractions.Time;
+namespace Pkgsrv.Application.Interfaces.Time;
 
 public interface ISystemClock
 {

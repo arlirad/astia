@@ -1,6 +1,6 @@
 using Pkgsrv.Domain.Packages;
 
-namespace Pkgsrv.Application.Abstractions.Security;
+namespace Pkgsrv.Application.Interfaces.Security;
 
 public interface IIrvaAuthorization
 {

@@ -1,6 +1,6 @@
-using Pkgsrv.Application.Abstractions.Artifacts;
-using Pkgsrv.Application.Abstractions.Builds;
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Artifacts;
+using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.Infrastructure.Artifacts;
 using Pkgsrv.Infrastructure.Builds;

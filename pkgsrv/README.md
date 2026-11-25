@@ -15,8 +15,8 @@ adapters.
 | --- | --- | --- |
 | `src/Pkgsrv.Domain` | Package aggregate, value objects, manifest, build policy, domain events, invariants | BCL only |
 | `src/Pkgsrv.Application` | Commands/queries, handlers, ports, DTOs, validation, authorization intent, permission names | Domain, Ervi mediator contracts |
-| `src/Pkgsrv.Infrastructure` | In-memory store/index, source allowlist, safe build sandbox, artifact/signing adapters, pending Irva boundary | Application, Domain |
-| `src/Pkgsrv.Presentation` | Minimal HTTP API, request/response DTOs, actor context propagation, error mapping, composition root | Application, Infrastructure, Domain |
+| `src/Pkgsrv.Infrastructure` | In-memory and PostgreSQL package stores, source allowlist, safe build sandbox, artifact/signing adapters, pending Irva boundary | Application, Domain |
+| `src/Pkgsrv.Presentation` | Minimal HTTP API, JSON read cache, request/response DTOs, actor context propagation, error mapping, composition root | Application, Infrastructure, Domain |
 | `tests/*` | Layer tests; `test-support` holds shared valid fixtures | xUnit |
 
 `Pkgsrv.sln` is at the root of this directory. It targets `net10.0` to match the
@@ -69,7 +69,7 @@ a module inside Ervan.
 
 ## Irva authorization boundary and permissions
 
-`Application.Abstractions.Security.IIrvaAuthorization` expresses the read, build,
+`Application.Interfaces.Security.IIrvaAuthorization` expresses the read, build,
 and publish policy intent. Every application handler authorizes before doing work:
 
 | Handler | Action | Permission name |
@@ -140,12 +140,97 @@ identity propagation when wired into Ervan.
   same package identity with a matching content hash can pass.
 - Package build-request transitions are atomic under concurrent requests; one
   transition wins, raises one domain event, and the rest are rejected.
-- Domain events are published from a stable snapshot and acknowledged only after
-  publication succeeds; a publisher failure retains the events on the aggregate.
+- Domain events are published from a stable snapshot. In PostgreSQL mode they are
+  also persisted in the package row; both the in-memory aggregate and the durable
+  pending-event representation are acknowledged only after publication succeeds.
+  A publication or acknowledgement-persistence failure retains the pending event.
+- PostgreSQL build transitions use a conditional row update requiring the persisted
+  state to still be `Registered`; a stale transition raises the 409 conflict path.
 - `PendingPackageSigner` returns a pending signature; it does not sign.
 - `ConfiguredSourceAllowlist` denies everything unless hosts are configured.
   Wildcards such as `*.example.com` are supported.
-- `InMemoryPackageRepository` is process-local and not durable.
+- `InMemoryPackageRepository` is process-local and not durable; PostgreSQL mode is
+  durable when configured with a connection string.
+
+## Persistence
+
+Package metadata is stored through `IPackageRepository` and `IPackageIndex`. The
+production-capable adapter uses EF Core 10 with Npgsql and the `packages` table.
+
+Configuration:
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Database__Provider` | `InMemory` fallback | `InMemory` or `Postgres`/`PostgreSQL` |
+| `Pkgsrv__Database__ConnectionString` | unset | PostgreSQL connection string; selects Postgres when set |
+| `Pkgsrv__Database__InitializeSchema` | `false` | Runs the idempotent schema script at startup when true |
+
+Selection is deterministic:
+
+- A non-empty connection string with no explicit provider selects PostgreSQL.
+- `Provider=InMemory` explicitly selects the non-durable in-memory adapter.
+- No provider and no connection string uses the in-memory fallback; startup logs a
+  warning that metadata is not durable.
+- `Provider=Postgres` requires a non-empty connection string.
+
+Example using placeholders only:
+
+```bash
+export Pkgsrv__Database__Provider=Postgres
+export Pkgsrv__Database__ConnectionString='Host=db.example;Database=pkgsrv;Username=pkgsrv;Password=REDACTED'
+export Pkgsrv__Database__InitializeSchema=false
+```
+
+The adapter maps package key, all manifest fields, build policy, aggregate state,
+and registration/build timestamps. Rehydration uses a domain factory and does not
+raise registration or build events.
+
+Build requests use a conditional row update requiring the persisted state to still
+be `Registered`. Concurrent build requests race on that predicate; one succeeds,
+and a stale update raises `PackageConflictException`, mapped to HTTP `409`.
+
+Pending domain events are stored in the same row in `PendingEventsJson` and are
+written atomically with registration/build state. Only the supported
+`PackageRegistered` and `PackageBuildRequested` event kinds are serialized by
+Infrastructure. On load, pending events are rehydrated into the aggregate without
+raising new events. Acknowledgement removes only semantically published
+descriptors and uses a compare-and-swap on the exact pending-events JSON with
+bounded retries; newer pending events are preserved, and exhausted retries map to
+the `409` package-conflict path. After successful publication, handlers clear the
+persisted pending events and then the in-memory list. If publication or
+acknowledgement persistence fails, the durable pending event remains.
+
+This is an **at-least-once durable pending-event/outbox boundary**. Publishers must
+be idempotent. Automatic outbox dispatch/retry is not implemented yet.
+
+The schema lives in the default `public` schema as `packages`. It can be initialized
+by setting `InitializeSchema=true`; startup executes idempotent
+`CREATE TABLE IF NOT EXISTS` and index statements before listening. The initializer
+never drops or truncates data. For production, prefer managed migrations or a
+reviewed DDL deployment, and grant the runtime user only the required table
+privileges. The application does not create databases, roles, or extensions, and
+does not silently alter existing schemas.
+
+An opt-in integration test runs only when
+`PKGSRV_TEST_POSTGRES_CONNECTION` is set; otherwise it is a no-op.
+
+## JSON read cache
+
+Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
+served from a bounded in-process JSON cache. The cache key includes the caller
+identity, the list query, and the package key. Actor identity fields and roles are
+length-prefixed before being combined, so delimiter-bearing header values cannot
+collide. JSON is generated only on a cache miss, then returned with
+`application/json`.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Cache__TtlSeconds` | `5` | Absolute entry lifetime |
+| `Pkgsrv__Cache__SizeLimit` | `1024` | Maximum cached entries |
+
+Successful registration and build mutations invalidate list/detail entries by
+advancing a cache generation. Entries also expire by absolute TTL, and the
+`MemoryCache` size limit prevents unbounded growth.
 
 ## Listening endpoint
 
@@ -290,10 +375,16 @@ listening endpoint section.
 
 ## Known limitations
 
-- No durable storage, package download, build execution, signing, or publish endpoint.
+- Package download, build execution, signing, and publish endpoints are not implemented.
+- PostgreSQL durability depends on a configured database and a provisioned schema;
+  in-memory mode is not durable.
+- Automatic pending-event dispatch/retry is not implemented. The durable boundary
+  is at-least-once, so publishers must be idempotent.
+- No EF migrations are included. Use `InitializeSchema=true` only for the skeleton,
+  or manage the reviewed DDL through deployment/migrations.
 - Irva.Client authorization is pending and defaults to deny.
 - No project reference is made to `/home/tymk/Projects/_prg/servers/ervan`; the
   permission and client adapter must be wired when hosting alongside Ervan.
-- Package build requests mutate in-memory state and return `NotExecuted`; this is
-  deliberate until a verified sandbox adapter exists.
+- Package build requests persist the requested state and return `NotExecuted`; build
+  execution remains deliberately disabled until a verified sandbox adapter exists.
 - The application deliberately does not create the Unix socket runtime directory.

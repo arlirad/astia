@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.RequestBuild;
 using Pkgsrv.Domain.Errors;
@@ -43,6 +43,37 @@ public sealed class RequestPackageBuildCommandHandlerTests
             CancellationToken.None);
         Assert.Equal(PackageState.BuildRequested, stored!.State);
         Assert.Empty(stored.DomainEvents);
+        Assert.Single(repository.Acknowledgements);
+    }
+
+    [Fact]
+    public async Task Build_RetainsDomainEventsWhenAcknowledgementPersistenceFails()
+    {
+        var repository = new TestRepository();
+        var package = TestPackages.CreatePackage();
+        await repository.TryAddAsync(package, CancellationToken.None);
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
+        repository.ThrowOnAcknowledge = true;
+        var sandbox = new TestBuildSandbox();
+        var handler = new RequestPackageBuildCommandHandler(
+            repository,
+            sandbox,
+            new TestAuthorization(),
+            new TestEventPublisher(),
+            new TestClock());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await handler.Handle(
+                new RequestPackageBuildCommand("widget", "1.2.3", TestPackages.Actor),
+                CancellationToken.None));
+
+        var stored = await repository.FindAsync(
+            PackageKey.Create("widget", "1.2.3"),
+            CancellationToken.None);
+        Assert.Equal(PackageState.BuildRequested, stored!.State);
+        Assert.IsType<PackageBuildRequested>(Assert.Single(stored.DomainEvents));
+        Assert.Empty(repository.Acknowledgements);
+        Assert.Null(sandbox.LastRequest);
     }
 
     [Fact]
@@ -73,6 +104,7 @@ public sealed class RequestPackageBuildCommandHandlerTests
         Assert.IsType<PackageBuildRequested>(Assert.Single(stored.DomainEvents));
         Assert.Single(publisher.Attempted);
         Assert.Null(sandbox.LastRequest);
+        Assert.Empty(repository.Acknowledgements);
     }
 
     [Fact]
@@ -128,5 +160,29 @@ public sealed class RequestPackageBuildCommandHandlerTests
         var exception = await Assert.ThrowsAsync<DomainException>(
             async () => await handler.Handle(command, CancellationToken.None));
         Assert.Equal(DomainErrorCodes.BuildAlreadyRequested, exception.Code);
+    }
+
+    [Fact]
+    public async Task Build_MapsStaleRepositoryTransitionToConflictWithoutExecution()
+    {
+        var repository = new TestRepository();
+        var package = TestPackages.CreatePackage();
+        await repository.TryAddAsync(package, CancellationToken.None);
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
+        repository.ThrowOnUpdate = true;
+        var sandbox = new TestBuildSandbox();
+        var handler = new RequestPackageBuildCommandHandler(
+            repository,
+            sandbox,
+            new TestAuthorization(),
+            new TestEventPublisher(),
+            new TestClock());
+
+        await Assert.ThrowsAsync<PackageConflictException>(
+            async () => await handler.Handle(
+                new RequestPackageBuildCommand("widget", "1.2.3", TestPackages.Actor),
+                CancellationToken.None));
+
+        Assert.Null(sandbox.LastRequest);
     }
 }

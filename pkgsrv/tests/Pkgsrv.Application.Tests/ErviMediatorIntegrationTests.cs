@@ -1,11 +1,11 @@
 using Arlirad.Ervi.Mediator;
 using Arlirad.Ervi.Mediator.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
-using Pkgsrv.Application.Abstractions.Events;
-using Pkgsrv.Application.Abstractions.Persistence;
-using Pkgsrv.Application.Abstractions.Security;
-using Pkgsrv.Application.Abstractions.Sources;
-using Pkgsrv.Application.Abstractions.Time;
+using Pkgsrv.Application.Interfaces.Events;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
+using Pkgsrv.Application.Interfaces.Sources;
+using Pkgsrv.Application.Interfaces.Time;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.TestSupport;

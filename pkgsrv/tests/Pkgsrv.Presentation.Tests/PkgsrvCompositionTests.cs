@@ -1,11 +1,17 @@
 using Arlirad.Ervi.Mediator.Interfaces;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Pkgsrv.Application.Abstractions.Builds;
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Packages;
+using Pkgsrv.Infrastructure.Persistence.Postgres;
+using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Composition;
+using Pkgsrv.Presentation.Configuration;
 using Pkgsrv.TestSupport;
 
 namespace Pkgsrv.Presentation.Tests;
@@ -18,6 +24,8 @@ public sealed class PkgsrvCompositionTests
         await using var app = PkgsrvHost.Create([]);
 
         Assert.NotNull(app.Services.GetRequiredService<IMediator>());
+        Assert.IsType<PackageJsonCache>(
+            app.Services.GetRequiredService<IPackageJsonCache>());
     }
 
     [Fact]
@@ -61,6 +69,42 @@ public sealed class PkgsrvCompositionTests
 
         Assert.Equal(BuildExecutionStatus.NotExecuted, build.Status);
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<IMediator>());
+    }
+
+    [Fact]
+    public void AddPkgsrv_DefaultsToInMemoryRepository()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv([]);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<InMemoryPackageRepository>(
+            provider.GetRequiredService<IPackageRepository>());
+    }
+
+    [Fact]
+    public void AddPkgsrv_SelectsPostgresRepositoryWhenConfigured()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Pkgsrv:Database:ConnectionString"] =
+                    "Host=localhost;Database=pkgsrv;Username=pkgsrv;Password=placeholder",
+                ["Pkgsrv:Database:InitializeSchema"] = "true"
+            })
+            .Build();
+        var databaseOptions = PkgsrvDatabaseOptions.FromConfiguration(configuration);
+        var services = new ServiceCollection();
+        services.AddPkgsrv([], databaseOptions);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<PostgresPackageRepository>(
+            provider.GetRequiredService<IPackageRepository>());
+        Assert.IsType<PostgresPackageRepository>(
+            provider.GetRequiredService<IPackageIndex>());
+        Assert.NotNull(provider.GetRequiredService<IPackageSchemaInitializer>());
     }
 
     [Fact]

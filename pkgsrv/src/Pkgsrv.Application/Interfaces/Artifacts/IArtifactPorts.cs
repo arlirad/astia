@@ -1,6 +1,6 @@
 using Pkgsrv.Domain.Packages;
 
-namespace Pkgsrv.Application.Abstractions.Artifacts;
+namespace Pkgsrv.Application.Interfaces.Artifacts;
 
 public sealed record ArtifactMetadata(
     PackageKey Package,

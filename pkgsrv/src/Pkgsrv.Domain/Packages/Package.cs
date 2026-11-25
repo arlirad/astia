@@ -88,6 +88,43 @@ public sealed class Package
         return package;
     }
 
+    public static Package Rehydrate(
+        PackageManifest manifest,
+        BuildPolicy buildPolicy,
+        PackageState state,
+        DateTimeOffset registeredAt,
+        DateTimeOffset? buildRequestedAt,
+        IReadOnlyCollection<IDomainEvent>? pendingDomainEvents = null)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(buildPolicy);
+
+        if (!Enum.IsDefined(state)
+            || (state == PackageState.Registered && buildRequestedAt is not null)
+            || (state == PackageState.BuildRequested && buildRequestedAt is null))
+        {
+            throw new DomainException(
+                DomainErrorCodes.PackageStateInvalid,
+                "Persisted package state and build timestamp are inconsistent.");
+        }
+
+        var package = new Package(
+            PackageKey.From(manifest.Name, manifest.Version),
+            manifest,
+            buildPolicy,
+            registeredAt);
+
+        package._state = state;
+        package._buildRequestedAt = buildRequestedAt;
+
+        if (pendingDomainEvents is not null)
+        {
+            package._domainEvents.AddRange(pendingDomainEvents);
+        }
+
+        return package;
+    }
+
     public void RequestBuild(DateTimeOffset requestedAt)
     {
         lock (_gate)

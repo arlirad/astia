@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.11" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.6" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Pkgsrv.Application\Pkgsrv.Application.csproj" />

@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using Pkgsrv.Application.Abstractions.Events;
+using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Domain.Events;
 
 namespace Pkgsrv.Infrastructure.Events;

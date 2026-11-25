@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
-using Pkgsrv.Application.Abstractions.Persistence;
+using Pkgsrv.Application.Interfaces.Persistence;
+using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Infrastructure.Packages;
@@ -31,6 +32,17 @@ public sealed class InMemoryPackageRepository : IPackageRepository, IPackageInde
         }
 
         _packages[package.Key] = package;
+        return Task.CompletedTask;
+    }
+
+    public Task AcknowledgeDomainEventsAsync(
+        PackageKey key,
+        IReadOnlyCollection<IDomainEvent> publishedEvents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(publishedEvents);
+
         return Task.CompletedTask;
     }
 

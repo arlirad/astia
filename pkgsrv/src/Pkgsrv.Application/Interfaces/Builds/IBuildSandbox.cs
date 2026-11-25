@@ -1,6 +1,6 @@
 using Pkgsrv.Domain.Packages;
 
-namespace Pkgsrv.Application.Abstractions.Builds;
+namespace Pkgsrv.Application.Interfaces.Builds;
 
 public enum BuildExecutionStatus
 {

@@ -38,8 +38,10 @@ public sealed class PackageNotFoundException : PkgsrvApplicationException
 
 public sealed class PackageConflictException : PkgsrvApplicationException
 {
-    public PackageConflictException(string package)
-        : base("package.conflict", $"Package {package} already exists.")
+    public PackageConflictException(string package, string? detail = null)
+        : base(
+            "package.conflict",
+            detail ?? $"Package {package} already exists.")
     {
         Package = package;
     }

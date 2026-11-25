@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Authorization;
 
 namespace Pkgsrv.Application.Tests;

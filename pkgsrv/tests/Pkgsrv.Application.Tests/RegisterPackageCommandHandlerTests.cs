@@ -1,5 +1,5 @@
-using Pkgsrv.Application.Abstractions.Events;
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Events;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Validation;
@@ -32,6 +32,28 @@ public sealed class RegisterPackageCommandHandlerTests
         Assert.NotNull(stored);
         Assert.IsType<PackageRegistered>(Assert.Single(harness.Events.Events));
         Assert.Empty(stored.DomainEvents);
+        Assert.Single(harness.Repository.Acknowledgements);
+    }
+
+    [Fact]
+    public async Task Register_RetainsDomainEventsWhenAcknowledgementPersistenceFails()
+    {
+        var harness = new RegistrationHarness
+        {
+            Repository = { ThrowOnAcknowledge = true }
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await harness.Handler.Handle(
+                TestPackages.CreateRegistrationCommand(),
+                CancellationToken.None));
+
+        var stored = await harness.Repository.FindAsync(
+            PackageKey.Create("widget", "1.2.3"),
+            CancellationToken.None);
+        Assert.NotNull(stored);
+        Assert.IsType<PackageRegistered>(Assert.Single(stored.DomainEvents));
+        Assert.Empty(harness.Repository.Acknowledgements);
     }
 
     [Fact]

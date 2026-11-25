@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using Pkgsrv.Application.Abstractions.Sources;
+using Pkgsrv.Application.Interfaces.Sources;
 using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Infrastructure.Sources;

@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Builds;
+using Pkgsrv.Application.Interfaces.Builds;
 
 namespace Pkgsrv.Infrastructure.Builds;
 

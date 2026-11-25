@@ -1,4 +1,4 @@
-using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Domain.Packages;

@@ -61,6 +61,56 @@ public sealed class PackageAggregateTests
     }
 
     [Fact]
+    public void Rehydrate_RestoresRegisteredStateWithoutEvents()
+    {
+        var package = Package.Rehydrate(
+            TestPackages.CreateManifest(TestPackages.CreateSignedSignature()),
+            BuildPolicy.Create(BuildIsolation.Container, false, TimeSpan.FromMinutes(5)),
+            PackageState.Registered,
+            TestPackages.Timestamp,
+            null);
+
+        Assert.Equal(PackageState.Registered, package.State);
+        Assert.Null(package.BuildRequestedAt);
+        Assert.True(package.Manifest.IsPublishable);
+        Assert.Empty(package.DomainEvents);
+    }
+
+    [Fact]
+    public void Rehydrate_RestoresBuildRequestedStateWithoutEvents()
+    {
+        var requestedAt = TestPackages.Timestamp.AddMinutes(5);
+        var package = Package.Rehydrate(
+            TestPackages.CreateManifest(),
+            BuildPolicy.Create(BuildIsolation.Namespace, true, TimeSpan.FromMinutes(10)),
+            PackageState.BuildRequested,
+            TestPackages.Timestamp,
+            requestedAt);
+
+        Assert.Equal(PackageState.BuildRequested, package.State);
+        Assert.Equal(requestedAt, package.BuildRequestedAt);
+        Assert.True(package.BuildPolicy.AllowNetwork);
+        Assert.Empty(package.DomainEvents);
+    }
+
+    [Theory]
+    [InlineData(PackageState.Registered, true)]
+    [InlineData(PackageState.BuildRequested, false)]
+    public void Rehydrate_RejectsInconsistentState(PackageState state, bool hasBuildTimestamp)
+    {
+        var buildRequestedAt = hasBuildTimestamp ? TestPackages.Timestamp : (DateTimeOffset?)null;
+
+        var exception = Assert.Throws<DomainException>(() => Package.Rehydrate(
+            TestPackages.CreateManifest(),
+            BuildPolicy.Create(BuildIsolation.Container, false, TimeSpan.FromMinutes(5)),
+            state,
+            TestPackages.Timestamp,
+            buildRequestedAt));
+
+        Assert.Equal(DomainErrorCodes.PackageStateInvalid, exception.Code);
+    }
+
+    [Fact]
     public void AcknowledgeDomainEvents_LeavesEventsAddedAfterSnapshot()
     {
         var package = TestPackages.CreatePackage();
