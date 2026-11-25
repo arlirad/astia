@@ -517,11 +517,13 @@ namespace astia::proc {
                              u64& base_out, usize region_page = 0, bool shared = false,
                              bool stack = false, u64 fixed_base = 0, bool cow = false);
 
-        bool                     grow_stack(mmap_region* vma, u64 addr, bool write);
-        pid_t                    _pid;
-        pid_t                    _parent_pid;
-        pgrp_t                   _process_group;
-        pid_t                    _session;
+        bool   grow_stack(mmap_region* vma, u64 addr, bool write);
+        bool   materialize_lazy_page(mmap_region* vma, u64 virt, usize backing_page,
+                                     bool write);
+        pid_t  _pid;
+        pid_t  _parent_pid;
+        pgrp_t _process_group;
+        pid_t  _session;
         mm::shptr<fs::open_file> _controlling_terminal;
         u32                      _uid = 0, _euid = 0, _gid = 0, _egid = 0;
         u32                      _umask = 0;

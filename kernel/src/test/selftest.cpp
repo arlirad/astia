@@ -9,10 +9,13 @@
 #include <astia/error.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/phys_region.hpp>
 
 #include "../dev/chr/tty/uart16550.hpp"
 #include "../fs/filesystem.hpp"
 #include "../proc/task_run.hpp"
+#include "../proc/tls_arena.hpp"
 #include "aio.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
@@ -1349,6 +1352,36 @@ namespace astia::test {
             return true;
         }
 
+        // The DSO TLS reserve is address space until a probe touches it:
+        // creating the arena must cost only the payload's frames, and the
+        // whole reserve must invalidate without allocating.
+        bool tls_arena_checks() {
+            const usize     before = mm::kernel_frames().available_frames();
+            proc::tls_arena layout{};
+            if (!proc::measure_tls_arena(1, layout) || layout.reserve_pages == 0) {
+                logs::error("tls arena geometry fail");
+                return false;
+            }
+            auto* region = proc::create_tls_arena(layout);
+            if (region == nullptr) {
+                logs::error("tls arena allocation fail");
+                return false;
+            }
+            const usize allocated    = before - mm::kernel_frames().available_frames();
+            bool        reserve_lazy = true;
+            for (usize page = 0; page < layout.reserve_pages; ++page)
+                reserve_lazy = reserve_lazy && region->page_base(page) ==
+                                                   mm::frame_allocator::invalid_frame;
+            region->release();
+            if (allocated != layout.payload_pages || !reserve_lazy ||
+                mm::kernel_frames().available_frames() != before) {
+                logs::error("tls arena reserve allocated");
+                return false;
+            }
+            logs::info("tls arena reserve lazy ok");
+            return true;
+        }
+
     } // namespace
 
     bool run() {
@@ -1386,6 +1419,9 @@ namespace astia::test {
             return false;
         }
         if (!mount_lifecycle_checks()) {
+            return false;
+        }
+        if (!tls_arena_checks()) {
             return false;
         }
 

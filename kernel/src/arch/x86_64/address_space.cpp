@@ -158,6 +158,14 @@ namespace astia::mm {
         return true;
     }
 
+    bool mapping_transaction::skip_4k(vaddr_t virt) {
+        if (_finished || _space == nullptr || _mapped >= _pages ||
+            virt != _first + _mapped * page_size || _first + _mapped * page_size < _first)
+            return false;
+        ++_mapped;
+        return true;
+    }
+
     void mapping_transaction::commit() {
         _finished = true;
     }
