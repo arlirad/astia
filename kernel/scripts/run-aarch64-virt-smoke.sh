@@ -191,6 +191,19 @@ grep -Fxq 'gic: self-sgi=0x0000000f' "$log" ||
     die "reserved self-SGI ID is missing or unexpected"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: GIC READY' "$log" ||
     die "GICv3 initialization did not complete"
+grep -Fxq 'gic: local-sgi=0x0000000f' "$log" ||
+    die "local self-SGI registration ID is missing or unexpected"
+grep -Fxq 'gic: local-timer=0x0000001e' "$log" ||
+    die "local timer PPI registration ID is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: LOCAL IRQ REGISTERED' "$log" ||
+    die "local IRQ registration marker is missing"
+awk '
+    /ASTIA AARCH64 VIRT BOOT: GIC READY/ { ready = NR }
+    /ASTIA AARCH64 VIRT BOOT: LOCAL IRQ REGISTERED/ { registered = NR }
+    /ASTIA AARCH64 VIRT BOOT: IRQ ENABLED/ { enabled = NR }
+    END { exit !(ready && registered && enabled && ready < registered &&
+                 registered < enabled) }
+' "$log" || die "local IRQ registration is not ordered before IRQ enable"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ ENABLED' "$log" ||
     die "IRQ enable marker is missing"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ SELF-SGI' "$log" ||

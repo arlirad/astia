@@ -6,7 +6,48 @@ namespace {
     using namespace astia;
     namespace gicv3 = astia::arch::aarch64::gicv3;
     namespace timer = astia::arch::aarch64::timer;
+
+    void count_local_irq(void* context) {
+        ++*static_cast<u32*>(context);
+    }
 } // namespace
+
+ASTIA_TEST(aarch64_gic_local_intid_validity) {
+    ASTIA_CHECK(gicv3::local_intid_limit == 32U);
+    ASTIA_CHECK(gicv3::valid_local_intid(0));
+    ASTIA_CHECK(gicv3::valid_local_intid(gicv3::self_sgi_id));
+    ASTIA_CHECK(gicv3::valid_local_intid(timer::ppi_id));
+    ASTIA_CHECK(gicv3::valid_local_intid(31));
+    ASTIA_CHECK(!gicv3::valid_local_intid(32));
+    ASTIA_CHECK(!gicv3::valid_local_intid(1020));
+    ASTIA_CHECK(!gicv3::valid_local_intid(gicv3::spurious_intid));
+    ASTIA_CHECK(!gicv3::valid_local_intid(0xffffff));
+}
+
+ASTIA_TEST(aarch64_gic_local_registration_policy) {
+    u32 calls = 0;
+    ASTIA_CHECK(gicv3::register_local_irq(32, count_local_irq, &calls) ==
+                gicv3::registration_error::invalid_intid);
+    ASTIA_CHECK(
+        gicv3::register_local_irq(gicv3::spurious_intid, count_local_irq, &calls) ==
+        gicv3::registration_error::invalid_intid);
+    ASTIA_CHECK(gicv3::register_local_irq(0, nullptr, nullptr) ==
+                gicv3::registration_error::null_handler);
+    ASTIA_CHECK(gicv3::register_local_irq(6, count_local_irq, &calls) ==
+                gicv3::registration_error::none);
+    ASTIA_CHECK(gicv3::register_local_irq(6, count_local_irq, &calls) ==
+                gicv3::registration_error::already_registered);
+    ASTIA_CHECK(gicv3::classify_intid(6) == gicv3::irq_action::handled);
+}
+
+ASTIA_TEST(aarch64_gic_local_dispatch_policy) {
+    ASTIA_CHECK(gicv3::classify_intid(7) == gicv3::irq_action::fatal);
+    u32 calls = 0;
+    ASTIA_CHECK(gicv3::register_local_irq(7, count_local_irq, &calls) ==
+                gicv3::registration_error::none);
+    ASTIA_CHECK(gicv3::classify_intid(7) == gicv3::irq_action::handled);
+    ASTIA_CHECK(gicv3::classify_intid(8) == gicv3::irq_action::fatal);
+}
 
 ASTIA_TEST(aarch64_gic_self_sgi_encoding) {
     ASTIA_CHECK(gicv3::self_sgi_id <= gicv3::max_sgi_id);
@@ -24,6 +65,11 @@ ASTIA_TEST(aarch64_gic_mpidr_affinity) {
 }
 
 ASTIA_TEST(aarch64_gic_irq_policy) {
+    u32 calls = 0;
+    ASTIA_CHECK(gicv3::register_local_irq(gicv3::self_sgi_id, count_local_irq, &calls) ==
+                gicv3::registration_error::none);
+    ASTIA_CHECK(gicv3::register_local_irq(timer::ppi_id, count_local_irq, &calls) ==
+                gicv3::registration_error::none);
     ASTIA_CHECK(gicv3::classify_intid(gicv3::self_sgi_id) == gicv3::irq_action::handled);
     ASTIA_CHECK(gicv3::classify_intid(timer::ppi_id) == gicv3::irq_action::handled);
     ASTIA_CHECK(gicv3::classify_intid(0) == gicv3::irq_action::fatal);

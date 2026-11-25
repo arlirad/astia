@@ -29,6 +29,22 @@ namespace {
     namespace gicv3  = astia::arch::aarch64::gicv3;
     namespace timer  = astia::arch::aarch64::timer;
 
+    struct local_irq_state {
+        volatile astia::u32 self_sgi_count = 0;
+        volatile astia::u32 timer_count    = 0;
+    };
+
+    void handle_self_sgi(void* context) {
+        auto* state           = static_cast<local_irq_state*>(context);
+        state->self_sgi_count = state->self_sgi_count + 1;
+    }
+
+    void handle_timer(void* context) {
+        timer::disable_and_clear();
+        auto* state        = static_cast<local_irq_state*>(context);
+        state->timer_count = state->timer_count + 1;
+    }
+
     constexpr page_flags ram_flags =
         page_flags::present | page_flags::writable | page_flags::no_execute;
     constexpr page_flags image_flags     = page_flags::present | page_flags::writable;
@@ -504,6 +520,23 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "gic: self-sgi=", gicv3::self_sgi_id, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: GIC READY");
 
+    local_irq_state                 local_irqs{};
+    const gicv3::registration_error self_sgi_registration =
+        gicv3::register_local_irq(gicv3::self_sgi_id, handle_self_sgi, &local_irqs);
+    const gicv3::registration_error timer_registration =
+        gicv3::register_local_irq(timer::ppi_id, handle_timer, &local_irqs);
+    if (self_sgi_registration != gicv3::registration_error::none ||
+        timer_registration != gicv3::registration_error::none) {
+        console.write("gic: local-sgi-registration=");
+        console.write_line(gicv3::describe(self_sgi_registration));
+        console.write("gic: local-timer-registration=");
+        console.write_line(gicv3::describe(timer_registration));
+        fail(console, "local IRQ registration failed");
+    }
+    write_line_field(console, "gic: local-sgi=", gicv3::self_sgi_id, 8);
+    write_line_field(console, "gic: local-timer=", timer::ppi_id, 8);
+    console.write_line("ASTIA AARCH64 VIRT BOOT: LOCAL IRQ REGISTERED");
+
     console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ ENABLED");
     __asm__ volatile("msr daifclr, #2" : : : "memory");
     console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ SELF-SGI");
@@ -511,12 +544,12 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     constexpr astia::u32 self_sgi_spin_limit = 10000000;
     astia::u32           spin                = 0;
-    while (gicv3::self_sgi_count() == 0 && spin < self_sgi_spin_limit) {
+    while (local_irqs.self_sgi_count == 0 && spin < self_sgi_spin_limit) {
         __asm__ volatile("yield" : : : "memory");
         ++spin;
     }
     __asm__ volatile("msr daifset, #2" : : : "memory");
-    if (gicv3::self_sgi_count() != 1) {
+    if (local_irqs.self_sgi_count != 1) {
         fail(console, "self-SGI was not handled");
     }
     console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ RETURNED");
@@ -545,13 +578,13 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     __asm__ volatile("isb" : : : "memory");
     constexpr astia::u32 timer_spin_limit = 100000000;
     astia::u32           timer_spin       = 0;
-    while (gicv3::timer_count() == 0 && timer_spin < timer_spin_limit) {
+    while (local_irqs.timer_count == 0 && timer_spin < timer_spin_limit) {
         __asm__ volatile("yield" : : : "memory");
         ++timer_spin;
     }
     __asm__ volatile("msr daifset, #2" : : : "memory");
     __asm__ volatile("isb" : : : "memory");
-    if (gicv3::timer_count() != 1) {
+    if (local_irqs.timer_count != 1) {
         fail(console, "timer PPI was not handled exactly once");
     }
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
