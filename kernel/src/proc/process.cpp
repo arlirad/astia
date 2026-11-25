@@ -823,7 +823,8 @@ namespace astia::proc {
         arch::interrupt_spinlock_guard guard(process_wait_lock);
         if (_signal_waiters.consume_wake(value))
             return false;
-        value->arm_wait(continuation);
+        if (!value->arm_wait_unless_cancelled(continuation))
+            return false;
         value->state(thread_state::blocked);
         return true;
     }

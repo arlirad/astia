@@ -181,6 +181,7 @@ namespace astia::proc {
         core::task<long> join(void** result = nullptr);
         bool             arm_join(std::coroutine_handle<> continuation);
         void             arm_wait(std::coroutine_handle<> continuation);
+        bool             arm_wait_unless_cancelled(std::coroutine_handle<> continuation);
         bool             wake_wait();
         void             request_resume(std::coroutine_handle<> continuation);
         void             resume_pending();
