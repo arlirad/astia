@@ -52,7 +52,9 @@ namespace astia::mod::syscalls {
             list.count    = static_cast<u32>(written);
             list.total    = static_cast<u32>(total);
             list.capacity = capacity;
-            if (!sys::copy_out(info.value.bytes(), &list)) {
+            u8 info_bytes[sizeof list]{};
+            __builtin_memcpy(info_bytes, &list, sizeof list);
+            if (!sys::copy_out(info.value.bytes(), info_bytes)) {
                 return -EFAULT;
             }
             if (written != 0 &&

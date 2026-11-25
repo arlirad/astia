@@ -52,7 +52,9 @@ namespace astia::mod::syscalls {
 
             astia_module_stat stat{};
             fill_module_stat(info, dependencies, dependency_total, stat);
-            if (!sys::copy_out(out.value.bytes(), &stat)) {
+            u8 stat_bytes[sizeof stat]{};
+            __builtin_memcpy(stat_bytes, &stat, sizeof stat);
+            if (!sys::copy_out(out.value.bytes(), stat_bytes)) {
                 return -EFAULT;
             }
             return 0;
