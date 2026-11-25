@@ -343,6 +343,7 @@ class GenerateTest(unittest.TestCase):
             directories,
             {
                 "abi",
+                "dl",
                 "fs",
                 "proc",
                 "proc/core",
@@ -353,7 +354,7 @@ class GenerateTest(unittest.TestCase):
                 "proc/thread",
             },
         )
-        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 71)
+        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 73)
 
     def test_manifest_has_no_markdown_bodies(self):
         manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
