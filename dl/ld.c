@@ -19,6 +19,27 @@
 
 #include "reloc.h"
 
+/*
+ * clang lowers struct copies and zero-initialisation to memcpy/memset even
+ * with -fno-builtin and -fno-plt.  The interpreter runs before any libc is
+ * available, so it must carry its own copies.  Hidden visibility matters:
+ * a preemptible definition would get a PLT slot that nothing can patch
+ * before ld_main runs, and the first call would jump to a link-time stub.
+ */
+__attribute__((visibility("hidden"))) void* memcpy(void* dest, const void* source,
+                                                   unsigned long size) {
+    void* result = dest;
+    __asm__ volatile("rep movsb" : "+D"(dest), "+S"(source), "+c"(size) : : "memory");
+    return result;
+}
+
+__attribute__((visibility("hidden"))) void* memset(void* dest, int value,
+                                                   unsigned long size) {
+    void* result = dest;
+    __asm__ volatile("rep stosb" : "+D"(dest), "+c"(size) : "a"(value) : "memory");
+    return result;
+}
+
 static unsigned long ld_strlen(const char* text) {
     unsigned long size = 0;
     while (text[size] != '\0')
@@ -55,7 +76,7 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
     if (slot == NULL)
         return -EBUSY;
 
-    *slot           = (astia_sqe) {0};
+    *slot           = (astia_sqe){0};
     slot->op        = op;
     slot->fd        = fd;
     slot->op_flags  = flags;
