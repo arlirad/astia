@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pkgsrv.Application</RootNamespace>
+    <AssemblyName>Pkgsrv.Application</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Arlirad.Ervi.Mediator" Version="1.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+  </ItemGroup>
+</Project>

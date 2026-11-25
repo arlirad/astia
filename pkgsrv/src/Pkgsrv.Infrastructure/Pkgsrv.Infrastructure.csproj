@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pkgsrv.Infrastructure</RootNamespace>
+    <AssemblyName>Pkgsrv.Infrastructure</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pkgsrv.Application\Pkgsrv.Application.csproj" />
+    <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
+  </ItemGroup>
+</Project>
