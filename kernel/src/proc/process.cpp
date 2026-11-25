@@ -794,7 +794,8 @@ namespace astia::proc {
             }
         }
         for (u32 i = 0; i < count; ++i) {
-            scheduler::wake(wake_list[i]);
+            if (wake_list[i]->wake_wait())
+                (void) scheduler::wake(wake_list[i]);
         }
     }
 

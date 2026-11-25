@@ -14,6 +14,7 @@
 #include "proc.hpp"
 #include "scheduler.hpp"
 #include "selftest.hpp"
+#include "task_run.hpp"
 
 #ifndef ASTIA_RUN_SELFTEST
 #define ASTIA_RUN_SELFTEST 1
@@ -45,32 +46,50 @@ namespace {
 
     /// Spawn one userspace image and wait for it out.  `spawned` tells
     /// spawn failure apart from a bad exit status.
-    bool run_image(const char* path, char* const argv[], char* const envp[],
-                   bool& spawned) {
-        spawned           = false;
-        auto spawned_task = spawn_image(astia::proc::current_process(), path, argv, envp);
-        spawned_task.resume();
-        while (!spawned_task.done())
-            astia::proc::scheduler::yield();
-        astia::mm::shptr<astia::proc::process> process;
-        if (spawned_task.value() != nullptr)
-            process = *spawned_task.value();
-        if (!process) {
-            return false;
-        }
+    astia::core::task<bool> run_image(const char* path, char* const argv[],
+                                      char* const envp[], bool& spawned) {
+        astia::arch::cpu::interrupts();
+        spawned = false;
+        auto loaded =
+            co_await spawn_image(astia::proc::current_process(), path, argv, envp);
+        if (!loaded)
+            co_return false;
+        auto process =
+            static_cast<astia::mm::shptr<astia::proc::process>&&>(loaded.value);
+        if (!process)
+            co_return false;
         spawned = true;
         const astia::i32 child_pid =
             static_cast<astia::i32>(static_cast<astia::u32>(process->pid()));
         astia::i32       status = -1;
-        const astia::i64 reaped = astia::proc::waitpid(child_pid, &status);
-        // waitpid re-enables IRQs before returning. Keep process teardown on
-        // this lifecycle stack non-preemptible.
+        auto             waited = co_await astia::proc::waitpid(child_pid, &status);
+        const astia::i64 reaped = waited ? waited.value : -1;
+        // Keep process teardown on this lifecycle stack non-preemptible.
         astia::arch::cpu::nointerrupts();
         astia::log::info("spawn reaped pid=%ld status=%d path=%s",
                          static_cast<long>(reaped), status, path);
         const bool ok = reaped == child_pid && status == 0;
         process       = {};
-        return ok;
+        co_return ok;
+    }
+
+    /// Wait out both userspace images on the seed thread.  PID 1's parent is
+    /// still the kernel process; only a coroutine sits above the waits.
+    astia::core::task<astia::i64> run_lifecycle(char* const init_argv[],
+                                                char* const init_envp[],
+                                                char* const libc_argv[],
+                                                char* const libc_envp[]) {
+        bool spawned = false;
+        auto first   = co_await run_image("/sbin/init", init_argv, init_envp, spawned);
+        if (!first || !spawned)
+            co_return -1;
+        bool ok = first.value;
+        if (ok) {
+            auto second =
+                co_await run_image("/bin/init_libc", libc_argv, libc_envp, spawned);
+            ok = second && spawned && second.value;
+        }
+        co_return ok ? 0 : -1;
     }
 
 }
@@ -116,16 +135,10 @@ extern "C" void kmain(void* start_info) {
         char* libc_argv[] = {const_cast<char*>("/bin/init_libc"), nullptr};
         char* libc_envp[] = {const_cast<char*>("HOME=/"), nullptr};
         astia::arch::cpu::interrupts();
-        bool       spawned      = false;
-        const bool init_ok      = run_image("/sbin/init", init_argv, init_envp, spawned);
-        bool       lifecycle_ok = spawned && init_ok;
-        if (lifecycle_ok) {
-            const bool libc_ok =
-                run_image("/bin/init_libc", libc_argv, libc_envp, spawned);
-            lifecycle_ok = spawned && libc_ok;
-        }
+        const astia::i64 lifecycle = astia::proc::run_task(
+            run_lifecycle(init_argv, init_envp, libc_argv, libc_envp));
         astia::arch::cpu::nointerrupts();
-        if (!lifecycle_ok)
+        if (lifecycle != 0)
             astia::core::kpanic("unable to spawn/reap userspace images");
         astia::log::info("init lifecycle ok");
     }
