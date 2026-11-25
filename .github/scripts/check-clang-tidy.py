@@ -29,7 +29,11 @@ UNSUPPORTED_FILES = {
     "kernel/tests/module_lifecycle_dso_fixture.cpp",
     "kernel/tests/module_lifecycle_atexit_fixture.cpp",
     "kernel/tests/init_user.c",
+    "kernel/tests/dyn_libc.c",
+    "kernel/tests/fixture_base.c",
+    "kernel/tests/fixture_lib.c",
     "kernel/tests/init_libc.c",
+    "kernel/tests/interp_link.c",
     "kernel/tests/fixture_exec.c",
     "kernel/tests/support/file_host.cpp",
 }
