@@ -94,9 +94,9 @@ namespace astia::log::detail {
         /// yet) and the record has to be buffered instead.
         mm::shptr<fs::open_file> stream_for(level severity) {
             proc::process* current = proc::current_process();
-            auto stream = current == nullptr
-                              ? mm::shptr<fs::open_file>{}
-                              : current->descriptor(
+            auto           stream  = current == nullptr
+                                         ? mm::shptr<fs::open_file>{}
+                                         : current->descriptor(
                                     fd_t{severity == level::info ? STDOUT : STDERR});
             if (!stream || (severity == level::info && stream->parent() &&
                             stream->parent()->mode().is_regular())) {
