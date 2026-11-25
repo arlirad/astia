@@ -1,6 +1,8 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Abstractions.Caching;
 using Pkgsrv.Application.Abstractions.Persistence;
 using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Caching;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Validation;
@@ -13,13 +15,16 @@ public sealed class GetPackageQueryHandler
 {
     private readonly IPackageRepository _repository;
     private readonly IIrvaAuthorization _authorization;
+    private readonly IPackageReadModelCache _cache;
 
     public GetPackageQueryHandler(
         IPackageRepository repository,
-        IIrvaAuthorization authorization)
+        IIrvaAuthorization authorization,
+        IPackageReadModelCache? cache = null)
     {
         _repository = repository;
         _authorization = authorization;
+        _cache = cache ?? NoOpPackageReadModelCache.Instance;
     }
 
     public async ValueTask<PackageDetailsDto> Handle(
@@ -48,6 +53,14 @@ public sealed class GetPackageQueryHandler
             throw new AuthorizationDeniedException(nameof(PackageAction.Read), authorization.Reason);
         }
 
+        var cached = _cache.GetDetails(key);
+
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var generation = _cache.CaptureGeneration();
         var package = await _repository.FindAsync(key, cancellationToken).ConfigureAwait(false);
 
         if (package is null)
@@ -55,6 +68,9 @@ public sealed class GetPackageQueryHandler
             throw new PackageNotFoundException(key.ToString());
         }
 
-        return PackageDetailsDto.From(package);
+        var details = PackageDetailsDto.From(package);
+        _cache.SetDetails(details, generation);
+
+        return details;
     }
 }

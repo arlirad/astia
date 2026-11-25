@@ -88,6 +88,36 @@ public sealed class Package
         return package;
     }
 
+    public static Package Rehydrate(
+        PackageKey key,
+        PackageManifest manifest,
+        BuildPolicy buildPolicy,
+        DateTimeOffset registeredAt,
+        PackageState state,
+        DateTimeOffset? buildRequestedAt)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(buildPolicy);
+
+        if (!Enum.IsDefined(state)
+            || (state == PackageState.Registered && buildRequestedAt is not null)
+            || (state == PackageState.BuildRequested && buildRequestedAt is null))
+        {
+            throw new DomainException(
+                DomainErrorCodes.PackageStateInvalid,
+                "Persisted package state is inconsistent.");
+        }
+
+        var package = new Package(key, manifest, buildPolicy, registeredAt)
+        {
+            _state = state,
+            _buildRequestedAt = buildRequestedAt
+        };
+
+        return package;
+    }
+
     public void RequestBuild(DateTimeOffset requestedAt)
     {
         lock (_gate)

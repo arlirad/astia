@@ -4,6 +4,9 @@
     <AssemblyName>Pkgsrv.Infrastructure</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Npgsql" Version="10.0.2" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Pkgsrv.Application\Pkgsrv.Application.csproj" />
     <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
   </ItemGroup>

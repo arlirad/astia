@@ -1,9 +1,11 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Abstractions.Caching;
 using Pkgsrv.Application.Abstractions.Events;
 using Pkgsrv.Application.Abstractions.Persistence;
 using Pkgsrv.Application.Abstractions.Security;
 using Pkgsrv.Application.Abstractions.Sources;
 using Pkgsrv.Application.Abstractions.Time;
+using Pkgsrv.Application.Caching;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Validation;
@@ -19,19 +21,22 @@ public sealed class RegisterPackageCommandHandler
     private readonly IIrvaAuthorization _authorization;
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
+    private readonly IPackageReadModelCache _cache;
 
     public RegisterPackageCommandHandler(
         IPackageRepository repository,
         ISourceAllowlist sourceAllowlist,
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
-        ISystemClock clock)
+        ISystemClock clock,
+        IPackageReadModelCache? cache = null)
     {
         _repository = repository;
         _sourceAllowlist = sourceAllowlist;
         _authorization = authorization;
         _eventPublisher = eventPublisher;
         _clock = clock;
+        _cache = cache ?? NoOpPackageReadModelCache.Instance;
     }
 
     public async ValueTask<RegisterPackageResult> Handle(
@@ -88,6 +93,8 @@ public sealed class RegisterPackageCommandHandler
         {
             throw new PackageConflictException(package.Key.ToString());
         }
+
+        _cache.InvalidatePackage(package.Key);
 
         var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(

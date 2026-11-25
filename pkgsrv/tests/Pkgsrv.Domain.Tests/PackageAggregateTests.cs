@@ -108,4 +108,40 @@ public sealed class PackageAggregateTests
         var buildEvent = Assert.Single(package.DomainEvents.OfType<PackageBuildRequested>());
         Assert.Equal(TestPackages.Timestamp, buildEvent.OccurredAt);
     }
+
+    [Fact]
+    public void Rehydrate_RestoresBuildRequestedStateWithoutDomainEvents()
+    {
+        var package = TestPackages.CreatePackage();
+        var requestedAt = TestPackages.Timestamp.AddMinutes(5);
+
+        var restored = Package.Rehydrate(
+            package.Key,
+            package.Manifest,
+            package.BuildPolicy,
+            package.RegisteredAt,
+            PackageState.BuildRequested,
+            requestedAt);
+
+        Assert.Equal(package.Key, restored.Key);
+        Assert.Equal(PackageState.BuildRequested, restored.State);
+        Assert.Equal(requestedAt, restored.BuildRequestedAt);
+        Assert.Empty(restored.DomainEvents);
+    }
+
+    [Fact]
+    public void Rehydrate_RejectsInconsistentState()
+    {
+        var package = TestPackages.CreatePackage();
+
+        var exception = Assert.Throws<DomainException>(() => Package.Rehydrate(
+            package.Key,
+            package.Manifest,
+            package.BuildPolicy,
+            package.RegisteredAt,
+            PackageState.BuildRequested,
+            buildRequestedAt: null));
+
+        Assert.Equal(DomainErrorCodes.PackageStateInvalid, exception.Code);
+    }
 }

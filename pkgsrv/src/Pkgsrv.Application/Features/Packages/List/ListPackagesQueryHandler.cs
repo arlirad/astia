@@ -1,6 +1,8 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Abstractions.Caching;
 using Pkgsrv.Application.Abstractions.Persistence;
 using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Caching;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
 
@@ -11,11 +13,16 @@ public sealed class ListPackagesQueryHandler
 {
     private readonly IPackageIndex _index;
     private readonly IIrvaAuthorization _authorization;
+    private readonly IPackageReadModelCache _cache;
 
-    public ListPackagesQueryHandler(IPackageIndex index, IIrvaAuthorization authorization)
+    public ListPackagesQueryHandler(
+        IPackageIndex index,
+        IIrvaAuthorization authorization,
+        IPackageReadModelCache? cache = null)
     {
         _index = index;
         _authorization = authorization;
+        _cache = cache ?? NoOpPackageReadModelCache.Instance;
     }
 
     public async ValueTask<IReadOnlyList<PackageSummaryDto>> Handle(
@@ -36,8 +43,18 @@ public sealed class ListPackagesQueryHandler
             throw new AuthorizationDeniedException(nameof(PackageAction.Read), authorization.Reason);
         }
 
-        var entries = await _index.SearchAsync(request.Search, cancellationToken).ConfigureAwait(false);
+        var cached = _cache.GetList(request.Search);
 
-        return entries.Select(PackageSummaryDto.From).ToArray();
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var generation = _cache.CaptureGeneration();
+        var entries = await _index.SearchAsync(request.Search, cancellationToken).ConfigureAwait(false);
+        var packages = entries.Select(PackageSummaryDto.From).ToArray();
+        _cache.SetList(request.Search, packages, generation);
+
+        return packages;
     }
 }

@@ -15,7 +15,7 @@ adapters.
 | --- | --- | --- |
 | `src/Pkgsrv.Domain` | Package aggregate, value objects, manifest, build policy, domain events, invariants | BCL only |
 | `src/Pkgsrv.Application` | Commands/queries, handlers, ports, DTOs, validation, authorization intent, permission names | Domain, Ervi mediator contracts |
-| `src/Pkgsrv.Infrastructure` | In-memory store/index, source allowlist, safe build sandbox, artifact/signing adapters, pending Irva boundary | Application, Domain |
+| `src/Pkgsrv.Infrastructure` | In-memory and PostgreSQL package stores, source allowlist, safe build sandbox, artifact/signing adapters, pending Irva boundary | Application, Domain |
 | `src/Pkgsrv.Presentation` | Minimal HTTP API, request/response DTOs, actor context propagation, error mapping, composition root | Application, Infrastructure, Domain |
 | `tests/*` | Layer tests; `test-support` holds shared valid fixtures | xUnit |
 
@@ -146,6 +146,75 @@ identity propagation when wired into Ervan.
 - `ConfiguredSourceAllowlist` denies everything unless hosts are configured.
   Wildcards such as `*.example.com` are supported.
 - `InMemoryPackageRepository` is process-local and not durable.
+- `PostgresPackageRepository` makes package metadata durable and keeps duplicate
+  registration and concurrent build-request transitions serialized in PostgreSQL.
+  Domain event publication remains in-process.
+
+## Package storage and schema
+
+Package metadata is durable when PostgreSQL is configured. One
+`PostgresPackageRepository` implements both `IPackageRepository` and `IPackageIndex`; it
+rehydrates the existing domain aggregate directly from relational columns and does not
+replay domain events.
+
+Configuration under `Pkgsrv:Storage`:
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Storage__Provider` | inferred | `InMemory` or `Postgres`. When absent, PostgreSQL is selected if a connection string is present; otherwise in-memory is selected. |
+| `Pkgsrv__Storage__PostgresConnectionString` | none | Npgsql connection string. Required when the provider is `Postgres`. |
+| `Pkgsrv__Storage__MaxListResults` | `1000` | Hard upper bound (1-10000) applied to list/search SQL. |
+
+With no configured connection string, composition selects the explicit in-memory adapter for
+tests and local development. That adapter is not durable. Selecting `Postgres` without a
+connection string fails configuration validation. When PostgreSQL is selected, startup
+verifies connectivity and `pkgsrv.schema_versions`; an unreachable database, a missing
+schema, or a schema version older than 1 fails startup. Startup never creates, resets, or
+drops tables.
+
+Apply the versioned schema explicitly:
+
+```bash
+psql "$PKGSRV_POSTGRES_CONNECTION" -f pkgsrv/db/migrations/0001_packages.sql
+```
+
+The script creates `pkgsrv.schema_versions` and `pkgsrv.packages`. Package identity uses a
+`(name, version)` primary key. Manifest, build-policy, state, timestamps, and signature and
+provenance fields are durable relational columns; no `jsonb` is used. Indexes support
+deterministic list ordering and name/source-commit search. Search SQL is parameterized and
+escapes `LIKE` wildcards in user input. List results are ordered deterministically by name,
+numeric major/minor/patch, pre-release text with releases after pre-releases, build-metadata
+text, and canonical version, and are capped by `MaxListResults`. Full SemVer identifier
+precedence and version-aware search are tracked as a residual. Registration uses `INSERT ...
+ON CONFLICT DO NOTHING`; build-state updates use a transaction with `SELECT ... FOR UPDATE`
+before the conditional update, so duplicate and concurrent build requests keep their existing
+rejection semantics. A stale registered aggregate cannot overwrite a persisted build-requested
+state.
+
+A live PostgreSQL integration suite is not part of the default test run because the
+repository has no testcontainer dependency. Row mapping, SQL shape, search parameter
+escaping, and the migration script are tested without a database. A live run requires a
+provisioned PostgreSQL instance and the migration above.
+
+## Read-model cache
+
+GET detail and list results are cached as serialized JSON read models at the application
+boundary. Cache lookups happen after validation and authorization; authorization decisions
+and errors are never cached. Successful registration and build-state updates invalidate the
+package detail key and every list key. A database read captures a cache generation before it
+starts, and a fill is discarded if any invalidation occurs before the fill commits, so a read
+started before a write cannot repopulate stale data after the invalidation.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Cache__MaxEntries` | `1024` | Hard entry bound. Expired entries are removed first, then least-recently-used entries. |
+| `Pkgsrv__Cache__AbsoluteExpirationSeconds` | `300` | Absolute lifetime after insertion. |
+| `Pkgsrv__Cache__SlidingExpirationSeconds` | `60` | Inactivity lifetime. Hits extend it, capped by the absolute lifetime. |
+
+The cache is process-local. Other pkgsrv processes observe changes after expiration or after
+their own writes. PostgreSQL remains the source of truth, and HTTP JSON responses are still
+generated per request by ASP.NET Core. Cache entries contain immutable DTO JSON, not mutable
+domain aggregates.
 
 ## Listening endpoint
 
@@ -290,10 +359,36 @@ listening endpoint section.
 
 ## Known limitations
 
-- No durable storage, package download, build execution, signing, or publish endpoint.
+- Package download, build execution, signing, and publish endpoints are not implemented.
+- Durable metadata requires a provisioned PostgreSQL database and the schema migration;
+  the default test/dev composition is in-memory only.
+- Domain events remain in-process and are not written to a transactional outbox, so an
+  event-publisher failure after a successful metadata write is not replayed automatically.
+- The read-model cache is process-local; multiple instances do not share invalidation.
+- Contains-search over provenance is not trigram-indexed, so very large package tables may
+  need a PostgreSQL `pg_trgm` index chosen for the deployment.
 - Irva.Client authorization is pending and defaults to deny.
 - No project reference is made to `/home/tymk/Projects/_prg/servers/ervan`; the
   permission and client adapter must be wired when hosting alongside Ervan.
-- Package build requests mutate in-memory state and return `NotExecuted`; this is
-  deliberate until a verified sandbox adapter exists.
+- Package build requests mutate durable state when PostgreSQL is configured and return
+  `NotExecuted`; this is deliberate until a verified sandbox adapter exists.
 - The application deliberately does not create the Unix socket runtime directory.
+
+## Tracked residuals
+
+- [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration and
+  migration conformance tests.
+- [#175](https://github.com/arlirad/astia/issues/175) - cross-instance read-model cache
+  invalidation.
+- [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox for package
+  domain events.
+- [#177](https://github.com/arlirad/astia/issues/177) - provenance contains-search index or
+  restricted search fields.
+- [#178](https://github.com/arlirad/astia/issues/178) - real Irva authorization and Ervan
+  hosting boundary.
+- [#179](https://github.com/arlirad/astia/issues/179) - sandboxed build execution, signing,
+  and package delivery.
+- [#180](https://github.com/arlirad/astia/issues/180) - storage mode and PostgreSQL
+  availability in health/readiness.
+- [#197](https://github.com/arlirad/astia/issues/197) - full SemVer precedence and
+  version-aware search.

@@ -45,6 +45,22 @@ public sealed class InMemoryPackageRepositoryTests
     }
 
     [Fact]
+    public async Task Search_OrdersNumericVersionComponentsAndReleasesAfterPreReleases()
+    {
+        var repository = new InMemoryPackageRepository();
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.10.0"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.0"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1-rc.1"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1"), CancellationToken.None);
+
+        var all = await repository.SearchAsync(null, CancellationToken.None);
+
+        Assert.Equal(
+            ["1.9.0", "1.9.1-rc.1", "1.9.1", "1.10.0"],
+            all.Select(entry => entry.Manifest.Version.ToString()));
+    }
+
+    [Fact]
     public async Task Update_PersistsAggregateState()
     {
         var repository = new InMemoryPackageRepository();

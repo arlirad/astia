@@ -48,6 +48,11 @@ public static class ApiErrorMapper
                 "Build already requested",
                 domain.Message,
                 domain.Code),
+            DomainException domain when domain.Code == DomainErrorCodes.PackageStateConflict => Problem(
+                409,
+                "Package state conflict",
+                domain.Message,
+                domain.Code),
             DomainException domain => Problem(
                 400,
                 "Domain rule violated",

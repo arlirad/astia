@@ -2,10 +2,16 @@ using Arlirad.Ervi.Mediator.Interfaces;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Application.Abstractions.Builds;
+using Pkgsrv.Application.Abstractions.Caching;
+using Pkgsrv.Application.Abstractions.Persistence;
 using Pkgsrv.Application.Abstractions.Security;
+using Pkgsrv.Application.Caching;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Packages;
+using Pkgsrv.Infrastructure.Postgres;
 using Pkgsrv.Presentation.Composition;
+using Pkgsrv.Presentation.Configuration;
 using Pkgsrv.TestSupport;
 
 namespace Pkgsrv.Presentation.Tests;
@@ -79,6 +85,37 @@ public sealed class PkgsrvCompositionTests
             CancellationToken.None);
 
         Assert.Empty(packages);
+    }
+
+    [Fact]
+    public void AddPkgsrv_SelectsInMemoryStoreAndCacheByDefault()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv([]);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<InMemoryPackageRepository>(
+            provider.GetRequiredService<IPackageRepository>());
+        Assert.IsType<JsonPackageReadModelCache>(
+            provider.GetRequiredService<IPackageReadModelCache>());
+    }
+
+    [Fact]
+    public void AddPkgsrv_SelectsPostgresStoreWhenConfigured()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv(
+            [],
+            PkgsrvStorageOptions.Postgres(
+                "Host=127.0.0.1;Port=1;Database=pkgsrv;Username=pkgsrv;Password=pkgsrv;Timeout=1"));
+
+        using var provider = services.BuildServiceProvider();
+        var repository = provider.GetRequiredService<IPackageRepository>();
+
+        Assert.IsType<PostgresPackageRepository>(repository);
+        Assert.Same(repository, provider.GetRequiredService<IPackageIndex>());
+        Assert.NotNull(provider.GetRequiredService<PostgresPackageSchemaValidator>());
     }
 
     private sealed class AlwaysAllowAuthorization : IIrvaAuthorization

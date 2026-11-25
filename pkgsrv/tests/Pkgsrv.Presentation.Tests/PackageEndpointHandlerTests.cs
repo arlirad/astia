@@ -249,6 +249,29 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
+    public async Task Build_MapsStaleStateConflictToConflict()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new TargetInvocationException(
+                new DomainException(
+                    DomainErrorCodes.PackageStateConflict,
+                    "Persisted package state cannot be downgraded."))
+        };
+
+        var result = await PackageEndpointHandlers.RequestBuildAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("builder"),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(409, problem.ProblemDetails.Status);
+        Assert.Equal("package.state.conflict", problem.ProblemDetails.Extensions["code"]);
+    }
+
+    [Fact]
     public void RegistrationRequest_ExposesNoShellOrCommandField()
     {
         var propertyNames = typeof(RegisterPackageRequest)
