@@ -1,15 +1,16 @@
+#include <errno.h>
 #include <limits.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 /* <unistd.h> is ours now (getpid/gettid); the one host call this test
  * needs is declared by hand, like every other host port here. */
 extern int unlink(const char* path);
-#include <time.h>
 #include <sys/time.h>
+
+#include <time.h>
 #include <wchar.h>
 #include <wctype.h>
 
@@ -171,8 +172,8 @@ static void test_utc_time(void) {
     CHECK(strcmp(text, "1970-01-01 00:00:00") == 0);
     CHECK(mktime(&value) == 0);
     CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0 && now.tv_sec > 0);
-    CHECK(clock_getres(CLOCK_REALTIME, &now) == 0 && now.tv_sec == 0 &&
-          now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
+    CHECK(clock_getres(CLOCK_REALTIME, &now) == 0 && now.tv_sec == 0 && now.tv_nsec > 0 &&
+          now.tv_nsec < 1000000000L);
     CHECK(clock_getres(CLOCK_MONOTONIC, &now) == 0 && now.tv_sec == 0 &&
           now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
     /* Every clock clock_gettime reads also has a resolution, and libc

@@ -2,7 +2,6 @@
 
 #include "../src/time_port.h"
 #include <sys/syscall.h>
-#include <errno.h>
 #include <sys/time.h>
 
 #include <errno.h>
