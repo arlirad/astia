@@ -74,10 +74,13 @@ namespace astia::dl {
     /// process startup, so `proc` never has to know this subsystem exists.
     bool init();
 
-    core::task<info> map(proc::process& target, fd_t fd, u32 flags);
+    core::task<info> map(proc::process& target, mm::shptr<fs::open_file> file, u32 flags);
     i64              unmap(proc::process& target, u64 base);
     void             release(proc::process& target);
-    bool             clone(proc::process& child, proc::process& parent);
+    /// Move a staging process's bindings (the image exec built) onto the
+    /// process that replaces it.  The target must have released its own.
+    void adopt(proc::process& target, proc::process& staging);
+    bool clone(proc::process& child, proc::process& parent);
 
 } // namespace astia::dl
 

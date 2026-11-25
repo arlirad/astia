@@ -119,15 +119,30 @@ namespace astia::elf::loader {
             return false;
         }
 
-        /// Record the phdr table address the image exposes.
-        void fill_image_tables(const elf64_phdr* ph, u16 phnum, u64 phoff, u64 phbytes,
-                               u64 bias, image& out) {
+        /// Record the phdr table address and the interpreter request the
+        /// image exposes.  A malformed or duplicated PT_INTERP is a load
+        /// error, not something the consumer should have to notice.
+        bool fill_image_tables(const elf64_phdr* ph, u16 phnum, u64 phoff, u64 phbytes,
+                               u64 filesize, u64 bias, image& out) {
+            bool interp_seen = false;
+            for (u16 i = 0; i < phnum; ++i) {
+                if (ph[i].p_type != pt_interp)
+                    continue;
+                if (interp_seen || ph[i].p_filesz == 0 ||
+                    !in_bounds(ph[i].p_offset, ph[i].p_filesz, filesize))
+                    return false;
+                interp_seen       = true;
+                out.interp_offset = ph[i].p_offset;
+                out.interp_size   = ph[i].p_filesz;
+            }
+
             out.phnum      = phnum;
             out.phent      = sizeof(elf64_phdr);
             u64 phdr_vaddr = 0;
             if (offset_range_to_vaddr(ph, phnum, phoff, phbytes, phdr_vaddr) &&
                 phdr_vaddr <= ~u64{0} - bias)
                 out.phdr_vaddr = phdr_vaddr + bias;
+            return true;
         }
 
         // Translate a virtual address to a file offset using the PT_LOAD
@@ -451,8 +466,10 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, phnum, eh->e_entry, 1) ||
             eh->e_entry - span_start > ~u64{0} - mapped_addr)
             return false;
-        fill_image_tables(ph, phnum, eh->e_phoff,
-                          static_cast<u64>(phnum) * sizeof(elf64_phdr), load_bias, out);
+        if (!fill_image_tables(ph, phnum, eh->e_phoff,
+                               static_cast<u64>(phnum) * sizeof(elf64_phdr),
+                               static_cast<u64>(len), load_bias, out))
+            return false;
         out.entry     = reinterpret_cast<void*>(mapped_addr + (eh->e_entry - span_start));
         out.base      = mapped;
         out.size      = static_cast<usize>(span);
@@ -766,7 +783,9 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, header.e_phnum, header.e_entry, 1) ||
             header.e_entry - span_start > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
-        fill_image_tables(ph, header.e_phnum, header.e_phoff, ph_bytes, bias, result);
+        if (!fill_image_tables(ph, header.e_phnum, header.e_phoff, ph_bytes, file_size,
+                               bias, result))
+            co_return fail(error_t::einval);
         result.entry =
             reinterpret_cast<void*>(mapped_addr + (header.e_entry - span_start));
         result.base      = mapped;

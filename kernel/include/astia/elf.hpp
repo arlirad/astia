@@ -132,6 +132,11 @@ namespace astia::elf::loader {
         u16 phnum      = 0;
         u16 phent      = 0;
 
+        // PT_INTERP bounds inside the file (0 = static executable).  The
+        // consumer reads the NUL-terminated path from the image file.
+        u64 interp_offset = 0;
+        u64 interp_size   = 0;
+
         // Static TLS template (PT_TLS), materialized per thread by the
         // consumer of this image: file offset and sizes of [tdata][tbss],
         // plus the alignment the thread pointer is derived from.

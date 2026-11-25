@@ -13,6 +13,7 @@
 #include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
 #include "events.hpp"
+#include "exec_hooks.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
 
@@ -250,8 +251,8 @@ namespace astia::proc {
             }
 
             // The startup block: argc + argv[] + NULL + envp[] + NULL
-            // + auxv AT_NULL pair, 16-byte aligned at entry.
-            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 2);
+            // + the interpreter-relevant auxv pairs + AT_NULL.
+            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 12);
             if (cursor < base + block) {
                 return false;
             }
@@ -283,7 +284,27 @@ namespace astia::proc {
                 return false;
             }
             at += sizeof(u64);
-            // auxv AT_NULL terminator (type = 0, value = 0).
+            // auxv: the interpreter needs the payload's entry, phdr table and
+            // its own load base.  Values are emitted for static images too,
+            // with AT_BASE = 0.
+            const auto info = owner->exec_image();
+            const struct {
+                u64 type;
+                u64 value;
+            } auxv[] = {
+                {3, info.phdr},   // AT_PHDR
+                {4, info.phent},  // AT_PHENT
+                {5, info.phnum},  // AT_PHNUM
+                {7, info.interp}, // AT_BASE
+                {9, info.entry},  // AT_ENTRY
+            };
+            for (const auto& entry : auxv) {
+                if (!write_user_u64(owner, base, top, at, entry.type) ||
+                    !write_user_u64(owner, base, top, at + sizeof(u64), entry.value))
+                    return false;
+                at += sizeof(u64) * 2;
+            }
+            // AT_NULL terminator (type = 0, value = 0).
             if (!write_user_u64(owner, base, top, at, 0) ||
                 !write_user_u64(owner, base, top, at + sizeof(u64), 0)) {
                 return false;
@@ -1063,7 +1084,9 @@ namespace astia::proc {
         if (!staging.load_user_image(bytes, &entry) ||
             !staging.build_user_stack(argv, envp, &stack))
             return false;
+        release_exec_bindings(*this);
         replace_image(staging);
+        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
         *entry_out = entry;
@@ -1086,6 +1109,7 @@ namespace astia::proc {
         if (!loaded.value || !staging.build_user_stack(argv, envp, &stack))
             co_return error_t::einval;
 
+        release_exec_bindings(*this);
         close_on_exec_descriptors();
         // Retire the old image's tokens and start a fresh epoch: old children
         // go stale (and abort), new submissions are unaffected.
@@ -1093,6 +1117,7 @@ namespace astia::proc {
         _cancellation_root.reset();
         sys::io_exec_process(this);
         replace_image(staging);
+        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
         co_return exec_result{entry, stack};
