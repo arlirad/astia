@@ -3,6 +3,7 @@
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
+#include "boot.hpp"
 #include "filesystem.hpp"
 #include "filesystems/initrd/initrd.hpp"
 
@@ -23,21 +24,30 @@ namespace astia::fs {
         if (ramdisk.paddr == 0 || ramdisk.size == 0)
             return true;
 
-        initrd::archive archive;
         // The ramdisk is physical memory where the bootloader left
-        // it.  Hand initrd::open the direct-map view so every file
-        // payload pointer lands in the kernel half — readable under
-        // any active address space, not just the kernel's own map
-        // (a ring-3 spawnve reads the image through this fs).
+        // it.  Hand the loader the direct-map view so any decompressed
+        // storage and every file payload pointer land in the kernel half —
+        // readable under any active address space, not just the kernel's own
+        // map (a ring-3 spawnve reads the image through this fs).
         const void* data = mm::kernel_frames().to_virt(ramdisk.paddr);
 
-        if (!initrd::open(span<const u8>(static_cast<const u8*>(data),
-                                         static_cast<usize>(ramdisk.size)),
-                          archive)) {
-            logs::error("ramdisk is not an uncompressed cpio archive");
+        if (!initrd::load_boot_archive(data, static_cast<usize>(ramdisk.size))) {
+            logs::error("initrd: %s container failed: %s",
+                        initrd::container_name(initrd::boot_archive_container()),
+                        initrd::decode_error_name(initrd::boot_archive_error()));
 
             return false;
         }
+
+        initrd::archive archive;
+
+        if (!initrd::open_boot_archive(archive))
+            return false;
+
+        logs::info("initrd: %s container, %llu -> %llu bytes",
+                   initrd::container_name(initrd::boot_archive_container()),
+                   static_cast<unsigned long long>(initrd::boot_archive_source_size()),
+                   static_cast<unsigned long long>(initrd::boot_archive_stored_size()));
 
         return filesystems::initrd_type().attach(archive) &&
                mount_type("initrd", "/") == 0;
