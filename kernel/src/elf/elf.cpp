@@ -216,6 +216,20 @@ namespace astia::elf::loader {
         for (u16 i = 0; i < v.shnum; ++i) {
             const elf64_shdr& sh = v.sh[i];
 
+            // The module ABI applies RELA only: every arithmetic path uses the
+            // explicit addend. A REL section that patches an allocated section
+            // is a well-formed image using a format the ABI does not support,
+            // so it is rejected rather than loaded with implicit addends.
+            if (sh.sh_type == sht_rel) {
+                if (sh.sh_info >= v.shnum)
+                    return relocatable_problem::not_relocatable;
+
+                if ((v.sh[sh.sh_info].sh_flags & shf_alloc) != 0)
+                    return relocatable_problem::unsupported_relocation;
+
+                continue;
+            }
+
             if (sh.sh_type != sht_rela)
                 continue;
 
