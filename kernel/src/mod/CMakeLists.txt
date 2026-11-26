@@ -6,7 +6,7 @@ add_library(mod STATIC
         module_driver.cpp
         module.cpp
         module_image.cpp
-        lifetime_token.cpp
+        module_ps2.cpp
         init.cpp
 )
 
