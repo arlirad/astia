@@ -119,7 +119,7 @@ public sealed class PkgsrvCompositionTests
             provider.GetRequiredService<IPackageRepository>());
         Assert.IsType<PostgresPackageRepository>(
             provider.GetRequiredService<IPackageIndex>());
-        Assert.NotNull(provider.GetRequiredService<IPackageSchemaInitializer>());
+        Assert.NotNull(provider.GetRequiredService<IPackageSchemaMigrator>());
     }
 
     [Fact]
