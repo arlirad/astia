@@ -41,7 +41,8 @@ namespace astia::io::aio::test_support {
         mm::shptr<open_file> socketpair_first;
         mm::shptr<open_file> socketpair_second;
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
-        bool                 memory_allowed         = true;
+        bool                 memory_allowed = true;
+        chown_record         last_chown_path_record;
         constexpr usize      node_override_capacity = 8;
         constexpr usize      node_override_path_max = 128;
 
@@ -250,10 +251,15 @@ namespace astia::io::aio::test_support {
         socketpair_second = {};
         node_mode         = file_mode(file_type::regular, fs::default_file_permissions);
         memory_allowed    = true;
-        timer_hz_value    = 1000;
-        timer_ticks_value = 0;
-        generation_value  = 0;
-        current           = nullptr;
+        last_chown_path_record = {};
+        timer_hz_value         = 1000;
+        timer_ticks_value      = 0;
+        generation_value       = 0;
+        current                = nullptr;
+    }
+
+    const chown_record& last_chown_path() {
+        return detail::last_chown_path_record;
     }
 
     void install_current_process() {
@@ -775,7 +781,15 @@ namespace astia::proc {
     }
 
     bool process::in_group(gid_t group) const {
-        return group.value == _gid;
+        if (group.value == _egid)
+            return true;
+
+        for (u32 i = 0; i < _group_count; ++i) {
+            if (_groups[i] == group)
+                return true;
+        }
+
+        return false;
     }
 } // namespace astia::proc
 
@@ -932,7 +946,10 @@ namespace astia::fs {
         return 0;
     }
 
-    long chown_path(const char*, uid_t, gid_t, bool) {
+    long chown_path(const char*, uid_t uid, gid_t gid, bool follow_final) {
+        ::astia::io::aio::test_support::detail::last_chown_path_record = {true, uid, gid,
+                                                                          follow_final};
+
         return 0;
     }
 
