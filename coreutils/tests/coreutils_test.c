@@ -427,17 +427,17 @@ static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
     char* id_version[] = {"id", "--version", NULL};
-    gid_t group        = 1000;
+    gid_t groups[2]    = {1000, 10};
 
     if (check("id newline", id, NULL, 0, "uid=0(root) gid=0(root) groups=0(root)\n", 1) !=
         0)
         return 1;
 
-    if (setgroups(1, &group) != 0)
+    if (setgroups(2, groups) != 0)
         return fail("id supplementary setup");
 
     int rc = check("id groups newline", id, NULL, 0,
-                   "uid=0(root) gid=0(root) groups=0(root),1000(users)\n", 1);
+                   "uid=0(root) gid=0(root) groups=0(root),1000(users),10(10)\n", 1);
 
     if (setgroups(0, NULL) != 0)
         return fail("id supplementary restore");
