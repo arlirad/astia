@@ -83,6 +83,7 @@ describe('Application routes', () => {
     expect(element.querySelectorAll('[role="treeitem"]').length).toBe(4);
     expect(element.querySelectorAll('.docs-index-link').length).toBe(0);
     expect(element.querySelector('[role="tree"]')?.textContent).toContain('Syscalls (2)');
+    expect(element.querySelector('[role="tree"]')?.textContent).toContain('Design (7)');
     expect(
       element
         .querySelector(`[data-tree-key="${DOC_SYSCALLS_KEY}"]`)
@@ -232,7 +233,7 @@ describe('Application routes', () => {
     const input = element.querySelector<HTMLInputElement>('.docs-filter input');
 
     if (input) {
-      input.value = 'manual';
+      input.value = 'design (7)';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
     harness.detectChanges();
@@ -246,7 +247,7 @@ describe('Application routes', () => {
       'Asynchronous I/O',
     );
     expect(element.querySelector<HTMLInputElement>('.docs-filter input')?.value).toBe(
-      'manual',
+      'design (7)',
     );
     expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
     expect(
@@ -258,7 +259,7 @@ describe('Application routes', () => {
     element = harness.routeNativeElement as HTMLElement;
 
     expect(element.querySelector<HTMLInputElement>('.docs-filter input')?.value).toBe(
-      'manual',
+      'design (7)',
     );
     expect(element.querySelectorAll('.docs-index-link').length).toBe(filteredCount);
   });

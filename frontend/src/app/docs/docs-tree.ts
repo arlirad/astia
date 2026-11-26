@@ -1,4 +1,4 @@
-import type { DocPage } from './docs.model';
+import { docGroupLabel, type DocPage } from './docs.model';
 
 export const DOC_SYSCALLS_KEY = 'taxonomy:syscalls';
 export const DOC_SYSCALLS_LABEL = 'Syscalls (2)';
@@ -50,8 +50,8 @@ export const pageMatches = (page: DocPage, query: string): boolean => {
     return true;
   }
   const searchable =
-    `${page.title} ${page.group} ${page.subsystem ?? ''} ${page.category ?? ''} ${page.syscallId ?? ''} ` +
-    `${page.synopsisKind ?? ''} ${page.summary}`;
+    `${page.title} ${docGroupLabel(page.group)} ${page.subsystem ?? ''} ${page.category ?? ''} ` +
+    `${page.syscallId ?? ''} ${page.synopsisKind ?? ''} ${page.summary}`;
   return searchable.toLowerCase().includes(query);
 };
 
@@ -144,7 +144,7 @@ const buildTaxonomyNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNod
 };
 
 const buildGroupNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
-  const byGroup = new Map<string, DocPage[]>();
+  const byGroup = new Map<DocPage['group'], DocPage[]>();
   for (const page of pages) {
     const entries = byGroup.get(page.group) ?? [];
     entries.push(page);
@@ -155,7 +155,7 @@ const buildGroupNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[]
     .map((group) =>
       groupNode(
         `group:${group}`,
-        group,
+        docGroupLabel(group),
         (byGroup.get(group) ?? []).map(pageNode),
       ),
     );
