@@ -7,7 +7,7 @@ import { DOC_SYSCALLS_KEY } from './docs-tree';
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 
 const SUBSYSTEM_COUNTS: Readonly<Record<string, number>> = {
-  proc: 40,
+  proc: 41,
   fs: 6,
   abi: 25,
   dl: 2,
@@ -15,7 +15,7 @@ const SUBSYSTEM_COUNTS: Readonly<Record<string, number>> = {
 };
 
 const CATEGORY_COUNTS: Readonly<Record<string, number>> = {
-  core: 9,
+  core: 10,
   ipc: 1,
   memory: 2,
   process: 18,
@@ -80,7 +80,7 @@ describe('DocsBrowser taxonomy', () => {
   }
 
   it('derives exact taxonomy counts and renders them in the tree without filter controls', () => {
-    expect(SYSCALL_PAGES.length).toBe(77);
+    expect(SYSCALL_PAGES.length).toBe(78);
     const subsystems = new Map<string, number>();
     const categories = new Map<string, number>();
     for (const page of SYSCALL_PAGES) {
@@ -107,7 +107,7 @@ describe('DocsBrowser taxonomy', () => {
       'Design (7)',
       'Design note',
     ]);
-    expect(topLevel.map(rowCount)).toEqual(['77', '6', '7', '17']);
+    expect(topLevel.map(rowCount)).toEqual(['78', '6', '7', '17']);
     expect(topLevel[0].getAttribute('aria-expanded')).toBe('false');
     expect(topLevel[0].getAttribute('aria-setsize')).toBe('4');
     expect(topLevel[0].getAttribute('aria-posinset')).toBe('1');
@@ -145,7 +145,7 @@ describe('DocsBrowser taxonomy', () => {
     expect(syscalls?.getAttribute('aria-level')).toBe('1');
     expect(syscalls?.getAttribute('aria-expanded')).toBe('false');
     expect(rowLabel(syscalls!)).toBe('Syscalls (2)');
-    expect(rowCount(syscalls!)).toBe('77');
+    expect(rowCount(syscalls!)).toBe('78');
 
     syscalls?.click();
     fixture.detectChanges();

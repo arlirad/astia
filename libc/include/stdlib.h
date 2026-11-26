@@ -77,6 +77,11 @@ void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
 int  rand(void);
 void srand(unsigned seed);
 
+/* cryptographic random bytes from the kernel CSPRNG */
+__UINT32_TYPE__ arc4random(void);
+void            arc4random_buf(void* buffer, size_t length);
+__UINT32_TYPE__ arc4random_uniform(__UINT32_TYPE__ upper_bound);
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

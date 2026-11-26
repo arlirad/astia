@@ -924,6 +924,18 @@
         "subsystem": "mod",
         "category": "mod",
         "sourcePath": "docs/2/mod/modclose.md"
+      },
+      {
+        "id": 77,
+        "name": "getrandom",
+        "slug": "syscall-77-getrandom",
+        "title": "getrandom(2)",
+        "subsystem": "proc",
+        "category": "core",
+        "sourcePath": "docs/2/proc/core/getrandom.md",
+        "source": "kernel/src/proc/syscalls/getrandom.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);"
       }
     ]
   },

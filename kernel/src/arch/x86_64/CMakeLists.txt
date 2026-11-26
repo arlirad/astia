@@ -22,6 +22,7 @@ add_library(arch_x86_64 STATIC
         pci_mmio_owner.cpp
         smp.cpp
         platform.cpp
+        entropy.cpp
         panic.cpp
         panic_format.cpp
 )

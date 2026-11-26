@@ -4,6 +4,7 @@ if (ARCH STREQUAL "aarch64")
             start.S
             gic.cpp
             page_map.cpp
+            entropy.cpp
             panic_format.cpp
             timer.cpp
     )
