@@ -14,8 +14,20 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define UNAME_ALL_EXPECTED \
-    "Astia astia " ASTIA_VERSION_STRING " Astia " ASTIA_VERSION_STRING " x86_64\n"
+#define UNAME_FIELD_MAX 64
+
+static const char* uname_all_expected(void) {
+    static char expected[2 * UNAME_FIELD_MAX + 32];
+
+    char release[UNAME_FIELD_MAX + 1];
+    char version[UNAME_FIELD_MAX + 1];
+
+    snprintf(release, sizeof release, "%s", ASTIA_VERSION_STRING);
+    snprintf(version, sizeof version, "Astia %s", ASTIA_VERSION_STRING);
+    snprintf(expected, sizeof expected, "Astia astia %s %s x86_64\n", release, version);
+
+    return expected;
+}
 
 static int fail(const char* what) {
     printf("coreutils test failed: %s\n", what);
@@ -24,7 +36,7 @@ static int fail(const char* what) {
 }
 
 static int uname_expected_is_current(void) {
-    return strcmp(UNAME_ALL_EXPECTED, "Astia astia 0.1 Astia kernel x86_64\n") != 0;
+    return strcmp(uname_all_expected(), "Astia astia 0.1 Astia kernel x86_64\n") != 0;
 }
 
 static int put_file(const char* path, const char* text) {
@@ -423,21 +435,96 @@ static int check_pty(const char* name, char* const argv[], char* const envp[],
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
+static int mv_directory_checks(void) {
+    char* mv_into_directory[]           = {"mv", "/tmp/coreutils_mv_file",
+                                           "/tmp/coreutils_mv_target", NULL};
+    char* mv_directory_into_directory[] = {"mv", "/tmp/coreutils_mv_tree",
+                                           "/tmp/coreutils_mv_target", NULL};
+
+    /* The tmpfs at /tmp has a small fixed entry table, so this suite creates
+       and removes its own fixtures instead of holding them for the whole run. */
+    (void) unlink("/tmp/coreutils_mv_target/coreutils_mv_file");
+    (void) unlink("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree/nested");
+    (void) rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree");
+    (void) rmdir("/tmp/coreutils_mv_target");
+    (void) unlink("/tmp/coreutils_mv_file");
+    (void) unlink("/tmp/coreutils_mv_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_mv_tree/nested");
+    (void) rmdir("/tmp/coreutils_mv_tree");
+
+    if (put_file("/tmp/coreutils_mv_file", "move me\n") != 0 ||
+        mkdir("/tmp/coreutils_mv_target", 0777) != 0 ||
+        mkdir("/tmp/coreutils_mv_tree", 0777) != 0 ||
+        mkdir("/tmp/coreutils_mv_tree/nested", 0777) != 0 ||
+        put_file("/tmp/coreutils_mv_tree/nested/file", "mv tree\n") != 0)
+        return fail("mv directory fixture setup");
+
+    int status = 0;
+
+    if (check("mv into directory", mv_into_directory, NULL, 0, NULL, 0) != 0 ||
+        !is_file("/tmp/coreutils_mv_target/coreutils_mv_file") ||
+        is_file("/tmp/coreutils_mv_file"))
+        status = 1;
+
+    if (check("mv directory into directory", mv_directory_into_directory, NULL, 0, NULL,
+              0) != 0 ||
+        !is_directory("/tmp/coreutils_mv_target/coreutils_mv_tree") ||
+        is_directory("/tmp/coreutils_mv_tree") ||
+        !file_equals("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file",
+                     "mv tree\n"))
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_target/coreutils_mv_file") != 0 ||
+        unlink("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file") != 0 ||
+        rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree/nested") != 0 ||
+        rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree") != 0 ||
+        rmdir("/tmp/coreutils_mv_target") != 0)
+        status = 1;
+
+    return status;
+}
+
+static int rm_directory_checks(void) {
+    char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
+
+    (void) unlink("/tmp/coreutils_rm_multi/one");
+    (void) unlink("/tmp/coreutils_rm_multi/two");
+    (void) unlink("/tmp/coreutils_rm_multi/nested/alpha");
+    (void) unlink("/tmp/coreutils_rm_multi/nested/beta");
+    (void) rmdir("/tmp/coreutils_rm_multi/nested");
+    (void) rmdir("/tmp/coreutils_rm_multi");
+
+    if (mkdir("/tmp/coreutils_rm_multi", 0777) != 0 ||
+        put_file("/tmp/coreutils_rm_multi/one", "one\n") != 0 ||
+        put_file("/tmp/coreutils_rm_multi/two", "two\n") != 0 ||
+        mkdir("/tmp/coreutils_rm_multi/nested", 0777) != 0 ||
+        put_file("/tmp/coreutils_rm_multi/nested/alpha", "alpha\n") != 0 ||
+        put_file("/tmp/coreutils_rm_multi/nested/beta", "beta\n") != 0)
+        return fail("rm multi-child fixture setup");
+
+    if (check("rm -r multiple children", rm_multi, NULL, 0, NULL, 0) != 0 ||
+        is_directory("/tmp/coreutils_rm_multi") || is_file("/tmp/coreutils_rm_multi/one"))
+        return 1;
+
+    return 0;
+}
+
 static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
     char* id_version[] = {"id", "--version", NULL};
-    gid_t group        = 1000;
+    gid_t groups[2]    = {1000, 10};
 
     if (check("id newline", id, NULL, 0, "uid=0(root) gid=0(root) groups=0(root)\n", 1) !=
         0)
         return 1;
 
-    if (setgroups(1, &group) != 0)
+    if (setgroups(2, groups) != 0)
         return fail("id supplementary setup");
 
     int rc = check("id groups newline", id, NULL, 0,
-                   "uid=0(root) gid=0(root) groups=0(root),1000(users)\n", 1);
+                   "uid=0(root) gid=0(root) groups=0(root),1000(users),10(10)\n", 1);
 
     if (setgroups(0, NULL) != 0)
         return fail("id supplementary restore");
@@ -471,6 +558,8 @@ int main(void) {
         return fail("runner chdir");
 
     char* cat_stdin[]         = {"cat", NULL};
+    char* cat_stdin_dash[]    = {"cat", "-", NULL};
+    char* cat_file_stdin[]    = {"cat", "/tmp/coreutils_a", "-", NULL};
     char* cat_files[]         = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* cat_missing[]       = {"cat", "/tmp/coreutils_missing", NULL};
     char* head_lines[]        = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
@@ -488,14 +577,27 @@ int main(void) {
     char* echo_n[]            = {"echo", "-n", "hello", NULL};
     char* env[]               = {"env", NULL};
     char* env_bad[]           = {"env", "extra", NULL};
+    char* env_sorted[]        = {"env", "-s", NULL};
+    char* env_sorted_long[]   = {"env", "--sorted", NULL};
+    char* env_assign[]        = {"env", "A=1", "B=2", "A=3", NULL};
+    char* env_assign_sorted[] = {"env", "-s", "A=1", "B=2", "A=3", NULL};
+    char* env_invalid_name[]  = {"env", "=x", NULL};
+    char* env_exec[]          = {"env", "PATH=/bin", "true", NULL};
+    char* env_empty[]         = {NULL};
+    char* env_known[]         = {"Z=1", "A=2", "M=3", NULL};
+    char* env_duplicates[]    = {"B=2", "A=1", "B=3", NULL};
     char* uname[]             = {"uname", NULL};
     char* uname_all[]         = {"uname", "-a", NULL};
     char* uname_bad[]         = {"uname", "--bad", NULL};
-    char* true_args[]         = {"true", "ignored", NULL};
-    char* false_args[]        = {"false", "ignored", NULL};
-    char* mkdir_one[]         = {"mkdir", "/tmp/coreutils_dir", NULL};
-    char* mkdir_parents[]     = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
-    char* mkdir_existing[]    = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+
+    char* uname_all_machine[]     = {"uname", "-a", "-m", NULL};
+    char* uname_machine_all[]     = {"uname", "-m", "-a", NULL};
+    char* uname_machine_sysname[] = {"uname", "-m", "-s", NULL};
+    char* true_args[]             = {"true", "ignored", NULL};
+    char* false_args[]            = {"false", "ignored", NULL};
+    char* mkdir_one[]             = {"mkdir", "/tmp/coreutils_dir", NULL};
+    char* mkdir_parents[]         = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+    char* mkdir_existing[]        = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
     char* mkdir_bad[]         = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
     char* mkdir_file_parent[] = {"mkdir", "-p", "/tmp/coreutils_a/child", NULL};
     char* touch_create[]      = {"touch", "/tmp/coreutils_touch", NULL};
@@ -549,11 +651,24 @@ int main(void) {
     char* grep_missing[]           = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
     char* sort_stdin[]             = {"sort", NULL};
     char* cut_fields[]             = {"cut", "-d", ":", "-f", "2", NULL};
+    char* cut_open_end[]           = {"cut", "-d", ":", "-f", "2-", NULL};
+    char* cut_open_start[]         = {"cut", "-d", ":", "-f", "-3", NULL};
+    char* cut_closed_range[]       = {"cut", "-d", ":", "-f", "2-4", NULL};
+    char* cut_combined_list[]      = {"cut", "-d", ":", "-f", "1,3-", NULL};
+    char* cut_reversed_range[]     = {"cut", "-d", ":", "-f", "4-2", NULL};
+    char* cut_dash_only[]          = {"cut", "-d", ":", "-f", "-", NULL};
+    char* cut_trailing_comma[]     = {"cut", "-d", ":", "-f", "2,", NULL};
     char* tee_file[]               = {"tee", "/tmp/coreutils_tee", NULL};
     char* ln_link[]                = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
     char* readlink_link[]          = {"readlink", "/tmp/coreutils_link", NULL};
     char* whoami[]                 = {"whoami", NULL};
     char* login[]                  = {"login", NULL};
+
+    char* wc_lines_one[]   = {"wc", "-l", "/tmp/coreutils_a", NULL};
+    char* wc_lines_files[] = {"wc", "-l", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* wc_lines_stdin[] = {"wc", "-l", NULL};
+    char* wc_words_file[]  = {"wc", "-w", "/tmp/coreutils_a", NULL};
+    char* wc_lines_bytes[] = {"wc", "-lc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
@@ -602,12 +717,23 @@ int main(void) {
         mkdir("/tmp/coreutils_ls_empty", 0777) != 0)
         return fail("ls fixture setup");
 
-    if (check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
+    if (check("cat stdin", cat_stdin, "plain\n", 0, "plain\n", 1) ||
+        check("cat stdin dash", cat_stdin_dash, "dashed\n", 0, "dashed\n", 1) ||
+        check("cat file and stdin", cat_file_stdin, "tail\n", 0, "alpha\ntail\n", 1) ||
+        check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
         check("cat missing", cat_missing, NULL, 1, NULL, 0) ||
         check("head -n", head_lines, NULL, 0, "one\ntwo\n", 1) ||
         check("head invalid", head_bad, NULL, 2, NULL, 0) ||
         check("head invalid number", head_bad_text, NULL, 2, NULL, 0) ||
-        check("wc files", wc_files, NULL, 0, "/tmp/coreutils_a\n", 0) ||
+        check("wc default files", wc_files, NULL, 0,
+              "1 1 6 /tmp/coreutils_a\n2 2 11 /tmp/coreutils_b\n3 3 17 total\n", 1) ||
+        check("wc -l file", wc_lines_one, NULL, 0, "1 /tmp/coreutils_a\n", 1) ||
+        check("wc -l files", wc_lines_files, NULL, 0,
+              "1 /tmp/coreutils_a\n2 /tmp/coreutils_b\n3 total\n", 1) ||
+        check("wc -l stdin", wc_lines_stdin, "alpha\nbeta\n", 0, "2\n", 1) ||
+        check("wc -w file", wc_words_file, NULL, 0, "1 /tmp/coreutils_a\n", 1) ||
+        check("wc -lc files", wc_lines_bytes, NULL, 0,
+              "1 6 /tmp/coreutils_a\n2 11 /tmp/coreutils_b\n3 17 total\n", 1) ||
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
         check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
         check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
@@ -627,9 +753,22 @@ int main(void) {
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
         check("echo -n", echo_n, NULL, 0, "hello", 1) ||
         check("env", env, NULL, 0, "COREUTILS_TEST=present\n", 0) ||
+        check_env("env sorted", env_sorted, env_known, 0, "A=2\nM=3\nZ=1\n", 1) ||
+        check_env("env sorted long", env_sorted_long, env_known, 0, "A=2\nM=3\nZ=1\n",
+                  1) ||
+        check_env("env assignment order", env_assign, env_empty, 0, "B=2\nA=3\n", 1) ||
+        check_env("env sorted assignments", env_assign_sorted, env_empty, 0, "A=3\nB=2\n",
+                  1) ||
+        check_env("env sorted duplicates", env_sorted, env_duplicates, 0,
+                  "A=1\nB=2\nB=3\n", 1) ||
+        check("env invalid name", env_invalid_name, NULL, 2, NULL, 0) ||
+        check("env command", env_exec, NULL, 0, NULL, 0) ||
         check("env invalid", env_bad, NULL, 2, NULL, 0) ||
         check("uname", uname, NULL, 0, "Astia\n", 1) ||
-        check("uname -a", uname_all, NULL, 0, UNAME_ALL_EXPECTED, 1) ||
+        check("uname -a", uname_all, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -a -m", uname_all_machine, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -m -a", uname_machine_all, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -m -s", uname_machine_sysname, NULL, 0, "Astia x86_64\n", 1) ||
         check("uname invalid", uname_bad, NULL, 1, NULL, 0) ||
         check("true", true_args, NULL, 0, NULL, 0) ||
         check("false", false_args, NULL, 1, NULL, 0) ||
@@ -712,8 +851,25 @@ int main(void) {
         check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
         check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
         check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
+        check("cut open-ended range", cut_open_end, "one:two:three\n", 0, "two:three\n",
+              1) ||
+        check("cut leading open range", cut_open_start, "one:two:three\n", 0,
+              "one:two:three\n", 1) ||
+        check("cut closed range", cut_closed_range, "one:two:three\n", 0, "two:three\n",
+              1) ||
+        check("cut combined list", cut_combined_list, "one:two:three\n", 0, "one:three\n",
+              1) ||
+        check("cut reversed range", cut_reversed_range, "one:two:three\n", 2, NULL, 0) ||
+        check("cut dash-only range", cut_dash_only, "one:two:three\n", 2, NULL, 0) ||
+        check("cut trailing comma", cut_trailing_comma, "one:two:three\n", 2, NULL, 0) ||
         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
+        return 1;
+
+    if (mv_directory_checks() != 0)
+        return 1;
+
+    if (rm_directory_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",

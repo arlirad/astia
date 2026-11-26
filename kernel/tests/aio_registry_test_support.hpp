@@ -39,6 +39,9 @@ namespace astia::io::aio::test_support {
     void set_socketpair_files(const mm::shptr<fs::open_file>& first,
                               const mm::shptr<fs::open_file>& second);
     void set_node_mode(fs::file_mode mode);
+    void set_node_mode(const char* path, fs::file_mode mode);
+    void set_node_owner(const char* path, uid_t uid, gid_t gid);
+    void set_process_credentials(uid_t uid, gid_t gid);
     void set_memory_allowed(bool allowed);
     void set_timer(u64 hz, u64 ticks);
     void add_timer_ticks(u64 ticks);

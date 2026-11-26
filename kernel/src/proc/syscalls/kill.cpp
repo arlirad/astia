@@ -19,6 +19,24 @@ namespace astia::proc::syscalls {
                 return -EINVAL;
 
             if (pid_raw <= 0) {
+                auto* caller = current_process();
+                if (caller == nullptr)
+                    return -ESRCH;
+
+                signal_info info{};
+
+                if (mapped_signal.value != signal_number{}) {
+                    info.code = ASTIA_SI_USER;
+                    info.pid  = static_cast<i32>(raw_id(caller->pid()));
+                    info.uid  = caller->uid();
+                }
+
+                const signal_sender sender{caller->uid(), caller->euid()};
+
+                if (pid_raw == -1)
+                    return signal_all_processes(mapped_signal.value, info, sender,
+                                                caller->pid());
+
                 pgrp_t group = getpgrp();
 
                 if (pid_raw < 0) {
@@ -29,19 +47,7 @@ namespace astia::proc::syscalls {
                     group = mapped_group.value;
                 }
 
-                signal_info info{};
-
-                if (mapped_signal.value != signal_number{}) {
-                    auto* sender = current_process();
-                    if (sender == nullptr)
-                        return -ESRCH;
-
-                    info.code = ASTIA_SI_USER;
-                    info.pid  = static_cast<i32>(raw_id(sender->pid()));
-                    info.uid  = sender->uid();
-                }
-
-                return signal_process_group(group, mapped_signal.value, info);
+                return signal_process_group(group, mapped_signal.value, info, &sender);
             }
 
             auto mapped_pid = mapper<pid_t>::from(pid_raw);

@@ -96,6 +96,15 @@ function(astia_add_host_test name)
 endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
+astia_add_host_test(acpi_host_test acpi_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
+target_include_directories(acpi_host_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
+target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(acpi_host_test "acpi;host;deterministic")
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
@@ -160,6 +169,10 @@ target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
+astia_add_host_test(astia_core_name_test
+        core_name_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/name.cpp)
+astia_add_test_label(astia_core_name_test "deterministic;core")
 astia_add_host_test(astia_utsname_test utsname_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/identity.cpp)
 add_test(NAME astia_kernel_stack_usage_budget
@@ -749,6 +762,18 @@ add_custom_command(
 )
 astia_embed_blob(_initrd_zstd_cpp ${_fix_dir}/initrd_newc.cpio.zst initrd_zstd_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_newc_nosize.cpio.zst
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd-nosize
+                ${ASTIA_ZSTD} ${_fix_dir}/initrd_newc.cpio
+                ${_fix_dir}/initrd_newc_nosize.cpio.zst
+        DEPENDS ${_fix_dir}/initrd_newc.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+        COMMENT "Building zstd initrd fixture without a content size"
+)
+astia_embed_blob(_initrd_zstd_nosize_cpp
+        ${_fix_dir}/initrd_newc_nosize.cpio.zst initrd_zstd_nosize_blob)
+
 astia_add_host_test(astia_initrd_test
         initrd_test.cpp
         ${_initrd_newc_cpp}
@@ -756,6 +781,39 @@ astia_add_host_test(astia_initrd_test
         ${_initrd_gzip_cpp}
         ${_initrd_zstd_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
+)
+
+set(_initrd_decoder_third_party ${ASTIA_KERNEL_SOURCE_DIR}/../third_party)
+set(_initrd_decoder_sources
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/decompress.cpp
+        ${_initrd_decoder_third_party}/zstd/zstddeclib.c
+        ${_initrd_decoder_third_party}/miniz/miniz_tinfl.c
+)
+astia_add_host_test(astia_initrd_decompress_test
+        initrd_decompress_test.cpp
+        ${_initrd_decoder_sources}
+        ${_initrd_newc_cpp}
+        ${_initrd_gzip_cpp}
+        ${_initrd_zstd_cpp}
+        ${_initrd_zstd_nosize_cpp}
+)
+target_include_directories(astia_initrd_decompress_test PRIVATE
+        ${_initrd_decoder_third_party}/zstd
+        ${_initrd_decoder_third_party}/miniz
+)
+target_compile_definitions(astia_initrd_decompress_test PRIVATE
+        MINIZ_NO_MALLOC
+        MINIZ_NO_STDIO
+        MINIZ_NO_TIME
+        MINIZ_NO_ARCHIVE_APIS
+        XXH_NO_STDLIB
+)
+set_source_files_properties(${_initrd_decoder_third_party}/zstd/zstddeclib.c
+        ${_initrd_decoder_third_party}/miniz/miniz_tinfl.c
+        PROPERTIES
+        INCLUDE_DIRECTORIES ${_initrd_decoder_third_party}/compat
+        COMPILE_OPTIONS "-fno-sanitize=all"
 )
 
 # The initrd VFS allocation-failure path needs the kernel allocator itself, so
@@ -898,6 +956,8 @@ endif ()
 
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
+astia_add_host_test(astia_terminal_name_test terminal_name_test.cpp)
+
 astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
 set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-builtin")
@@ -1050,6 +1110,23 @@ target_include_directories(astia_ext4_vfs_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
+
+astia_add_arena_test(astia_tmpfs_readdir_test
+        tmpfs_readdir_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_tmpfs_readdir_test PRIVATE fs)
+target_compile_options(astia_tmpfs_readdir_test PRIVATE -fno-rtti)
+target_include_directories(astia_tmpfs_readdir_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_tmpfs_readdir_test "sanitizer-host")
+astia_add_test_label(astia_tmpfs_readdir_test "sanitizer-host-partial")
 
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
@@ -1361,6 +1438,28 @@ if (ARCH STREQUAL "x86_64")
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
         add_custom_command(
+                OUTPUT ${_fix_dir}/boot_initrd.cpio.gz
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
+                ${ASTIA_GZIP} ${_fix_dir}/boot_initrd.cpio
+                ${_fix_dir}/boot_initrd.cpio.gz
+                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+                COMMENT "Compressing boot initrd with gzip")
+        add_custom_target(astia_boot_initrd_gzip ALL
+                DEPENDS ${_fix_dir}/boot_initrd.cpio.gz)
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/boot_initrd.cpio.zst
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd
+                ${ASTIA_ZSTD} ${_fix_dir}/boot_initrd.cpio
+                ${_fix_dir}/boot_initrd.cpio.zst
+                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+                COMMENT "Compressing boot initrd with zstd")
+        add_custom_target(astia_boot_initrd_zstd ALL
+                DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
+
+        add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory
                 ${_fix_dir}/production_exit_stage/sbin
@@ -1393,9 +1492,34 @@ if (ARCH STREQUAL "x86_64")
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
+                "astia: sigpipe ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_initrd_boot_gzip
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio.gz
+                "fs: initrd: gzip container"
+                "mod: hello_initrd.o rc=42"
+                "selftest: statx ok"
+                "astia: libc ok"
+                "astia: ld ok"
+        )
+        set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_initrd_boot_zstd
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio.zst
+                "fs: initrd: zstd container"
+                "mod: hello_initrd.o rc=42"
+                "selftest: statx ok"
+                "astia: libc ok"
+                "astia: ld ok"
+        )
+        set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 60)
 
         add_test(NAME astia_production_init_exit
                 COMMAND ${CMAKE_COMMAND} -E env
@@ -1727,6 +1851,54 @@ if (ARCH STREQUAL "x86_64")
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
+        endif ()
+
+        if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
+            add_custom_target(astia_acpi_grub_iso
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            $<TARGET_FILE:astiakrn_acpi>
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/astiakrn
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            ${ASTIA_KERNEL_SOURCE_DIR}/grub.cfg
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub/grub.cfg
+                    COMMAND ${GRUB_FILE} --is-x86-multiboot2
+                            $<TARGET_FILE:astiakrn_acpi>
+                    COMMAND ${GRUB_MKRESCUE} -o ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                            ${CMAKE_BINARY_DIR}/acpi-grub
+                    BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                    DEPENDS astiakrn_acpi
+                    COMMENT "Building ACPI GRUB Multiboot2 ISO")
+
+            add_test(NAME acpi_q35_shutdown
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    shutdown ${ASTIA_QEMU} ${CMAKE_BINARY_DIR}/astia-acpi.iso)
+            set_tests_properties(acpi_q35_shutdown PROPERTIES
+                    TIMEOUT 60
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_rsdp
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-rsdp ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_rsdp PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_aml
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-aml ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_aml PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
         endif ()
     else ()
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")

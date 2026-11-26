@@ -15,6 +15,8 @@
 #include "../sys/user_mem.hpp"
 #include "events.hpp"
 #include "scheduler.hpp"
+#include "signal_permission.hpp"
+#include "terminal_name.hpp"
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
@@ -325,6 +327,15 @@ namespace astia::proc {
             record.gid      = metadata.gid;
             record.has_ctty = metadata.controlling_terminal ? 1u : 0u;
 
+            if (metadata.controlling_terminal &&
+                !terminal_name(*metadata.controlling_terminal, record.ctty,
+                               sizeof record.ctty)) {
+                // A terminal without a VFS path is reported as unknown
+                // rather than as an empty name.
+                record.ctty[0] = '?';
+                record.ctty[1] = '\0';
+            }
+
             const char* name = value->name();
 
             for (u32 n = 0; name != nullptr && n + 1 < sizeof(record.name) && name[n];
@@ -579,16 +590,57 @@ namespace astia::proc {
         return static_cast<i64>(raw_id(owner->session()));
     }
 
-    i64 signal_process_group(pgrp_t group, signal_number value, signal_info info) {
+    namespace {
+        bool deliver_signal(process* target, signal_number value,
+                            const signal_info& info) {
+            if (!target->signals().send(value, info))
+                return false;
+
+            target->interrupt_signal_io(value);
+
+            if (value == signal_number::kill) {
+                target->signal_termination(signal_number::kill);
+                target->request_kill();
+            }
+            else if (is_uncatchable(value) ||
+                     target->signals().disposition(value).action ==
+                         signal_action::default_action) {
+                target->signal_state_change(value);
+            }
+
+            if (target->signals().has_unblocked_interrupting())
+                sys::io_interrupt_process(target, -EINTR);
+
+            target->wake_signal_waiters();
+
+            return true;
+        }
+
+        i64 audience_error(signal_audience_status status) {
+            switch (status) {
+            case signal_audience_status::none:
+                return -ESRCH;
+            case signal_audience_status::denied:
+                return -EPERM;
+            case signal_audience_status::allowed:
+                return 0;
+            }
+
+            return -ESRCH;
+        }
+    } // namespace
+
+    i64 signal_process_group(pgrp_t group, signal_number value, signal_info info,
+                             const signal_sender* sender) {
         if (!valid_signal(value) && value != signal_number{})
             return -EINVAL;
-
-        bool found = false;
 
         mm::shptr<process> targets[max_processes];
 
         const u32 value_count = snapshot_registry(targets);
         u32       count       = 0;
+
+        signal_audience audience;
 
         for (u32 i = 0; i < value_count; ++i) {
             process* target = targets[i].get();
@@ -596,35 +648,58 @@ namespace astia::proc {
             if (!is_live(target) || target->process_group() != group)
                 continue;
 
-            found            = true;
+            if (sender != nullptr &&
+                !audience.admit(sender->uid, sender->euid, target->uid(), target->euid()))
+                continue;
+
             targets[count++] = static_cast<mm::shptr<process>&&>(targets[i]);
         }
 
         if (value != signal_number{}) {
             for (u32 i = 0; i < count; ++i) {
-                if (!targets[i]->signals().send(value, info))
+                if (!deliver_signal(targets[i].get(), value, info))
                     return -EINVAL;
-
-                targets[i]->interrupt_signal_io(value);
-
-                if (value == signal_number::kill) {
-                    targets[i]->signal_termination(signal_number::kill);
-                    targets[i]->request_kill();
-                }
-                else if (is_uncatchable(value) ||
-                         targets[i]->signals().disposition(value).action ==
-                             signal_action::default_action) {
-                    targets[i]->signal_state_change(value);
-                }
-
-                if (targets[i]->signals().has_unblocked_interrupting())
-                    sys::io_interrupt_process(targets[i].get(), -EINTR);
-
-                targets[i]->wake_signal_waiters();
             }
         }
 
-        return found ? 0 : -ESRCH;
+        if (sender != nullptr)
+            return audience_error(audience.status());
+
+        return count != 0 ? 0 : -ESRCH;
+    }
+
+    i64 signal_all_processes(signal_number value, signal_info info,
+                             const signal_sender& sender, pid_t exclude) {
+        if (!valid_signal(value) && value != signal_number{})
+            return -EINVAL;
+
+        mm::shptr<process> targets[max_processes];
+
+        const u32 value_count = snapshot_registry(targets);
+        u32       count       = 0;
+
+        signal_audience audience;
+
+        for (u32 i = 0; i < value_count; ++i) {
+            process* target = targets[i].get();
+
+            if (!is_live(target) || target->pid() == exclude)
+                continue;
+
+            if (!audience.admit(sender.uid, sender.euid, target->uid(), target->euid()))
+                continue;
+
+            targets[count++] = static_cast<mm::shptr<process>&&>(targets[i]);
+        }
+
+        if (value != signal_number{}) {
+            for (u32 i = 0; i < count; ++i) {
+                if (!deliver_signal(targets[i].get(), value, info))
+                    return -EINVAL;
+            }
+        }
+
+        return audience_error(audience.status());
     }
 
     namespace {

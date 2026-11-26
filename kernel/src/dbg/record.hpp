@@ -47,6 +47,39 @@ namespace astia::dbg {
             }
         }
 
+        void add_hex_padded(u64 value, u32 digits = 16) {
+            add("0x");
+
+            char      buffer[16] = {};
+            const u32 width      = digits < sizeof buffer ? digits : sizeof buffer;
+
+            for (u32 i = 0; i < width; ++i) {
+                const u32 shift = (width - 1 - i) * 4;
+                const u32 digit = static_cast<u32>((value >> shift) & 0xfu);
+
+                buffer[i] =
+                    static_cast<char>(digit < 10 ? '0' + digit : 'a' + digit - 10);
+            }
+
+            for (u32 i = 0; i < width; ++i) {
+                add(buffer[i]);
+            }
+        }
+
+        void add_padded(const char* text, u32 width) {
+            u32 length = 0;
+
+            while (text[length] != '\0') {
+                ++length;
+            }
+
+            add(text);
+
+            for (u32 i = length; i < width; ++i) {
+                add(' ');
+            }
+        }
+
         void add_hex(u64 value) {
             add("0x");
 

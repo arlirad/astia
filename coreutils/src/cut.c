@@ -4,10 +4,76 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int selected[65];
+#define CUT_MAX_FIELD 64
+
+static int selected[CUT_MAX_FIELD + 1];
 
 static int selected_field(unsigned long field) {
-    return field <= 64 && selected[field];
+    return field <= CUT_MAX_FIELD && selected[field];
+}
+
+static int cut_field_list(const char* list) {
+    const char* cursor = list;
+
+    if (*cursor == '\0')
+        return -1;
+
+    for (;;) {
+        const char* item = cursor;
+        char*       end;
+
+        unsigned long first;
+        unsigned long last;
+
+        if (*item == '-') {
+            first = 1;
+            last  = strtoul(item + 1, &end, 10);
+
+            if (end == item + 1 || last == 0 || last > CUT_MAX_FIELD)
+                return -1;
+        }
+        else {
+            first = strtoul(item, &end, 10);
+
+            if (end == item || first == 0 || first > CUT_MAX_FIELD)
+                return -1;
+
+            last = first;
+
+            if (*end == '-') {
+                char* range_end;
+
+                last = strtoul(end + 1, &range_end, 10);
+
+                if (range_end == end + 1)
+                    last = CUT_MAX_FIELD;
+                else if (last == 0 || last > CUT_MAX_FIELD)
+                    return -1;
+
+                end = range_end;
+            }
+        }
+
+        if (first > last)
+            return -1;
+
+        for (unsigned long field = first; field <= last; ++field) {
+            selected[field] = 1;
+        }
+
+        if (*end == '\0')
+            break;
+
+        if (*end != ',')
+            return -1;
+
+        cursor = end + 1;
+
+        if (*cursor == '\0')
+            return -1;
+    }
+
+    return 0;
 }
 
 static int cut_fd(int fd, const char* name, char delimiter) {
@@ -146,37 +212,8 @@ int main(int argc, char** argv) {
     if (list == 0)
         return cu_usage("cut", "-f LIST [-d DELIM] [FILE]...");
 
-    const char* p = list;
-
-    while (*p != '\0') {
-        char* end;
-
-        unsigned long first = strtoul(p, &end, 10);
-
-        if (end == p || first == 0 || first > 64)
-            return cu_usage("cut", "-f LIST [-d DELIM] [FILE]...");
-
-        unsigned long last = first;
-
-        if (*end == '-') {
-            last = strtoul(end + 1, &end, 10);
-
-            if (last == 0 || last > 64)
-                return cu_usage("cut", "-f LIST [-d DELIM] [FILE]...");
-        }
-
-        for (unsigned long i = first; i <= last; ++i) {
-            selected[i] = 1;
-        }
-
-        if (*end == '\0')
-            break;
-
-        if (*end != ',')
-            return cu_usage("cut", "-f LIST [-d DELIM] [FILE]...");
-
-        p = end + 1;
-    }
+    if (cut_field_list(list) != 0)
+        return cu_usage("cut", "-f LIST [-d DELIM] [FILE]...");
 
     int status = 0;
 

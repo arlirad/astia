@@ -71,6 +71,8 @@ namespace astia::io::aio::operations {
             }
 
             p->operation->heap_owned(true);
+            ring::note_armed(slot, static_cast<u32>(p - slot.park));
+            ring::note_signalable(slot, static_cast<u32>(p - slot.park));
 
             co_return aio_result::pending;
         }

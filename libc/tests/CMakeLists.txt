@@ -73,7 +73,8 @@ add_executable(libc_getopt_test stdlib/getopt_test.c support/backend_host.c)
 target_link_libraries(libc_getopt_test PRIVATE astia_libc)
 add_test(NAME libc_getopt_test COMMAND libc_getopt_test)
 
-add_executable(libc_poll_select_test io/poll_select_test.c support/backend_host.c)
+add_executable(libc_poll_select_test io/poll_select_test.c support/backend_host.c
+  support/socket_backend_host.c)
 target_link_libraries(libc_poll_select_test PRIVATE astia_libc)
 add_test(NAME libc_poll_select_test COMMAND libc_poll_select_test)
 
@@ -138,6 +139,10 @@ add_executable(libc_atfork_test process/atfork_test.c support/process_host.c sup
 target_link_libraries(libc_atfork_test PRIVATE astia_libc_host)
 add_test(NAME libc_atfork_test COMMAND libc_atfork_test)
 
+add_executable(libc_setjmp_test process/setjmp_test.c)
+target_link_libraries(libc_setjmp_test PRIVATE astia_libc)
+add_test(NAME libc_setjmp_test COMMAND libc_setjmp_test)
+
 add_executable(libc_pipeline_test integration/pipeline_test.c support/backend_host.c support/process_host.c support/alarm_host.c)
 target_link_libraries(libc_pipeline_test PRIVATE astia_libc_host)
 add_test(NAME libc_pipeline_test COMMAND libc_pipeline_test)
@@ -200,6 +205,10 @@ add_test(NAME libc_utsname_test COMMAND libc_utsname_test)
 add_executable(libc_group_test fs/group_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
 target_link_libraries(libc_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_group_test COMMAND libc_group_test)
+
+add_executable(libc_pwd_test fs/pwd_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_pwd_test PRIVATE astia_libc_host)
+add_test(NAME libc_pwd_test COMMAND libc_pwd_test)
 
 add_executable(libc_gethostname_test sys/gethostname_test.c support/backend_host.c)
 target_link_libraries(libc_gethostname_test PRIVATE astia_libc)

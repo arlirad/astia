@@ -102,8 +102,12 @@ ASTIA_TEST(aio_readiness_sleep_validates_and_parks) {
     ASTIA_CHECK(capture.count() == 2);
     ASTIA_CHECK(slot.park[0].used);
     ASTIA_CHECK(slot.park[0].sleeping);
+    ASTIA_CHECK(aio::ring::armed_mask(slot) == u64{1});
+    ASTIA_CHECK(aio::ring::signal_mask(slot) == u64{1});
     release_parked(slot);
     ASTIA_CHECK(!slot.park[0].used);
+    ASTIA_CHECK(aio::ring::armed_mask(slot) == 0);
+    ASTIA_CHECK(aio::ring::signal_mask(slot) == 0);
 }
 
 ASTIA_TEST(aio_parked_operation_retains_its_cancellation_source) {

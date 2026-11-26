@@ -114,8 +114,8 @@ namespace {
                 new test_product(&state_.destroyed_products));
         }
 
-        bool selftest() override {
-            return true;
+        astia::core::task<bool> selftest() override {
+            co_return true;
         }
 
         private:
@@ -159,6 +159,11 @@ namespace {
         astia::core::task<void> remove(const astia::hw::device_info&) override {
             co_return astia::error_t::enone;
         }
+
+        astia::core::task<bool> selftest() override {
+            co_await suspend_forever{};
+            co_return true;
+        }
     };
 
     astia::i64 bind_sync(astia::hw::driver_registry&              manager,
@@ -199,6 +204,14 @@ namespace {
 
         return result;
     }
+
+    bool selftests_sync(astia::hw::driver_registry& manager) {
+        bool result = false;
+
+        ASTIA_CHECK(astia_test::run_task(manager.selftests(), result));
+
+        return result;
+    }
 } // namespace
 
 ASTIA_TEST(driver_manager_registers_driver_with_owner) {
@@ -229,7 +242,7 @@ ASTIA_TEST(driver_manager_registers_driver_with_owner) {
     ASTIA_CHECK(state.start_calls == 1);
     ASTIA_CHECK(manager.owner_of(bound) == owner_id{7});
     ASTIA_CHECK(manager.devices_owned_by(owner_id{7}) == 1);
-    ASTIA_CHECK(manager.selftests());
+    ASTIA_CHECK(selftests_sync(manager));
 
     driver_handle from_binding{};
 
@@ -469,4 +482,20 @@ ASTIA_TEST(driver_manager_sync_adapter_rejects_a_suspension) {
     ASTIA_CHECK(!task.done());
     ASTIA_CHECK(!bound.valid());
     ASTIA_CHECK(manager.device_count() == 0);
+}
+
+ASTIA_TEST(driver_manager_selftest_is_task_shaped) {
+    using namespace astia::hw;
+
+    driver_registry  manager;
+    suspended_driver driver;
+    driver_handle    registered{};
+
+    ASTIA_CHECK(manager.register_driver(driver, registered) == 0);
+
+    auto task = manager.selftests();
+
+    ASTIA_CHECK(task.valid());
+    task.resume();
+    ASTIA_CHECK(!task.done());
 }

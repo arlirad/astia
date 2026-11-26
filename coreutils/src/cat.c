@@ -39,14 +39,14 @@ int main(int argc, char** argv) {
         if (cu_is_version(path))
             return cu_version("cat");
 
-        if (args.options && path[0] == '-')
-            return cu_error("cat", "unknown option");
-
         if (__builtin_strcmp(path, "-") == 0) {
             status |= copy_fd(CU_STDIN, "standard input");
 
             continue;
         }
+
+        if (args.options && path[0] == '-')
+            return cu_error("cat", "unknown option");
 
         int fd = open(path, O_RDONLY);
         if (fd < 0) {

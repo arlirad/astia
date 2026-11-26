@@ -283,7 +283,7 @@ namespace astia::io::aio {
                         dispatch::complete_control(owner, rings_of(slot), op, 0);
                     }
                     else {
-                        dispatch::resume_parked(owner, rings_of(slot), op);
+                        dispatch::resume_parked(owner, rings_of(slot), op, &slot);
                     }
                 }
 
@@ -296,9 +296,13 @@ namespace astia::io::aio {
         if (owner == nullptr)
             return;
 
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+        u8        indices[kernel_ring_slot_count]{};
+        const u32 count =
+            ring::owner_ring_indices(owner, indices, kernel_ring_slot_count);
+
+        for (u32 j = 0; j < count; ++j) {
             ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
+            ring_slot* slot_ptr = g_slots[indices[j]];
 
             if (slot_ptr == nullptr || !slot_ptr->used || slot_ptr->owner.get() != owner)
                 continue;
@@ -311,7 +315,13 @@ namespace astia::io::aio {
 
             astia_rings* ring = rings_of(slot);
 
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
+            u64 signals = ring::signal_mask(slot);
+
+            while (signals != 0) {
+                const u32 p = static_cast<u32>(__builtin_ctzll(signals));
+
+                signals &= signals - 1;
+
                 parked_op& op = slot.park[p];
 
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
@@ -324,44 +334,64 @@ namespace astia::io::aio {
     }
 
     void io_poll_tick() {
-        if (::astia::arch::timer_hz() == 0)
+        if (::astia::arch::timer_hz() == 0 || !ring::any_armed())
             return;
 
-        const u64 now = dispatch::poll_now_ns();
+        const u64 now   = dispatch::poll_now_ns();
+        u64       rings = ring::armed_ring_bitmap();
 
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+        while (rings != 0) {
+            const u32 index = static_cast<u32>(__builtin_ctzll(rings));
+
+            rings &= rings - 1;
+
             ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
+            ring_slot* slot_ptr = g_slots[index];
 
             if (slot_ptr == nullptr || !slot_ptr->used)
                 continue;
 
             ring_slot& slot = *slot_ptr;
 
+            u64 armed = ring::armed_mask(slot);
+
+            if (armed == 0)
+                continue;
+
             ring_guard ring_lock_guard(slot.lock);
 
             pool_guard.release_lock();
 
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
+            while (armed != 0) {
+                const u32 p = static_cast<u32>(__builtin_ctzll(armed));
+
+                armed &= armed - 1;
+
                 parked_op& op = slot.park[p];
 
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.sleeping && now >= op.sleep_deadline)
+                if (!op.used || op.type != parked_op::kind::operation || op.done) {
+                    ring::clear_armed(slot, p);
+
+                    continue;
+                }
+
+                if (op.sleeping && now >= op.sleep_deadline)
                     op.sleep_ready = true;
 
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.timed && now >= op.timeout_deadline) {
+                if (op.timed && now >= op.timeout_deadline) {
                     op.timed = false;
 
                     op.operation->request().timeout_expired(true);
                 }
 
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.poll_timed && now >= op.poll_deadline) {
+                if (op.poll_timed && now >= op.poll_deadline) {
                     op.poll_timed = false;
 
                     op.operation->request().poll_wakeup(true);
                 }
+
+                if (!op.sleeping && !op.timed && !op.poll_timed)
+                    ring::clear_armed(slot, p);
             }
         }
 

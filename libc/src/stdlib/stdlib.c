@@ -542,7 +542,6 @@ double strtod(const char* nptr, char** endptr) {
         int hex_fraction    = 0;
         int binary_exponent = 0;
         int binary_negative = 0;
-        int have_exponent   = 0;
         int digit;
 
         s += 2;
@@ -568,50 +567,51 @@ double strtod(const char* nptr, char** endptr) {
             }
         }
 
-        if (!any || (*s != 'p' && *s != 'P')) {
+        if (any) {
+            if (*s == 'p' || *s == 'P') {
+                const char* exponent_start = s;
+
+                int have_exponent = 0;
+
+                s++;
+
+                if (*s == '+' || *s == '-') {
+                    binary_negative = (*s == '-');
+
+                    s++;
+                }
+
+                while (isdigit((unsigned char) *s)) {
+                    if (binary_exponent < 10000)
+                        binary_exponent = binary_exponent * 10 + (*s - '0');
+
+                    s++;
+
+                    have_exponent = 1;
+                }
+
+                if (!have_exponent) {
+                    s               = exponent_start;
+                    binary_negative = 0;
+                }
+            }
+
+            binary_exponent =
+                (binary_negative ? -binary_exponent : binary_exponent) - 4 * hex_fraction;
+            value = scale_binary(value, binary_exponent);
+
+            if (value > (long double) DBL_MAX) {
+                errno = ERANGE;
+                value = (long double) DBL_MAX;
+            }
+
             if (endptr)
-                *endptr = (char*) nptr;
+                *endptr = (char*) s;
 
-            return 0.0;
+            return negative ? -(double) value : (double) value;
         }
 
-        s++;
-
-        if (*s == '+' || *s == '-') {
-            binary_negative = (*s == '-');
-
-            s++;
-        }
-
-        while (isdigit((unsigned char) *s)) {
-            if (binary_exponent < 10000)
-                binary_exponent = binary_exponent * 10 + (*s - '0');
-
-            s++;
-
-            have_exponent = 1;
-        }
-
-        if (!have_exponent) {
-            if (endptr)
-                *endptr = (char*) hex_start;
-
-            return 0.0;
-        }
-
-        binary_exponent =
-            (binary_negative ? -binary_exponent : binary_exponent) - 4 * hex_fraction;
-        value = scale_binary(value, binary_exponent);
-
-        if (value > (long double) DBL_MAX) {
-            errno = ERANGE;
-            value = (long double) DBL_MAX;
-        }
-
-        if (endptr)
-            *endptr = (char*) s;
-
-        return negative ? -(double) value : (double) value;
+        s = hex_start;
     }
 
     while (isdigit((unsigned char) *s)) {
@@ -815,10 +815,10 @@ void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
 
         const char* elem = (const char*) base + mid * size;
 
-        int c = compar(elem, key);
-        if (c < 0)
+        int c = compar(key, elem);
+        if (c > 0)
             lo = mid + 1;
-        else if (c > 0)
+        else if (c < 0)
             hi = mid;
         else
             return (void*) elem; /* explicit cast from const char* */

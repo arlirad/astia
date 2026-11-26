@@ -4,6 +4,7 @@
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
+#include "boot.hpp"
 #include "initrd.hpp"
 #include "module.hpp"
 
@@ -78,21 +79,30 @@ namespace astia::mod {
         if (!ctx.info)
             return false;
 
-        // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
-        // What mod takes from it are the kernel modules it carries.
+        // This step runs before the fs mount, so it loads and publishes the
+        // normalized archive first; fs/initrd_init.cpp later reuses it for
+        // the root mount instead of decoding or opening the image again.
         const boot::module_info& ramdisk = ctx.info->initrd;
 
         if (ramdisk.paddr != 0 && ramdisk.size != 0) {
-            const void*     data = mm::kernel_frames().to_virt(ramdisk.paddr);
-            initrd::archive arc;
+            const void* data = mm::kernel_frames().to_virt(ramdisk.paddr);
 
-            if (initrd::open(span<const u8>(static_cast<const u8*>(data),
-                                            static_cast<usize>(ramdisk.size)),
-                             arc)) {
-                initrd_logs::info("%llu file(s)",
-                                  static_cast<unsigned long long>(initrd::count(arc)));
-                initrd::each(arc, visit_initrd_file, nullptr);
+            if (!initrd::load_boot_archive(data, static_cast<usize>(ramdisk.size))) {
+                initrd_logs::error(
+                    "%s container failed: %s",
+                    initrd::container_name(initrd::boot_archive_container()),
+                    initrd::decode_error_name(initrd::boot_archive_error()));
+
+                return false;
             }
+        }
+
+        initrd::archive arc;
+
+        if (initrd::boot_archive_ready() && initrd::open_boot_archive(arc)) {
+            initrd_logs::info("%llu file(s)",
+                              static_cast<unsigned long long>(initrd::count(arc)));
+            initrd::each(arc, visit_initrd_file, nullptr);
         }
 
         // Every other module the loader reported is a bare ELF image, or

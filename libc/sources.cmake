@@ -7,6 +7,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/aio/backend_aio.c
   src/aio/time_aio.c
   src/aio/time_sleep_aio.c
+  src/fs/account_fields.c
   src/fs/dirent.c
   src/fs/group.c
   src/fs/path.c

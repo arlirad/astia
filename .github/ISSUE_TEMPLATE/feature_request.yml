@@ -1,6 +1,5 @@
 name: Feature or design proposal
 description: Propose a feature or design change with scope, evidence, and compatibility impact.
-title: "[feature] "
 labels: ["enhancement"]
 body:
   - type: markdown

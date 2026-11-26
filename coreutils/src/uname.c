@@ -10,6 +10,9 @@ enum {
     FIELD_COUNT
 };
 
+#define FIELD_BIT(field) (1u << (field))
+#define ALL_FIELDS (FIELD_BIT(FIELD_COUNT) - 1)
+
 static int print_field(const char* value, int* printed) {
     if (*printed && cu_puts(" ") < 0)
         return -1;
@@ -59,8 +62,12 @@ static const char* field_value(const struct utsname* identity, int field) {
     return values[field];
 }
 
-static int print_all(const struct utsname* identity, int* printed) {
+static int print_selected(const struct utsname* identity, unsigned int selected,
+                          int* printed) {
     for (int field = 0; field < FIELD_COUNT; ++field) {
+        if (!(selected & FIELD_BIT(field)))
+            continue;
+
         if (print_field(field_value(identity, field), printed) < 0)
             return -1;
     }
@@ -71,9 +78,8 @@ static int print_all(const struct utsname* identity, int* printed) {
 int main(int argc, char** argv) {
     struct utsname identity;
 
-    int all     = 0;
-    int loaded  = 0;
-    int printed = 0;
+    unsigned int selected = 0;
+    int          loaded   = 0;
 
     for (int i = 1; i < argc; ++i) {
         const char* option = argv[i];
@@ -85,7 +91,7 @@ int main(int argc, char** argv) {
             return cu_version("uname");
 
         if (cu_arg_is(option, "-a", "--all")) {
-            all = 1;
+            selected = ALL_FIELDS;
 
             continue;
         }
@@ -94,34 +100,30 @@ int main(int argc, char** argv) {
             return cu_usage("uname", "[OPTION]...");
 
         for (int j = 1; option[j] != '\0'; ++j) {
+            if (option[j] == 'a') {
+                selected = ALL_FIELDS;
+
+                continue;
+            }
+
             int field = field_index(option[j]);
             if (field < 0)
                 return cu_error("uname", "unknown option");
 
-            if (load_identity(&identity, &loaded) != 0)
-                return 1;
-
-            if (print_field(field_value(&identity, field), &printed) < 0)
-                return 1;
+            selected |= FIELD_BIT(field);
         }
     }
 
-    if (all) {
-        if (load_identity(&identity, &loaded) != 0)
-            return 1;
+    if (selected == 0)
+        selected = FIELD_BIT(FIELD_SYSNAME);
 
-        printed = 0;
+    if (load_identity(&identity, &loaded) != 0)
+        return 1;
 
-        if (print_all(&identity, &printed) < 0)
-            return 1;
-    }
-    else if (!printed) {
-        if (load_identity(&identity, &loaded) != 0)
-            return 1;
+    int printed = 0;
 
-        if (print_field(field_value(&identity, FIELD_SYSNAME), &printed) < 0)
-            return 1;
-    }
+    if (print_selected(&identity, selected, &printed) < 0)
+        return 1;
 
     return cu_puts("\n") < 0;
 }

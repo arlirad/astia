@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct child_list {
+    char** names;
+    size_t count;
+    size_t capacity;
+};
+
 static char* child_path(const char* parent, const char* name) {
     size_t parent_len = __builtin_strlen(parent);
     size_t name_len   = __builtin_strlen(name);
@@ -25,21 +31,44 @@ static char* child_path(const char* parent, const char* name) {
     return result;
 }
 
-static int remove_path(const char* path, int recursive) {
-    struct stat info;
-
-    if (lstat(path, &info) < 0)
-        return -1;
-
-    if (!S_ISDIR(info.st_mode))
-        return unlink(path);
-
-    if (!recursive) {
-        errno = EISDIR;
-
-        return -1;
+static void free_children(struct child_list* children) {
+    for (size_t index = 0; index < children->count; ++index) {
+        free(children->names[index]);
     }
 
+    free(children->names);
+
+    children->names    = 0;
+    children->count    = 0;
+    children->capacity = 0;
+}
+
+static int append_child(struct child_list* children, const char* name) {
+    if (children->count == children->capacity) {
+        size_t next_capacity = children->capacity == 0 ? 8 : children->capacity * 2;
+
+        char** grown = realloc(children->names, next_capacity * sizeof *grown);
+        if (grown == 0)
+            return -1;
+
+        children->names    = grown;
+        children->capacity = next_capacity;
+    }
+
+    size_t length = __builtin_strlen(name);
+
+    char* copy = malloc(length + 1);
+    if (copy == 0)
+        return -1;
+
+    __builtin_memcpy(copy, name, length + 1);
+
+    children->names[children->count++] = copy;
+
+    return 0;
+}
+
+static int collect_children(const char* path, struct child_list* children) {
     DIR*           directory = opendir(path);
     struct dirent* entry;
 
@@ -58,13 +87,49 @@ static int remove_path(const char* path, int recursive) {
             break;
         }
 
-        char* child;
-
         if (__builtin_strcmp(entry->d_name, ".") == 0 ||
             __builtin_strcmp(entry->d_name, "..") == 0)
             continue;
 
-        child = child_path(path, entry->d_name);
+        if (append_child(children, entry->d_name) < 0)
+            status = -1;
+
+        if (status < 0)
+            break;
+    }
+
+    closedir(directory);
+
+    return status;
+}
+
+static int remove_path(const char* path, int recursive) {
+    struct stat info;
+
+    if (lstat(path, &info) < 0)
+        return -1;
+
+    if (!S_ISDIR(info.st_mode))
+        return unlink(path);
+
+    if (!recursive) {
+        errno = EISDIR;
+
+        return -1;
+    }
+
+    struct child_list children = {0};
+
+    if (collect_children(path, &children) < 0) {
+        free_children(&children);
+
+        return -1;
+    }
+
+    int status = 0;
+
+    for (size_t index = 0; index < children.count; ++index) {
+        char* child = child_path(path, children.names[index]);
 
         if (child == 0 || remove_path(child, recursive) < 0)
             status = -1;
@@ -75,7 +140,7 @@ static int remove_path(const char* path, int recursive) {
             break;
     }
 
-    closedir(directory);
+    free_children(&children);
 
     if (status < 0)
         return -1;

@@ -120,3 +120,19 @@ ASTIA_TEST(initrd_accepts_paths_at_path_max) {
     ASTIA_CHECK(listed_type == astia::fs::file_type::regular);
     ASTIA_CHECK(std::strcmp(listed, name) == 0);
 }
+
+ASTIA_TEST(initrd_mount_is_read_only) {
+    astia::fs::filesystems::initrd_mount mount;
+
+    ASTIA_CHECK(mount.read_only());
+    ASTIA_CHECK(mount.mkdir("/x", astia::fs::file_mode(
+                                      astia::fs::file_type::directory,
+                                      astia::fs::default_directory_permissions)) ==
+                -EROFS);
+    ASTIA_CHECK(mount.unlink("/x", false) == -EROFS);
+    ASTIA_CHECK(mount.rename("/a", "/b") == -EROFS);
+    ASTIA_CHECK(mount.link("/a", "/b") == -EROFS);
+    ASTIA_CHECK(mount.symlink("/a", "/b") == -EROFS);
+    ASTIA_CHECK(mount.chmod("/a", astia::fs::default_file_permissions) == -EROFS);
+    ASTIA_CHECK(mount.chown("/a", astia::uid_t{0}, astia::gid_t{0}) == -EROFS);
+}

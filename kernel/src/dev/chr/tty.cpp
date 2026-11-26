@@ -238,7 +238,7 @@ namespace astia::dev {
         return result & (events | POLLERR | POLLHUP);
     }
 
-    bool tty::tty_receive(u8 byte) {
+    tty_input_result tty::tty_receive(u8 byte) {
         arch::interrupt_spinlock_guard guard(_state_lock);
 
         u8   echo[3]{};
@@ -252,14 +252,14 @@ namespace astia::dev {
                 tty_echo(echo[i]);
             }
 
-            return ready;
+            return ready ? tty_input_result::ready : tty_input_result::consumed;
         };
 
         if ((_termios.c_iflag & IXON) != 0) {
             if (byte == _termios.c_cc[VSTOP]) {
                 _output_stopped = true;
 
-                return false;
+                return tty_input_result::consumed;
             }
 
             if (byte == _termios.c_cc[VSTART]) {
@@ -272,7 +272,7 @@ namespace astia::dev {
 
         if (byte == '\r') {
             if ((_termios.c_iflag & IGNCR) != 0)
-                return false;
+                return tty_input_result::consumed;
 
             if ((_termios.c_iflag & ICRNL) != 0)
                 byte = '\n';
@@ -297,14 +297,14 @@ namespace astia::dev {
             guard.unlock();
             tty_signal(byte);
 
-            return false;
+            return tty_input_result::consumed;
         }
 
         if ((_termios.c_lflag & ICANON) == 0) {
             const u32 head = _rx_head;
             const u32 next = (head + 1) & (rx_capacity_bytes - 1);
             if (next == _rx_tail)
-                return false;
+                return tty_input_result::blocked;
 
             _rx[head] = byte;
 

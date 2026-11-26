@@ -61,6 +61,7 @@ namespace astia::io::aio::operations {
             }
 
             p->operation->heap_owned(true);
+            ring::note_signalable(slot, park_index);
             publish_waiter_hint(slot, park_index, handle->parent().get());
 
             if (ready_generation() != generation)

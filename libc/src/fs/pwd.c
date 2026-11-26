@@ -1,3 +1,5 @@
+#include "internal/account_fields.h"
+
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,27 +10,34 @@ static char          passwd_line[1024];
 static char          passwd_fields[7][256];
 static struct passwd passwd_result;
 
+__attribute__((weak, noinline)) const char* __astia_passwd_database_path(void) {
+    return "/etc/passwd";
+}
+
 static struct passwd* parse_passwd(char* line) {
-    char* field;
+    char* fields[7];
     char* end;
 
+    size_t count;
+    int    i;
+
     unsigned long values[2];
-    int           i;
 
     if (line[0] == '#' || line[0] == '\n' || line[0] == '\0')
         return NULL;
 
-    field = strtok(line, ":");
+    count = __astia_account_field_split(line, ':', fields, 7);
+    if (count != 7)
+        return NULL;
 
-    for (i = 0; i < 7 && field != NULL; ++i) {
-        strncpy(passwd_fields[i], field, sizeof passwd_fields[i] - 1);
+    if (fields[0][0] == '\0' || fields[2][0] == '\0' || fields[3][0] == '\0')
+        return NULL;
+
+    for (i = 0; i < 7; ++i) {
+        strncpy(passwd_fields[i], fields[i], sizeof passwd_fields[i] - 1);
 
         passwd_fields[i][sizeof passwd_fields[i] - 1] = '\0';
-        field                                         = strtok(NULL, ":\n");
     }
-
-    if (i != 7)
-        return NULL;
 
     values[0] = strtoul(passwd_fields[2], &end, 10);
 
@@ -53,7 +62,7 @@ static struct passwd* parse_passwd(char* line) {
 
 void setpwent(void) {
     if (passwd_file == NULL)
-        passwd_file = fopen("/etc/passwd", "r");
+        passwd_file = fopen(__astia_passwd_database_path(), "r");
     else
         rewind(passwd_file);
 }

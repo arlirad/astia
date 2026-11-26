@@ -189,6 +189,8 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
                                                      vector_kind, panic_sink,
                                                      const_cast<pl011_uart*>(&console));
 
+        console.write_line("[PANIC] stack trace:");
+
         astia::u64 fp = frame->x[29];
         astia::u64 pc = frame->x[30];
 
@@ -196,12 +198,12 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
             if (fp < 0x40000000ull || fp >= 0x50000000ull || (fp & 7u) != 0)
                 break;
 
-            console.write("kpanic: #");
+            console.write("[PANIC]  #");
             console.write_hex(depth, 1);
-            console.write(" rip=");
+            console.write("  ");
             console.write("0x");
             console.write_hex(pc, 16);
-            console.write(" rbp=");
+            console.write("  rbp=");
             console.write("0x");
             console.write_hex(fp, 16);
             console.write_line("");

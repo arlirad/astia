@@ -881,8 +881,8 @@ namespace astia::usb::xhci {
                 return {};
             }
 
-            bool selftest() override {
-                return true;
+            astia::core::task<bool> selftest() override {
+                co_return true;
             }
 
             astia::core::task<void> remove(const astia::hw::device_info&) override {

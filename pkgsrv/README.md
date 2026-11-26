@@ -357,8 +357,14 @@ succeeds.
 List results are ordered deterministically by name, numeric major/minor/patch,
 pre-release text with releases after pre-releases, build-metadata text, and
 canonical version. Filtering, ordering, escaping, and the 1000-entry cap are applied
-in SQL before materialization. Search treats `%` and `_` in user input literally by
-escaping them, matching the in-memory `Contains`/`StartsWith` behavior.
+in SQL before materialization. Search supports the bounded fields: case-insensitive
+package `name` contains and source commit prefix. Filtering remains bounded in SQL,
+but neither field is claimed as indexed unless verified in the current EF
+migration/schema. Provenance and other manifest metadata are returned but are not
+search fields; provenance containment search requires a reviewed trigram/index
+strategy ([#177](https://github.com/arlirad/astia/issues/177)). Search treats `%` and
+`_` in user input literally by escaping them, matching the in-memory
+`Contains`/`StartsWith` behavior.
 
 Pending domain events are stored in the same row in `PendingEventsJson` and are
 written atomically with registration/build state. Only the supported
@@ -799,6 +805,25 @@ old-v1 upgrade/data preservation through the EF migration chain.
   migration-state probing remain covered by the opt-in integration tests tracked in
   [#174](https://github.com/arlirad/astia/issues/174).
 
+## Issue #177 acceptance evidence
+
+- Search contract: search supports package `name` contains and source commit prefix,
+  both case-insensitive. Bounded SQL filtering is preserved, but neither field is
+  claimed as indexed unless verified in the current EF migration/schema. Provenance
+  and other manifest metadata remain returned data, not search fields.
+- Alignment: PostgreSQL `BuildSearchQuery` and the in-memory repository apply the
+  same two-field contract; provenance-only terms match in neither implementation.
+- Semantics preserved: source commit matching stays prefix-only, `%` and `_` remain
+  escaped/literal, deterministic version ordering is unchanged, and the 1000-entry
+  result cap still applies before PostgreSQL materialization.
+- No schema change: no `pg_trgm` extension, trigram index, or migration is added.
+  Broad provenance containment search remains a tracked residual until a reviewed
+  index strategy exists.
+- Tests: PostgreSQL SQL-shape assertions exclude provenance and retain escaping,
+  ordering, and limiting; in-memory tests cover name contains, source commit prefix,
+  provenance exclusion, and wildcard literals; the opt-in PostgreSQL integration
+  test exercises the same behavior when its database connection is configured.
+
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
@@ -927,6 +952,10 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 | `POST` | `/packages/{name}/{version}/publish` | `200` published signature/hash; `401`/`403`/`404`/`409`/`503` |
 | `GET` | `/packages/{name}/{version}/download` | `200` verified artifact bytes; `401`/`403`/`404`/`409`/`503` |
 
+The `GET /packages` route currently returns the full bounded list and does not expose
+a search query parameter; the application index supports the restricted
+name/source-commit search described above.
+
 Every route except `/healthz` and `/readyz` requires `Authorization: Bearer <Irva access token>`.
 There are no pkgsrv login/register/session/refresh/proxy-auth endpoints. Error
 responses use RFC 7807 problem details with a stable `code` extension.
@@ -1013,6 +1042,11 @@ listening endpoint section.
   when migrations are pending.
 - Full SemVer identifier precedence and version-aware search are not implemented;
   list ordering is the deterministic contract above.
+- Search supports the bounded fields package `name` contains and source commit
+  prefix. Bounded SQL filtering is preserved, but neither field is claimed as indexed
+  unless verified in the current EF migration/schema. Provenance is returned metadata
+  but is not searchable until a reviewed trigram/index strategy exists
+  ([#177](https://github.com/arlirad/astia/issues/177)).
 - The real Irva.Client project is optional and external. Default builds compile the
   fail-closed deny adapter; operators must build with `IrvaClientProject` and set
   `Pkgsrv:Irva:*` explicitly. Without both, package requests are denied.
@@ -1056,8 +1090,11 @@ listening endpoint section.
   cache invalidation.
 - [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox
   dispatch/retry for package domain events.
-- [#177](https://github.com/arlirad/astia/issues/177) - provenance contains-search
-  index or restricted search fields.
+- [#177](https://github.com/arlirad/astia/issues/177) - search supports name
+  contains and source-commit prefix with bounded SQL filtering; neither field is
+  claimed as indexed unless verified in the current EF migration/schema; provenance
+  remains returned metadata but is not searchable until a reviewed trigram/index
+  strategy exists.
 - [#178](https://github.com/arlirad/astia/issues/178) - external Irva.Client build
   wiring and live integration test remain opt-in; residual limitations are listed
   above.

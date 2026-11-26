@@ -198,6 +198,32 @@ ASTIA_TEST(signal_permission_matches_process_credentials) {
     ASTIA_CHECK(astia::proc::signal_permission(1, 0, 0, 0));
 }
 
+ASTIA_TEST(signal_audience_filters_group_members) {
+    using astia::proc::signal_audience;
+    using astia::proc::signal_audience_status;
+
+    signal_audience empty;
+
+    ASTIA_CHECK(empty.status() == signal_audience_status::none);
+
+    signal_audience denied;
+
+    ASTIA_CHECK(!denied.admit(1, 1, 0, 0));
+    ASTIA_CHECK(denied.status() == signal_audience_status::denied);
+
+    signal_audience mixed;
+
+    ASTIA_CHECK(mixed.admit(1, 1, 1, 1));
+    ASTIA_CHECK(!mixed.admit(1, 1, 0, 0));
+    ASTIA_CHECK(mixed.status() == signal_audience_status::allowed);
+
+    signal_audience root;
+
+    ASTIA_CHECK(root.admit(0, 0, 1, 1));
+    ASTIA_CHECK(root.admit(0, 0, 0, 0));
+    ASTIA_CHECK(root.status() == signal_audience_status::allowed);
+}
+
 ASTIA_TEST(signal_numbers_are_unique_and_sigaio_occupies_id16) {
     constexpr astia::signal_number identifiers[] = {
         astia::signal_number::hup,  astia::signal_number::int_,

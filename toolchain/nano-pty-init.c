@@ -70,6 +70,16 @@ int main(void) {
 
     (void) mkdir("/tmp", 0777);
 
+    errno = 0;
+
+    if (open("/bin/astia-erofs-probe", O_WRONLY | O_CREAT | O_TRUNC, 0600) >= 0 ||
+        errno != EROFS)
+        return fail("NANO_SMOKE_RO_FAIL\n");
+
+    if (write(STDOUT_FILENO, "NANO_SMOKE_RO_OK\n", sizeof "NANO_SMOKE_RO_OK\n" - 1) !=
+        sizeof "NANO_SMOKE_RO_OK\n" - 1)
+        return fail("NANO_SMOKE_RO_FAIL\n");
+
     if (pty_smoke() < 0)
         return fail("NANO_SMOKE_PTY_FAIL\n");
 #ifdef NANO_DIRECT_EXEC
