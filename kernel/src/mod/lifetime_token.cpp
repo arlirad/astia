@@ -1,3 +1,4 @@
+#include <astia/atomic.hpp>
 #include <astia/module.hpp>
 
 #include "module.hpp"
@@ -19,11 +20,12 @@ namespace astia::module {
 
     lifetime_token::lifetime_token(lifetime_token&& other) noexcept
         : _slot(other._slot), _generation(other._generation),
-          _released(__atomic_load_n(&other._released, __ATOMIC_ACQUIRE)) {
+          _released(astia::atomic_ref<bool>(other._released).load()) {
         other._slot       = no_slot;
         other._generation = 0;
 
-        __atomic_store_n(&other._released, true, __ATOMIC_RELEASE);
+        astia::atomic_ref<bool>(other._released)
+            .store(true, astia::memory_order::release);
     }
 
     lifetime_token& lifetime_token::operator=(lifetime_token&& other) noexcept {
@@ -35,13 +37,15 @@ namespace astia::module {
         _slot       = other._slot;
         _generation = other._generation;
 
-        __atomic_store_n(&_released, __atomic_load_n(&other._released, __ATOMIC_ACQUIRE),
-                         __ATOMIC_RELEASE);
+        astia::atomic_ref<bool>(_released).store(
+            astia::atomic_ref<bool>(other._released).load(),
+            astia::memory_order::release);
 
         other._slot       = no_slot;
         other._generation = 0;
 
-        __atomic_store_n(&other._released, true, __ATOMIC_RELEASE);
+        astia::atomic_ref<bool>(other._released)
+            .store(true, astia::memory_order::release);
 
         return *this;
     }
@@ -59,14 +63,15 @@ namespace astia::module {
     }
 
     bool lifetime_token::valid() const {
-        return _slot != no_slot && !__atomic_load_n(&_released, __ATOMIC_ACQUIRE);
+        return _slot != no_slot && !astia::atomic_ref<bool>(_released).load();
     }
 
     void lifetime_token::release() {
         if (_slot == no_slot)
             return;
 
-        if (__atomic_exchange_n(&_released, true, __ATOMIC_ACQ_REL))
+        if (astia::atomic_ref<bool>(_released).exchange(true,
+                                                        astia::memory_order::acq_rel))
             return;
 
         (void) astia::mod::release(token_id(_slot, _generation));
