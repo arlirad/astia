@@ -45,13 +45,21 @@ export interface DocTreeRow {
   readonly setsize: number;
 }
 
+const isTaxonomyPage = (page: DocPage): boolean =>
+  page.group === 'Syscall (2)' && Boolean(page.subsystem);
+
+const groupSearchLabels = (page: DocPage): readonly string[] => {
+  const labels = [page.group, docGroupLabel(page.group)];
+  return isTaxonomyPage(page) ? [...labels, DOC_SYSCALLS_LABEL] : labels;
+};
+
 export const pageMatches = (page: DocPage, query: string): boolean => {
   if (!query) {
     return true;
   }
   const searchable =
-    `${page.title} ${docGroupLabel(page.group)} ${page.subsystem ?? ''} ${page.category ?? ''} ` +
-    `${page.syscallId ?? ''} ${page.synopsisKind ?? ''} ${page.summary}`;
+    `${page.title} ${groupSearchLabels(page).join(' ')} ${page.subsystem ?? ''} ` +
+    `${page.category ?? ''} ${page.syscallId ?? ''} ${page.synopsisKind ?? ''} ${page.summary}`;
   return searchable.toLowerCase().includes(query);
 };
 
@@ -83,9 +91,6 @@ const groupNode = (
 
 const taxonomyKey = (subsystem: string, category?: string): string =>
   category ? `taxonomy:${subsystem}/${category}` : `taxonomy:${subsystem}`;
-
-const isTaxonomyPage = (page: DocPage): boolean =>
-  page.group === 'Syscall (2)' && Boolean(page.subsystem);
 
 const buildSubsystemNodes = (pages: readonly DocPage[]): readonly DocTreeGroupNode[] => {
   const bySubsystem = new Map<string, DocPage[]>();
