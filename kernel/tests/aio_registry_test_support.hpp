@@ -39,6 +39,7 @@ namespace astia::io::aio::test_support {
 
     i32  install_descriptor(const mm::shptr<fs::open_file>& file, u32 flags = 0);
     bool descriptor_present(i32 fd);
+    u32  descriptor_flags(i32 fd);
     void clear_descriptor(i32 fd);
 
     void set_open_file(const mm::shptr<fs::open_file>& file);

@@ -296,6 +296,11 @@ add_test(NAME astia_aio_handler_ownership
 set_tests_properties(astia_aio_handler_ownership
         PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
+astia_add_host_test(astia_fd_table_test
+        fd_table_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/fd_table.cpp)
+target_link_libraries(astia_fd_table_test PRIVATE Threads::Threads)
+astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
