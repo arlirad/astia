@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -79,86 +80,49 @@ namespace astia::hw {
         friend constexpr bool operator==(device_handle, device_handle) = default;
     };
 
-    /// Typed lifecycle callbacks, all in task context.
+    /// Device driver.  match is a cheap synchronous predicate.  The lifecycle
+    /// methods are task-shaped: probe and start may await hardware readiness,
+    /// stop and remove may await quiescence.
     ///
     /// probe() owns rollback: on failure it must release everything it
     /// acquired, because the registry tries the next candidate without calling
     /// remove().  A failed start() is rolled back by the registry with
     /// stop() followed by remove().
-    struct driver_operations {
-        bool (*match)(void* context, const device_info& device)             = nullptr;
-        i64 (*probe)(void* context, const device_info& device)              = nullptr;
-        i64 (*start)(void* context, const device_info& device)              = nullptr;
-        void (*stop)(void* context, const device_info& device)              = nullptr;
-        void (*remove)(void* context, const device_info& device)            = nullptr;
-        product_handle (*publish)(void* context, const device_info& device) = nullptr;
-        bool (*selftest)(void* context)                                     = nullptr;
+    ///
+    /// Boot-time PCI binding cannot suspend yet (no scheduler), so the
+    /// registry's `*_sync` adapters reject a lifecycle method that needs a
+    /// real suspension with -EWOULDBLOCK.
+    class driver {
+        public:
+        virtual ~driver() = default;
+
+        virtual const char* name() const                           = 0;
+        virtual bool        match(const device_info& device) const = 0;
+
+        virtual core::task<i64>  probe(const device_info& device)  = 0;
+        virtual core::task<i64>  start(const device_info& device)  = 0;
+        virtual core::task<void> stop(const device_info& device)   = 0;
+        virtual core::task<void> remove(const device_info& device) = 0;
+
+        virtual product_handle publish(const device_info&) {
+            return {};
+        }
+
+        virtual bool selftest() {
+            return true;
+        }
     };
-
-    struct driver_descriptor {
-        const char*       name = nullptr;
-        owner_id          owner{};
-        void*             context   = nullptr;
-        u32               resources = 0;
-        driver_operations operations{};
-    };
-
-    /// Build a descriptor from a driver object implementing:
-    ///   bool match(const device_info&) const;
-    ///   i64  probe(const device_info&);
-    ///   i64  start(const device_info&);
-    ///   void stop(const device_info&);
-    ///   void remove(const device_info&);
-    ///   product_handle publish(const device_info&);
-    ///   bool selftest();
-    template <typename T>
-    constexpr driver_operations driver_operations_for() {
-        return driver_operations{
-            [](void* context, const device_info& device) {
-                return static_cast<const T*>(context)->match(device);
-            },
-            [](void* context, const device_info& device) -> i64 {
-                return static_cast<T*>(context)->probe(device);
-            },
-            [](void* context, const device_info& device) -> i64 {
-                return static_cast<T*>(context)->start(device);
-            },
-            [](void* context, const device_info& device) {
-                static_cast<T*>(context)->stop(device);
-            },
-            [](void* context, const device_info& device) {
-                static_cast<T*>(context)->remove(device);
-            },
-            [](void* context, const device_info& device) {
-                return static_cast<T*>(context)->publish(device);
-            },
-            [](void* context) { return static_cast<T*>(context)->selftest(); },
-        };
-    }
-
-    template <typename T>
-    driver_descriptor make_driver_descriptor(T& value, const char* name, owner_id owner,
-                                             u32 resources) {
-        driver_descriptor descriptor{};
-
-        descriptor.name       = name;
-        descriptor.owner      = owner;
-        descriptor.context    = &value;
-        descriptor.resources  = resources;
-        descriptor.operations = driver_operations_for<T>();
-
-        return descriptor;
-    }
 
     class driver_registry {
         public:
         static constexpr u32 max_drivers = resource_limits::policy::registered_drivers;
         static constexpr u32 max_devices = resource_limits::policy::bound_devices;
 
-        /// Register a driver.  Returns 0, -EINVAL (missing
-        /// operation/name/context or invalid resource mask), -EEXIST (same
-        /// context already registered), or -ENOSPC.
-        i64 register_driver(const driver_descriptor& value, driver_handle& out);
+        /// Register a driver.  Returns 0, -EINVAL (missing/duplicate name or
+        /// invalid resource mask), -EEXIST (already registered), or -ENOSPC.
+        i64 register_driver(driver& value, driver_handle& out,
+                            owner_id owner     = kernel_owner,
+                            u32      resources = driver_resource_supported);
 
         /// Release a registration.  Refused with -EBUSY while a device is
         /// bound through it.  Returns 0 or -ENOENT (unknown/released handle).
@@ -169,18 +133,18 @@ namespace astia::hw {
         /// binding behind.  Returns 0, -EINVAL, -EEXIST (device already
         /// bound), -ENOSPC, -ENODEV (no match), or the driver's probe/start
         /// error.
-        i64 bind_device(mm::shptr<device_info> device, device_handle& out);
+        core::task<i64> bind_device(mm::shptr<device_info> device, device_handle& out);
 
         /// Stop and remove one binding.  Returns 0 or -ENOENT.
-        i64 unbind(device_handle value);
+        core::task<i64> unbind(device_handle value);
 
         /// Release every binding owned by `owner` in reverse bind order.
         /// Returns the number released.
-        i64 unbind_owner(owner_id owner);
+        core::task<i64> unbind_owner(owner_id owner);
 
         /// Release every binding in reverse bind order; returns the number
         /// released.
-        i64 unbind_all();
+        core::task<i64> unbind_all();
 
         bool     valid(driver_handle value) const;
         bool     valid(device_handle value) const;
@@ -190,10 +154,6 @@ namespace astia::hw {
 
         /// Run each registered driver's optional selftest.
         bool selftests() const;
-
-        /// Descriptor of a live registration, or null for a released handle.
-        /// The pointer is invalidated by unregister_driver().
-        const driver_descriptor* descriptor(driver_handle value) const;
 
         u32 driver_count() const {
             return _driver_count;
@@ -205,8 +165,10 @@ namespace astia::hw {
 
         private:
         struct registration {
-            driver_descriptor descriptor{};
-            bool              used = false;
+            driver*  value = nullptr;
+            owner_id owner{};
+            u32      resources = 0;
+            bool     used      = false;
         };
 
         struct binding {
@@ -224,7 +186,7 @@ namespace astia::hw {
         const registration* registration_for(driver_handle value) const;
         binding*            binding_for(device_handle value);
         const binding*      binding_for(device_handle value) const;
-        i64                 release_binding(binding& value);
+        core::task<void>    release_binding(binding& value);
 
         registration _drivers[max_drivers]{};
         binding      _bindings[max_devices]{};

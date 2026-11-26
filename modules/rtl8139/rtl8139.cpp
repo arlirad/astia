@@ -536,49 +536,51 @@ namespace {
     rtl8139_controller controller;
 } // namespace
 
-class rtl8139_driver final {
+class rtl8139_driver final : public astia::hw::driver {
     public:
-    bool match(const astia::hw::device_info& info) const {
-        const auto* pci = astia::hw::pci_device_info::get(info);
+    const char* name() const override {
+        return "rtl8139";
+    }
 
+    bool match(const astia::hw::device_info& info) const override {
+        const auto* pci = astia::hw::pci_device_info::get(info);
         return pci != nullptr && astia::rtl8139::pci_match(&pci->device());
     }
 
-    astia::i64 probe(const astia::hw::device_info& info) {
+    astia::core::task<astia::i64> probe(const astia::hw::device_info& info) override {
         const auto* pci = astia::hw::pci_device_info::get(info);
         if (pci == nullptr)
-            return -ENODEV;
-
+            co_return -ENODEV;
         auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
-
         if (stable == nullptr || controller.probe(stable) != 0)
-            return -ENODEV;
-
+            co_return -ENODEV;
         if (!astia::net::devices().register_device(*controller.device())) {
             controller.detach_process();
 
-            return -ENODEV;
+            co_return -ENODEV;
         }
-
-        return 0;
+        co_return 0;
     }
 
-    astia::i64 start(const astia::hw::device_info&) {
-        return 0;
+    astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+        co_return 0;
     }
 
-    void stop(const astia::hw::device_info&) {}
+    astia::core::task<void> stop(const astia::hw::device_info&) override {
+        co_return astia::error_t::enone;
+    }
 
-    astia::hw::product_handle publish(const astia::hw::device_info&) {
+    astia::hw::product_handle publish(const astia::hw::device_info&) override {
         return {};
     }
 
-    void remove(const astia::hw::device_info&) {
+    astia::core::task<void> remove(const astia::hw::device_info&) override {
         astia::net::devices().unregister_device(*controller.device());
         controller.detach_process();
+        co_return astia::error_t::enone;
     }
 
-    bool selftest() {
+    bool selftest() override {
         return controller.selftest() != 0;
     }
 };
@@ -586,13 +588,13 @@ class rtl8139_driver final {
 rtl8139_driver driver;
 
 int module_main() {
-    controller.initialize();
-
     astia::hw::driver_handle handle{};
-    const auto               descriptor = astia::hw::make_driver_descriptor(
-        driver, "rtl8139", astia::hw::kernel_owner,
-        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
-            astia::hw::driver_resource_msix | astia::hw::driver_resource_async);
 
-    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -22;
+    return astia::hw::drivers().register_driver(driver, handle, astia::hw::kernel_owner,
+                                                astia::hw::driver_resource_mmio |
+                                                    astia::hw::driver_resource_dma |
+                                                    astia::hw::driver_resource_msix |
+                                                    astia::hw::driver_resource_async) == 0
+               ? 0
+               : -22;
 }

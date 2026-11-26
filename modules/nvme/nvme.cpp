@@ -1140,8 +1140,12 @@ namespace {
         astia::u32                        _count = 0;
     };
 
-    class nvme_driver final {
+    class nvme_driver final : public astia::hw::driver {
         public:
+        const char* name() const override {
+            return "nvme";
+        }
+
         bool match_pci(const astia::hw::pci_device& value) const {
             return value.class_code == 1 && value.subclass == 8 &&
                    value.programming_interface == 2 && value.bar_count != 0 &&
@@ -1163,48 +1167,40 @@ namespace {
             return true;
         }
 
-        bool match(const astia::hw::device_info& info) const {
+        bool match(const astia::hw::device_info& info) const override {
             const auto* pci = astia::hw::pci_device_info::get(info);
-
             return pci != nullptr && match_pci(pci->device());
         }
 
-        astia::i64 probe(const astia::hw::device_info& info) {
+        astia::core::task<astia::i64> probe(const astia::hw::device_info& info) override {
             astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 state = teardown_state(token);
-
             if (state == teardown_complete &&
                 !__atomic_compare_exchange_n(&_teardown_token, &token,
                                              teardown_word(teardown_generation(token), 0),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return -ENODEV;
-
+                co_return -ENODEV;
             if (state != 0 && state != teardown_complete)
-                return -ENODEV;
-
+                co_return -ENODEV;
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
-                return -ENODEV;
-
+                co_return -ENODEV;
             auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
-
             if (stable == nullptr || !probe_pci(*stable))
-                return -ENODEV;
-
+                co_return -ENODEV;
             auto group = astia::mm::share<nvme_group>();
             if (!group) {
                 device.stop();
 
-                return -ENODEV;
+                co_return -ENODEV;
             }
-
             for (astia::u32 i = 0; i < device.namespace_count; ++i) {
                 auto block = astia::mm::share<namespace_block>(device.namespaces[i]);
 
                 if (!block || !group->add(block)) {
                     rollback_probe();
 
-                    return -ENODEV;
+                    co_return -ENODEV;
                 }
 
                 astia::mm::shptr<astia::dev::device> owner = block;
@@ -1212,133 +1208,105 @@ namespace {
                 if (!file) {
                     rollback_probe();
 
-                    return -ENODEV;
+                    co_return -ENODEV;
                 }
 
                 if (astia::fs::register_device(device.namespaces[i].path, file) < 0) {
                     rollback_probe();
 
-                    return -ENODEV;
+                    co_return -ENODEV;
                 }
 
                 _files[i] = file;
 
                 ++_file_count;
             }
-
             _product = group;
-
-            return 0;
+            co_return 0;
         }
 
-        astia::i64 start(const astia::hw::device_info&) {
-            return 0;
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
         }
 
-        void stop(const astia::hw::device_info&) {}
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
 
-        astia::hw::product_handle publish(const astia::hw::device_info&) {
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
             return _product;
         }
 
-        void remove(const astia::hw::device_info&) {
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
             astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
                     ? 1
                     : teardown_generation(expected) + 1;
             const astia::u64 state = teardown_state(expected);
-
             if (state != 0 && state != teardown_complete)
-                return;
-
+                co_return astia::error_t::enone;
             if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
                                              teardown_word(generation, teardown_claiming),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return;
-
+                co_return astia::error_t::enone;
             unregister_nodes();
-
-            for (astia::u32 i = 0; i < _file_count; ++i) {
+            for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i])
                     (void) _files[i]->arm_quiescence_handler(quiescence_callback, this,
                                                              generation);
-            }
-
             __atomic_store_n(&_teardown_token,
                              teardown_word(generation, teardown_waiting),
                              __ATOMIC_RELEASE);
             finish_remove(generation);
+            co_return astia::error_t::enone;
         }
 
-        bool selftest() {
+        bool selftest() override {
             char first[512]{};
             char second[512]{};
-
             if (!device.started || device.namespace_count < 2)
                 return false;
-
             const int first_read = astia::module::read_registered_async(
                 "/dev/nvme0n1", first, sizeof first, 0);
             const int second_read = astia::module::read_registered_async(
                 "/dev/nvme0n2", second, sizeof second, 0);
-
             if (first_read != 0 || second_read != 0)
                 return false;
-
             astia::module::log("nvme", device.msix_active ? "async completion"
                                                           : "async polling fallback");
-
             char write_sector[512]{};
-
-            for (unsigned i = 0; i < sizeof write_sector; ++i) {
+            for (unsigned i = 0; i < sizeof write_sector; ++i)
                 write_sector[i] = static_cast<char>("NVME_WRITE_FUA_OK"[i % 17] ^ i);
-            }
-
             if (astia::module::write_registered_async(
                     "/dev/nvme0n1", write_sector, sizeof write_sector, sizeof first) != 0)
                 return false;
-
             if (!device.flush(device.namespaces[0]))
                 return false;
-
             char reopened[512]{};
-
             if (astia::module::read_registered_async("/dev/nvme0n1", reopened,
                                                      sizeof reopened, sizeof first) != 0)
                 return false;
-
-            for (unsigned i = 0; i < sizeof reopened; ++i) {
+            for (unsigned i = 0; i < sizeof reopened; ++i)
                 if (reopened[i] != write_sector[i])
                     return false;
-            }
-
             astia::module::log("nvme", "write flush reopen ok");
-
             if (!device.recover_controller())
                 return false;
-
             char reset_first[512]{};
             char reset_second[512]{};
-
             if (astia::module::read_registered_async(
                     "/dev/nvme0n1", reset_first, sizeof reset_first, sizeof first) != 0 ||
                 astia::module::read_registered_async("/dev/nvme0n2", reset_second,
                                                      sizeof reset_second, 0) != 0)
                 return false;
-
-            for (unsigned i = 0; i < sizeof reset_first; ++i) {
+            for (unsigned i = 0; i < sizeof reset_first; ++i)
                 if (reset_first[i] != write_sector[i])
                     return false;
-            }
-
             if (!known(reset_second, "ASTIA_NVME_NAMESPACE_002", 24))
                 return false;
-
             astia::module::log("nvme", "reset recovery persistence ok");
-
             char invalid[513]{};
-
             if (astia::module::read_registered_async("/dev/nvme0n1", invalid,
                                                      sizeof invalid, 0) >= 0 ||
                 astia::module::write_registered_async("/dev/nvme0n1", invalid,
@@ -1346,22 +1314,17 @@ namespace {
                 astia::module::read_registered_async("/dev/nvme0n3", invalid,
                                                      sizeof first, 0) >= 0)
                 return false;
-
             astia::module::log("nvme", "reset recovery error path");
-
             if (!known(first, "ASTIA_NVME_FIXTURE_SECTOR_000", 29) ||
                 !known(second, "ASTIA_NVME_NAMESPACE_002", 24))
                 return false;
-
             if (device.msix_active && device.interrupts_seen == 0)
                 return false;
-
             astia::module::log("nvme", "namespace 1 ok");
             astia::module::log("nvme", "namespace 2 ok");
             astia::module::log("nvme", device.msix_active ? "msix interrupt path"
                                                           : "polling fallback");
             astia::module::log("nvme", "known sector ok");
-
             return true;
         }
 
@@ -1492,12 +1455,14 @@ namespace {
 
 int module_main() {
     astia::hw::driver_handle handle{};
-    const auto               descriptor = astia::hw::make_driver_descriptor(
-        driver, "nvme", astia::hw::kernel_owner,
-        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
-            astia::hw::driver_resource_msix | astia::hw::driver_resource_device_file |
-            astia::hw::driver_resource_async);
 
-    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -22;
+    return astia::hw::drivers().register_driver(
+               driver, handle, astia::hw::kernel_owner,
+               astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+                   astia::hw::driver_resource_msix |
+                   astia::hw::driver_resource_device_file |
+                   astia::hw::driver_resource_async) == 0
+               ? 0
+               : -22;
 }
 #endif

@@ -458,8 +458,8 @@ namespace astia::hw {
         return value;
     }
 
-    u32 pci_enumerate(pci_filter_fn filter) {
-        drivers().unbind_all();
+    core::task<u32> pci_enumerate(pci_filter_fn filter) {
+        (void) co_await drivers().unbind_all();
         pci_devices().clear();
 
         u32 found = 0;
@@ -498,20 +498,20 @@ namespace astia::hw {
 
                     pci_device* added = pci_devices().add(described);
                     if (added == nullptr)
-                        return found;
+                        co_return found;
 
                     ++found;
 
                     mm::shptr<hw::device_info> candidate(new pci_device_info(*added));
                     hw::device_handle          handle{};
 
-                    (void) drivers().bind_device(
+                    (void) co_await drivers().bind_device(
                         static_cast<mm::shptr<hw::device_info>&&>(candidate), handle);
                 }
             }
         }
 
-        return found;
+        co_return found;
     }
 
     bool pci_probe_bar(pci_device& device, u8 index) {

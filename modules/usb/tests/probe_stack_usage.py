@@ -6,7 +6,7 @@ import sys
 FRAME_LIMIT = 0x4000
 # The probe body is inlined into its operation thunk, which is the
 # callback that actually runs on the stack.
-TARGETS = ("driver_operations_for<astia::usb::xhci", "controller::enumerate")
+TARGETS = ("xhci_driver::probe", "controller::enumerate")
 
 
 def frames(output: str):
