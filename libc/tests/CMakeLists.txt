@@ -170,6 +170,10 @@ add_executable(libc_memstream_test stdio/memstream_test.c support/backend_host.c
 target_link_libraries(libc_memstream_test PRIVATE astia_libc)
 add_test(NAME libc_memstream_test COMMAND libc_memstream_test)
 
+add_executable(libc_scanf_test stdio/scanf_test.c)
+target_link_libraries(libc_scanf_test PRIVATE astia_libc)
+add_test(NAME libc_scanf_test COMMAND libc_scanf_test)
+
 # <sys/uio.h>: the position-based vector pair, same object trick.  The
 # port's readv/writev go by raw syscall there, because this libc is the
 # definition the binary would otherwise resolve them to.
