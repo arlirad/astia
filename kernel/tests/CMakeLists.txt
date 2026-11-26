@@ -1137,6 +1137,28 @@ astia_add_test_label(astia_tmpfs_readdir_test "sanitizer-host-partial")
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
 # TLB, real physical memory, the boot path itself).
+# Custom-compiled userspace fixtures still need real compile targets so they
+# appear in compile_commands.json even when QEMU is unavailable.
+if (ARCH STREQUAL "x86_64")
+    add_library(astia_module_syscall_init_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
+    target_include_directories(astia_module_syscall_init_object PRIVATE
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+    target_compile_options(astia_module_syscall_init_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -fno-builtin
+            -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone)
+    set_target_properties(astia_module_syscall_init_object PROPERTIES
+            C_STANDARD 11 C_STANDARD_REQUIRED ON)
+
+    add_library(astia_module_missing_dependency_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp)
+    target_compile_options(astia_module_missing_dependency_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -mcmodel=large
+            -fno-stack-protector -fno-asynchronous-unwind-tables)
+    set_target_properties(astia_module_missing_dependency_object PROPERTIES
+            CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+endif ()
+
 if (ARCH STREQUAL "x86_64")
     find_program(ASTIA_QEMU qemu-system-x86_64)
     find_program(GRUB_FILE grub-file)
@@ -1465,14 +1487,6 @@ if (ARCH STREQUAL "x86_64")
         add_custom_target(astia_boot_initrd_zstd ALL
                 DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
 
-        add_library(astia_module_missing_dependency_object OBJECT
-                ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp)
-        target_compile_options(astia_module_missing_dependency_object PRIVATE
-                -ffreestanding -fno-pic -fno-pie -mcmodel=large
-                -fno-stack-protector -fno-asynchronous-unwind-tables)
-        set_target_properties(astia_module_missing_dependency_object PROPERTIES
-                CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
-
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_missing_dependency.o
                 COMMAND ${CMAKE_COMMAND} -E copy
@@ -1480,16 +1494,6 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/module_missing_dependency.o
                 DEPENDS astia_module_missing_dependency_object
                 COMMENT "Copying invalid-dependency ET_REL fixture")
-
-        add_library(astia_module_syscall_init_object OBJECT
-                ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
-        target_include_directories(astia_module_syscall_init_object PRIVATE
-                ${ASTIA_KERNEL_SOURCE_DIR}/include)
-        target_compile_options(astia_module_syscall_init_object PRIVATE
-                -ffreestanding -fno-pic -fno-pie -fno-builtin
-                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone)
-        set_target_properties(astia_module_syscall_init_object PROPERTIES
-                C_STANDARD 11 C_STANDARD_REQUIRED ON)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_syscall_init
