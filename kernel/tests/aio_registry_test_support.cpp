@@ -813,6 +813,14 @@ namespace astia::proc {
         return compose_path(path, buffer);
     }
 
+    i64 process::resolve_path(const char* path, span<char> buffer, bool) const {
+        return compose_path(path, buffer);
+    }
+
+    i64 process::resolve_path_at(fd_t, const char* path, span<char> buffer, bool) const {
+        return compose_path(path, buffer);
+    }
+
     bool process::in_group(gid_t group) const {
         return group.value == _gid;
     }

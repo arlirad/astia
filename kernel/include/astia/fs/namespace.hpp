@@ -48,20 +48,22 @@ namespace astia::fs {
     /// retained mount/inode pair.  A renamed, unlinked, or recycled name
     /// no longer matches, so callers can reject it instead of silently
     /// using a different directory.
-    bool   directory_matches(const char* path, mount* owner, u64 inode);
-    uid_t  node_uid(const char* path);
-    gid_t  node_gid(const char* path);
-    long   chmod_path(const char* path, file_permissions permissions);
-    long   chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
-    long   touch_path(const char* path, u64 sec, u64 nsec);
-    long   make_symlink(const char* target, const char* path);
-    long   read_symlink(const char* path, char* buffer, u32 capacity);
-    long   resolve_path(const char* path, char* buffer, u32 capacity,
-                        bool follow_final = true);
-    mount* retain_mount_for_unix_path(const char* canonical);
-    void   release_mount_reference(mount* owner);
-    long   remove_unix_path(const char* canonical, mount* owner, bool directory);
-    long   rename_unix_path(const char* old_path, const char* new_path, mount* owner);
+    bool  directory_matches(const char* path, mount* owner, u64 inode);
+    uid_t node_uid(const char* path);
+    gid_t node_gid(const char* path);
+    long  chmod_path(const char* path, file_permissions permissions);
+    long  chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
+    long  touch_path(const char* path, u64 sec, u64 nsec);
+    long  make_symlink(const char* target, const char* path);
+    long  read_symlink(const char* path, char* buffer, u32 capacity);
+    long  resolve_path(const char* path, char* buffer, u32 capacity,
+                       bool follow_final = true);
+    long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
+                           bool follow_final = true);
+    mount*    retain_mount_for_unix_path(const char* canonical);
+    void      release_mount_reference(mount* owner);
+    long      remove_unix_path(const char* canonical, mount* owner, bool directory);
+    long      rename_unix_path(const char* old_path, const char* new_path, mount* owner);
     file_type unix_node_type(const char* canonical, mount* owner);
     file_mode unix_node_mode(const char* canonical, mount* owner);
     uid_t     unix_node_uid(const char* canonical, mount* owner);

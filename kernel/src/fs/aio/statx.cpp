@@ -38,11 +38,9 @@ namespace astia::io::aio::operations {
                 if (current == nullptr)
                     co_return -EINVAL;
 
-                long resolve_rc = resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd,
-                                             path, resolved, sizeof resolved);
-                if (resolve_rc >= 0)
-                    resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved,
-                                                  (sqe.op_flags & STATX_NOFOLLOW) == 0);
+                long resolve_rc =
+                    resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd, path, resolved,
+                               sizeof resolved, (sqe.op_flags & STATX_NOFOLLOW) == 0);
 
                 if (resolve_rc < 0)
                     co_return (i32) resolve_rc;

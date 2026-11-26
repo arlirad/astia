@@ -795,6 +795,7 @@ if(ASTIA_BUILD_TESTS)
             astia_kernel_smp_boot
             astia_kernel_scheduler_smp2
             astia_initrd_boot
+            astia_chroot
             astia_native_daemond_boot
             astia_native_daemond_service
             astia_native_daemond_failure

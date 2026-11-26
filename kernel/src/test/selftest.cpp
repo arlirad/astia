@@ -627,6 +627,8 @@ namespace astia::test {
             static_assert(static_cast<u32>(sys::syscall_id::modstat) == 75);
             static_assert(static_cast<u32>(sys::syscall_id::modclose) == 76);
             static_assert(static_cast<u32>(sys::syscall_id::getrandom) == 77);
+            static_assert(static_cast<u32>(sys::syscall_id::chroot) == 78);
+            static_assert(SYS_CHROOT == 78);
             static_assert(SYS_FCHDIR == 69);
             static_assert(SYS_UNAME == 70);
             static_assert(SYS_DLMAP == 71);
@@ -697,9 +699,9 @@ namespace astia::test {
 
             arch::syscall_return unassigned{};
 
-            if (sys::dispatch(static_cast<sys::syscall_id>(78), 0, 0, 0, 0, 0, 0,
+            if (sys::dispatch(static_cast<sys::syscall_id>(79), 0, 0, 0, 0, 0, 0,
                               unassigned) != -ENOSYS) {
-                logs::error("syscall id 78 is not unassigned");
+                logs::error("syscall id 79 is not unassigned");
 
                 return false;
             }

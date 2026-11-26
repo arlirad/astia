@@ -44,10 +44,8 @@ namespace astia::io::aio::operations {
 
             char       resolved[256];
             const bool follow_final = (sqe.op_flags & STATX_NOFOLLOW) == 0;
-            long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
-            if (resolve_rc >= 0)
-                resolve_rc =
-                    fs::resolve_path(resolved, resolved, sizeof resolved, follow_final);
+            const long resolve_rc =
+                current->resolve_path(path, resolved, sizeof resolved, follow_final);
 
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;

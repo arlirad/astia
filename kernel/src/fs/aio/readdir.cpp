@@ -35,11 +35,8 @@ namespace astia::io::aio::operations {
                 if (current == nullptr)
                     co_return -ESRCH;
 
-                long resolve_rc = current->compose_path(path, resolved, sizeof resolved);
-                if (resolve_rc >= 0)
-                    resolve_rc =
-                        fs::resolve_path(resolved, resolved, sizeof resolved, true);
-
+                const long resolve_rc =
+                    current->resolve_path(path, resolved, sizeof resolved, true);
                 if (resolve_rc < 0)
                     co_return (i32) resolve_rc;
 

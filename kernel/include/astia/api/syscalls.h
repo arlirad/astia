@@ -154,6 +154,7 @@ enum {
     SYS_MODSTAT               = 75,
     SYS_MODCLOSE              = 76,
     SYS_GETRANDOM             = 77,
+    SYS_CHROOT                = 78,
 };
 
 /* getrandom() accepts at most this many bytes in one call; larger requests
@@ -710,6 +711,10 @@ static inline long astia_waitpid(int32_t pid, int32_t* status) {
 
 static inline long astia_chdir(const char* path) {
     return astia_raw6(SYS_CHDIR, (long) path, 0, 0, 0, 0, 0);
+}
+
+static inline long astia_chroot(const char* path) {
+    return astia_raw6(SYS_CHROOT, (long) path, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_fchdir(int fd) {

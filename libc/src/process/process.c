@@ -58,6 +58,10 @@ __attribute__((weak)) long __astia_process_fchdir(int fd) {
     return astia_fchdir(fd);
 }
 
+__attribute__((weak)) long __astia_process_chroot(const char* path) {
+    return astia_chroot(path);
+}
+
 __attribute__((weak)) long __astia_process_uname(struct utsname* name) {
     return astia_uname((astia_utsname*) name);
 }
@@ -97,6 +101,10 @@ int gettid(void) {
 
 int fchdir(int fd) {
     return process_result(__astia_process_fchdir(fd));
+}
+
+int chroot(const char* path) {
+    return process_result(__astia_process_chroot(path));
 }
 
 int sched_yield(void) {

@@ -109,6 +109,7 @@ char*        mktemp(char* template_name);
 int          mkstemp(char* template_name);
 long         sysconf(int name);
 int          chdir(const char* path);
+int          chroot(const char* path);
 unsigned int umask(unsigned int mode);
 int          posix_openpt(int flags);
 int          grantpt(int fd);

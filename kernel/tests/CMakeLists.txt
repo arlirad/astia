@@ -294,8 +294,17 @@ astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/cwd_context.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+        support/arena.cpp
         support/resume_queue_host.cpp)
-target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections)
+target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections -fno-pie)
+target_link_options(astia_cwd_context_test PRIVATE
+        "-Wl,-no-pie"
+        "-Wl,--defsym=__kernel_start=0x08000000"
+        "-Wl,--defsym=__kernel_end=0x08002000")
+target_compile_definitions(astia_cwd_context_test PRIVATE ASTIA_HOST_TEST=1)
 target_link_options(astia_cwd_context_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
@@ -1493,6 +1502,18 @@ if (ARCH STREQUAL "x86_64")
                 ${_libc_shared_so} ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/dyn_libc ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/boot_stage/jail/lib
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/boot_stage/jail/etc
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_libc_shared_so} ${_fix_dir}/boot_stage/jail/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/jail/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_init_libc_image} ${_fix_dir}/boot_stage/jail/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${_fix_dir}/boot_stage/jail/etc/passwd
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
@@ -1500,6 +1521,7 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so bin/interp_link bin/interp_nophdr
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
+                jail/init_libc jail/lib/libc.so jail/lib/ld.astia.so jail/etc/passwd
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1583,6 +1605,16 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_chroot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio
+                "astia: chroot ok"
+                "astia: chroot exec ok"
+                "astia: libc ok"
+        )
+        set_tests_properties(astia_chroot PROPERTIES TIMEOUT 60)
 
         add_test(NAME astia_urandom_fresh_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_urandom_boot_test.sh
