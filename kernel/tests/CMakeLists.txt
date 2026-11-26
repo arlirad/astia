@@ -1465,15 +1465,21 @@ if (ARCH STREQUAL "x86_64")
         add_custom_target(astia_boot_initrd_zstd ALL
                 DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
 
+        add_library(astia_module_missing_dependency_object OBJECT
+                ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp)
+        target_compile_options(astia_module_missing_dependency_object PRIVATE
+                -ffreestanding -fno-pic -fno-pie -mcmodel=large
+                -fno-stack-protector -fno-asynchronous-unwind-tables)
+        set_target_properties(astia_module_missing_dependency_object PROPERTIES
+                CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_missing_dependency.o
-                COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic
-                -fno-pie -mcmodel=large -fno-stack-protector
-                -fno-asynchronous-unwind-tables
-                -o ${_fix_dir}/module_missing_dependency.o
-                ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp
-                COMMENT "Compiling invalid-dependency ET_REL fixture")
+                COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_OBJECTS:astia_module_missing_dependency_object>
+                ${_fix_dir}/module_missing_dependency.o
+                DEPENDS astia_module_missing_dependency_object
+                COMMENT "Copying invalid-dependency ET_REL fixture")
 
         add_library(astia_module_syscall_init_object OBJECT
                 ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
