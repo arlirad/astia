@@ -1446,8 +1446,11 @@ namespace astia::proc {
             return false;
 
         release_exec_bindings(*this);
+
+        if (!adopt_exec_bindings(*this, staging))
+            return false;
+
         replace_image(staging);
-        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
 
@@ -1487,8 +1490,11 @@ namespace astia::proc {
         _cancellation_root.cancel(core::cancel_reason::shutdown);
         _cancellation_root.reset();
         sys::io_exec_process(this);
+
+        if (!adopt_exec_bindings(*this, staging))
+            co_return error_t::enospc;
+
         replace_image(staging);
-        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
 
