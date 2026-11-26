@@ -12,6 +12,7 @@ using Pkgsrv.Infrastructure.Artifacts;
 using Pkgsrv.Infrastructure.Builds;
 using Pkgsrv.Infrastructure.Events;
 using Pkgsrv.Infrastructure.Packages;
+using Pkgsrv.Infrastructure.Persistence;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.Infrastructure.Security;
 using Pkgsrv.Infrastructure.Sources;
@@ -27,16 +28,19 @@ public static class PkgsrvServiceCollectionExtensions
         this IServiceCollection services,
         IEnumerable<string>? allowedSourceHosts = null,
         PkgsrvDatabaseOptions? databaseOptions = null,
-        PkgsrvIrvaOptions? irvaOptions = null)
+        PkgsrvIrvaOptions? irvaOptions = null,
+        PkgsrvReadinessOptions? readinessOptions = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         databaseOptions ??= PkgsrvDatabaseOptions.InMemory;
         irvaOptions ??= PkgsrvIrvaOptions.Disabled;
+        readinessOptions ??= PkgsrvReadinessOptions.Default;
 
         services.AddSingleton<ISourceAllowlist>(
             new ConfiguredSourceAllowlist(allowedSourceHosts ?? Array.Empty<string>()));
         services.AddSingleton(databaseOptions);
+        services.AddSingleton(readinessOptions);
 
         if (databaseOptions.Provider == PkgsrvDatabaseProvider.Postgres)
         {
@@ -48,6 +52,10 @@ public static class PkgsrvServiceCollectionExtensions
             services.AddSingleton<IPackageIndex>(
                 provider => provider.GetRequiredService<PostgresPackageRepository>());
             services.AddSingleton<IPackageSchemaMigrator, PostgresPackageSchemaMigrator>();
+            services.AddSingleton<IStorageReadinessProbe>(provider =>
+                new PostgresStorageReadinessProbe(
+                    provider.GetRequiredService<IDbContextFactory<PostgresPackageDbContext>>(),
+                    readinessOptions.PostgresProbeTimeout));
         }
         else
         {
@@ -56,6 +64,7 @@ public static class PkgsrvServiceCollectionExtensions
                 provider => provider.GetRequiredService<InMemoryPackageRepository>());
             services.AddSingleton<IPackageIndex>(
                 provider => provider.GetRequiredService<InMemoryPackageRepository>());
+            services.AddSingleton<IStorageReadinessProbe, InMemoryStorageReadinessProbe>();
         }
 
         services.AddSingleton<IBuildSandbox, NonExecutingBuildSandbox>();
