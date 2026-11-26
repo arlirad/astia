@@ -4440,6 +4440,43 @@ int main(int argc, char** argv) {
             return 192;
     }
 
+    /* chown/fchown honor the (uid_t)-1 / (gid_t)-1 "leave unchanged" sentinels. */
+    if (geteuid() == 0) {
+        const char* target = "/tmp/chown-sentinel";
+        struct stat value;
+
+        int target_fd;
+
+        (void) unlink(target);
+
+        target_fd = open(target, O_CREAT | O_RDWR | O_TRUNC, 0644);
+        if (target_fd < 0)
+            return 206;
+
+        if (chown(target, 4242, 4343) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4242 || value.st_gid != 4343)
+            return 207;
+
+        if (chown(target, (uid_t) -1, 4444) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4242 || value.st_gid != 4444)
+            return 208;
+
+        if (chown(target, 4445, (gid_t) -1) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4445 || value.st_gid != 4444)
+            return 209;
+
+        if (fchown(target_fd, 4446, (gid_t) -1) != 0 || fstat(target_fd, &value) != 0 ||
+            value.st_uid != 4446 || value.st_gid != 4444)
+            return 210;
+
+        if (fchown(target_fd, (uid_t) -1, 4447) != 0 || fstat(target_fd, &value) != 0 ||
+            value.st_uid != 4446 || value.st_gid != 4447)
+            return 211;
+
+        if (close(target_fd) != 0 || unlink(target) != 0)
+            return 212;
+    }
+
     {
         struct utsname name;
 

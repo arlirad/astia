@@ -3,15 +3,63 @@
 
 namespace astia::io::aio::operations {
     struct chown : handler<chown, opcode::chown> {
+        static constexpr u32 unchanged_id = 0xffffffffu;
+
+        static constexpr bool is_unchanged(u32 raw) noexcept {
+            return raw == unchanged_id;
+        }
+
+        static constexpr bool is_unchanged(u64 raw) noexcept {
+            return raw == static_cast<u64>(unchanged_id) ||
+                   raw == static_cast<u64>(static_cast<i64>(-1));
+        }
+
+        static bool may_change(proc::process* current, uid_t existing_uid,
+                               bool owner_unchanged, uid_t owner, bool group_unchanged,
+                               gid_t group) noexcept {
+            if (current->euid() == 0)
+                return true;
+
+            if (current->euid() != static_cast<u32>(existing_uid))
+                return false;
+
+            if (!owner_unchanged && owner != existing_uid)
+                return false;
+
+            if (!group_unchanged && !current->in_group(group))
+                return false;
+
+            return true;
+        }
+
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             auto* current = proc::current_process();
-            auto  owner   = mapper<uid_t>::from(static_cast<i64>(sqe.aux));
-            auto  group   = mapper<gid_t>::from(static_cast<i64>(sqe.offset));
 
-            if (!owner.has_value || !group.has_value)
-                co_return -EINVAL;
+            const bool owner_unchanged = is_unchanged(sqe.aux);
+            const bool group_unchanged = is_unchanged(static_cast<u64>(sqe.offset));
+
+            uid_t owner{};
+            gid_t group{};
+
+            if (!owner_unchanged) {
+                auto mapped = mapper<uid_t>::from(static_cast<i64>(sqe.aux));
+
+                if (!mapped.has_value)
+                    co_return -EINVAL;
+
+                owner = mapped.value;
+            }
+
+            if (!group_unchanged) {
+                auto mapped = mapper<gid_t>::from(static_cast<i64>(sqe.offset));
+
+                if (!mapped.has_value)
+                    co_return -EINVAL;
+
+                group = mapped.value;
+            }
 
             if (current == nullptr)
                 co_return -ESRCH;
@@ -26,14 +74,17 @@ namespace astia::io::aio::operations {
                 if (!handle)
                     co_return -EBADF;
 
-                if (current->euid() != 0 &&
-                    (current->euid() != static_cast<u32>(handle->parent()->uid()) ||
-                     owner.value != handle->parent()->uid() ||
-                     !current->in_group(group.value)))
+                const uid_t existing_uid = handle->parent()->uid();
+                const gid_t existing_gid = handle->parent()->gid();
+                const uid_t target_uid   = owner_unchanged ? existing_uid : owner;
+                const gid_t target_gid   = group_unchanged ? existing_gid : group;
+
+                if (!may_change(current, existing_uid, owner_unchanged, owner,
+                                group_unchanged, group))
                     co_return -EPERM;
 
                 co_return static_cast<i32>(
-                    handle->parent()->chown(owner.value, group.value));
+                    handle->parent()->chown(target_uid, target_gid));
             }
 
             char path[256];
@@ -51,14 +102,16 @@ namespace astia::io::aio::operations {
                 co_return (i32) resolve_rc;
 
             const uid_t existing_uid = fs::node_uid(resolved);
+            const gid_t existing_gid = fs::node_gid(resolved);
+            const uid_t target_uid   = owner_unchanged ? existing_uid : owner;
+            const gid_t target_gid   = group_unchanged ? existing_gid : group;
 
-            if (current->euid() != 0 &&
-                (current->euid() != static_cast<u32>(existing_uid) ||
-                 owner.value != existing_uid || !current->in_group(group.value)))
+            if (!may_change(current, existing_uid, owner_unchanged, owner,
+                            group_unchanged, group))
                 co_return -EPERM;
 
             co_return static_cast<i32>(
-                fs::chown_path(resolved, owner.value, group.value, follow_final));
+                fs::chown_path(resolved, target_uid, target_gid, follow_final));
         }
     };
 

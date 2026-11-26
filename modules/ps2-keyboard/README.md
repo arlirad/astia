@@ -10,27 +10,25 @@ step and no `hw::drivers` or filesystem registration for this device.
 ## Lifetime
 
 The module is deliberately boot-lifetime resident and non-unloadable, and the
-kernel enforces that through the generic lifecycle lease:
+kernel owns the lifetime reference:
 
-- `module_main` completes controller/keyboard bring-up and acquires one
-  `astia::module::lifetime_token` before claiming IRQ1.
-- Claiming IRQ1 through `astia::module::ps2_claim_irq(handler, token)` binds a
-  kernel-owned route guard: every dispatch enters the module callback through
-  the lease and leaves it afterwards.
-- The module calls `make_resident()` once the route is claimed. A subsequent
-  `request_exit()` returns the explicit resident/not-unloadable result, keeps
-  the image mapped, and skips fini/unmap.
-- IRQ registration happens before route binding, so a claim collision cannot
-  touch the existing owner. If the claim or route bind fails, the new handler
-  is rolled back and the lease is released. A failure after the resident
-  transition keeps the lease resident and the image mapped.
+- `module_main` completes controller/keyboard bring-up, then calls
+  `astia::module::ps2_claim_irq(handler)`. The kernel resolves the calling
+  module, takes an active reference on it, and binds a guarded IRQ1 route whose
+  enter/leave callbacks acquire and release that reference. There is no
+  module-side lease object.
+- The module then calls `astia::module::make_resident()`, which resolves the
+  caller and marks it permanently non-unloadable. A subsequent `request_exit()`
+  returns the resident result, keeps the image mapped, and skips fini/unmap.
+- If the claim fails, no reference or handler is retained. If bring-up fails
+  after the claim, `ps2_release_irq()` masks IRQ1, retries unregistering the
+  route, drops the kernel's reference, and the image is left clean.
 - All controller, decoder, keymap and modifier state is `static constinit`
   and lives for the system lifetime.
 
-The module never releases its lease because IRQ1 remains registered for the
-system lifetime. `request_exit()` therefore returns the resident/not-unloadable
-result immediately instead of starting or awaiting a draining task; the image
-stays mapped and fini/unmap are skipped.
+The module never releases the route because IRQ1 remains registered for the
+system lifetime. Close waiters that become ready in interrupt context are
+parked and delivered by the kernel's normal-context pump, never inline.
 
 Module images are reached through the kernel direct map
 (`kernel_base + physical`), which is shared into process address spaces. That
@@ -56,8 +54,7 @@ address space active.
 - `F0 02` and `F4` require `FA` under the same bounded resend policy as the
   reset. Status waits are bounded; `FE` (resend) is retried at most three
   times. Keyboard reset accepts `FA` and `AA` in either order.
-- The IRQ handler is leased and claimed only after controller and keyboard
-  bring-up. PIC IRQ1 stays masked; the controller IRQ bit is enabled next,
+- The IRQ handler is claimed only after controller and keyboard bring-up. PIC IRQ1 stays masked; the controller IRQ bit is enabled next,
   the module reports ready, and IRQ1 is unmasked last.
 - The ISR drains a bounded number of output-buffer bytes and filters
   auxiliary bytes, parity/timeout failures and non-scan-code protocol bytes.
