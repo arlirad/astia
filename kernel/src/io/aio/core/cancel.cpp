@@ -10,15 +10,8 @@ namespace astia::io::aio::operations {
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             const u64 target = sqe.offset;
 
-            auto has_capacity = [ring](u32 count) {
-                const astia_cq_ring* cq = astia_rings_cq(ring);
-
-                const u32 head =
-                    astia::atomic_ref(cq->head).load(astia::memory_order::acquire);
-                const u32 tail =
-                    astia::atomic_ref(cq->tail).load(astia::memory_order::relaxed);
-
-                return tail - head <= cq->entries - count;
+            auto has_capacity = [&slot, ring](u32 count) {
+                return cq_has_capacity(slot, ring, count);
             };
 
             for (u32 i = 0; i < parked_operation_slots; ++i) {

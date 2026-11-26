@@ -23,10 +23,10 @@ namespace astia::proc::syscalls {
             if (!file)
                 return -EBADF;
 
-            if (!file->path() || !file->mode().is_directory())
+            if (!file->mode().is_directory())
                 return -ENOTDIR;
 
-            return owner->change_directory(file->path());
+            return owner->change_directory(*file);
         }
     };
 } // namespace astia::proc::syscalls

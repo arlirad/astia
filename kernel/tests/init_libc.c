@@ -1053,15 +1053,32 @@ static int libc_tcflush_contract(void) {
         result[0] != 'o' || result[1] != 'k')
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCOFLUSH) != -1 || errno != ENOSYS)
+    if (tcflush(slave, TCOFLUSH) != 0)
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCIOFLUSH) != -1 || errno != ENOSYS)
+    if (write(slave, "abc", 3) != 3 || tcflush(slave, TCOFLUSH) != 0)
         return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
+
+    if (write(master, "old", 3) != 3 || write(slave, "abc", 3) != 3 ||
+        tcflush(slave, TCIOFLUSH) != 0)
+        return 28;
+
+    if (read(slave, result, sizeof result) != 0)
+        return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
 
     errno = 0;
 
@@ -2123,6 +2140,49 @@ int main(int argc, char** argv) {
             return 56;
 
         closedir(root);
+
+        /* fchdir keeps the directory the descriptor was opened on, even
+           after its name has been renamed or removed. */
+        {
+            const char* moved = "/tmp/fchdir-moved";
+
+            char stale[64];
+            int  dir_fd;
+
+            (void) rmdir("/tmp/fchdir-moved/child");
+            (void) rmdir("/tmp/fchdir-moved");
+            (void) rmdir("/tmp/fchdir-src");
+            (void) rmdir("/tmp/fchdir-gone");
+
+            if (mkdir("/tmp/fchdir-src", 0755) != 0 ||
+                mkdir("/tmp/fchdir-src/child", 0755) != 0)
+                return 206;
+
+            dir_fd = open("/tmp/fchdir-src", O_RDONLY | O_DIRECTORY);
+            if (dir_fd < 0)
+                return 207;
+
+            if (rename("/tmp/fchdir-src", moved) != 0 || direct_chdir("/") != 0 ||
+                fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-src") != 0 || close(dir_fd) != 0)
+                return 208;
+
+            if (direct_chdir("/") != 0 || mkdir("/tmp/fchdir-gone", 0755) != 0)
+                return 209;
+
+            dir_fd = open("/tmp/fchdir-gone", O_RDONLY | O_DIRECTORY);
+
+            if (dir_fd < 0 || rmdir("/tmp/fchdir-gone") != 0)
+                return 210;
+
+            if (fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-gone") != 0 || close(dir_fd) != 0)
+                return 211;
+
+            if (direct_chdir("/") != 0 || rmdir("/tmp/fchdir-moved/child") != 0 ||
+                rmdir(moved) != 0)
+                return 212;
+        }
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
@@ -4432,6 +4492,90 @@ int main(int argc, char** argv) {
 
         if (open("/bin/init_libc", O_WRONLY) >= 0 || errno != EROFS)
             return 95;
+    }
+
+    /* execve rejects an image without any execute bit before the loader
+       inspects it: a 0644 slice of a real image must fail with EACCES. */
+    {
+        const char* source = "/bin/init_libc";
+        const char* target = "/tmp/exec-no-permission";
+
+        char image[4096];
+
+        (void) unlink(target);
+
+        int in = open(source, O_RDONLY);
+        if (in < 0)
+            return 206;
+
+        const ssize_t got = read(in, image, sizeof image);
+
+        if (close(in) != 0 || got <= 0) {
+            (void) unlink(target);
+
+            return 207;
+        }
+
+        int out = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (out < 0) {
+            (void) unlink(target);
+
+            return 208;
+        }
+
+        ssize_t written = 0;
+
+        while (written < got) {
+            const ssize_t step = write(out, image + written, (size_t) (got - written));
+            if (step <= 0) {
+                close(out);
+                (void) unlink(target);
+
+                return 209;
+            }
+
+            written += step;
+        }
+
+        if (close(out) != 0) {
+            (void) unlink(target);
+
+            return 210;
+        }
+
+        if (chmod(target, 0644) != 0) {
+            (void) unlink(target);
+
+            return 211;
+        }
+
+        const pid_t child = fork();
+        if (child < 0) {
+            (void) unlink(target);
+
+            return 212;
+        }
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) target, (char*) "--exec-multithread-check",
+                                  NULL};
+
+            execv(target, child_argv);
+            _Exit(errno == EACCES ? 0 : 1);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0) {
+            (void) unlink(target);
+
+            return 213;
+        }
+
+        if (unlink(target) != 0)
+            return 214;
+
+        printf("astia: exec permission ok\n");
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise

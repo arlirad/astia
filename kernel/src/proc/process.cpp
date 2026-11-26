@@ -25,6 +25,20 @@ namespace astia::proc {
         return _cwd.change_directory(path);
     }
 
+    i64 process::change_directory(const fs::open_file& directory) {
+        if (!directory.mode().is_directory())
+            return -ENOTDIR;
+
+        const char* path = directory.path();
+        if (path == nullptr)
+            return -ENOENT;
+
+        const u64 inode = directory.parent() ? directory.parent()->inode() : 0;
+
+        return _cwd.bind_directory(path,
+                                   directory_anchor{directory.mount_reference(), inode});
+    }
+
     i64 process::copy_cwd(span<char> buffer) const {
         return _cwd.copy_cwd(buffer);
     }

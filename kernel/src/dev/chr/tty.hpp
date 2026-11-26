@@ -85,6 +85,7 @@ namespace astia::dev {
         tty_input_result tty_receive(u8 byte);
         void             tty_input_ready();
         virtual long     tty_discard_input();
+        virtual long     tty_discard_output();
         void             tty_commit_line(bool eof);
         void             tty_echo(u8 byte);
         virtual void     tty_signal(u8 byte);
