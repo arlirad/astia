@@ -2,9 +2,9 @@
 #include <astia/fs.hpp>
 #include <astia/mapping.hpp>
 
+#include "../../exec_permission.hpp"
 #include "../../proc.hpp"
 #include "argv.hpp"
-#include "exec_permission.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
@@ -33,7 +33,7 @@ namespace astia::proc::syscalls {
             if (copied != 0)
                 co_return copied;
 
-            if (detail::exec_permission_denied(*owner, path))
+            if (exec_permission_denied(*owner, path))
                 co_return -EACCES;
 
             auto file = fs::open_path(path);
