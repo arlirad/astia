@@ -428,10 +428,10 @@ namespace astia::mod {
         ///
         /// Modules are ET_REL, so the loader always maps relocatably (fixed is
         /// never set). Frames are handed out 4 KiB-aligned, which satisfies any
-        /// section alignment a compiler actually emits (<= 4096). PVH boot
-        /// leaves the kernel on an identity map of physical memory, so the
-        /// returned physical address is directly usable — readable, writable
-        /// (for relocation), and executable.
+        /// section alignment a compiler actually emits (<= 4096).  The
+        /// direct-map address is used rather than the physical address so
+        /// the same image is readable, writable (for relocation), and
+        /// executable under a userspace address space during modopen.
         void* image_map(void* context, u64 /*hint*/, usize size, usize align,
                         bool fixed) {
             using fa = mm::frame_allocator;
@@ -446,7 +446,7 @@ namespace astia::mod {
             if (phys == fa::invalid_frame)
                 return nullptr;
 
-            void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+            void* image = mm::kernel_frames().to_virt(phys);
 
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;
@@ -457,9 +457,10 @@ namespace astia::mod {
         void image_unmap(void*, void* address, usize size) {
             using fa = mm::frame_allocator;
 
-            usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+            usize     frames = (size + fa::frame_size - 1) / fa::frame_size;
+            const u64 base   = reinterpret_cast<u64>(mm::kernel_frames().to_virt(0));
 
-            mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
+            mm::kernel_frames().release(reinterpret_cast<u64>(address) - base, frames);
         }
 
         /// Backs the loader's undefined-symbol resolution with the linked
