@@ -80,6 +80,29 @@ static long direct_chdir(const char* path) {
 #endif
 }
 
+static long direct_dlmap(int fd, unsigned int flags, void* info) {
+#if defined(__x86_64__)
+    long          result;
+    register long r10 asm("r10") = 0;
+    register long r8 asm("r8")   = 0;
+    register long r9 asm("r9")   = 0;
+
+    asm volatile("syscall"
+                 : "=a"(result)
+                 : "a"(71L), "D"((long) fd), "S"((long) flags), "d"((long) info),
+                   "r"(r10), "r"(r8), "r"(r9)
+                 : "rcx", "r11", "memory");
+
+    return result;
+#else
+    (void) fd;
+    (void) flags;
+    (void) info;
+
+    return -ENOSYS;
+#endif
+}
+
 static long direct_sigaltstack(const astia_stack_t* stack, astia_stack_t* old_stack) {
 #if defined(__x86_64__)
     long          result;
@@ -4621,6 +4644,86 @@ int main(int argc, char** argv) {
 
         if (fixture == 0)
             printf("astia: exec repeat ok\n");
+    }
+
+    /* 56: dlmap enforces the descriptor access mode.  A write-only
+       descriptor must fail with the documented EACCES instead of
+       reading the image through a bypassed access check. */
+    {
+        const char* source = "/lib/ld.astia.so";
+        const char* target = "/tmp/dlmap-write-only.so";
+
+        char    copy[4096];
+        ssize_t got = 0;
+        int     in  = open(source, O_RDONLY);
+        int     out = -1;
+
+        (void) unlink(target);
+
+        if (in < 0)
+            return 221;
+
+        out = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (out < 0) {
+            close(in);
+
+            return 222;
+        }
+
+        while ((got = read(in, copy, sizeof copy)) > 0) {
+            ssize_t written = 0;
+
+            while (written < got) {
+                const ssize_t step = write(out, copy + written, (size_t) (got - written));
+                if (step <= 0) {
+                    close(out);
+                    close(in);
+                    (void) unlink(target);
+
+                    return 223;
+                }
+
+                written += step;
+            }
+        }
+
+        if (got < 0 || close(in) != 0 || close(out) != 0) {
+            (void) unlink(target);
+
+            return 224;
+        }
+
+        const int fd = open(target, O_WRONLY);
+        if (fd < 0) {
+            (void) unlink(target);
+
+            return 225;
+        }
+
+        unsigned char info[56];
+        int           untouched = 1;
+
+        memset(info, 0xA5, sizeof info);
+
+        const long mapped = direct_dlmap(fd, 0, info);
+
+        for (size_t i = 0; i < sizeof info; ++i) {
+            if (info[i] != 0xA5)
+                untouched = 0;
+        }
+
+        close(fd);
+
+        if (mapped != -EACCES || !untouched) {
+            (void) unlink(target);
+
+            return 226;
+        }
+
+        if (unlink(target) != 0)
+            return 227;
+
+        printf("astia: dlmap access ok\n");
     }
 
     /* 54: the initrd namespace is immutable: create and mutation calls

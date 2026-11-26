@@ -437,6 +437,9 @@ namespace astia::dl {
         if (!file)
             co_return error_t::ebadf;
 
+        if (!fs::open_file_readable(file->flags()))
+            co_return error_t::eacces;
+
         const long size = file->size();
         if (size <= 0)
             co_return error_t::einval;
