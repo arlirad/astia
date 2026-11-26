@@ -167,6 +167,10 @@ target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
+astia_add_host_test(astia_core_name_test
+        core_name_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/name.cpp)
+astia_add_test_label(astia_core_name_test "deterministic;core")
 astia_add_host_test(astia_utsname_test utsname_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/identity.cpp)
 add_test(NAME astia_kernel_stack_usage_budget
