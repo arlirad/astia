@@ -3,6 +3,7 @@
 
 #include "board.hpp"
 #include "gic.hpp"
+#include "panic_format.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
 
@@ -170,32 +171,23 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
     write_line_field(console, "exception: spsr=", frame->spsr_el1, 16);
 
     {
-        astia::dbg::panic_registers regs{};
+        astia::u64 ttbr0 = 0;
 
-        regs.arch      = "aarch64";
-        regs.aarch64   = true;
-        regs.gpr_count = astia::arch::aarch64::exception_frame_gpr_count;
+        asm volatile("mrs %0, ttbr0_el1" : "=r"(ttbr0));
 
-        for (astia::u32 i = 0; i < regs.gpr_count; ++i) {
-            regs.gpr[i] = frame->x[i];
-        }
-
-        regs.rsp = reinterpret_cast<astia::u64>(frame) +
-                   astia::arch::aarch64::exception_frame_size;
-        regs.rbp         = frame->x[29];
-        regs.rip         = frame->elr_el1;
-        regs.elr         = frame->elr_el1;
-        regs.spsr        = frame->spsr_el1;
-        regs.esr         = frame->esr_el1;
-        regs.far         = frame->far_el1;
-        regs.vector_kind = vector_kind;
-
-        asm volatile("mrs %0, ttbr0_el1" : "=r"(regs.ttbr0));
+        const astia::u64 interrupted_sp = reinterpret_cast<astia::u64>(frame) +
+                                          astia::arch::aarch64::exception_frame_size;
 
         astia::dbg::panic_process process{};
 
-        astia::dbg::format_panic_report(regs, process, panic_sink,
-                                        const_cast<pl011_uart*>(&console));
+        process.arch = "aarch64";
+        process.cpu  = 0;
+
+        astia::dbg::format_panic_context(process, panic_sink,
+                                         const_cast<pl011_uart*>(&console));
+        astia::arch::aarch64::format_panic_registers(*frame, interrupted_sp, ttbr0,
+                                                     vector_kind, panic_sink,
+                                                     const_cast<pl011_uart*>(&console));
 
         astia::u64 fp = frame->x[29];
         astia::u64 pc = frame->x[30];

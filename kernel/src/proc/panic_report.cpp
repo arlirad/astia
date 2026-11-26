@@ -1,7 +1,6 @@
 #include <astia/dbg/panic_report.hpp>
 #include <astia/log.hpp>
 
-#include "../dbg/stacktrace.hpp"
 #include "proc.hpp"
 
 namespace astia::dbg {
@@ -23,25 +22,21 @@ namespace astia::dbg {
     } // namespace
 
     void report_current_panic() {
-        panic_registers regs{};
-
-        arch::capture_panic_registers(regs);
-
         panic_process process{};
 
         proc::panic_snapshot(process);
 
-        format_panic_report(regs, process, log_sink, nullptr);
-        stacktrace(regs.rbp, regs.rip);
+        format_panic_context(process, log_sink, nullptr);
+        arch::panic_report_registers(log_sink, nullptr, nullptr);
     }
 
-    void report_registers(const panic_registers& regs, const panic_process& process,
-                          const char* reason) {
+    void report_panic(const panic_process& process, const char* reason,
+                      const void* frame) {
         if (reason != nullptr)
             log::root::print(log::level::panic, "kpanic: %s", reason);
 
-        format_panic_report(regs, process, log_sink, nullptr);
-        stacktrace(regs.rbp, regs.rip);
+        format_panic_context(process, log_sink, nullptr);
+        arch::panic_report_registers(log_sink, nullptr, frame);
     }
 } // namespace astia::dbg
 
@@ -69,6 +64,7 @@ namespace astia::proc {
 
     void panic_snapshot(dbg::panic_process& out) {
         out               = {};
+        out.arch          = arch::panic_arch_name();
         out.cpu           = arch::cpu::current_index();
         out.address_space = arch::panic_address_space_root();
 
