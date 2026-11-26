@@ -257,6 +257,31 @@ python -m pip install clang-format==18.1.8
 .github/scripts/check-format.sh
 ```
 
+The workflow also enforces control-statement layout: a blank line before and
+after every `if`, `for`, `while`, `switch`, `do`, `try`, or bare `{ ... }`
+block that stands on its own line (a block-level `return` only needs a blank line before it, and an `if` checking the variable assigned directly above (`x`, `!x`, `x == nullptr`, `x != nullptr`, `x < 0`, …) is kept attached, with any blank line between them removed), and no
+braces around single-statement `if`/`else` bodies. `for`, `while`, and `do`
+bodies must always be braced, and when one branch of an `if`/`else if`/`else`
+chain has to keep braces, every branch in the chain gets braces. Namespace
+bodies have no blank line immediately after the opening brace or before the
+closing brace, and a run of consecutive declarations or assignments is
+separated from the statements around it. Function and method definitions are
+separated from their neighbours by a blank line; declarations and prototypes
+are exempt. `struct`, `class`, `enum`, and `union` definitions follow the same
+rule; forward declarations are exempt. A statement block must not be followed
+by a redundant `;`; type definitions keep their terminating semicolon. In C++
+sources, `for (;;)` is rewritten as `while (true)`; C sources are left alone
+because `true` is not defined there. A case label stays next to its statements,
+and no blank line is kept on either side of a case/default label. Apply the fixes with:
+
+```sh
+.github/scripts/check-cpp-style.py --fix path/to/file.cpp
+```
+
+Without arguments the checker inspects files changed since the main merge base;
+pass `--full-tree` to check every tracked C/C++ file. Run the pinned
+`clang-format` afterwards to re-indent unbraced bodies.
+
 Run the host-side kernel tests, module checks, fixture builds, and QEMU boot
 tests through the kernel test launcher:
 
