@@ -57,6 +57,8 @@ from dataclasses import dataclass
 
 SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"}
 CXX_SUFFIXES = {".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"}
+# Imported sources keep their upstream layout and are not Astia style input.
+VENDORED_PREFIXES = ("third_party/",)
 CONTROL_KEYWORDS = frozenset({"if", "for", "while", "switch", "do", "try"})
 RETURN_KEYWORDS = frozenset({"return", "co_return"})
 RAW_STRING_PREFIXES = frozenset({"R", "u8R", "uR", "UR", "LR"})
@@ -2262,12 +2264,21 @@ def _resolve_scope(
     return None, head
 
 
+def _is_vendored(root: pathlib.Path, path: pathlib.Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        relative = path.as_posix()
+    return relative.startswith(VENDORED_PREFIXES)
+
+
 def _source_files(root: pathlib.Path) -> list[pathlib.Path]:
     raw = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
     return [
         root / name
         for name in _decode(raw)
         if pathlib.Path(name).suffix in SOURCE_SUFFIXES
+        and not name.startswith(VENDORED_PREFIXES)
     ]
 
 
@@ -2286,6 +2297,7 @@ def _changed_files(root: pathlib.Path, base: str, head: str) -> list[pathlib.Pat
         root / name
         for name in _decode(raw)
         if pathlib.Path(name).suffix in SOURCE_SUFFIXES
+        and not name.startswith(VENDORED_PREFIXES)
     ]
 
 
@@ -2355,7 +2367,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     paths = [
-        path for path in paths if path.suffix in SOURCE_SUFFIXES and path.is_file()
+        path
+        for path in paths
+        if path.suffix in SOURCE_SUFFIXES
+        and path.is_file()
+        and not _is_vendored(root, path)
     ]
 
     violations = 0

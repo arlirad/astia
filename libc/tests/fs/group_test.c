@@ -125,6 +125,72 @@ static const char max_fixture[] = "g01:x:1:alice\n"
                                   "g15:x:15:alice\n"
                                   "g16:x:16:alice\n";
 
+static const char empty_fixture[] = "gsvc::60:alice\n"
+                                    "gempty::70:\n"
+                                    "gthree::80\n"
+                                    "bad::oops:alice\n"
+                                    ":x:90:\n";
+
+static void test_empty_fields(void) {
+    const gid_t   alice_groups[] = {5, 60};
+    struct group* entry;
+
+    char path[64];
+
+    if (create_fixture(path, empty_fixture) != 0) {
+        CHECK(0);
+
+        return;
+    }
+
+    use_database(path);
+
+    entry = getgrnam("gsvc");
+
+    CHECK(entry != NULL);
+
+    if (entry != NULL) {
+        CHECK(strcmp(entry->gr_passwd, "") == 0);
+        CHECK(entry->gr_gid == 60);
+        CHECK(entry->gr_mem[0] != NULL && strcmp(entry->gr_mem[0], "alice") == 0);
+        CHECK(entry->gr_mem[1] == NULL);
+    }
+
+    entry = getgrnam("gempty");
+
+    CHECK(entry != NULL);
+
+    if (entry != NULL) {
+        CHECK(strcmp(entry->gr_passwd, "") == 0);
+        CHECK(entry->gr_gid == 70);
+        CHECK(entry->gr_mem[0] == NULL);
+    }
+
+    entry = getgrnam("gthree");
+
+    CHECK(entry != NULL);
+
+    if (entry != NULL) {
+        CHECK(entry->gr_gid == 80);
+        CHECK(entry->gr_mem[0] == NULL);
+    }
+
+    CHECK(getgrnam("bad") == NULL);
+    CHECK(getgrnam("") == NULL);
+
+    entry = getgrgid(60);
+
+    CHECK(entry != NULL);
+
+    if (entry != NULL)
+        CHECK(strcmp(entry->gr_name, "gsvc") == 0);
+
+    reset_capture();
+    CHECK(initgroups("alice", 5) == 0);
+    expect_groups(alice_groups, 2);
+    unlink(path);
+}
+
 static void test_primary_fixture(void) {
     const gid_t alice_groups[] = {42, 10, 100};
     const gid_t carol_groups[] = {200, 10, 20};
@@ -253,6 +319,7 @@ static void test_setgroups_error(void) {
 
 int main(void) {
     test_null_user();
+    test_empty_fields();
     test_primary_fixture();
     test_max_boundary();
     test_database_failures();

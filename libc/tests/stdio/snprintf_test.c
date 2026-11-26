@@ -1,3 +1,4 @@
+#include <float.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -31,6 +32,63 @@ static void check_fmt(const char* got, int got_ret, const char* want, int want_r
             fails++;                                               \
         }                                                          \
     } while (0)
+
+struct guarded_text {
+    unsigned char front[16];
+    char          text[1200];
+    unsigned char back[16];
+};
+
+#define GUARD_BYTE 0x5a
+#define UNWRITTEN_BYTE 0xcc
+#define FLOAT_CASE_LIMIT 1000
+
+static void check_float_precision(const char* fmt, double value, int line) {
+    struct guarded_text g;
+
+    size_t i;
+    int    r;
+    int    ok = 1;
+
+    memset(g.front, GUARD_BYTE, sizeof g.front);
+    memset(g.text, UNWRITTEN_BYTE, sizeof g.text);
+    memset(g.back, GUARD_BYTE, sizeof g.back);
+
+    r = snprintf(g.text, sizeof g.text, fmt, value);
+
+    if (r < 0 || (size_t) r >= sizeof g.text || (size_t) r > FLOAT_CASE_LIMIT ||
+        strlen(g.text) != (size_t) r)
+        ok = 0;
+
+    if (!ok) {
+        printf("FAIL snprintf_test:%d: fmt %s ret %d\n", line, fmt, r);
+
+        fails++;
+
+        return;
+    }
+
+    for (i = 0; i < (size_t) r; i++) {
+        if ((unsigned char) g.text[i] == UNWRITTEN_BYTE)
+            ok = 0;
+    }
+
+    for (i = 0; i < sizeof g.front; i++) {
+        if (g.front[i] != GUARD_BYTE)
+            ok = 0;
+    }
+
+    for (i = 0; i < sizeof g.back; i++) {
+        if (g.back[i] != GUARD_BYTE)
+            ok = 0;
+    }
+
+    if (!ok) {
+        printf("FAIL snprintf_test:%d: fmt %s out of bounds\n", line, fmt);
+
+        fails++;
+    }
+}
 
 static int wrap_vsnprintf(char* buf, size_t n, const char* fmt, ...) {
     va_list ap;
@@ -151,6 +209,18 @@ static void test_unsupported(void) {
     CHECK_FMT("1.25", 4, "%.3g", 1.25);
 }
 
+static void test_float_precision(void) {
+    check_float_precision("%.2000f", 1.0, __LINE__);
+    check_float_precision("%.2000e", 1.0, __LINE__);
+    check_float_precision("%.2000g", 1.0e300, __LINE__);
+    check_float_precision("%.2000f", DBL_TRUE_MIN, __LINE__);
+    check_float_precision("%.2000e", DBL_TRUE_MIN, __LINE__);
+    check_float_precision("%.2000g", DBL_TRUE_MIN, __LINE__);
+    check_float_precision("%.2000f", DBL_MAX, __LINE__);
+    check_float_precision("%.2000e", DBL_MAX, __LINE__);
+    check_float_precision("%.2000g", DBL_MAX, __LINE__);
+}
+
 static void test_truncation(void) {
     char            small[5];
     volatile size_t cap_5 = 5; /* bounds via variables: truncation is
@@ -229,6 +299,7 @@ int main(void) {
     test_chars_and_strings();
     test_pointers();
     test_unsupported();
+    test_float_precision();
     test_truncation();
     test_entry_points();
     test_long();

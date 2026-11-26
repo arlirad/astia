@@ -635,6 +635,13 @@ int main(void) {
     char* grep_missing[]           = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
     char* sort_stdin[]             = {"sort", NULL};
     char* cut_fields[]             = {"cut", "-d", ":", "-f", "2", NULL};
+    char* cut_open_end[]           = {"cut", "-d", ":", "-f", "2-", NULL};
+    char* cut_open_start[]         = {"cut", "-d", ":", "-f", "-3", NULL};
+    char* cut_closed_range[]       = {"cut", "-d", ":", "-f", "2-4", NULL};
+    char* cut_combined_list[]      = {"cut", "-d", ":", "-f", "1,3-", NULL};
+    char* cut_reversed_range[]     = {"cut", "-d", ":", "-f", "4-2", NULL};
+    char* cut_dash_only[]          = {"cut", "-d", ":", "-f", "-", NULL};
+    char* cut_trailing_comma[]     = {"cut", "-d", ":", "-f", "2,", NULL};
     char* tee_file[]               = {"tee", "/tmp/coreutils_tee", NULL};
     char* ln_link[]                = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
     char* readlink_link[]          = {"readlink", "/tmp/coreutils_link", NULL};
@@ -811,6 +818,17 @@ int main(void) {
         check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
         check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
         check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
+        check("cut open-ended range", cut_open_end, "one:two:three\n", 0, "two:three\n",
+              1) ||
+        check("cut leading open range", cut_open_start, "one:two:three\n", 0,
+              "one:two:three\n", 1) ||
+        check("cut closed range", cut_closed_range, "one:two:three\n", 0, "two:three\n",
+              1) ||
+        check("cut combined list", cut_combined_list, "one:two:three\n", 0, "one:three\n",
+              1) ||
+        check("cut reversed range", cut_reversed_range, "one:two:three\n", 2, NULL, 0) ||
+        check("cut dash-only range", cut_dash_only, "one:two:three\n", 2, NULL, 0) ||
+        check("cut trailing comma", cut_trailing_comma, "one:two:three\n", 2, NULL, 0) ||
         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
         return 1;

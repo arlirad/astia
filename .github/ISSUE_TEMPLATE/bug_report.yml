@@ -1,6 +1,5 @@
 name: Bug or regression
 description: Report reproducible incorrect behavior or a regression with evidence.
-title: "[bug] "
 labels: ["bug"]
 body:
   - type: markdown

@@ -149,6 +149,16 @@ ASTIA_TEST(initrd_visit_stops_on_false) {
     ASTIA_CHECK(seen == 1);
 }
 
+ASTIA_TEST(initrd_validate_requires_the_trailer) {
+    astia::initrd::archive a;
+
+    ASTIA_CHECK(astia::initrd::open(initrd_newc_blob, initrd_newc_blob_len, a));
+    ASTIA_CHECK(astia::initrd::validate(a));
+
+    ASTIA_CHECK(astia::initrd::open(initrd_newc_blob, 128, a));
+    ASTIA_CHECK(!astia::initrd::validate(a));
+}
+
 ASTIA_TEST(initrd_rejects_garbage) {
     unsigned char junk[600];
 

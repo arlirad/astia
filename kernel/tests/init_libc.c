@@ -1280,6 +1280,13 @@ static int libc_zsh_io_contract(void) {
     return 0;
 }
 
+static volatile sig_atomic_t sigpipe_hits;
+
+static void sigpipe_handler(int signal_number) {
+    (void) signal_number;
+    ++sigpipe_hits;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
@@ -4394,6 +4401,79 @@ int main(int argc, char** argv) {
 
         if (open("/bin/init_libc", O_WRONLY) >= 0 || errno != EROFS)
             return 95;
+    }
+
+    /* A write to a pipe with no reader must fail with EPIPE and raise
+       SIGPIPE for the caller, honouring the mask. */
+    {
+        struct sigaction action = {0};
+
+        action.sa_handler = sigpipe_handler;
+
+        sigemptyset(&action.sa_mask);
+
+        if (sigaction(SIGPIPE, &action, NULL) != 0)
+            return 196;
+
+        int pipe_fds[2];
+
+        if (pipe(pipe_fds) != 0)
+            return 197;
+
+        close(pipe_fds[0]);
+
+        sigpipe_hits = 0;
+        errno        = 0;
+
+        const long written = write(pipe_fds[1], "x", 1);
+
+        if (written != -1 || errno != EPIPE)
+            return 198;
+
+        (void) getpid();
+
+        if (sigpipe_hits != 1)
+            return 204;
+
+        close(pipe_fds[1]);
+
+        /* Blocked: the signal stays pending and runs on unblock. */
+        sigset_t blocked;
+        sigset_t previous;
+
+        sigemptyset(&blocked);
+        sigaddset(&blocked, SIGPIPE);
+
+        if (sigprocmask(SIG_BLOCK, &blocked, &previous) != 0)
+            return 199;
+
+        if (pipe(pipe_fds) != 0)
+            return 200;
+
+        close(pipe_fds[0]);
+
+        sigpipe_hits = 0;
+
+        if (write(pipe_fds[1], "x", 1) != -1)
+            return 201;
+
+        sigset_t pending;
+
+        if (sigpending(&pending) != 0 || !sigismember(&pending, SIGPIPE))
+            return 202;
+
+        if (sigprocmask(SIG_SETMASK, &previous, NULL) != 0)
+            return 203;
+
+        (void) getpid();
+
+        if (sigpipe_hits != 1)
+            return 205;
+
+        close(pipe_fds[1]);
+
+        (void) signal(SIGPIPE, SIG_IGN);
+        printf("astia: sigpipe ok\n");
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

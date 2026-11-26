@@ -88,6 +88,35 @@ static void test_atoi(void) {
     CHECK(labs(-1234567890123L) == 1234567890123L);
 }
 
+static void test_strtod(void) {
+    char* end;
+
+    /* hexadecimal floats with the binary exponent are unchanged */
+    CHECK(strtod("0x10p3", &end) == 128.0 && *end == '\0');
+    CHECK(strtod("0x1.8p+1", &end) == 3.0 && *end == '\0');
+
+    /* the binary exponent is optional: value 2^0 */
+    CHECK(strtod("0x10", &end) == 16.0 && *end == '\0');
+    CHECK(strtod("0x1.8", &end) == 1.5 && *end == '\0');
+    CHECK(strtod("0x.8", &end) == 0.5 && *end == '\0');
+    CHECK(strtod("-0x1.8", &end) == -1.5 && *end == '\0');
+    CHECK(strtod("0x10x", &end) == 16.0 && strcmp(end, "x") == 0);
+
+    /* 'p' without exponent digits is not part of the subject sequence */
+    CHECK(strtod("0x1p", &end) == 1.0 && strcmp(end, "p") == 0);
+
+    /* a bare 0x is no hex float: the leading 0 is parsed, endptr is at 'x' */
+    CHECK(strtod("0x", &end) == 0.0 && strcmp(end, "x") == 0);
+    CHECK(strtod("0x.", &end) == 0.0 && strcmp(end, "x.") == 0);
+
+    /* decimal parsing is unaffected */
+    CHECK(strtod("12.5x", &end) == 12.5 && strcmp(end, "x") == 0);
+
+    /* strtof/strtold share the corrected helper */
+    CHECK(strtof("0x1.8", &end) == 1.5f && *end == '\0');
+    CHECK(strtold("0x1.8", &end) == 1.5L && *end == '\0');
+}
+
 /* ----------------------------------------------------------------- sorting */
 
 static int cmp_int(const void* a, const void* b) {
@@ -104,6 +133,26 @@ struct item {
 
 static int cmp_item(const void* a, const void* b) {
     return cmp_int(&((const struct item*) a)->key, &((const struct item*) b)->key);
+}
+
+/* C11 7.22.5.1: compar receives the key first and the array element second. */
+static int probe_order_errors;
+
+struct probe {
+    int key;
+    int magic;
+};
+
+#define PROBE_MAGIC 0x5EED1234
+
+static int cmp_probe_first(const void* a, const void* b) {
+    const struct probe* key  = (const struct probe*) a;
+    const struct item*  elem = (const struct item*) b;
+
+    if (key->magic != PROBE_MAGIC)
+        probe_order_errors++;
+
+    return cmp_int(&key->key, &elem->key);
 }
 
 static void check_sorted(const int* a, size_t n, int line) {
@@ -210,6 +259,22 @@ static void test_qsort_bsearch(void) {
         CHECK(bsearch(&probe, s, 0, sizeof s[0], cmp_int) == NULL);
         CHECK(bsearch(&probe, s, m, 0, cmp_int) == NULL);
     }
+
+    /* key-only comparator: reading the key's fields from the first argument */
+    {
+        static const struct item items[] = {{1, 10}, {3, 30}, {5, 50}, {7, 70}, {9, 90}};
+
+        size_t m = sizeof items / sizeof items[0];
+
+        struct probe hit  = {5, PROBE_MAGIC};
+        struct probe miss = {6, PROBE_MAGIC};
+
+        probe_order_errors = 0;
+
+        CHECK(bsearch(&hit, items, m, sizeof items[0], cmp_probe_first) == &items[2]);
+        CHECK(bsearch(&miss, items, m, sizeof items[0], cmp_probe_first) == NULL);
+        CHECK(probe_order_errors == 0);
+    }
 }
 
 static void test_rand(void) {
@@ -256,6 +321,7 @@ int main(void) {
     test_strtol();
     test_strtoul();
     test_atoi();
+    test_strtod();
     test_qsort_bsearch();
     test_rand();
     test_environment();

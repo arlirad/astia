@@ -21,13 +21,15 @@ namespace astia::initrd {
         cpio_crc,
     };
 
-    /// Outer compression signatures recognized for diagnostics. `open()` only
-    /// accepts raw archives; gzip and zstd are intentionally rejected until a
-    /// bounded kernel decompressor exists.
+    /// Outer compression signatures. `open()` accepts raw archives only;
+    /// `boot.hpp` decodes gzip and zstd into an owned archive view.
     enum class archive_container : u8 {
         raw,
         gzip,
         zstd,
+        /// A zstd skippable frame. Recognized so boot fails deterministically
+        /// instead of falling through to raw cpio parsing; not supported.
+        zstd_skippable,
     };
 
     /// One regular file in the archive. `name` and `data` point into the
@@ -57,8 +59,8 @@ namespace astia::initrd {
         return detect_container(span<const u8>(static_cast<const u8*>(image), length));
     }
 
-    /// Open a newc or crc image. Gzip and zstd images are rejected; detection
-    /// is diagnostic only and does not provide decompression.
+    /// Open a raw newc or crc image. Compressed containers are rejected here;
+    /// see `boot.hpp` for the decompressing boot path.
     bool open(span<const u8> image, archive& out);
 
     inline bool open(const void* image, usize length, archive& out) {
@@ -69,6 +71,11 @@ namespace astia::initrd {
     /// early — returning false — if `visit` returns false. Returns true only
     /// if it walked the whole archive without hitting a malformed header.
     bool each(const archive& a, visit_fn visit, void* ctx);
+
+    /// Walk the complete archive without visiting files. Returns true only if
+    /// every entry parses and the trailer is present. Boot publication uses
+    /// this before either the VFS or module discovery sees the archive.
+    bool validate(const archive& a);
 
     /// Find the first regular file named `name`. Returns false if absent.
     bool find(const archive& a, const char* name, file& out);

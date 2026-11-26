@@ -748,6 +748,18 @@ add_custom_command(
 )
 astia_embed_blob(_initrd_zstd_cpp ${_fix_dir}/initrd_newc.cpio.zst initrd_zstd_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/initrd_newc_nosize.cpio.zst
+        COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd-nosize
+                ${ASTIA_ZSTD} ${_fix_dir}/initrd_newc.cpio
+                ${_fix_dir}/initrd_newc_nosize.cpio.zst
+        DEPENDS ${_fix_dir}/initrd_newc.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+        COMMENT "Building zstd initrd fixture without a content size"
+)
+astia_embed_blob(_initrd_zstd_nosize_cpp
+        ${_fix_dir}/initrd_newc_nosize.cpio.zst initrd_zstd_nosize_blob)
+
 astia_add_host_test(astia_initrd_test
         initrd_test.cpp
         ${_initrd_newc_cpp}
@@ -755,6 +767,39 @@ astia_add_host_test(astia_initrd_test
         ${_initrd_gzip_cpp}
         ${_initrd_zstd_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
+)
+
+set(_initrd_decoder_third_party ${ASTIA_KERNEL_SOURCE_DIR}/../third_party)
+set(_initrd_decoder_sources
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/initrd.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/initrd/decompress.cpp
+        ${_initrd_decoder_third_party}/zstd/zstddeclib.c
+        ${_initrd_decoder_third_party}/miniz/miniz_tinfl.c
+)
+astia_add_host_test(astia_initrd_decompress_test
+        initrd_decompress_test.cpp
+        ${_initrd_decoder_sources}
+        ${_initrd_newc_cpp}
+        ${_initrd_gzip_cpp}
+        ${_initrd_zstd_cpp}
+        ${_initrd_zstd_nosize_cpp}
+)
+target_include_directories(astia_initrd_decompress_test PRIVATE
+        ${_initrd_decoder_third_party}/zstd
+        ${_initrd_decoder_third_party}/miniz
+)
+target_compile_definitions(astia_initrd_decompress_test PRIVATE
+        MINIZ_NO_MALLOC
+        MINIZ_NO_STDIO
+        MINIZ_NO_TIME
+        MINIZ_NO_ARCHIVE_APIS
+        XXH_NO_STDLIB
+)
+set_source_files_properties(${_initrd_decoder_third_party}/zstd/zstddeclib.c
+        ${_initrd_decoder_third_party}/miniz/miniz_tinfl.c
+        PROPERTIES
+        INCLUDE_DIRECTORIES ${_initrd_decoder_third_party}/compat
+        COMPILE_OPTIONS "-fno-sanitize=all"
 )
 
 # The initrd VFS allocation-failure path needs the kernel allocator itself, so
@@ -1362,6 +1407,28 @@ if (ARCH STREQUAL "x86_64")
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
         add_custom_command(
+                OUTPUT ${_fix_dir}/boot_initrd.cpio.gz
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
+                ${ASTIA_GZIP} ${_fix_dir}/boot_initrd.cpio
+                ${_fix_dir}/boot_initrd.cpio.gz
+                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+                COMMENT "Compressing boot initrd with gzip")
+        add_custom_target(astia_boot_initrd_gzip ALL
+                DEPENDS ${_fix_dir}/boot_initrd.cpio.gz)
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/boot_initrd.cpio.zst
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd
+                ${ASTIA_ZSTD} ${_fix_dir}/boot_initrd.cpio
+                ${_fix_dir}/boot_initrd.cpio.zst
+                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
+                COMMENT "Compressing boot initrd with zstd")
+        add_custom_target(astia_boot_initrd_zstd ALL
+                DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
+
+        add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory
                 ${_fix_dir}/production_exit_stage/sbin
@@ -1394,9 +1461,34 @@ if (ARCH STREQUAL "x86_64")
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
+                "astia: sigpipe ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_initrd_boot_gzip
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio.gz
+                "fs: initrd: gzip container"
+                "mod: hello_initrd.o rc=42"
+                "selftest: statx ok"
+                "astia: libc ok"
+                "astia: ld ok"
+        )
+        set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_initrd_boot_zstd
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio.zst
+                "fs: initrd: zstd container"
+                "mod: hello_initrd.o rc=42"
+                "selftest: statx ok"
+                "astia: libc ok"
+                "astia: ld ok"
+        )
+        set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 60)
 
         add_test(NAME astia_production_init_exit
                 COMMAND ${CMAKE_COMMAND} -E env

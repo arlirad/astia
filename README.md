@@ -365,4 +365,6 @@ Astia project source and metadata are released under the MIT License.
 The complete license text is in [`LICENSE`](LICENSE). Imported and generated
 materials retain their own upstream license notices. The zsh, GNU nano,
 ncurses, and LTP workflows use external source trees; their upstream licenses
-and notices remain applicable.
+and notices remain applicable. The vendored zstd and miniz decoder sources in
+[`third_party/`](third_party/README.md) keep their upstream BSD and MIT
+licenses, reproduced in [`docs/NOTICE`](docs/NOTICE).
