@@ -787,7 +787,14 @@ namespace astia::proc {
 } // namespace astia::proc
 
 namespace astia::fs {
+#ifdef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
+    open_file::~open_file() {
+        if (_parent)
+            _parent->close(_flags);
+    }
+#else
     open_file::~open_file() {}
+#endif
 
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
