@@ -11,7 +11,8 @@ static_assert(!std::is_copy_constructible_v<astia::mm::dma_buffer>);
 static_assert(sizeof(astia::io::direction) == 1);
 static_assert(std::is_base_of_v<astia::dev::device, astia::dev::chrdev>);
 static_assert(std::is_base_of_v<astia::dev::device, astia::dev::blk::blkdev>);
-static_assert(std::is_polymorphic_v<astia::hw::driver>);
+static_assert(std::is_trivially_copyable_v<astia::hw::driver_descriptor>);
+static_assert(sizeof(astia::hw::driver_handle) == sizeof(astia::u32));
 
 int main() {
     astia::core::clsource request_source;

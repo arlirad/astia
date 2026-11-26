@@ -3,6 +3,8 @@
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
 
+#include <errno.h>
+
 namespace {
 
     class fixture_block final : public astia::dev::blk::blkdev {
@@ -19,16 +21,24 @@ namespace {
         }
     };
 
-    class fixture_driver final : public astia::hw::driver {
+    class fixture_driver final {
         public:
-        const char* name() const override {
-            return "typed";
-        }
-        bool match(const astia::hw::device_info&) const override {
+        bool match(const astia::hw::device_info&) const {
             return false;
         }
-        bool probe(const astia::hw::device_info&) override {
-            return false;
+        astia::i64 probe(const astia::hw::device_info&) {
+            return -ENODEV;
+        }
+        astia::i64 start(const astia::hw::device_info&) {
+            return 0;
+        }
+        void                      stop(const astia::hw::device_info&) {}
+        void                      remove(const astia::hw::device_info&) {}
+        astia::hw::product_handle publish(const astia::hw::device_info&) {
+            return {};
+        }
+        bool selftest() {
+            return true;
         }
     };
 
@@ -45,5 +55,9 @@ int module_main() {
     (void) request;
     (void) block;
     (void) buffer;
-    return astia::hw::drivers().register_driver(driver) ? 0 : -1;
+    astia::hw::driver_handle handle{};
+    const auto               descriptor = astia::hw::make_driver_descriptor(
+        driver, "typed", astia::hw::kernel_owner,
+        astia::hw::driver_resource_device_file | astia::hw::driver_resource_async);
+    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -1;
 }

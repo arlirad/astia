@@ -29,31 +29,9 @@ namespace astia::hw {
         }
     };
 
-    /// Legacy synchronous driver interface.  It predates the typed descriptor
-    /// below; the registry keeps it as a compatibility adapter with the same
-    /// match/probe/publish/remove ordering.
-    class driver {
-        public:
-        virtual ~driver()                                             = default;
-        virtual const char*    name() const                           = 0;
-        virtual bool           match(const device_info& device) const = 0;
-        virtual bool           probe(const device_info& device)       = 0;
-        virtual product_handle publish(const device_info&) {
-            return {};
-        }
-        virtual void remove(const device_info&) {}
-        virtual bool selftest() {
-            return true;
-        }
-    };
-
-    /// Version of the typed driver descriptor.  A module built against a
-    /// different major version is refused instead of being interpreted.
-    inline constexpr u16 driver_abi_version = 1;
-
-    /// Resource classes a driver may claim through the registry.  The bits are
-    /// recorded per registration and checked for overlap before a device is
-    /// published; the actual handles land in the staged migration.
+    /// Resource classes a driver may claim through the registry.  The classes
+    /// are recorded per registration; the concrete handles land in the staged
+    /// migration.
     enum driver_resource : u32 {
         driver_resource_irq         = 1u << 0,
         driver_resource_msix        = 1u << 1,
@@ -67,16 +45,6 @@ namespace astia::hw {
         driver_resource_irq | driver_resource_msix | driver_resource_mmio |
         driver_resource_dma | driver_resource_device_file | driver_resource_async;
 
-    /// Optional descriptor behaviours the registry understands.
-    enum driver_feature : u16 {
-        /// Call remove() when probe() fails, so partial acquisitions are
-        /// released before the next candidate is tried.  Legacy drivers leave
-        /// this clear: their probe() rolls itself back.
-        driver_feature_probe_rollback = 1u << 0,
-    };
-
-    inline constexpr u16 driver_feature_supported = driver_feature_probe_rollback;
-
     /// Identity of whatever owns a registration.  Token 0 is the kernel and
     /// its built-in devices; module loaders pass the module identity once the
     /// public module ABI exposes it.
@@ -88,35 +56,35 @@ namespace astia::hw {
 
     inline constexpr owner_id kernel_owner{};
 
-    /// Generation-tagged registration handles.  A slot keeps its index for the
-    /// lifetime of the registry; releasing and reusing it bumps the
-    /// generation, so a stale handle can never name the new owner.
-    struct driver_token {
-        u32 slot       = 0;
-        u32 generation = 0;
+    /// Registry handles.  Slot 0 is invalid; a handle stays valid until the
+    /// matching unregister_driver()/unbind().  Do not retain one across its
+    /// release: slot reuse aliases the new entry.
+    struct driver_handle {
+        u32 slot = 0;
 
         constexpr bool valid() const {
-            return slot != 0 && generation != 0;
+            return slot != 0;
         }
 
-        friend constexpr bool operator==(driver_token, driver_token) = default;
+        friend constexpr bool operator==(driver_handle, driver_handle) = default;
     };
 
-    struct device_token {
-        u32 slot       = 0;
-        u32 generation = 0;
+    struct device_handle {
+        u32 slot = 0;
 
         constexpr bool valid() const {
-            return slot != 0 && generation != 0;
+            return slot != 0;
         }
 
-        friend constexpr bool operator==(device_token, device_token) = default;
+        friend constexpr bool operator==(device_handle, device_handle) = default;
     };
 
-    /// Typed lifecycle callbacks.  match, probe, and start run in task
-    /// context.  stop and remove run in task context in that order; remove may
-    /// also run directly after a failed probe when the descriptor declares
-    /// driver_feature_probe_rollback.  None of them may block in IRQ context.
+    /// Typed lifecycle callbacks, all in task context.
+    ///
+    /// probe() owns rollback: on failure it must release everything it
+    /// acquired, because the registry tries the next candidate without calling
+    /// remove().  A failed start() is rolled back by the registry with
+    /// stop() followed by remove().
     struct driver_operations {
         bool (*match)(void* context, const device_info& device)             = nullptr;
         i64 (*probe)(void* context, const device_info& device)              = nullptr;
@@ -124,67 +92,106 @@ namespace astia::hw {
         void (*stop)(void* context, const device_info& device)              = nullptr;
         void (*remove)(void* context, const device_info& device)            = nullptr;
         product_handle (*publish)(void* context, const device_info& device) = nullptr;
+        bool (*selftest)(void* context)                                     = nullptr;
     };
 
     struct driver_descriptor {
-        u16               abi_version = driver_abi_version;
-        u16               features    = 0;
-        u32               resources   = 0;
-        const char*       name        = nullptr;
+        const char*       name = nullptr;
         owner_id          owner{};
-        void*             context = nullptr;
+        void*             context   = nullptr;
+        u32               resources = 0;
         driver_operations operations{};
     };
+
+    /// Build a descriptor from a driver object implementing:
+    ///   bool match(const device_info&) const;
+    ///   i64  probe(const device_info&);
+    ///   i64  start(const device_info&);
+    ///   void stop(const device_info&);
+    ///   void remove(const device_info&);
+    ///   product_handle publish(const device_info&);
+    ///   bool selftest();
+    template <typename T>
+    constexpr driver_operations driver_operations_for() {
+        return driver_operations{
+            [](void* context, const device_info& device) {
+                return static_cast<const T*>(context)->match(device);
+            },
+            [](void* context, const device_info& device) -> i64 {
+                return static_cast<T*>(context)->probe(device);
+            },
+            [](void* context, const device_info& device) -> i64 {
+                return static_cast<T*>(context)->start(device);
+            },
+            [](void* context, const device_info& device) {
+                static_cast<T*>(context)->stop(device);
+            },
+            [](void* context, const device_info& device) {
+                static_cast<T*>(context)->remove(device);
+            },
+            [](void* context, const device_info& device) {
+                return static_cast<T*>(context)->publish(device);
+            },
+            [](void* context) { return static_cast<T*>(context)->selftest(); },
+        };
+    }
+
+    template <typename T>
+    driver_descriptor make_driver_descriptor(T& value, const char* name, owner_id owner,
+                                             u32 resources) {
+        driver_descriptor descriptor{};
+        descriptor.name       = name;
+        descriptor.owner      = owner;
+        descriptor.context    = &value;
+        descriptor.resources  = resources;
+        descriptor.operations = driver_operations_for<T>();
+        return descriptor;
+    }
 
     class driver_registry {
         public:
         static constexpr u32 max_drivers = resource_limits::policy::registered_drivers;
         static constexpr u32 max_devices = resource_limits::policy::bound_devices;
 
-        /// Typed registration.  Validates the descriptor, records its owner
-        /// and resource claims, and returns a generation-tagged handle.
-        /// Returns 0, -EPROTONOSUPPORT (ABI version), -EINVAL (missing
-        /// operation/name/context/resource), -EOPNOTSUPP (unknown feature),
-        /// -EEXIST (same context already registered), or -ENOSPC.
-        i64 register_driver(const driver_descriptor& value, driver_token& out);
+        /// Register a driver.  Returns 0, -EINVAL (missing
+        /// operation/name/context or invalid resource mask), -EEXIST (same
+        /// context already registered), or -ENOSPC.
+        i64 register_driver(const driver_descriptor& value, driver_handle& out);
 
         /// Release a registration.  Refused with -EBUSY while a device is
-        /// bound through it; the token (and every copied handle) goes stale.
-        /// Returns 0, -ENOENT (unknown/stale handle) or -EBUSY.
-        i64 unregister_driver(driver_token value);
+        /// bound through it.  Returns 0 or -ENOENT (unknown/released handle).
+        i64 unregister_driver(driver_handle value);
 
         /// Probe every matching registration in registration order and bind
-        /// the first one that starts.  State is transactional: a failed
-        /// start/remove pair leaves no binding behind.  Returns 0, -EINVAL,
-        /// -EEXIST (device already bound), -ENOSPC, -ENODEV (no match), or
-        /// the driver's probe/start error.
-        i64 bind_device(mm::shptr<device_info> device, device_token& out);
+        /// the first one that starts.  A failed start/remove pair leaves no
+        /// binding behind.  Returns 0, -EINVAL, -EEXIST (device already
+        /// bound), -ENOSPC, -ENODEV (no match), or the driver's probe/start
+        /// error.
+        i64 bind_device(mm::shptr<device_info> device, device_handle& out);
 
-        /// Stop and remove one binding; the device handle goes stale.
-        /// Returns 0 or -ENOENT (unknown/stale handle).
-        i64 unbind(device_token value);
+        /// Stop and remove one binding.  Returns 0 or -ENOENT.
+        i64 unbind(device_handle value);
 
         /// Release every binding owned by `owner` in reverse bind order.
         /// Returns the number released.
         i64 unbind_owner(owner_id owner);
 
         /// Release every binding in reverse bind order; returns the number
-        /// released.  The compatibility `bind()` paths share this registry.
+        /// released.
         i64 unbind_all();
 
-        bool     valid(driver_token value) const;
-        bool     valid(device_token value) const;
-        owner_id owner_of(device_token value) const;
-        bool     driver_of(device_token value, driver_token& out) const;
+        bool     valid(driver_handle value) const;
+        bool     valid(device_handle value) const;
+        owner_id owner_of(device_handle value) const;
+        bool     driver_of(device_handle value, driver_handle& out) const;
         u32      devices_owned_by(owner_id owner) const;
 
-        /// Descriptor of a live registration, or null for a stale handle.
-        /// The pointer is invalidated by unregister_driver().
-        const driver_descriptor* descriptor(driver_token value) const;
+        /// Run each registered driver's optional selftest.
+        bool selftests() const;
 
-        /// Compatibility interface for the legacy synchronous drivers.
-        bool register_driver(driver& value);
-        bool bind(mm::shptr<device_info> device);
+        /// Descriptor of a live registration, or null for a released handle.
+        /// The pointer is invalidated by unregister_driver().
+        const driver_descriptor* descriptor(driver_handle value) const;
 
         u32 driver_count() const {
             return _driver_count;
@@ -192,22 +199,16 @@ namespace astia::hw {
         u32 device_count() const {
             return _device_count;
         }
-        driver* driver_at(u32 index) const {
-            return index < max_drivers && _drivers[index].used ? _drivers[index].legacy
-                                                               : nullptr;
-        }
 
         private:
         struct registration {
             driver_descriptor descriptor{};
-            driver*           legacy     = nullptr;
-            u32               generation = 0;
-            bool              used       = false;
+            bool              used = false;
         };
 
         struct binding {
-            driver_token           driver{};
-            device_token           token{};
+            driver_handle          driver{};
+            device_handle          handle{};
             mm::shptr<device_info> device;
             product_handle         product;
             owner_id               owner{};
@@ -216,10 +217,10 @@ namespace astia::hw {
 
         u32                 take_driver_slot();
         u32                 take_device_slot();
-        registration*       registration_for(driver_token value);
-        const registration* registration_for(driver_token value) const;
-        binding*            binding_for(device_token value);
-        const binding*      binding_for(device_token value) const;
+        registration*       registration_for(driver_handle value);
+        const registration* registration_for(driver_handle value) const;
+        binding*            binding_for(device_handle value);
+        const binding*      binding_for(device_handle value) const;
         i64                 release_binding(binding& value);
 
         registration _drivers[max_drivers]{};

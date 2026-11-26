@@ -520,20 +520,13 @@ namespace astia::module {
 namespace astia::mod {
 
     bool run_selftests() {
-        for (u32 i = 0; i < hw::drivers().driver_count(); ++i) {
-            hw::driver* value = hw::drivers().driver_at(i);
-            if (value == nullptr)
-                continue;
-            const bool interrupts = arch::cpu::check_interrupts();
-            if (!interrupts)
-                arch::cpu::interrupts();
-            const bool passed = value->selftest();
-            if (!interrupts)
-                arch::cpu::nointerrupts();
-            if (!passed)
-                return false;
-        }
-        return true;
+        const bool interrupts = arch::cpu::check_interrupts();
+        if (!interrupts)
+            arch::cpu::interrupts();
+        const bool passed = hw::drivers().selftests();
+        if (!interrupts)
+            arch::cpu::nointerrupts();
+        return passed;
     }
 
 } // namespace astia::mod

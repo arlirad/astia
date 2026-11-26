@@ -412,7 +412,9 @@ namespace astia::hw {
                         return found;
                     ++found;
                     mm::shptr<hw::device_info> candidate(new pci_device_info(*added));
-                    drivers().bind(static_cast<mm::shptr<hw::device_info>&&>(candidate));
+                    hw::device_handle          handle{};
+                    (void) drivers().bind_device(
+                        static_cast<mm::shptr<hw::device_info>&&>(candidate), handle);
                 }
             }
         }
