@@ -423,6 +423,56 @@ static int check_pty(const char* name, char* const argv[], char* const envp[],
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
+static int mv_directory_checks(void) {
+    char* mv_into_directory[]           = {"mv", "/tmp/coreutils_mv_file",
+                                           "/tmp/coreutils_mv_target", NULL};
+    char* mv_directory_into_directory[] = {"mv", "/tmp/coreutils_mv_tree",
+                                           "/tmp/coreutils_mv_target", NULL};
+
+    /* The tmpfs at /tmp has a small fixed entry table, so this suite creates
+       and removes its own fixtures instead of holding them for the whole run. */
+    (void) unlink("/tmp/coreutils_mv_target/coreutils_mv_file");
+    (void) unlink("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree/nested");
+    (void) rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree");
+    (void) rmdir("/tmp/coreutils_mv_target");
+    (void) unlink("/tmp/coreutils_mv_file");
+    (void) unlink("/tmp/coreutils_mv_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_mv_tree/nested");
+    (void) rmdir("/tmp/coreutils_mv_tree");
+
+    if (put_file("/tmp/coreutils_mv_file", "move me\n") != 0 ||
+        mkdir("/tmp/coreutils_mv_target", 0777) != 0 ||
+        mkdir("/tmp/coreutils_mv_tree", 0777) != 0 ||
+        mkdir("/tmp/coreutils_mv_tree/nested", 0777) != 0 ||
+        put_file("/tmp/coreutils_mv_tree/nested/file", "mv tree\n") != 0)
+        return fail("mv directory fixture setup");
+
+    int status = 0;
+
+    if (check("mv into directory", mv_into_directory, NULL, 0, NULL, 0) != 0 ||
+        !is_file("/tmp/coreutils_mv_target/coreutils_mv_file") ||
+        is_file("/tmp/coreutils_mv_file"))
+        status = 1;
+
+    if (check("mv directory into directory", mv_directory_into_directory, NULL, 0, NULL,
+              0) != 0 ||
+        !is_directory("/tmp/coreutils_mv_target/coreutils_mv_tree") ||
+        is_directory("/tmp/coreutils_mv_tree") ||
+        !file_equals("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file",
+                     "mv tree\n"))
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_target/coreutils_mv_file") != 0 ||
+        unlink("/tmp/coreutils_mv_target/coreutils_mv_tree/nested/file") != 0 ||
+        rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree/nested") != 0 ||
+        rmdir("/tmp/coreutils_mv_target/coreutils_mv_tree") != 0 ||
+        rmdir("/tmp/coreutils_mv_target") != 0)
+        status = 1;
+
+    return status;
+}
+
 static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
@@ -733,6 +783,9 @@ int main(void) {
         check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
+        return 1;
+
+    if (mv_directory_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
