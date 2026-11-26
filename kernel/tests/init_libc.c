@@ -19,6 +19,7 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 
+#include <aio.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -992,6 +993,111 @@ static int libc_zsh_io_contract(void) {
     if (close(pipe_fds[0]) != 0 || dup2(saved_stdout, STDOUT_FILENO) != STDOUT_FILENO ||
         close(saved_stdout) != 0)
         return 16;
+    return 0;
+}
+
+enum { aio_deferred_ops = 120 };
+
+static void aio_read_request(struct aiocb* cb, int fd, void* buffer, off_t offset) {
+    memset(cb, 0, sizeof *cb);
+    cb->aio_fildes     = fd;
+    cb->aio_buf        = buffer;
+    cb->aio_nbytes     = 1;
+    cb->aio_offset     = offset;
+    cb->aio_lio_opcode = LIO_READ;
+}
+
+static int aio_deferred_contract(void) {
+    const char*         name = "/tmp/astia_aio_deferred";
+    unsigned char       data[aio_deferred_ops + 8];
+    unsigned char       file_buffer[aio_deferred_ops];
+    unsigned char       pipe_buffer[2] = {0, 0};
+    struct aiocb        file_cb[aio_deferred_ops];
+    struct aiocb        pipe_cb;
+    struct aiocb*       lio_list[aio_deferred_ops];
+    const struct aiocb* wait_list[2];
+    int                 pipe_fds[2];
+    int                 fd;
+    int                 i;
+
+    for (i = 0; i < (int) sizeof data; ++i)
+        data[i] = (unsigned char) (0xA5u + (unsigned) i * 7u);
+    fd = open(name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (fd < 0)
+        return 193;
+    if (write(fd, data, aio_deferred_ops) != aio_deferred_ops)
+        return 193;
+    if (pipe(pipe_fds) != 0)
+        return 193;
+
+    aio_read_request(&pipe_cb, pipe_fds[0], pipe_buffer, 0);
+    if (aio_read(&pipe_cb) != 0)
+        return 194;
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        if (aio_read(&file_cb[i]) != 0)
+            return 194;
+    }
+
+    for (i = 0; i < 4; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 195;
+
+    wait_list[0] = &pipe_cb;
+    wait_list[1] = &file_cb[4];
+    if (aio_suspend(wait_list, 2, NULL) != 0)
+        return 196;
+    if (aio_error(&pipe_cb) != EINPROGRESS)
+        return 196;
+    if (write(pipe_fds[1], "Z", 1) != 1)
+        return 197;
+
+    wait_list[0] = &pipe_cb;
+    if (aio_suspend(wait_list, 1, NULL) != 0 || aio_error(&pipe_cb) != 0 ||
+        aio_return(&pipe_cb) != 1 || pipe_buffer[0] != 'Z')
+        return 197;
+
+    for (i = 4; i < aio_deferred_ops; ++i) {
+        wait_list[0] = &file_cb[i];
+        if (aio_suspend(wait_list, 1, NULL) != 0 || aio_error(&file_cb[i]) != 0 ||
+            aio_return(&file_cb[i]) != 1 || file_buffer[i] != data[i])
+            return 198;
+    }
+
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        lio_list[i] = &file_cb[i];
+    }
+    if (lio_listio(LIO_WAIT, lio_list, aio_deferred_ops, NULL) != 0)
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 199;
+
+    if (write(pipe_fds[1], "Q", 1) != 1)
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        if (aio_read(&file_cb[i]) != 0)
+            return 199;
+    }
+    aio_read_request(&pipe_cb, pipe_fds[0], pipe_buffer, 0);
+    lio_list[0] = &pipe_cb;
+    if (lio_listio(LIO_WAIT, lio_list, 1, NULL) != 0)
+        return 199;
+    if (aio_error(&pipe_cb) != 0 || aio_return(&pipe_cb) != 1 || pipe_buffer[0] != 'Q')
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 199;
+
+    if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+        return 199;
+    if (close(fd) != 0 || unlink(name) != 0)
+        return 199;
     return 0;
 }
 
@@ -3276,6 +3382,13 @@ int main(int argc, char** argv) {
             return 89;
         else
             printf("astia: ld ok\n");
+    }
+
+    {
+        int aio_result = aio_deferred_contract();
+        if (aio_result != 0)
+            return aio_result;
+        printf("astia: aio deferred ok\n");
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

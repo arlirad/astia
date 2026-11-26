@@ -97,6 +97,10 @@ add_executable(libc_aio_test aio_test.c backend_host.c time_host.c)
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)
 
+add_executable(libc_aio_retry_test aio_retry_test.c backend_host.c time_host.c)
+target_link_libraries(libc_aio_retry_test PRIVATE astia_libc)
+add_test(NAME libc_aio_retry_test COMMAND libc_aio_retry_test)
+
 add_executable(libc_socket_test socket_test.c backend_host.c socket_backend_host.c)
 target_link_libraries(libc_socket_test PRIVATE astia_libc)
 add_test(NAME libc_socket_test COMMAND libc_socket_test)

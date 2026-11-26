@@ -1386,6 +1386,7 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
+                "astia: aio deferred ok"
                 "astia: libc ok"
                 "astia: interp ok"
                 "astia: ld ok"

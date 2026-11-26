@@ -29,7 +29,10 @@
  * to run against.
  */
 
-enum { RING_ENTRIES = 64 };
+enum { RING_ENTRIES = 64, RING_CQ_ENTRIES = RING_ENTRIES * 2 };
+
+ASTIA_STATIC_ASSERT((RING_ENTRIES & (RING_ENTRIES - 1)) == 0,
+                    "ring entries must be a power of two for the CQ capacity contract");
 
 /* Translate libc's native open word to the AIO OPENAT wire word.  Keeping
  * this table explicit prevents native values (notably O_CREAT/O_TRUNC and
@@ -78,9 +81,18 @@ static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation w
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
                                    applied twice. */
-static uint64_t g_deferred_user_data[RING_ENTRIES];
-static int32_t  g_deferred_result[RING_ENTRIES];
+static uint64_t g_deferred_user_data[RING_CQ_ENTRIES];
+static int32_t  g_deferred_result[RING_CQ_ENTRIES];
 static size_t   g_deferred_count;
+
+static int defer_result(uint64_t user_data, int32_t result) {
+    if (g_deferred_count >= RING_CQ_ENTRIES)
+        return 0;
+    g_deferred_user_data[g_deferred_count] = user_data;
+    g_deferred_result[g_deferred_count]    = result;
+    ++g_deferred_count;
+    return 1;
+}
 
 static int deferred_result(uint64_t user_data, long* result) {
     size_t i;
@@ -133,6 +145,8 @@ static long settle(void) {
 
         if (c != NULL) {
             int ours = (c->user_data == g_inflight);
+            if (!ours && !defer_result(c->user_data, c->result))
+                return -EAGAIN;
             astia_cq_consume(g_ring, 1);
             if (ours) {
                 g_inflight = 0;
@@ -240,11 +254,8 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
             astia_cq_consume(r, 1);
             return rc;
         }
-        if (g_deferred_count < RING_ENTRIES) {
-            g_deferred_user_data[g_deferred_count] = c->user_data;
-            g_deferred_result[g_deferred_count]    = c->result;
-            ++g_deferred_count;
-        }
+        if (!defer_result(c->user_data, c->result))
+            return -EAGAIN;
         astia_cq_consume(r, 1);
     }
 }
@@ -333,11 +344,8 @@ long __astia_fio_aio_result(uint64_t tag, long* result) {
             astia_cq_consume(r, 1);
             return 1;
         }
-        if (g_deferred_count == RING_ENTRIES)
-            return -EBUSY;
-        g_deferred_user_data[g_deferred_count] = c->user_data;
-        g_deferred_result[g_deferred_count]    = c->result;
-        ++g_deferred_count;
+        if (!defer_result(c->user_data, c->result))
+            return -EAGAIN;
         astia_cq_consume(r, 1);
     }
     rc = astia_io_submit(r, 0);
