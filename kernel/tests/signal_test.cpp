@@ -19,6 +19,37 @@ ASTIA_TEST(signal_state_queues_and_masks_signals) {
     ASTIA_CHECK(state.take_unblocked() == astia::signal_number::int_);
 }
 
+ASTIA_TEST(signal_state_reports_only_unblocked_fatal_defaults) {
+    astia::signal_state state;
+
+    ASTIA_CHECK(state.pending_fatal_default_for(0) ==
+                static_cast<astia::signal_number>(0));
+
+    ASTIA_CHECK(state.send(astia::signal_number::chld));
+    ASTIA_CHECK(state.pending_fatal_default_for(0) ==
+                static_cast<astia::signal_number>(0));
+
+    ASTIA_CHECK(state.send(astia::signal_number::term));
+    ASTIA_CHECK(state.pending_fatal_default_for(0) == astia::signal_number::term);
+    ASTIA_CHECK(state.pending_fatal_default_for(astia::signal_bit(
+                    astia::signal_number::term)) == static_cast<astia::signal_number>(0));
+
+    const auto handler = reinterpret_cast<astia::signal_handler>(0x400123);
+
+    ASTIA_CHECK(state.disposition(astia::signal_number::term,
+                                  {astia::signal_action::handler, handler}));
+    ASTIA_CHECK(state.pending_fatal_default_for(0) ==
+                static_cast<astia::signal_number>(0));
+
+    ASTIA_CHECK(state.send(astia::signal_number::segv));
+    ASTIA_CHECK(state.pending_fatal_default_for(0) == astia::signal_number::segv);
+
+    ASTIA_CHECK(state.disposition(astia::signal_number::segv,
+                                  {astia::signal_action::ignore, nullptr}));
+    ASTIA_CHECK(state.pending_fatal_default_for(0) ==
+                static_cast<astia::signal_number>(0));
+}
+
 ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
     astia::signal_state state;
 
