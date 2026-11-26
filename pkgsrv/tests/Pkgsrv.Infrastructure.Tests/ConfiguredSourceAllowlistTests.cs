@@ -38,6 +38,42 @@ public sealed class ConfiguredSourceAllowlistTests
     }
 
     [Fact]
+    public void NonDefaultPort_RequiresExactPortEntry()
+    {
+        var source = PackageSource.Create(
+            "https://github.com:8443/repo",
+            TestPackages.CommitSha);
+
+        Assert.False(new ConfiguredSourceAllowlist(["github.com"]).IsAllowed(source));
+        Assert.True(new ConfiguredSourceAllowlist(["github.com:8443"]).IsAllowed(source));
+        Assert.False(new ConfiguredSourceAllowlist(["github.com:443"]).IsAllowed(source));
+    }
+
+    [Fact]
+    public void IpLiteral_RequiresExactEntryAndWildcardNeverMatches()
+    {
+        var source = PackageSource.Create(
+            "https://127.0.0.1/repo",
+            TestPackages.CommitSha);
+
+        Assert.False(new ConfiguredSourceAllowlist(["*.0.0.1"]).IsAllowed(source));
+        Assert.False(new ConfiguredSourceAllowlist(["github.com"]).IsAllowed(source));
+        Assert.True(new ConfiguredSourceAllowlist(["127.0.0.1"]).IsAllowed(source));
+    }
+
+    [Fact]
+    public void PrivateIpLiteralWithPort_RequiresExactHostAndPortEntry()
+    {
+        var source = PackageSource.Create(
+            "https://10.0.0.7:8443/repo",
+            TestPackages.CommitSha);
+
+        Assert.False(new ConfiguredSourceAllowlist(["10.0.0.7"]).IsAllowed(source));
+        Assert.False(new ConfiguredSourceAllowlist(["*.0.0.7:8443"]).IsAllowed(source));
+        Assert.True(new ConfiguredSourceAllowlist(["10.0.0.7:8443"]).IsAllowed(source));
+    }
+
+    [Fact]
     public void EmptyAllowlist_DeniesEverything()
     {
         var allowlist = new ConfiguredSourceAllowlist([]);

@@ -7,6 +7,9 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Pkgsrv.Infrastructure.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Pkgsrv.Application\Pkgsrv.Application.csproj" />
     <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
   </ItemGroup>

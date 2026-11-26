@@ -41,6 +41,7 @@ public static class PostgresPackageMapper
         record.PendingEventsJson = PostgresPendingEventSerializer.Serialize(package.PeekDomainEvents());
         record.RegisteredAt = package.RegisteredAt;
         record.BuildRequestedAt = package.BuildRequestedAt;
+        record.PublishedAt = package.PublishedAt;
     }
 
     public static PackageManifest ToManifest(PackageRecord record)
@@ -89,7 +90,8 @@ public static class PostgresPackageMapper
             ToState(record.State),
             record.RegisteredAt,
             record.BuildRequestedAt,
-            pendingEvents);
+            pendingEvents,
+            record.PublishedAt);
     }
 
     public static PackageState ToState(int state)

@@ -28,6 +28,7 @@ public sealed class PostgresPackageDbContext : DbContext
         package.Property(record => record.PendingEventsJson).IsRequired();
         package.Property(record => record.RegisteredAt).HasColumnType("timestamp with time zone");
         package.Property(record => record.BuildRequestedAt).HasColumnType("timestamp with time zone");
+        package.Property(record => record.PublishedAt).HasColumnType("timestamp with time zone");
         package.HasIndex(record => record.Name).HasDatabaseName("IX_packages_Name");
         package.HasIndex(record => record.State).HasDatabaseName("IX_packages_State");
         package.HasIndex(record => record.RegisteredAt).HasDatabaseName("IX_packages_RegisteredAt");

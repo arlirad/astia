@@ -1,7 +1,9 @@
 using System.Text;
 using Arlirad.Ervi.Mediator.Interfaces;
+using Pkgsrv.Application.Features.Packages.Download;
 using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
+using Pkgsrv.Application.Features.Packages.Publish;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Features.Packages.RequestBuild;
 using Pkgsrv.Presentation.Caching;
@@ -140,6 +142,51 @@ public static class PackageEndpointHandlers
             return Results.Accepted(
                 PackageLocation(result.Name, result.Version),
                 BuildResponse.From(result));
+        }
+        catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
+        {
+            return ApiErrorMapper.Map(exception);
+        }
+    }
+
+    public static async Task<IResult> PublishAsync(
+        string name,
+        string version,
+        IMediator mediator,
+        IActorContextAccessor actors,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await mediator.Send(
+                new PublishPackageCommand(name, version, actors.GetCurrent()),
+                cancellationToken);
+
+            return Results.Ok(PublishResponse.From(result));
+        }
+        catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
+        {
+            return ApiErrorMapper.Map(exception);
+        }
+    }
+
+    public static async Task<IResult> DownloadAsync(
+        string name,
+        string version,
+        IMediator mediator,
+        IActorContextAccessor actors,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await mediator.Send(
+                new DownloadPackageQuery(name, version, actors.GetCurrent()),
+                cancellationToken);
+
+            return Results.File(
+                result.Content,
+                "application/octet-stream",
+                $"{result.Name}-{result.Version}.bin");
         }
         catch (Exception exception) when (ApiErrorMapper.IsMapped(exception))
         {

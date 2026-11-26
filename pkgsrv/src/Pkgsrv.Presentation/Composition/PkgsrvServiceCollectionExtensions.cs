@@ -62,8 +62,10 @@ public static class PkgsrvServiceCollectionExtensions
         }
 
         services.AddSingleton<IBuildSandbox, NonExecutingBuildSandbox>();
+        services.AddSingleton<IArtifactStore, InMemoryArtifactStore>();
         services.AddSingleton<IArtifactMetadataStore, InMemoryArtifactMetadataStore>();
         services.AddSingleton<IPackageSigner, PendingPackageSigner>();
+        services.AddSingleton<IPackageSignatureVerifier, RefusingPackageSignatureVerifier>();
         services.AddSingleton<IPackagePublisher, RefusingUnsignedPackagePublisher>();
         services.AddSingleton<IDomainEventPublisher, InMemoryDomainEventPublisher>();
         services.AddSingleton<ISystemClock, SystemClock>();

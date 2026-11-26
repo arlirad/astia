@@ -18,8 +18,10 @@ public sealed class PostgresPackageSchemaTests
         Assert.Contains("\"TimeoutTicks\" bigint NOT NULL", sql, StringComparison.Ordinal);
         Assert.Contains("\"VersionMajor\" integer NOT NULL", sql, StringComparison.Ordinal);
         Assert.Contains("IX_packages_VersionOrder", sql, StringComparison.Ordinal);
+        Assert.Contains("\"PublishedAt\" timestamp with time zone", sql, StringComparison.Ordinal);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"PublishedAt\"", sql, StringComparison.Ordinal);
         Assert.Contains("schema_versions", sql, StringComparison.Ordinal);
-        Assert.Contains("VALUES (1), (2)", sql, StringComparison.Ordinal);
+        Assert.Contains("VALUES (1), (2), (3)", sql, StringComparison.Ordinal);
         Assert.DoesNotContain("DROP TABLE", sql, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("TRUNCATE", sql, StringComparison.OrdinalIgnoreCase);
     }
@@ -44,15 +46,17 @@ public sealed class PostgresPackageSchemaTests
         Assert.Equal("timestamp with time zone", entity.FindProperty(nameof(PackageRecord.BuildRequestedAt))!.GetColumnType());
         Assert.NotNull(entity.FindProperty(nameof(PackageRecord.PendingEventsJson)));
         Assert.NotNull(entity.FindProperty(nameof(PackageRecord.TimeoutTicks)));
+        Assert.NotNull(entity.FindProperty(nameof(PackageRecord.PublishedAt)));
     }
 
     [Fact]
-    public void MigrationScripts_RecordVersionOneAndVersionTwoInOrder()
+    public void MigrationScripts_RecordVersionsInOrder()
     {
         var versionOne = File.ReadAllText(FindMigrationScript("0001_packages.sql"));
         var versionTwo = File.ReadAllText(FindMigrationScript("0002_packages_version_order.sql"));
+        var versionThree = File.ReadAllText(FindMigrationScript("0003_packages_publication.sql"));
 
-        Assert.Equal(2, PostgresPackageSchema.RequiredVersion);
+        Assert.Equal(3, PostgresPackageSchema.RequiredVersion);
         Assert.Contains("CREATE TABLE IF NOT EXISTS schema_versions", versionOne, StringComparison.Ordinal);
         Assert.Contains("\"TimeoutTicks\" bigint NOT NULL", versionOne, StringComparison.Ordinal);
         Assert.Contains("VALUES (1)", versionOne, StringComparison.Ordinal);
@@ -62,10 +66,16 @@ public sealed class PostgresPackageSchemaTests
         Assert.Contains("IX_packages_VersionOrder", versionTwo, StringComparison.Ordinal);
         Assert.Contains("VALUES (2)", versionTwo, StringComparison.Ordinal);
 
+        Assert.Contains("\"PublishedAt\" timestamp with time zone", versionThree, StringComparison.Ordinal);
+        Assert.Contains("ADD COLUMN IF NOT EXISTS \"PublishedAt\"", versionThree, StringComparison.Ordinal);
+        Assert.Contains("VALUES (3)", versionThree, StringComparison.Ordinal);
+
         Assert.DoesNotContain("DROP TABLE", versionOne, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("DROP TABLE", versionTwo, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DROP TABLE", versionThree, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("TRUNCATE", versionOne, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("TRUNCATE", versionTwo, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TRUNCATE", versionThree, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -75,6 +85,7 @@ public sealed class PostgresPackageSchemaTests
         Assert.Contains("VersionPreRelease", PostgresPackageSchema.RequiredColumns);
         Assert.Contains("VersionBuildMetadata", PostgresPackageSchema.RequiredColumns);
         Assert.Contains("TimeoutTicks", PostgresPackageSchema.RequiredColumns);
+        Assert.Contains("PublishedAt", PostgresPackageSchema.RequiredColumns);
     }
 
     private static string FindMigrationScript(string fileName)

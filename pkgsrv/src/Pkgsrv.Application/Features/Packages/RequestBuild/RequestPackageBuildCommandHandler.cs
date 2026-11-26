@@ -87,7 +87,12 @@ public sealed class RequestPackageBuildCommandHandler
         package.AcknowledgeDomainEvents(domainEvents);
 
         var result = await _buildSandbox.ExecuteAsync(
-            new BuildSandboxRequest(package.Key, package.Manifest.Source, package.BuildPolicy),
+            new BuildSandboxRequest(
+                package.Key,
+                package.Manifest.Source,
+                package.BuildPolicy,
+                package.Manifest.Toolchain,
+                package.Manifest.ContentHash),
             cancellationToken).ConfigureAwait(false);
 
         return new RequestBuildResult(

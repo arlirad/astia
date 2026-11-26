@@ -2,7 +2,7 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
 public static class PostgresPackageSchema
 {
-    public const int RequiredVersion = 2;
+    public const int RequiredVersion = 3;
 
     public static readonly string[] RequiredColumns =
     [
@@ -28,7 +28,8 @@ public static class PostgresPackageSchema
         "State",
         "PendingEventsJson",
         "RegisteredAt",
-        "BuildRequestedAt"
+        "BuildRequestedAt",
+        "PublishedAt"
     ];
 
     public const string CreateSql = """
@@ -61,12 +62,16 @@ public static class PostgresPackageSchema
             "PendingEventsJson" text NOT NULL DEFAULT '[]',
             "RegisteredAt" timestamp with time zone NOT NULL,
             "BuildRequestedAt" timestamp with time zone NULL,
+            "PublishedAt" timestamp with time zone NULL,
             CONSTRAINT "PK_packages" PRIMARY KEY ("Name", "Version"),
             CONSTRAINT "CK_packages_TimeoutTicks" CHECK ("TimeoutTicks" BETWEEN 10000000 AND 36000000000)
         );
 
         ALTER TABLE packages
             ADD COLUMN IF NOT EXISTS "PendingEventsJson" text NOT NULL DEFAULT '[]';
+
+        ALTER TABLE packages
+            ADD COLUMN IF NOT EXISTS "PublishedAt" timestamp with time zone NULL;
 
         ALTER TABLE packages
             ADD COLUMN IF NOT EXISTS "TimeoutTicks" bigint NOT NULL DEFAULT 0;
@@ -144,7 +149,7 @@ public static class PostgresPackageSchema
         );
 
         INSERT INTO schema_versions (version)
-        VALUES (1), (2)
+        VALUES (1), (2), (3)
         ON CONFLICT (version) DO NOTHING;
         """;
 

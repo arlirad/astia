@@ -39,3 +39,41 @@ public interface IPackagePublisher
         ArtifactMetadata artifact,
         CancellationToken cancellationToken);
 }
+
+public sealed record StoredArtifact(
+    PackageKey Package,
+    ContentHash ContentHash,
+    long Length);
+
+public sealed record ArtifactContent(
+    PackageKey Package,
+    ContentHash ContentHash,
+    ReadOnlyMemory<byte> Bytes);
+
+public interface IArtifactStore
+{
+    Task<StoredArtifact> StoreAsync(
+        PackageKey package,
+        ReadOnlyMemory<byte> bytes,
+        CancellationToken cancellationToken);
+
+    Task<ArtifactContent?> FindAsync(
+        PackageKey package,
+        ContentHash contentHash,
+        CancellationToken cancellationToken);
+}
+
+public interface IPackageSignatureVerifier
+{
+    bool Verify(ContentHash contentHash, PackageSignature signature);
+}
+
+public static class PackageSignatureAlgorithms
+{
+    public const string RsaSha256 = "rsa-sha256";
+}
+
+public sealed class RefusingPackageSignatureVerifier : IPackageSignatureVerifier
+{
+    public bool Verify(ContentHash contentHash, PackageSignature signature) => false;
+}

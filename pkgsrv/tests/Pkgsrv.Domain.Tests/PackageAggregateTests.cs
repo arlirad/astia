@@ -93,6 +93,73 @@ public sealed class PackageAggregateTests
         Assert.Empty(package.DomainEvents);
     }
 
+    [Fact]
+    public void MarkPublished_TransitionsBuildRequestedSignedPackage()
+    {
+        var package = TestPackages.CreatePackage(signed: true);
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
+        package.RequestBuild(TestPackages.Timestamp);
+        var publishedAt = TestPackages.Timestamp.AddMinutes(3);
+
+        package.EnsureCanPublish();
+        package.MarkPublished(publishedAt);
+
+        Assert.Equal(PackageState.Published, package.State);
+        Assert.Equal(publishedAt, package.PublishedAt);
+        Assert.Equal(TestPackages.Timestamp, package.BuildRequestedAt);
+    }
+
+    [Fact]
+    public void MarkPublished_RequiresSignedBuildRequestedPackage()
+    {
+        var registered = TestPackages.CreatePackage(signed: true);
+        Assert.Throws<DomainException>(() => registered.MarkPublished(TestPackages.Timestamp));
+
+        var pending = TestPackages.CreatePackage();
+        pending.RequestBuild(TestPackages.Timestamp);
+        var exception = Assert.Throws<DomainException>(
+            () => pending.MarkPublished(TestPackages.Timestamp));
+        Assert.Equal(DomainErrorCodes.SignaturePending, exception.Code);
+
+        var published = TestPackages.CreatePackage(signed: true);
+        published.AcknowledgeDomainEvents(published.PeekDomainEvents());
+        published.RequestBuild(TestPackages.Timestamp);
+        published.MarkPublished(TestPackages.Timestamp);
+        var stateException = Assert.Throws<DomainException>(
+            () => published.RequestBuild(TestPackages.Timestamp));
+        Assert.Equal(DomainErrorCodes.PackageStateInvalid, stateException.Code);
+    }
+
+    [Fact]
+    public void Rehydrate_RestoresPublishedStateAndTimestamp()
+    {
+        var publishedAt = TestPackages.Timestamp.AddMinutes(4);
+        var package = Package.Rehydrate(
+            TestPackages.CreateManifest(TestPackages.CreateSignedSignature()),
+            BuildPolicy.Create(BuildIsolation.Container, false, TimeSpan.FromMinutes(5)),
+            PackageState.Published,
+            TestPackages.Timestamp,
+            TestPackages.Timestamp.AddMinutes(1),
+            publishedAt: publishedAt);
+
+        Assert.Equal(PackageState.Published, package.State);
+        Assert.Equal(publishedAt, package.PublishedAt);
+        Assert.Empty(package.DomainEvents);
+    }
+
+    [Fact]
+    public void Rehydrate_RejectsPublishedStateWithoutPublicationTimestamp()
+    {
+        var exception = Assert.Throws<DomainException>(() => Package.Rehydrate(
+            TestPackages.CreateManifest(TestPackages.CreateSignedSignature()),
+            BuildPolicy.Create(BuildIsolation.Container, false, TimeSpan.FromMinutes(5)),
+            PackageState.Published,
+            TestPackages.Timestamp,
+            TestPackages.Timestamp.AddMinutes(1)));
+
+        Assert.Equal(DomainErrorCodes.PackageStateInvalid, exception.Code);
+    }
+
     [Theory]
     [InlineData(PackageState.Registered, true)]
     [InlineData(PackageState.BuildRequested, false)]

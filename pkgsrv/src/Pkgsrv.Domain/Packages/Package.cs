@@ -6,7 +6,8 @@ namespace Pkgsrv.Domain.Packages;
 public enum PackageState
 {
     Registered = 0,
-    BuildRequested = 1
+    BuildRequested = 1,
+    Published = 2
 }
 
 public sealed class Package
@@ -15,6 +16,7 @@ public sealed class Package
     private readonly List<IDomainEvent> _domainEvents = new();
     private PackageState _state = PackageState.Registered;
     private DateTimeOffset? _buildRequestedAt;
+    private DateTimeOffset? _publishedAt;
 
     private Package(
         PackageKey key,
@@ -30,7 +32,7 @@ public sealed class Package
 
     public PackageKey Key { get; }
 
-    public PackageManifest Manifest { get; }
+    public PackageManifest Manifest { get; private set; }
 
     public BuildPolicy BuildPolicy { get; }
 
@@ -54,6 +56,17 @@ public sealed class Package
             lock (_gate)
             {
                 return _buildRequestedAt;
+            }
+        }
+    }
+
+    public DateTimeOffset? PublishedAt
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _publishedAt;
             }
         }
     }
@@ -94,18 +107,23 @@ public sealed class Package
         PackageState state,
         DateTimeOffset registeredAt,
         DateTimeOffset? buildRequestedAt,
-        IReadOnlyCollection<IDomainEvent>? pendingDomainEvents = null)
+        IReadOnlyCollection<IDomainEvent>? pendingDomainEvents = null,
+        DateTimeOffset? publishedAt = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         ArgumentNullException.ThrowIfNull(buildPolicy);
 
         if (!Enum.IsDefined(state)
-            || (state == PackageState.Registered && buildRequestedAt is not null)
-            || (state == PackageState.BuildRequested && buildRequestedAt is null))
+            || (state == PackageState.Registered
+                && (buildRequestedAt is not null || publishedAt is not null))
+            || (state == PackageState.BuildRequested
+                && (buildRequestedAt is null || publishedAt is not null))
+            || (state == PackageState.Published
+                && (buildRequestedAt is null || publishedAt is null)))
         {
             throw new DomainException(
                 DomainErrorCodes.PackageStateInvalid,
-                "Persisted package state and build timestamp are inconsistent.");
+                "Persisted package state and timestamps are inconsistent.");
         }
 
         var package = new Package(
@@ -116,6 +134,7 @@ public sealed class Package
 
         package._state = state;
         package._buildRequestedAt = buildRequestedAt;
+        package._publishedAt = publishedAt;
 
         if (pendingDomainEvents is not null)
         {
@@ -129,16 +148,66 @@ public sealed class Package
     {
         lock (_gate)
         {
-            if (_state == PackageState.BuildRequested)
+            if (_state != PackageState.Registered)
             {
                 throw new DomainException(
-                    DomainErrorCodes.BuildAlreadyRequested,
-                    "A build has already been requested for this package version.");
+                    _state == PackageState.BuildRequested
+                        ? DomainErrorCodes.BuildAlreadyRequested
+                        : DomainErrorCodes.PackageStateInvalid,
+                    "A build can only be requested for a registered package.");
             }
 
             _state = PackageState.BuildRequested;
             _buildRequestedAt = requestedAt;
             _domainEvents.Add(new PackageBuildRequested(Key, BuildPolicy, requestedAt));
+        }
+    }
+
+    public void MarkPublished(DateTimeOffset publishedAt)
+    {
+        lock (_gate)
+        {
+            EnsureCanPublishUnsafe();
+            _state = PackageState.Published;
+            _publishedAt = publishedAt;
+        }
+    }
+
+    public void EnsureCanPublish()
+    {
+        lock (_gate)
+        {
+            EnsureCanPublishUnsafe();
+        }
+    }
+
+    private void EnsureCanPublishUnsafe()
+    {
+        if (_state != PackageState.BuildRequested)
+        {
+            throw new DomainException(
+                DomainErrorCodes.PackageStateInvalid,
+                "A package must have a requested build before it can be published.");
+        }
+
+        Manifest.Signature.EnsurePublishable();
+    }
+
+    public void ApplySignature(PackageSignature signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+        signature.EnsurePublishable();
+
+        lock (_gate)
+        {
+            Manifest = PackageManifest.Create(
+                Manifest.Name,
+                Manifest.Version,
+                Manifest.Source,
+                Manifest.Toolchain,
+                Manifest.ContentHash,
+                Manifest.Provenance,
+                signature);
         }
     }
 

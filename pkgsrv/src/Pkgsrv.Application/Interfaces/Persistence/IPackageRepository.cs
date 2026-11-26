@@ -11,6 +11,13 @@ public interface IPackageRepository
 
     Task UpdateAsync(Package package, CancellationToken cancellationToken);
 
+    Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken);
+
+    Task MarkPublishedAsync(
+        Package package,
+        DateTimeOffset publishedAt,
+        CancellationToken cancellationToken);
+
     Task AcknowledgeDomainEventsAsync(
         PackageKey key,
         IReadOnlyCollection<IDomainEvent> publishedEvents,
