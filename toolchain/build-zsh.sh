@@ -56,7 +56,7 @@ ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
 sysroot_content_key=$(
     {
         find "$sysroot/include" -type f -exec sha256sum {} + | sort
-        sha256sum "$sysroot/lib/libastia_libc.a"
+        sha256sum "$sysroot/lib/libastia_libc.a" "$sysroot/lib/libc.so"
     } | sha256sum | awk '{print $1}'
 )
 
@@ -68,13 +68,19 @@ ln -sfn "$sysroot" "$config_compat_dir/sysroot"
 ln -sfn "$zsh_build_source" "$config_compat_dir/source"
 ln -sfn "$build/astia/image/crt0.o" "$config_compat_dir/crt0.o"
 ln -sfn "$sysroot/lib/libastia_libc.a" "$config_compat_dir/libastia_libc.a"
+ln -sfn "$sysroot/lib/libc.so" "$config_compat_dir/libc.so"
 ln -sfn "$builtins" "$config_compat_dir/libclang_rt_builtins.a"
+# Configure probes -ldl/-lm/-lrt/-ltinfo/-lc.  Keep them inside the Astia
+# sysroot: an empty archive fails a probe honestly, and -lc reaches libc.so.
+for stub in dl m rt tinfo terminfo ncurses ncursesw curses termcap pthread nsl socket gen util; do
+    ar rcs "$config_compat_dir/lib$stub.a"
+done
 cat > "$build/astia-cc" <<EOF
 #!/bin/sh
 exec $clang --target=x86_64-unknown-elf -ffreestanding -fno-builtin \
--fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables \
+-fPIE -fno-stack-protector -fno-asynchronous-unwind-tables \
 -mno-red-zone -nostdinc -isystem "$resource_dir/include" \
--isystem "$config_compat_dir/sysroot/include" "\$@"
+-isystem "$config_compat_dir/sysroot/include" -L"$config_compat_dir" "\$@"
 EOF
 chmod +x "$build/astia-cc"
 compiler_launcher=${TMPDIR:-/tmp}/astia-zsh-cc-$(printf '%s' "$build" |
@@ -123,16 +129,19 @@ if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     --build=x86_64-pc-linux-gnu \
     CC="$compiler_launcher" \
     CFLAGS='-O0' \
-    LDFLAGS='-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000' \
-        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libastia_libc.a $config_compat_dir/libclang_rt_builtins.a"
+    LDFLAGS='-nostdlib -Wl,-Bdynamic -Wl,-pie -Wl,-e,_start -Wl,--dynamic-linker=/lib/ld.astia.so -Wl,-rpath-link,'"$sysroot/lib" \
+        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libc.so $config_compat_dir/libclang_rt_builtins.a"
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
 # zsh links the libc archive statically and make does not track it as a
 # prerequisite, so an ABI update would otherwise leave the stale binary.
 libc_archive="$build/astia/libc/libastia_libc.a"
-if [ -e "$libc_archive" ] && [ -e "$build/Src/zsh" ] &&
-    [ "$libc_archive" -nt "$build/Src/zsh" ]; then
+libc_shared="$sysroot/lib/libc.so"
+if { [ -e "$libc_archive" ] && [ -e "$build/Src/zsh" ] &&
+    [ "$libc_archive" -nt "$build/Src/zsh" ]; } ||
+    { [ -e "$libc_shared" ] && [ -e "$build/Src/zsh" ] &&
+    [ "$libc_shared" -nt "$build/Src/zsh" ]; }; then
     rm -f "$build/Src/zsh" "$build/output/zsh"
 fi
 make -C "$build" -j "$jobs"
@@ -141,3 +150,13 @@ if [ ! -e "$build/output/zsh" ] || ! cmp -s "$build/Src/zsh" "$build/output/zsh"
     cp "$build/Src/zsh" "$build/output/zsh"
 fi
 file "$build/output/zsh"
+if command -v readelf >/dev/null 2>&1; then
+    readelf -d "$build/output/zsh" | grep -q 'NEEDED.*libc\.so' || {
+        echo "zsh is not linked against libc.so" >&2
+        exit 1
+    }
+    readelf -l "$build/output/zsh" | grep -q '/lib/ld.astia.so' || {
+        echo "zsh does not carry /lib/ld.astia.so as its interpreter" >&2
+        exit 1
+    }
+fi

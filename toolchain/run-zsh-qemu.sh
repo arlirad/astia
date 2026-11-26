@@ -264,6 +264,14 @@ compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -o "$work/pty-test" "$zsh_build/astia/image/crt0.o" "$work/pty-test.o" \
     "$sysroot/lib/libastia_libc.a" "$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a"
 
+for runtime in "$work/root/lib/libc.so" "$work/root/lib/ld.astia.so"; do
+    if [ ! -f "$runtime" ]; then
+        echo "dev initrd is missing the dynamic runtime: $runtime" >&2
+        echo "rebuild the base initrd so it stages /lib" >&2
+        exit 1
+    fi
+done
+
 cp "$work/runner" "$work/root/sbin/init"
 if [ "$line_reader" = 1 ]; then
     cp "$work/line-reader-runner" "$work/root/sbin/init"
@@ -281,7 +289,13 @@ EOF
 test -x "$work/root/sbin/init"
 test -x "$work/root/bin/zsh"
 test -f "$work/root/etc/zshenv"
-(cd "$work/root" && find hello_initrd.o sbin bin etc -print |
+if command -v readelf >/dev/null 2>&1; then
+    readelf -d "$work/root/bin/zsh" | grep -q 'NEEDED.*libc\.so' || {
+        echo "dev initrd zsh is not linked against libc.so" >&2
+        exit 1
+    }
+fi
+(cd "$work/root" && find hello_initrd.o sbin bin etc lib -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
 
 if [ "$build_only" = 1 ]; then
