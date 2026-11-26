@@ -16,9 +16,11 @@ namespace {
     constexpr u32 cmsg_header_bytes = sizeof(astia_cmsghdr);
     constexpr u32 cmsg_align        = sizeof(u64);
 
-    u32 aligned(u32 value) {
+    constexpr u32 aligned(u32 value) {
         return (value + cmsg_align - 1) & ~(cmsg_align - 1);
     }
+
+    constexpr u32 rights_control_bytes = aligned(cmsg_header_bytes + sizeof(i32));
 
     void write_rights(u8* buffer, i32 fd) {
         auto* header = reinterpret_cast<astia_cmsghdr*>(buffer);
@@ -43,7 +45,7 @@ ASTIA_TEST(unix_control_parses_one_descriptor) {
 
     const i32 source = install_descriptor(fake_file());
 
-    u8 control[aligned(cmsg_header_bytes + sizeof(i32))]{};
+    u8 control[rights_control_bytes]{};
 
     write_rights(control, source);
 
@@ -66,7 +68,7 @@ ASTIA_TEST(unix_control_rejects_malformed_headers) {
 
     const i32 source = install_descriptor(fake_file());
 
-    u8 control[aligned(cmsg_header_bytes + sizeof(i32))]{};
+    u8 control[rights_control_bytes]{};
 
     write_rights(control, source);
 
@@ -111,7 +113,7 @@ ASTIA_TEST(unix_control_rejects_unknown_descriptor) {
     reset_environment();
     install_current_process();
 
-    u8 control[aligned(cmsg_header_bytes + sizeof(i32))]{};
+    u8 control[rights_control_bytes]{};
 
     write_rights(control, 99);
 
@@ -144,7 +146,7 @@ ASTIA_TEST(unix_control_build_installs_and_flags_cloexec) {
                     *proc::current_process(), *control, ASTIA_MSG_CMSG_CLOEXEC,
                     span<u8>(destination, sizeof destination), used, msg_flags) == 0);
     ASTIA_CHECK(msg_flags == 0);
-    ASTIA_CHECK(used == aligned(cmsg_header_bytes + sizeof(i32)));
+    ASTIA_CHECK(used == rights_control_bytes);
 
     auto* header = reinterpret_cast<astia_cmsghdr*>(destination);
 
