@@ -8,7 +8,9 @@ set(ASTIA_PS2_SOURCES
         module_main.cpp)
 
 set(ASTIA_PS2_ABI_HEADERS
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/capabilities.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/tty_input.hpp)
 
 set(ASTIA_PS2_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/ps2_controller.hpp

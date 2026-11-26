@@ -13,15 +13,15 @@ The module is deliberately boot-lifetime resident and non-unloadable, and the
 kernel owns the lifetime reference:
 
 - `module_main` completes controller/keyboard bring-up, then calls
-  `astia::module::ps2_claim_irq(handler)`. The kernel resolves the calling
-  module, takes an active reference on it, and binds a guarded IRQ1 route whose
-  enter/leave callbacks acquire and release that reference. There is no
-  module-side lease object.
+  `route.claim(handler)` on its `astia::dev::irq_route route{1}`. The kernel
+  resolves the calling module, takes an active reference on it, and binds a
+  guarded IRQ1 route whose enter/leave callbacks acquire and release that
+  reference.
 - The module then calls `astia::module::make_resident()`, which resolves the
   caller and marks it permanently non-unloadable. A subsequent `request_exit()`
   returns the resident result, keeps the image mapped, and skips fini/unmap.
 - If the claim fails, no reference or handler is retained. If bring-up fails
-  after the claim, `ps2_release_irq()` masks IRQ1, retries unregistering the
+  after the claim, `route.release()` masks IRQ1, retries unregistering the
   route, drops the kernel's reference, and the image is left clean.
 - All controller, decoder, keymap and modifier state is `static constinit`
   and lives for the system lifetime.
@@ -58,10 +58,10 @@ address space active.
   the module reports ready, and IRQ1 is unmasked last.
 - The ISR drains a bounded number of output-buffer bytes and filters
   auxiliary bytes, parity/timeout failures and non-scan-code protocol bytes.
-- No unrestricted `pio_bus` or `device_pio` is exposed. The module sees only
-  the `astia::dev::ps2_port_window` returned by
-  `astia::module::ps2_platform_ports()`, which permits byte accesses to ports
-  `0x60` and `0x64` and rejects every other port.
+- No unrestricted `pio_bus` or `device_pio` is exposed. The module reads the
+  platform's `astia::dev::io_port_window` from
+  `astia::dev::platform_input_window()` and passes the absolute `0x60`/`0x64`
+  ports it owns; the window rejects ports outside its granted range.
 
 ## Input scope
 
