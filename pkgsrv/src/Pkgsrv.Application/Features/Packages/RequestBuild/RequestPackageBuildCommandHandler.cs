@@ -21,6 +21,7 @@ public sealed class RequestPackageBuildCommandHandler
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
     private readonly IPackageCacheInvalidationNotifier? _cacheNotifier;
+    private readonly IPackageEventOutbox? _eventOutbox;
 
     public RequestPackageBuildCommandHandler(
         IPackageRepository repository,
@@ -28,7 +29,8 @@ public sealed class RequestPackageBuildCommandHandler
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
         ISystemClock clock,
-        IPackageCacheInvalidationNotifier? cacheNotifier = null)
+        IPackageCacheInvalidationNotifier? cacheNotifier = null,
+        IPackageEventOutbox? eventOutbox = null)
     {
         _repository = repository;
         _buildSandbox = buildSandbox;
@@ -36,6 +38,7 @@ public sealed class RequestPackageBuildCommandHandler
         _eventPublisher = eventPublisher;
         _clock = clock;
         _cacheNotifier = cacheNotifier;
+        _eventOutbox = eventOutbox;
     }
 
     public async ValueTask<RequestBuildResult> Handle(
@@ -68,7 +71,18 @@ public sealed class RequestPackageBuildCommandHandler
         }
 
         package.RequestBuild(_clock.UtcNow);
-        await _repository.UpdateAsync(package, cancellationToken).ConfigureAwait(false);
+        var domainEvents = package.PeekDomainEvents();
+
+        if (_eventOutbox is not null)
+        {
+            await _eventOutbox
+                .UpdateWithEventsAsync(package, domainEvents, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await _repository.UpdateAsync(package, cancellationToken).ConfigureAwait(false);
+        }
 
         if (_cacheNotifier is not null)
         {
@@ -79,15 +93,17 @@ public sealed class RequestPackageBuildCommandHandler
                 .ConfigureAwait(false);
         }
 
-        var domainEvents = package.PeekDomainEvents();
-        await _eventPublisher.PublishAsync(
-            domainEvents,
-            cancellationToken).ConfigureAwait(false);
-        await _repository.AcknowledgeDomainEventsAsync(
-            package.Key,
-            domainEvents,
-            cancellationToken).ConfigureAwait(false);
-        package.AcknowledgeDomainEvents(domainEvents);
+        if (_eventOutbox is null)
+        {
+            await _eventPublisher.PublishAsync(
+                domainEvents,
+                cancellationToken).ConfigureAwait(false);
+            await _repository.AcknowledgeDomainEventsAsync(
+                package.Key,
+                domainEvents,
+                cancellationToken).ConfigureAwait(false);
+            package.AcknowledgeDomainEvents(domainEvents);
+        }
 
         var result = await _buildSandbox.ExecuteAsync(
             new BuildSandboxRequest(

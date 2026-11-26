@@ -50,10 +50,11 @@ public sealed class PostgresPackageModelTests
         using var context = new PostgresPackageDbContext(Options);
         var migrations = context.Database.GetMigrations().ToArray();
 
-        Assert.Equal(3, migrations.Length);
+        Assert.Equal(4, migrations.Length);
         Assert.EndsWith("_InitialCreate", migrations[0], StringComparison.Ordinal);
         Assert.EndsWith("_AddVersionOrderColumns", migrations[1], StringComparison.Ordinal);
         Assert.EndsWith("_AddPublicationTimestamp", migrations[2], StringComparison.Ordinal);
+        Assert.EndsWith("_AddPackageOutbox", migrations[3], StringComparison.Ordinal);
 
         var script = context.GetService<IMigrator>().GenerateScript();
 
@@ -63,5 +64,6 @@ public sealed class PostgresPackageModelTests
         Assert.Contains("\"VersionMajor\" integer", script, StringComparison.Ordinal);
         Assert.Contains("IX_packages_VersionOrder", script, StringComparison.Ordinal);
         Assert.Contains("\"PublishedAt\" timestamp with time zone", script, StringComparison.Ordinal);
+        Assert.Contains("package_outbox", script, StringComparison.Ordinal);
     }
 }
