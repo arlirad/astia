@@ -19,9 +19,7 @@
 // `boot_info` (the ramdisk and the module list).
 
 namespace astia::mod {
-
     namespace {
-
         using astia::u64;
         using astia::usize;
 
@@ -35,28 +33,30 @@ namespace astia::mod {
         // registration it performed) is live they can never be unloaded.
         void load_and_run(span<const u8> data, const char* name, u64 i) {
             module_load_options options{};
+
             options.resident = true;
+
             module_id id{};
+
             if (load_image(data, options, id) != module_error::ok) {
-                if (name != nullptr) {
+                if (name != nullptr)
                     logs::error("%s failed to load", name);
-                }
-                else {
+                else
                     logs::error("module %llu failed to load",
                                 static_cast<unsigned long long>(i));
-                }
+
                 return;
             }
+
             int rc = 0;
-            if (run(id, rc) != module_error::ok) {
+
+            if (run(id, rc) != module_error::ok)
                 rc = -1;
-            }
-            if (name != nullptr) {
+
+            if (name != nullptr)
                 logs::info("%s rc=%d", name, rc);
-            }
-            else {
+            else
                 logs::info("module %llu rc=%d", static_cast<unsigned long long>(i), rc);
-            }
         }
 
         // Per-file visitor for an initrd: load the file if it is an ELF image,
@@ -64,26 +64,28 @@ namespace astia::mod {
         bool visit_initrd_file(void*, const initrd::file& f) {
             // ET_REL belongs to the kernel-module loader.  Executables
             // remain files in initrdfs and are launched by proc::spawnve.
-            if (elf::loader::kind_of(f.data, f.size) != elf::loader::kind::relocatable) {
+            if (elf::loader::kind_of(f.data, f.size) != elf::loader::kind::relocatable)
                 return true;
-            }
+
             load_and_run(span<const u8>(static_cast<const u8*>(f.data), f.size), f.name,
                          0);
+
             return true;
         }
-
     } // namespace
 
     static bool step_mod(init::context& ctx) {
-        if (!ctx.info) {
+        if (!ctx.info)
             return false;
-        }
+
         // The ramdisk is the fs layer's: it mounts it at / (fs/initrd_init.cpp).
         // What mod takes from it are the kernel modules it carries.
         const boot::module_info& ramdisk = ctx.info->initrd;
+
         if (ramdisk.paddr != 0 && ramdisk.size != 0) {
             const void*     data = mm::kernel_frames().to_virt(ramdisk.paddr);
             initrd::archive arc;
+
             if (initrd::open(span<const u8>(static_cast<const u8*>(data),
                                             static_cast<usize>(ramdisk.size)),
                              arc)) {
@@ -97,9 +99,10 @@ namespace astia::mod {
         // something we do not understand.
         for (usize i = 0; i < ctx.info->module_count; ++i) {
             const boot::module_info& m = ctx.info->modules[i];
-            if (m.paddr == 0 || m.size == 0) {
+
+            if (m.paddr == 0 || m.size == 0)
                 continue;
-            }
+
             // Physical memory where the bootloader left it: go through the
             // direct map so the bytes are addressable regardless of which
             // address space is active.
@@ -111,12 +114,13 @@ namespace astia::mod {
                 load_and_run(image, nullptr, i);
                 continue;
             }
+
             logs::warning("module %llu is not an ELF image",
                           static_cast<unsigned long long>(i));
         }
+
         return true;
     }
-
 } // namespace astia::mod
 
 ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames")

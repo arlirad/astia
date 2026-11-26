@@ -52,12 +52,16 @@ static int fails;
 static void test_write_builds_the_file(void) {
     static const char first[]  = "alpha";
     static const char second[] = "beta";
-    struct iovec      sent[2];
-    struct iovec      tail;
-    unsigned char     got[16] = {0};
+
+    struct iovec sent[2];
+    struct iovec tail;
+
+    unsigned char got[16] = {0};
 
     int fd = open(P, O_RDWR | O_CREAT | O_TRUNC, 0600);
+
     CHECK(fd >= 0);
+
     if (fd < 0)
         return;
 
@@ -65,12 +69,14 @@ static void test_write_builds_the_file(void) {
     sent[0].iov_len  = 5;
     sent[1].iov_base = (void*) second;
     sent[1].iov_len  = 4;
+
     CHECK(writev(fd, sent, 2) == 9);
 
     /* position, not offset: the next write continues where that one
        stopped, which is what makes the pair suitable for an fd at all */
     tail.iov_base = (void*) "!";
     tail.iov_len  = 1;
+
     CHECK(writev(fd, &tail, 1) == 1);
 
     CHECK(pread(fd, got, sizeof got, 0) == 10);
@@ -83,12 +89,15 @@ static void test_write_builds_the_file(void) {
  * lands where the count says it should. */
 static void test_read_scatters(void) {
     struct iovec taken[3];
-    char         first[4] = {0};
-    char         middle   = 'x';
-    char         last[8]  = {0};
+
+    char first[4] = {0};
+    char middle   = 'x';
+    char last[8]  = {0};
 
     int fd = open(P, O_RDONLY);
+
     CHECK(fd >= 0);
+
     if (fd < 0)
         return;
 
@@ -103,7 +112,9 @@ static void test_read_scatters(void) {
     CHECK(memcmp(first, "alp", 3) == 0);
     CHECK(middle == 'x'); /* zero length wrote over nothing */
     CHECK(memcmp(last, "habeta", 6) == 0);
+
     char tail = 0;
+
     CHECK(read(fd, &tail, 1) == 1 && tail == '!'); /* cursor is 9 further on */
     CHECK(close(fd) == 0);
 }
@@ -113,10 +124,13 @@ static void test_read_scatters(void) {
  * rather than handed to the kernel as a huge unsigned one. */
 static void test_short_and_refused(void) {
     struct iovec v[2];
-    char         buf[64] = {0};
+
+    char buf[64] = {0};
 
     int fd = open(P, O_RDONLY);
+
     CHECK(fd >= 0);
+
     if (fd < 0)
         return;
 
@@ -124,17 +138,25 @@ static void test_short_and_refused(void) {
     v[0].iov_len  = 60;
     v[1].iov_base = buf;
     v[1].iov_len  = 4;
+
     CHECK(readv(fd, v, 2) == 10); /* 10 bytes on disk, 64 asked for */
     CHECK(readv(fd, v, 2) == 0);  /* at end of file: 0, not an error */
     CHECK(readv(fd, v, 0) == 0);  /* no entries at all moves nothing */
 
     errno = 0;
+
     CHECK(readv(-1, v, 2) == -1 && errno == EBADF);
+
     errno = 0;
+
     CHECK(writev(-1, v, 2) == -1 && errno == EBADF);
+
     errno = 0;
+
     CHECK(readv(fd, v, -1) == -1 && errno == EINVAL);
+
     errno = 0;
+
     CHECK(writev(fd, v, -1) == -1 && errno == EINVAL);
     CHECK(close(fd) == 0);
 }
@@ -143,11 +165,14 @@ static void test_short_and_refused(void) {
  * read positioned at a byte instead of at the cursor. */
 static void test_offset_at_the_seam(void) {
     struct iovec v[2];
-    char         a[4] = {0};
-    char         b[4] = {0};
+
+    char a[4] = {0};
+    char b[4] = {0};
 
     int fd = open(P, O_RDONLY);
+
     CHECK(fd >= 0);
+
     if (fd < 0)
         return;
 
@@ -155,6 +180,7 @@ static void test_offset_at_the_seam(void) {
     v[0].iov_len  = 4;
     v[1].iov_base = b;
     v[1].iov_len  = 4;
+
     CHECK(__astia_fio_readv(fd, 2, v, 2) == 8); /* "phab" then "eta!" */
     CHECK(memcmp(a, "phab", 4) == 0);
     CHECK(memcmp(b, "eta!", 4) == 0);
@@ -170,7 +196,9 @@ int main(void) {
     test_offset_at_the_seam();
 
     (void) unlink(P);
+
     if (fails != 0)
         printf("uio_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

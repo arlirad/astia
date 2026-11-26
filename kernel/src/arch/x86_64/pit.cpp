@@ -7,9 +7,7 @@
 // calibration yardstick, pollable without any interrupt delivery.
 
 namespace astia::arch::x86_64 {
-
     namespace {
-
         constexpr u16 ch0_data = 0x40;
         constexpr u16 mode_cmd = 0x43;
 
@@ -24,7 +22,6 @@ namespace astia::arch::x86_64 {
             outb(ch0_data, static_cast<u8>(divisor & 0xff));
             outb(ch0_data, static_cast<u8>(divisor >> 8));
         }
-
     } // namespace
 
     void pit::start(u32 hz) {
@@ -39,9 +36,10 @@ namespace astia::arch::x86_64 {
 
     u32 pit::read_count() {
         outb(mode_cmd, command_latch_count); // latch ch0
+
         const u8 lo = inb(ch0_data);
         const u8 hi = inb(ch0_data);
+
         return static_cast<u32>(lo | (hi << 8));
     }
-
 } // namespace astia::arch::x86_64

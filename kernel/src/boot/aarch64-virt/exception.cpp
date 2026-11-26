@@ -74,6 +74,7 @@ namespace {
 
 extern "C" void astia_aarch64_install_exception_vectors() {
     const astia::u64 base = reinterpret_cast<astia::u64>(__vector_table);
+
     __asm__ volatile("msr vbar_el1, %0" : : "r"(base) : "memory");
     __asm__ volatile("isb" : : : "memory");
 }
@@ -93,16 +94,22 @@ extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
         write_line_field(console, "irq: iar=", result.iar, 8);
         write_line_field(console, "irq: eoi=", result.intid, 8);
         write_line_field(console, "irq: dir=", result.intid, 8);
+
         if (result.timer) {
             write_line_field(console, "irq: timer=", result.intid, 8);
             console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER HANDLED");
+
             return;
         }
+
         console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ HANDLED");
+
         return;
     }
+
     if (result.action == gicv3::irq_action::spurious) {
         console.write_line("irq: spurious");
+
         return;
     }
 
@@ -125,12 +132,11 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
     const astia::u64 iss = esr & esr_iss_mask;
 
     console.write_line("");
-    if (vector_kind == astia::arch::aarch64::exception_vector_current_el_spx_sync) {
+
+    if (vector_kind == astia::arch::aarch64::exception_vector_current_el_spx_sync)
         console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC");
-    }
-    else {
+    else
         console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION FATAL");
-    }
 
     console.write("exception: vector=");
     console.write_line(vector_name(vector_kind));

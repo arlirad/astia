@@ -24,7 +24,6 @@
 #include <cstddef>
 
 namespace astia::arch::x86_64 {
-
     struct alignas(astia::cache_line_bytes) cpu_local {
         u32 index;
         u32 reserved;
@@ -40,7 +39,6 @@ namespace astia::arch::x86_64 {
     static_assert(offsetof(cpu_local, syscall_saved_r12) == ASTIA_GS_SYSCALL_SAVED_R12);
     static_assert(offsetof(cpu_local, interrupt_depth) == ASTIA_GS_INTERRUPT_DEPTH);
     static_assert(offsetof(cpu_local, should_yield) == ASTIA_GS_SHOULD_YIELD);
-
 } // namespace astia::arch::x86_64
 
 #endif // __cplusplus

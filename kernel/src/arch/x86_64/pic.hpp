@@ -8,7 +8,6 @@
 // its own line.
 
 namespace astia::arch::x86_64 {
-
     class pic {
         public:
         static constexpr u16 irq_base = 32;
@@ -24,5 +23,4 @@ namespace astia::arch::x86_64 {
         /// vectors (IRQ8..15) need both EOIs because of the IRQ2 cascade.
         static void eoi(u64 vector);
     };
-
 } // namespace astia::arch::x86_64

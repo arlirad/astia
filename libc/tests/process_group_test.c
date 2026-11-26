@@ -4,16 +4,16 @@
 
 static int fails;
 
-#define CHECK(condition)                                                   \
-    do {                                                                    \
-        if (!(condition)) {                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);    \
-            ++fails;                                                        \
-        }                                                                   \
+#define CHECK(condition)                                                \
+    do {                                                                \
+        if (!(condition)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+            ++fails;                                                    \
+        }                                                               \
     } while (0)
 
 int main(void) {
-    const int pid = getpid();
+    const int pid            = getpid();
     const int original_group = getpgrp();
 
     CHECK(pid > 0);
@@ -22,6 +22,7 @@ int main(void) {
     CHECK(getpgid(pid) == original_group);
 
     errno = 0;
+
     CHECK(getpgid(-1) == -1 && errno == ESRCH);
 
     CHECK(setpgrp() == 0);
@@ -29,5 +30,6 @@ int main(void) {
     CHECK(getpgid(pid) == pid);
     CHECK(setpgid(0, original_group) == 0);
     CHECK(getpgrp() == original_group);
+
     return fails != 0;
 }

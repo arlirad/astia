@@ -5,7 +5,6 @@
 #include <type_traits>
 
 namespace astia {
-
     enum class memory_order : u8 {
         relaxed,
         acquire,
@@ -28,6 +27,7 @@ namespace astia {
             case memory_order::seq_cst:
                 return __ATOMIC_SEQ_CST;
             }
+
             return __ATOMIC_SEQ_CST;
         }
 
@@ -67,6 +67,7 @@ namespace astia {
 
         public:
         constexpr atomic() = default;
+
         constexpr explicit atomic(T value) : value_(static_cast<storage>(value)) {}
 
         atomic(const atomic&)            = delete;
@@ -109,11 +110,14 @@ namespace astia {
         bool compare_exchange_strong(T& expected, T desired,
                                      memory_order success = memory_order::acq_rel,
                                      memory_order failure = memory_order::acquire) {
-            storage    observed  = static_cast<storage>(expected);
+            storage observed = static_cast<storage>(expected);
+
             const bool exchanged = __atomic_compare_exchange_n(
                 &value_, &observed, static_cast<storage>(desired), false,
                 detail::atomic_order(success), detail::atomic_order(failure));
+
             expected = static_cast<T>(observed);
+
             return exchanged;
         }
     };
@@ -176,16 +180,18 @@ namespace astia {
         bool compare_exchange_strong(T& expected, T desired,
                                      memory_order success = memory_order::acq_rel,
                                      memory_order failure = memory_order::acquire) {
-            storage    observed  = static_cast<storage>(expected);
+            storage observed = static_cast<storage>(expected);
+
             const bool exchanged = __atomic_compare_exchange_n(
                 raw(), &observed, static_cast<storage>(desired), false,
                 detail::atomic_order(success), detail::atomic_order(failure));
+
             expected = static_cast<T>(observed);
+
             return exchanged;
         }
 
         private:
         T* value_;
     };
-
 } // namespace astia

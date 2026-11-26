@@ -33,7 +33,6 @@
 // under the pin, leaving it decrementing freed memory.
 
 namespace astia::mm {
-
     class pinned_buffer {
         public:
         pinned_buffer()                                = default;
@@ -65,7 +64,9 @@ namespace astia::mm {
         bool valid() const {
             return _region != nullptr;
         }
-        bool  contiguous() const;
+
+        bool contiguous() const;
+
         usize pages() const {
             return _count;
         }
@@ -83,5 +84,4 @@ namespace astia::mm {
         usize        _count       = 0;
         bool         _destination = false;
     };
-
 } // namespace astia::mm

@@ -52,11 +52,14 @@ static void expect_epoch(const char* label, time_t epoch, const char* format,
     struct tm value;
 
     memset(&value, 0, sizeof value);
+
     if (gmtime_r(&epoch, &value) == NULL) {
         printf("%s: gmtime_r failed\n", label);
         fails++;
+
         return;
     }
+
     expect(label, format, &value, expected);
 }
 
@@ -148,6 +151,7 @@ static void test_week_numbers(void) {
         {0, "4", "00", "00", "01", "1970", "70"},
         {-1, "3", "52", "52", "01", "1970", "70"},
     };
+
     size_t i;
 
     for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
@@ -171,14 +175,18 @@ static void test_epoch_seconds(void) {
 static void test_epoch_seconds_boundary(void) {
     const char* epoch_format = "%s";
     struct tm   value;
-    char        buffer[32];
+
+    char buffer[32];
 
     memset(&value, 0, sizeof value);
+
     value.tm_mday = 1;
     value.tm_year = INT_MAX;
+
     CHECK(strftime(buffer, sizeof buffer, epoch_format, &value) == 0);
 
     value.tm_year = INT_MAX - 1900;
+
     CHECK(strftime(buffer, sizeof buffer, "%Y", &value) == 10);
     CHECK(strcmp(buffer, "2147483647") == 0);
     CHECK(strftime(buffer, sizeof buffer, epoch_format, &value) == 17);
@@ -191,10 +199,12 @@ static void test_size_and_overflow(void) {
     const char* null_format  = NULL;
     const char* empty_format = "";
     const char* epoch_format = "%s";
-    char        buffer[32];
+
+    char buffer[32];
 
     memset(&value, 0, sizeof value);
     CHECK(gmtime_r(&(time_t){1795442709}, &value) != NULL);
+
     original = value;
 
     CHECK(strftime(buffer, 11, "%F", &value) == 10);
@@ -229,13 +239,17 @@ static void test_unsupported(void) {
         "%Z", "%z", "%N", "%v", "%Q", "%Ec", "%Od", "%-d", "%_d", "%0e", "%#a",
     };
     struct tm value;
-    char      buffer[32];
-    size_t    i;
+
+    char   buffer[32];
+    size_t i;
 
     memset(&value, 0, sizeof value);
     CHECK(gmtime_r(&(time_t){1795442709}, &value) != NULL);
-    for (i = 0; i < sizeof formats / sizeof formats[0]; i++)
+
+    for (i = 0; i < sizeof formats / sizeof formats[0]; i++) {
         CHECK(strftime(buffer, sizeof buffer, formats[i], &value) == 0);
+    }
+
     CHECK(strftime(buffer, sizeof buffer, "ok%Z", &value) == 0);
     CHECK(strftime(buffer, sizeof buffer, "ok%z", &value) == 0);
 }
@@ -266,5 +280,6 @@ int main(void) {
         (void) snprintf(message, sizeof message, "strftime_test: %d failure(s)\n", fails);
         report(message);
     }
+
     return fails != 0;
 }

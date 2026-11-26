@@ -49,10 +49,13 @@ static void test_case(void) {
     CHECK(toupper(' ') == ' ');
 
     /* round trip over every ASCII letter */
-    for (int c = 'A'; c <= 'Z'; c++)
+    for (int c = 'A'; c <= 'Z'; c++) {
         CHECK(toupper(tolower((char) c)) == c);
-    for (int c = 'a'; c <= 'z'; c++)
+    }
+
+    for (int c = 'a'; c <= 'z'; c++) {
         CHECK(tolower(toupper((char) c)) == c);
+    }
 }
 
 int main(void) {
@@ -62,5 +65,6 @@ int main(void) {
 
     if (fails)
         printf("ctype_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

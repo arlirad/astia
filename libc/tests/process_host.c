@@ -19,8 +19,10 @@ extern int* __errno_location(void); /* glibc's errno, without its header */
 
 static long host_trap(long number, long a1, long a2, long a3, long a4) {
     long rc = syscall(number, a1, a2, a3, a4);
+
     if (rc == -1) /* none of these calls may legitimately return -1 */
         return -HOST_ERRNO;
+
     return rc;
 }
 
@@ -57,24 +59,39 @@ _Static_assert(sizeof(struct host_utsname) == 390, "host utsname layout");
 
 long __astia_process_uname(struct utsname* name) {
     struct host_utsname host;
-    long                rc;
+
+    long rc;
 
     if (name == NULL)
         return -EFAULT;
+
     rc = syscall(SYS_uname, &host);
+
     if (rc == -1)
         return -HOST_ERRNO;
+
     __builtin_memset(name, 0, sizeof *name);
-    for (size_t i = 0; i < sizeof name->sysname; ++i)
+
+    for (size_t i = 0; i < sizeof name->sysname; ++i) {
         name->sysname[i] = host.sysname[i];
-    for (size_t i = 0; i < sizeof name->nodename; ++i)
+    }
+
+    for (size_t i = 0; i < sizeof name->nodename; ++i) {
         name->nodename[i] = host.nodename[i];
-    for (size_t i = 0; i < sizeof name->release; ++i)
+    }
+
+    for (size_t i = 0; i < sizeof name->release; ++i) {
         name->release[i] = host.release[i];
-    for (size_t i = 0; i < sizeof name->version; ++i)
+    }
+
+    for (size_t i = 0; i < sizeof name->version; ++i) {
         name->version[i] = host.version[i];
-    for (size_t i = 0; i < sizeof name->machine; ++i)
+    }
+
+    for (size_t i = 0; i < sizeof name->machine; ++i) {
         name->machine[i] = host.machine[i];
+    }
+
     return 0;
 }
 
@@ -142,9 +159,11 @@ extern int posix_spawn(int* pid, const char* path, const void* file_actions,
 long __astia_process_spawnve(const char* path, char* const argv[], char* const envp[]) {
     char* fallback_argv[] = {(char*) path, NULL};
     char* empty_env[]     = {NULL};
-    int   child           = 0;
-    int   rc = posix_spawn(&child, path, NULL, NULL, argv == NULL ? fallback_argv : argv,
+
+    int child = 0;
+    int rc    = posix_spawn(&child, path, NULL, NULL, argv == NULL ? fallback_argv : argv,
                          envp == NULL ? empty_env : envp);
+
     return rc == 0 ? (long) child : -(long) rc;
 }
 
@@ -163,6 +182,7 @@ long __astia_process_sigaction(int signal, const astia_sigaction_t* action,
     (void) signal;
     (void) action;
     (void) old_action;
+
     return -ENOSYS;
 }
 
@@ -170,22 +190,27 @@ long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_se
     (void) how;
     (void) set;
     (void) old_set;
+
     return -ENOSYS;
 }
 
 long __astia_process_sigpending(unsigned int* set) {
     unsigned long host_set = 0;
     long          rc       = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);
+
     if (rc == -1)
         return -HOST_ERRNO;
+
     if (set != NULL)
         *set = (unsigned int) host_set;
+
     return rc;
 }
 
 long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
                                   const void* timeout) {
     unsigned long host_set = set == NULL ? 0 : (unsigned long) *set;
+
     struct {
         int          signo;
         int          errno_value;
@@ -194,10 +219,13 @@ long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info
         unsigned int uid;
         int          status;
     } host_info;
+
     long rc = syscall(SYS_rt_sigtimedwait, &host_set, info == NULL ? NULL : &host_info,
                       timeout, sizeof host_set);
+
     if (rc == -1)
         return -HOST_ERRNO;
+
     if (info != NULL) {
         info->signo       = host_info.signo;
         info->errno_value = host_info.errno_value;
@@ -206,5 +234,6 @@ long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info
         info->uid         = host_info.uid;
         info->status      = host_info.status;
     }
+
     return rc;
 }

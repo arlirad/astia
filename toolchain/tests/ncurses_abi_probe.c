@@ -23,20 +23,26 @@ static char* (*volatile termcap_tgetstr)(const char*, char**) = tgetstr;
 
 int main(void) {
     SCREEN* screen;
-    int     key;
+
+    int key;
 
     if (termcap_tgetent == NULL || termcap_tgetstr == NULL)
         return 3;
+
     screen = newterm("vt220", stdout, stdin);
     if (screen == NULL)
         return 4;
+
     set_term(screen);
     cbreak();
     noecho();
     waddstr(stdscr, "NCURSES_ABI_OK");
     wrefresh(stdscr);
+
     key = wgetch(stdscr);
+
     endwin();
     delscreen(screen);
+
     return key < 0 ? 5 : 0;
 }

@@ -23,6 +23,7 @@ namespace astia::proc::syscalls::detail {
         char** argv() const {
             return _argv;
         }
+
         char** envp() const {
             return _envp;
         }

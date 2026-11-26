@@ -3,10 +3,11 @@
 #include <stddef.h>
 
 struct pthread_atfork_record;
+
 struct astia_atfork_context {
     struct pthread_atfork_record* first;
     struct pthread_atfork_record* last;
-    size_t count;
+    size_t                        count;
 };
 
 void __astia_atfork_prepare(struct astia_atfork_context* context);

@@ -6,7 +6,6 @@
 #include <astia/mm/shptr.hpp>
 
 namespace astia::mm {
-
     struct phys_region_identity {};
 
     /// A contiguous run of physical frames, with exact per-page mapping
@@ -75,6 +74,7 @@ namespace astia::mm {
         u64 base() const {
             return _base;
         }
+
         usize pages() const {
             return _pages;
         }
@@ -170,5 +170,4 @@ namespace astia::mm {
         usize                       _parent_page = 0;
         shptr<phys_region_identity> _identity;
     };
-
 } // namespace astia::mm

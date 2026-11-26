@@ -3,7 +3,6 @@
 #include <new>
 
 namespace astia::elf::loader {
-
     using namespace detail;
 
     // ========================================================================
@@ -11,7 +10,6 @@ namespace astia::elf::loader {
     // ========================================================================
 
     namespace {
-
         struct async_mapping {
             const async_env& env;
             void*            address;
@@ -20,6 +18,7 @@ namespace astia::elf::loader {
             void reset() {
                 if (address != nullptr) {
                     env.unmap(env.ctx, address, size);
+
                     address = nullptr;
                 }
             }
@@ -56,15 +55,19 @@ namespace astia::elf::loader {
             if (ph.p_memsz < ph.p_filesz || ph.p_vaddr > ~u64{0} - ph.p_memsz ||
                 !in_bounds(ph.p_offset, ph.p_filesz, file_size))
                 return false;
+
             if (ph.p_align > 1) {
                 if (!is_power_of_two(ph.p_align) ||
                     (ph.p_vaddr & (ph.p_align - 1)) != (ph.p_offset & (ph.p_align - 1)))
                     return false;
+
                 if (ph.p_align > static_cast<u64>(~usize{0}))
                     return false;
+
                 if (ph.p_align > map_alignment)
                     map_alignment = ph.p_align;
             }
+
             return true;
         }
 
@@ -76,6 +79,7 @@ namespace astia::elf::loader {
                         (span_start & (ph[i].p_align - 1)))
                     return false;
             }
+
             return true;
         }
 
@@ -87,9 +91,12 @@ namespace astia::elf::loader {
                     vaddr < ph[i].p_vaddr || vaddr - ph[i].p_vaddr > ph[i].p_filesz ||
                     size > ph[i].p_filesz - (vaddr - ph[i].p_vaddr))
                     continue;
+
                 off = ph[i].p_offset + (vaddr - ph[i].p_vaddr);
+
                 return true;
             }
+
             return false;
         }
 
@@ -99,8 +106,10 @@ namespace astia::elf::loader {
                     vaddr - ph[i].p_vaddr > ph[i].p_memsz ||
                     size > ph[i].p_memsz - (vaddr - ph[i].p_vaddr))
                     continue;
+
                 return true;
             }
+
             return false;
         }
 
@@ -113,9 +122,12 @@ namespace astia::elf::loader {
                     off - ph[i].p_offset > ph[i].p_filesz ||
                     size > ph[i].p_filesz - (off - ph[i].p_offset))
                     continue;
+
                 vaddr = ph[i].p_vaddr + (off - ph[i].p_offset);
+
                 return true;
             }
+
             return false;
         }
 
@@ -125,23 +137,29 @@ namespace astia::elf::loader {
         bool fill_image_tables(const elf64_phdr* ph, u16 phnum, u64 phoff, u64 phbytes,
                                u64 filesize, u64 bias, image& out) {
             bool interp_seen = false;
+
             for (u16 i = 0; i < phnum; ++i) {
                 if (ph[i].p_type != pt_interp)
                     continue;
+
                 if (interp_seen || ph[i].p_filesz == 0 ||
                     !in_bounds(ph[i].p_offset, ph[i].p_filesz, filesize))
                     return false;
+
                 interp_seen       = true;
                 out.interp_offset = ph[i].p_offset;
                 out.interp_size   = ph[i].p_filesz;
             }
 
-            out.phnum      = phnum;
-            out.phent      = sizeof(elf64_phdr);
+            out.phnum = phnum;
+            out.phent = sizeof(elf64_phdr);
+
             u64 phdr_vaddr = 0;
+
             if (offset_range_to_vaddr(ph, phnum, phoff, phbytes, phdr_vaddr) &&
                 phdr_vaddr <= ~u64{0} - bias)
                 out.phdr_vaddr = phdr_vaddr + bias;
+
             return true;
         }
 
@@ -150,19 +168,24 @@ namespace astia::elf::loader {
         bool vaddr_to_off(const elf64_phdr* ph, u16 phnum, u64 vaddr, usize len,
                           u64& off) {
             for (u16 i = 0; i < phnum; ++i) {
-                if (ph[i].p_type != pt_load) {
+                if (ph[i].p_type != pt_load)
                     continue;
-                }
+
                 if (vaddr < ph[i].p_vaddr)
                     continue;
+
                 const u64 delta = vaddr - ph[i].p_vaddr;
+
                 if (delta >= ph[i].p_filesz ||
                     !in_bounds(ph[i].p_offset, ph[i].p_filesz, len) ||
                     delta > len - ph[i].p_offset)
                     continue;
+
                 off = ph[i].p_offset + delta;
+
                 return true;
             }
+
             return false;
         }
 
@@ -176,25 +199,33 @@ namespace astia::elf::loader {
             // With an interpreter, symbol relocations are its job: leave
             // them in place instead of failing the load.
             bool has_interp = false;
-            for (u16 i = 0; i < phnum; ++i)
+
+            for (u16 i = 0; i < phnum; ++i) {
                 if (ph[i].p_type == pt_interp)
                     has_interp = true;
+            }
+
             const usize len = bytes.size();
+
             // Find PT_DYNAMIC; a fully static ET_EXEC has none, which is fine.
-            const elf64_dyn* dyn       = nullptr;
-            u64              dyn_count = 0;
+            const elf64_dyn* dyn = nullptr;
+
+            u64 dyn_count = 0;
+
             for (u16 i = 0; i < phnum; ++i) {
                 if (ph[i].p_type == pt_dynamic) {
                     if (ph[i].p_filesz == 0 || ph[i].p_filesz % sizeof(elf64_dyn) != 0 ||
-                        !in_bounds(ph[i].p_offset, ph[i].p_filesz, len)) {
+                        !in_bounds(ph[i].p_offset, ph[i].p_filesz, len))
                         return false;
-                    }
+
                     dyn =
                         reinterpret_cast<const elf64_dyn*>(bytes.data() + ph[i].p_offset);
                     dyn_count = ph[i].p_filesz / sizeof(elf64_dyn);
+
                     break;
                 }
             }
+
             if (dyn == nullptr) {
                 return true; // nothing to relocate
             }
@@ -205,11 +236,14 @@ namespace astia::elf::loader {
             bool rela_tag   = false;
             bool relasz_tag = false;
             bool terminated = false;
+
             for (u64 i = 0; i < dyn_count; ++i) {
                 if (dyn[i].d_tag == dt_null) {
                     terminated = true;
+
                     break;
                 }
+
                 if (dyn[i].d_tag == dt_rela) {
                     rela_vaddr = dyn[i].d_val;
                     rela_tag   = true;
@@ -224,81 +258,93 @@ namespace astia::elf::loader {
                     }
                 }
             }
+
             if (!terminated || rela_tag != relasz_tag ||
                 rela_size % sizeof(elf64_rela) != 0 ||
                 (rela_size != 0 && rela_vaddr == 0) ||
-                (rela_size == 0 && rela_vaddr != 0)) {
+                (rela_size == 0 && rela_vaddr != 0))
                 return false;
-            }
+
             if (rela_size == 0) {
                 return true; // no dynamic relocations
             }
 
             u64 rela_off = 0;
-            if (!vaddr_to_off(ph, phnum, rela_vaddr, len, rela_off)) {
+
+            if (!vaddr_to_off(ph, phnum, rela_vaddr, len, rela_off))
                 return false;
-            }
-            if (!in_bounds(rela_off, rela_size, len)) {
+
+            if (!in_bounds(rela_off, rela_size, len))
                 return false;
-            }
-            u64       count = rela_size / sizeof(elf64_rela);
-            const u8* rela  = bytes.data() + rela_off;
+
+            u64 count = rela_size / sizeof(elf64_rela);
+
+            const u8* rela = bytes.data() + rela_off;
 
             for (u64 k = 0; k < count; ++k) {
-                const u8* entry  = rela + k * sizeof(elf64_rela);
+                const u8* entry = rela + k * sizeof(elf64_rela);
+
                 const u64 r_info = read_u64_bytes(entry + 8);
                 const u32 type   = r_type(r_info);
-                if (type == r_x86_64_none) {
+                if (type == r_x86_64_none)
                     continue;
-                }
+
                 if (type != r_x86_64_relative) {
                     if (has_interp)
                         continue; // the interpreter resolves it
+
                     return false;
                 }
+
                 // The patched slot lives in the mapped image at vaddr + bias.
                 u64 loc_vaddr = read_u64_bytes(entry);
+
                 if (loc_vaddr < span_start || loc_vaddr > span_end ||
                     sizeof(u64) > span_end - loc_vaddr ||
                     !vaddr_range_in_load(ph, phnum, loc_vaddr, sizeof(u64)) ||
-                    loc_vaddr - span_start > ~u64{0} - mapped_addr) {
+                    loc_vaddr - span_start > ~u64{0} - mapped_addr)
                     return false;
-                }
+
                 const u64 addend = read_u64_bytes(entry + 16);
                 u64       value  = 0;
+
                 if (!checked_biased_value(mapped_addr, span_start,
                                           static_cast<i64>(addend), value))
                     return false;
+
                 write_u64(reinterpret_cast<u8*>(mapped_addr + (loc_vaddr - span_start)),
                           value);
             }
+
             return true;
         }
-
     } // namespace
 
     bool load_executable(span<const u8> bytes, const env& e, image& out) {
         const usize len = bytes.size();
-        if (e.map == nullptr || e.unmap == nullptr) {
+
+        if (e.map == nullptr || e.unmap == nullptr)
             return false;
-        }
+
         u16 type = 0;
-        if (!ident_type(bytes, type) || (type != et_exec && type != et_dyn)) {
+
+        if (!ident_type(bytes, type) || (type != et_exec && type != et_dyn))
             return false;
-        }
+
         const auto* eh         = reinterpret_cast<const elf64_ehdr*>(bytes.data());
         const u8*   base_bytes = bytes.data();
 
         if (eh->e_ehsize != sizeof(elf64_ehdr) || eh->e_phnum == 0 ||
-            eh->e_phnum > max_program_headers || eh->e_phentsize != sizeof(elf64_phdr)) {
+            eh->e_phnum > max_program_headers || eh->e_phentsize != sizeof(elf64_phdr))
             return false;
-        }
+
         if (!in_bounds(eh->e_phoff, static_cast<u64>(eh->e_phnum) * sizeof(elf64_phdr),
-                       bytes.size())) {
+                       bytes.size()))
             return false;
-        }
-        const auto* ph    = reinterpret_cast<const elf64_phdr*>(base_bytes + eh->e_phoff);
-        u16         phnum = eh->e_phnum;
+
+        const auto* ph = reinterpret_cast<const elf64_phdr*>(base_bytes + eh->e_phoff);
+
+        u16 phnum = eh->e_phnum;
 
         // --- Pass 1: collect PT_LOAD segments and the total span they cover.
         // Mapped as one contiguous reservation so relative vaddr layout is
@@ -307,46 +353,53 @@ namespace astia::elf::loader {
         u64   max_end       = 0;
         u64   map_alignment = page_size;
         usize nsegs         = 0;
+
         for (u16 i = 0; i < phnum; ++i) {
-            if (ph[i].p_type != pt_load) {
+            if (ph[i].p_type != pt_load)
                 continue;
-            }
+
             if (nsegs >= max_segments) {
                 return false; // too many segments for our fixed cap
             }
-            if (!validate_load_phdr(ph[i], len, map_alignment)) {
+
+            if (!validate_load_phdr(ph[i], len, map_alignment))
                 return false;
-            }
-            if (ph[i].p_vaddr < min_vaddr) {
+
+            if (ph[i].p_vaddr < min_vaddr)
                 min_vaddr = ph[i].p_vaddr;
-            }
+
             const u64 end = ph[i].p_vaddr + ph[i].p_memsz;
             if (end > max_end)
                 max_end = end;
+
             ++nsegs;
         }
-        if (nsegs == 0 || min_vaddr == ~u64{0} || max_end <= min_vaddr) {
+
+        if (nsegs == 0 || min_vaddr == ~u64{0} || max_end <= min_vaddr)
             return false;
-        }
 
         if (max_end > ~u64{0} - (page_size - 1))
             return false;
+
         u64 span_start = align_down(min_vaddr);
         u64 span_end   = align_up(max_end);
+
         if (span_end <= span_start || span_end - span_start > static_cast<u64>(~usize{0}))
             return false;
+
         u64 span = span_end - span_start;
 
         // --- Reserve the span. ET_EXEC is linked at fixed addresses and must
         // land exactly there; ET_DYN is position-independent, so the allocator
         // picks the base and we derive the bias from it.
-        bool  fixed = (type == et_exec);
+        bool fixed = (type == et_exec);
+
         void* mapped =
             e.map(e.ctx, span_start, static_cast<usize>(span),
                   static_cast<usize>(fixed ? page_size : map_alignment), fixed);
-        if (mapped == nullptr) {
+        if (mapped == nullptr)
             return false;
-        }
+
         struct mapped_block {
             const env& environment;
             void*      address;
@@ -361,60 +414,77 @@ namespace astia::elf::loader {
                 address = nullptr;
             }
         } mapping{e, mapped, static_cast<usize>(span)};
+
         u64 mapped_addr = reinterpret_cast<u64>(mapped);
+
         if (fixed && mapped_addr != span_start) {
             return false; // fixed-address map ignored the requested address
         }
+
         if (!load_bias_alignment_ok(ph, phnum, mapped_addr, span_start))
             return false;
+
         if (span > ~u64{0} - mapped_addr)
             return false;
+
         u64 load_bias = mapped_addr - span_start;
 
         if (e.copy == nullptr) {
             auto* zero = static_cast<u8*>(mapped);
-            for (u64 i = 0; i < span; ++i)
+
+            for (u64 i = 0; i < span; ++i) {
                 zero[i] = 0;
+            }
         }
         else {
             u8  zero[4096] = {};
             u64 cleared    = 0;
+
             while (cleared < span) {
                 const usize length = span - cleared < sizeof(zero)
                                          ? static_cast<usize>(span - cleared)
                                          : sizeof(zero);
+
                 if (!e.copy(e.ctx, mapped_addr + cleared,
                             astia::span<const u8>(zero, length)))
                     return false;
+
                 cleared += length;
             }
         }
 
         // --- Pass 2: copy each segment's file bytes into place.
         usize seg_i = 0;
+
         for (u16 i = 0; i < phnum; ++i) {
-            if (ph[i].p_type != pt_load) {
+            if (ph[i].p_type != pt_load)
                 continue;
-            }
-            if (!in_bounds(ph[i].p_offset, ph[i].p_filesz, len)) {
+
+            if (!in_bounds(ph[i].p_offset, ph[i].p_filesz, len))
                 return false;
-            }
+
             if (ph[i].p_vaddr < span_start ||
                 ph[i].p_vaddr - span_start > span - ph[i].p_memsz ||
                 ph[i].p_vaddr - span_start > ~u64{0} - mapped_addr)
                 return false;
-            u64       dest = mapped_addr + (ph[i].p_vaddr - span_start);
-            const u8* src  = base_bytes + ph[i].p_offset;
-            u8*       d    = nullptr;
+
+            u64 dest = mapped_addr + (ph[i].p_vaddr - span_start);
+
+            const u8* src = base_bytes + ph[i].p_offset;
+            u8*       d   = nullptr;
+
             for (usize mapped_i = 0; mapped_i < seg_i; ++mapped_i) {
                 const segment& mapped_seg = out.segs[mapped_i];
+
                 if (dest >= reinterpret_cast<u64>(mapped_seg.loc) &&
                     dest < reinterpret_cast<u64>(mapped_seg.loc) + mapped_seg.memsz) {
                     d = static_cast<u8*>(mapped_seg.loc) +
                         (dest - reinterpret_cast<u64>(mapped_seg.loc));
+
                     break;
                 }
             }
+
             if (e.copy != nullptr) {
                 if (!e.copy(
                         e.ctx, dest,
@@ -424,49 +494,59 @@ namespace astia::elf::loader {
             else if (d == nullptr) {
                 d = reinterpret_cast<u8*>(dest);
             }
+
             if (e.copy == nullptr)
-                for (u64 k = 0; k < ph[i].p_filesz; ++k)
+                for (u64 k = 0; k < ph[i].p_filesz; ++k) {
                     d[k] = src[k];
+                }
+
             segment& seg = out.segs[seg_i++];
-            seg.vaddr    = ph[i].p_vaddr;
-            seg.filesz   = ph[i].p_filesz;
-            seg.memsz    = ph[i].p_memsz;
-            seg.flags    = ph[i].p_flags;
-            seg.loc      = reinterpret_cast<void*>(dest);
+
+            seg.vaddr  = ph[i].p_vaddr;
+            seg.filesz = ph[i].p_filesz;
+            seg.memsz  = ph[i].p_memsz;
+            seg.flags  = ph[i].p_flags;
+            seg.loc    = reinterpret_cast<void*>(dest);
         }
 
         // --- Apply R_X86_64_RELATIVE dynamic relocations (a PIE needs them to
         // make its internal pointers valid at the run address).
-        if (!apply_relative_relocs(bytes, ph, phnum, mapped_addr, span_start, span_end)) {
+        if (!apply_relative_relocs(bytes, ph, phnum, mapped_addr, span_start, span_end))
             return false;
-        }
 
         // --- Static TLS: record the PT_TLS template for whoever
         // materializes it per thread (the userspace loader).
         bool tls_seen = false;
+
         for (u16 i = 0; i < phnum; ++i) {
-            if (ph[i].p_type != pt_tls) {
+            if (ph[i].p_type != pt_tls)
                 continue;
-            }
+
             if (tls_seen)
                 return false;
+
             tls_seen = true;
+
             if (ph[i].p_filesz > ph[i].p_memsz ||
                 !in_bounds(ph[i].p_offset, ph[i].p_filesz, len) ||
                 (ph[i].p_align != 0 && !is_power_of_two(ph[i].p_align)) ||
                 ph[i].p_memsz > static_cast<u64>(~usize{0}))
                 return false;
+
             if (ph[i].p_memsz != 0) {
                 const u64 align    = ph[i].p_align == 0 ? 1 : ph[i].p_align;
                 u64       tls_span = 0;
+
                 if (!checked_align_up(ph[i].p_memsz, align, tls_span) ||
                     tls_span > static_cast<u64>(~usize{0}) - page_size)
                     return false;
+
                 out.tls_offset = ph[i].p_offset;
                 out.tls_filesz = ph[i].p_filesz;
                 out.tls_memsz  = ph[i].p_memsz;
                 out.tls_align  = ph[i].p_align;
             }
+
             break;
         }
 
@@ -474,17 +554,21 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, phnum, eh->e_entry, 1) ||
             eh->e_entry - span_start > ~u64{0} - mapped_addr)
             return false;
+
         if (!fill_image_tables(ph, phnum, eh->e_phoff,
                                static_cast<u64>(phnum) * sizeof(elf64_phdr),
                                static_cast<u64>(len), load_bias, out))
             return false;
+
         out.entry     = reinterpret_cast<void*>(mapped_addr + (eh->e_entry - span_start));
         out.base      = mapped;
         out.size      = static_cast<usize>(span);
         out.loaded    = (type == et_dyn) ? kind::dyn : kind::executable;
         out.load_bias = load_bias;
         out.nsegs     = seg_i;
+
         mapping.keep();
+
         return true;
     }
 
@@ -495,6 +579,7 @@ namespace astia::elf::loader {
         if (e.map == nullptr || e.unmap == nullptr || e.read == nullptr ||
             file_size < sizeof(elf64_ehdr))
             co_return error_t::einval;
+
         if (scratch.value == nullptr)
             co_return error_t::enomem;
 
@@ -506,10 +591,12 @@ namespace astia::elf::loader {
         if (!header_read)
             co_return header_read.error == error_t::enone ? error_t::eio
                                                           : header_read.error;
+
         if (header_read.value != static_cast<i64>(sizeof header))
             co_return error_t::eio;
 
         u16 type = 0;
+
         if (!ident_type(
                 span<const u8>(reinterpret_cast<const u8*>(&header), sizeof header),
                 type) ||
@@ -522,10 +609,12 @@ namespace astia::elf::loader {
             co_return error_t::einval;
 
         const usize ph_bytes = static_cast<usize>(header.e_phnum) * sizeof(elf64_phdr);
-        auto        ph_read  = co_await e.read(
+
+        auto ph_read = co_await e.read(
             e.ctx, span<u8>(reinterpret_cast<u8*>(ph), ph_bytes), header.e_phoff);
         if (!ph_read)
             co_return ph_read.error == error_t::enone ? error_t::eio : ph_read.error;
+
         if (ph_read.value != static_cast<i64>(ph_bytes))
             co_return error_t::eio;
 
@@ -533,17 +622,24 @@ namespace astia::elf::loader {
         u64   max_end       = 0;
         u64   map_alignment = page_size;
         usize nsegs         = 0;
+
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_load)
                 continue;
+
             if (nsegs >= max_segments ||
                 !validate_load_phdr(ph[i], file_size, map_alignment))
                 co_return error_t::einval;
-            min_vaddr     = ph[i].p_vaddr < min_vaddr ? ph[i].p_vaddr : min_vaddr;
+
+            min_vaddr = ph[i].p_vaddr < min_vaddr ? ph[i].p_vaddr : min_vaddr;
+
             const u64 end = ph[i].p_vaddr + ph[i].p_memsz;
-            max_end       = end > max_end ? end : max_end;
+
+            max_end = end > max_end ? end : max_end;
+
             ++nsegs;
         }
+
         if (nsegs == 0 || min_vaddr == ~u64{0} || max_end <= min_vaddr ||
             max_end > ~u64{0} - (page_size - 1))
             co_return error_t::einval;
@@ -552,7 +648,9 @@ namespace astia::elf::loader {
         const u64 span_end   = align_up(max_end);
         if (span_end <= span_start)
             co_return error_t::einval;
+
         const u64 image_span = span_end - span_start;
+
         if (image_span > static_cast<u64>(~usize{0}))
             co_return error_t::einval;
 
@@ -560,36 +658,47 @@ namespace astia::elf::loader {
         u64  rela_size  = 0;
         bool rela_tag   = false;
         bool relasz_tag = false;
+
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_dynamic)
                 continue;
+
             if (ph[i].p_filesz == 0 || ph[i].p_filesz % sizeof(elf64_dyn) != 0 ||
                 !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size))
                 co_return error_t::einval;
 
             u64  offset     = 0;
             bool terminated = false;
+
             while (offset < ph[i].p_filesz) {
                 const u64   remaining = ph[i].p_filesz - offset;
                 const usize length    = remaining < stream_read_chunk_size
                                             ? static_cast<usize>(remaining)
                                             : stream_read_chunk_size;
-                auto        read =
+
+                auto read =
                     co_await e.read(e.ctx, span<u8>(scratch.value->buffer, length),
                                     ph[i].p_offset + offset);
                 if (!read)
                     co_return read.error == error_t::enone ? error_t::eio : read.error;
+
                 if (read.value != static_cast<i64>(length))
                     co_return error_t::eio;
+
                 const usize count = length / sizeof(elf64_dyn);
+
                 for (usize k = 0; k < count; ++k) {
                     const u8* entry = scratch.value->buffer + k * sizeof(elf64_dyn);
+
                     const i64 tag   = static_cast<i64>(read_u64_bytes(entry));
                     const u64 value = read_u64_bytes(entry + 8);
+
                     if (tag == dt_null) {
                         terminated = true;
+
                         break;
                     }
+
                     if (tag == dt_rela) {
                         rela_vaddr = value;
                         rela_tag   = true;
@@ -603,12 +712,16 @@ namespace astia::elf::loader {
                             co_return error_t::einval;
                     }
                 }
+
                 offset += length;
+
                 if (terminated)
                     break;
             }
+
             if (!terminated)
                 co_return error_t::einval;
+
             break;
         }
 
@@ -617,6 +730,7 @@ namespace astia::elf::loader {
             co_return error_t::einval;
 
         u64 rela_offset = 0;
+
         if (rela_vaddr != 0 && rela_size != 0) {
             if (!vaddr_range_to_off(ph, header.e_phnum, rela_vaddr, rela_size, file_size,
                                     rela_offset) ||
@@ -625,69 +739,89 @@ namespace astia::elf::loader {
         }
 
         const bool fixed = type == et_exec;
-        void*      mapped =
+
+        void* mapped =
             e.map(e.ctx, span_start, static_cast<usize>(image_span),
                   static_cast<usize>(fixed ? page_size : map_alignment), fixed);
         if (mapped == nullptr)
             co_return error_t::enomem;
+
         async_mapping mapping{e, mapped, static_cast<usize>(image_span)};
         auto          fail = [&mapping](error_t error) {
             mapping.reset();
+
             return error;
         };
+
         const u64 mapped_addr = reinterpret_cast<u64>(mapped);
+
         if ((fixed && mapped_addr != span_start) ||
             !load_bias_alignment_ok(ph, header.e_phnum, mapped_addr, span_start) ||
             image_span > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
+
         const u64 bias = mapped_addr - span_start;
 
         if (e.copy == nullptr) {
             auto* zero = static_cast<u8*>(mapped);
-            for (u64 i = 0; i < image_span; ++i)
+
+            for (u64 i = 0; i < image_span; ++i) {
                 zero[i] = 0;
+            }
         }
         else {
             u64 cleared = 0;
+
             while (cleared < image_span) {
                 const u64   remaining = image_span - cleared;
                 const usize length    = remaining < stream_read_chunk_size
                                             ? static_cast<usize>(remaining)
                                             : stream_read_chunk_size;
+
                 if (!e.copy(e.ctx, mapped_addr + cleared,
                             span<const u8>(scratch.value->zero, length)))
                     co_return fail(error_t::eio);
+
                 cleared += length;
             }
         }
 
         bool has_interp = false;
-        for (u16 i = 0; i < header.e_phnum; ++i)
+
+        for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type == pt_interp)
                 has_interp = true;
+        }
+
         const bool defer_symbols = has_interp || e.defer_symbol_relocs;
 
         usize segment_count = 0;
+
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_load)
                 continue;
+
             if (ph[i].p_vaddr < span_start ||
                 ph[i].p_vaddr - span_start > image_span - ph[i].p_memsz)
                 co_return fail(error_t::einval);
+
             const u64 destination = mapped_addr + (ph[i].p_vaddr - span_start);
             u64       copied      = 0;
+
             while (copied < ph[i].p_filesz) {
                 const u64   remaining  = ph[i].p_filesz - copied;
                 const usize length     = remaining < stream_read_chunk_size
                                              ? static_cast<usize>(remaining)
                                              : stream_read_chunk_size;
                 i64         read_value = 0;
+
                 if (e.read_to != nullptr) {
                     auto read = co_await e.read_to(e.ctx, destination + copied, length,
                                                    ph[i].p_offset + copied);
                     if (!read)
                         co_return fail(read.error == error_t::enone ? error_t::eio
                                                                     : read.error);
+
                     read_value = read.value;
                 }
                 else {
@@ -700,16 +834,21 @@ namespace astia::elf::loader {
                     if (!read)
                         co_return fail(read.error == error_t::enone ? error_t::eio
                                                                     : read.error);
+
                     read_value = read.value;
                 }
+
                 if (read_value != static_cast<i64>(length))
                     co_return fail(error_t::eio);
+
                 if (e.read_to == nullptr && e.copy != nullptr &&
                     !e.copy(e.ctx, destination + copied,
                             span<const u8>(scratch.value->buffer, length)))
                     co_return fail(error_t::eio);
+
                 copied += length;
             }
+
             result.segs[segment_count++] = {ph[i].p_vaddr, ph[i].p_filesz, ph[i].p_memsz,
                                             ph[i].p_flags,
                                             reinterpret_cast<void*>(destination)};
@@ -717,48 +856,64 @@ namespace astia::elf::loader {
 
         if (rela_vaddr != 0 && rela_size != 0) {
             u64 offset = 0;
+
             while (offset < rela_size) {
                 const u64   remaining = rela_size - offset;
                 const usize length    = remaining < stream_rela_chunk_size
                                             ? static_cast<usize>(remaining)
                                             : stream_rela_chunk_size;
-                auto        read =
+
+                auto read =
                     co_await e.read(e.ctx, span<u8>(scratch.value->rela_buffer, length),
                                     rela_offset + offset);
                 if (!read)
                     co_return fail(read.error == error_t::enone ? error_t::eio
                                                                 : read.error);
+
                 if (read.value != static_cast<i64>(length))
                     co_return fail(error_t::eio);
+
                 const usize count = length / sizeof(elf64_rela);
+
                 for (usize k = 0; k < count; ++k) {
                     const u8* entry = scratch.value->rela_buffer + k * sizeof(elf64_rela);
+
                     const u64 r_info          = read_u64_bytes(entry + 8);
                     const u32 relocation_type = r_type(r_info);
                     if (relocation_type == r_x86_64_none)
                         continue;
+
                     if (relocation_type != r_x86_64_relative) {
                         if (defer_symbols)
                             continue;
+
                         co_return fail(error_t::einval);
                     }
+
                     const u64 location_vaddr = read_u64_bytes(entry);
+
                     if (location_vaddr < span_start || location_vaddr > span_end ||
                         sizeof(u64) > span_end - location_vaddr ||
                         !vaddr_range_in_load(ph, header.e_phnum, location_vaddr,
                                              sizeof(u64)) ||
                         location_vaddr - span_start > ~u64{0} - mapped_addr)
                         co_return fail(error_t::einval);
+
                     const u64 location = mapped_addr + (location_vaddr - span_start);
                     const u64 addend   = read_u64_bytes(entry + 16);
                     u64       value    = 0;
+
                     if (!checked_biased_value(mapped_addr, span_start,
                                               static_cast<i64>(addend), value))
                         co_return fail(error_t::einval);
+
                     if (e.copy != nullptr) {
                         u8 value_bytes[sizeof(value)];
-                        for (usize byte = 0; byte < sizeof(value); ++byte)
+
+                        for (usize byte = 0; byte < sizeof(value); ++byte) {
                             value_bytes[byte] = static_cast<u8>(value >> (byte * 8));
+                        }
+
                         if (!e.copy(e.ctx, location,
                                     span<const u8>(value_bytes, sizeof value_bytes)))
                             co_return fail(error_t::eio);
@@ -767,29 +922,38 @@ namespace astia::elf::loader {
                         write_u64(reinterpret_cast<u8*>(location), value);
                     }
                 }
+
                 offset += length;
             }
         }
 
         bool tls_seen = false;
+
         for (u16 i = 0; i < header.e_phnum; ++i) {
             if (ph[i].p_type != pt_tls)
                 continue;
+
             if (ph[i].p_filesz > ph[i].p_memsz ||
                 !in_bounds(ph[i].p_offset, ph[i].p_filesz, file_size) ||
                 (ph[i].p_align != 0 && !is_power_of_two(ph[i].p_align)) ||
                 ph[i].p_memsz > static_cast<u64>(~usize{0}))
                 co_return fail(error_t::einval);
+
             if (tls_seen)
                 co_return fail(error_t::einval);
+
             tls_seen = true;
+
             if (ph[i].p_memsz == 0)
                 continue;
+
             const u64 align    = ph[i].p_align == 0 ? 1 : ph[i].p_align;
             u64       tls_span = 0;
+
             if (!checked_align_up(ph[i].p_memsz, align, tls_span) ||
                 tls_span > static_cast<u64>(~usize{0}) - page_size)
                 co_return fail(error_t::einval);
+
             result.tls_offset = ph[i].p_offset;
             result.tls_filesz = ph[i].p_filesz;
             result.tls_memsz  = ph[i].p_memsz;
@@ -800,9 +964,11 @@ namespace astia::elf::loader {
             !vaddr_range_in_load(ph, header.e_phnum, header.e_entry, 1) ||
             header.e_entry - span_start > ~u64{0} - mapped_addr)
             co_return fail(error_t::einval);
+
         if (!fill_image_tables(ph, header.e_phnum, header.e_phoff, ph_bytes, file_size,
                                bias, result))
             co_return fail(error_t::einval);
+
         result.entry =
             reinterpret_cast<void*>(mapped_addr + (header.e_entry - span_start));
         result.base      = mapped;
@@ -810,8 +976,9 @@ namespace astia::elf::loader {
         result.loaded    = type == et_dyn ? kind::dyn : kind::executable;
         result.load_bias = bias;
         result.nsegs     = segment_count;
+
         mapping.dismiss();
+
         co_return result;
     }
-
 } // namespace astia::elf::loader

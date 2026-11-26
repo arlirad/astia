@@ -31,13 +31,17 @@ static ssize_t vector_call(long (*port)(int, uint64_t, const struct iovec*, uint
 
     if (iovcnt < 0 || (uintmax_t) iovcnt > UINT32_MAX) {
         errno = EINVAL;
+
         return -1;
     }
+
     rc = port(fd, FIO_OFF_APPEND, iov, (uint32_t) iovcnt);
     if (rc < 0) {
         errno = (int) -rc;
+
         return -1;
     }
+
     return (ssize_t) rc;
 }
 

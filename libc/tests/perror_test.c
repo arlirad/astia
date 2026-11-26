@@ -21,18 +21,25 @@ static long capture(const char* prefix, int error, char* output, size_t capacity
 
     if (pipe(fds) != 0)
         return -1;
+
     saved = dup(2);
+
     if (saved < 0 || dup2(fds[1], 2) < 0)
         return -1;
+
     close(fds[1]);
 
     errno = error;
+
     perror(prefix);
+
     *after_errno = errno;
-    length = read(fds[0], output, capacity);
+    length       = read(fds[0], output, capacity);
+
     dup2(saved, 2);
     close(saved);
     close(fds[0]);
+
     return length;
 }
 
@@ -42,6 +49,7 @@ static void test_message(const char* prefix, int error, const char* expected) {
     long length;
 
     length = capture(prefix, error, output, sizeof output, &after_errno);
+
     CHECK(length == (long) strlen(expected));
     CHECK(length >= 0 && memcmp(output, expected, strlen(expected)) == 0);
     CHECK(after_errno == error);
@@ -51,12 +59,17 @@ static void test_write_error(void) {
     int saved;
 
     saved = dup(2);
+
     CHECK(saved >= 0);
+
     if (saved < 0)
         return;
+
     close(2);
     clearerr(stderr);
+
     errno = EINVAL;
+
     perror("write");
     CHECK(errno == EBADF);
     CHECK(ferror(stderr) != 0);
@@ -78,5 +91,6 @@ int main(void) {
 
     if (fails)
         printf("perror_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

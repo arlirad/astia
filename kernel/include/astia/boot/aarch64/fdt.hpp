@@ -3,7 +3,6 @@
 #include <astia/boot/aarch64/virt.hpp>
 
 namespace astia::boot::aarch64::fdt {
-
     enum class error : u8 {
         none,
         bad_magic,
@@ -39,5 +38,4 @@ namespace astia::boot::aarch64::fdt {
     /// carries only supported fields; on failure its contents are unspecified.
     error parse(const u8* blob, u32 window_size, console_policy console,
                 virt::boot_info& info);
-
 } // namespace astia::boot::aarch64::fdt

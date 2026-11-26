@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::init {
-
     enum class phase : u8 { early, memory, devices, subsystems, late };
 
     struct context;
@@ -31,7 +30,6 @@ namespace astia::init {
 
     bool run_steps(const step* first, const step* last, context& ctx);
     bool run(context& ctx);
-
 } // namespace astia::init
 
 #define ASTIA_INIT_STEP_BASE(phase_, name, fn, needs_arr, after_arr, opt_)                        \

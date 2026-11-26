@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// The register/iret image the x86-64 ISR stubs push.  The asm owns the
     /// layout; this definition is port-private so generic code only sees an
     /// opaque frame handle.
@@ -13,5 +12,4 @@ namespace astia::arch {
         u64 vector, error;
         u64 rip, cs, rflags, rsp, ss;
     };
-
 } // namespace astia::arch

@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// Opaque architecture-owned execution context.  The selected
     /// architecture defines its register layout and allocates it.
     struct context;
@@ -28,9 +27,11 @@ namespace astia::arch {
         void* data() noexcept {
             return storage_;
         }
+
         const void* data() const noexcept {
             return storage_;
         }
+
         u64 stack_pointer() const noexcept;
 
         private:
@@ -62,5 +63,4 @@ namespace astia::arch {
     void context_destroy(context*);
 
     extern "C" void context_switch(context* old_context, const context* next_context);
-
 } // namespace astia::arch

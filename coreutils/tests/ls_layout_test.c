@@ -7,6 +7,7 @@ static int failures;
 static void expect(const char* what, size_t actual, size_t expected) {
     if (actual == expected)
         return;
+
     printf("ls layout test failed: %s: got %lu expected %lu\n", what,
            (unsigned long) actual, (unsigned long) expected);
     ++failures;
@@ -25,9 +26,12 @@ int main(void) {
     expect("rows no columns", cu_ls_row_count(3, 0), 0);
 
     const size_t widths[] = {5, 4, 5, 5};
+
     expect("width column 0", cu_ls_column_width(widths, 4, 2, 0), 5);
     expect("width column 1", cu_ls_column_width(widths, 4, 2, 1), 5);
+
     const size_t uneven[] = {1, 7, 2, 9, 3};
+
     expect("width uneven 0", cu_ls_column_width(uneven, 5, 2, 0), 7);
     expect("width uneven 1", cu_ls_column_width(uneven, 5, 2, 1), 9);
     expect("width uneven 2", cu_ls_column_width(uneven, 5, 2, 2), 3);
@@ -40,6 +44,8 @@ int main(void) {
 
     if (failures != 0)
         return 1;
+
     printf("ls layout tests ok\n");
+
     return 0;
 }

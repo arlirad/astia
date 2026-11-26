@@ -19,6 +19,7 @@
 
 static int fail(const char* what) {
     printf("coreutils test failed: %s\n", what);
+
     return 1;
 }
 
@@ -30,40 +31,54 @@ static int put_file(const char* path, const char* text) {
     FILE* file = fopen(path, "w");
     if (file == NULL)
         return -1;
+
     if (fwrite(text, 1, strlen(text), file) != strlen(text)) {
         fclose(file);
+
         return -1;
     }
+
     return fclose(file);
 }
 
 static int is_file(const char* path) {
     struct stat info;
+
     return stat(path, &info) == 0 && S_ISREG(info.st_mode);
 }
 
 static int is_directory(const char* path) {
     struct stat info;
+
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
 static int has_mode(const char* path, mode_t mode) {
     struct stat info;
+
     return stat(path, &info) == 0 && (info.st_mode & 07777) == mode;
 }
 
 static int file_equals(const char* path, const char* expected) {
-    FILE*  file = fopen(path, "r");
+    FILE* file = fopen(path, "r");
+
     char   buffer[512];
     size_t length;
     size_t actual;
+
     if (file == NULL)
         return 0;
-    actual     = fread(buffer, 1, sizeof buffer, file);
+
+    actual = fread(buffer, 1, sizeof buffer, file);
+
     int at_end = actual < sizeof buffer || fgetc(file) == EOF;
-    length     = strlen(expected);
-    int equal  = at_end && actual == length && memcmp(buffer, expected, length) == 0;
+
+    length = strlen(expected);
+
+    int equal = at_end && actual == length && memcmp(buffer, expected, length) == 0;
+
     fclose(file);
+
     return equal;
 }
 
@@ -72,26 +87,36 @@ static int credential_checks(void) {
     const char* link = "/tmp/coreutils_owner_link";
     struct stat st;
     gid_t       groups[16];
-    int         count = getgroups(0, NULL);
+
+    int count = getgroups(0, NULL);
+
     if (count < 0 || count > 16 || setgroups(-1, groups) != -1 || errno != EINVAL)
         return fail("groups validation");
+
     if (count != 0 && getgroups(count, groups) != count)
         return fail("getgroups");
+
     (void) unlink(file);
     (void) unlink(link);
+
     int fd = open(file, O_CREAT | O_RDWR, 0640);
+
     if (fd < 0 || fstat(fd, &st) != 0 || st.st_uid != getuid() || st.st_gid != getgid()) {
         if (fd >= 0)
             close(fd);
+
         return fail("ownership inheritance");
     }
+
     if (chown(file, getuid(), getgid()) != 0 || symlink(file, link) != 0 ||
         lchown(link, getuid(), getgid()) != 0 || lstat(link, &st) != 0 ||
         !S_ISLNK(st.st_mode))
         return fail("ownership APIs");
+
     close(fd);
     unlink(link);
     unlink(file);
+
     return 0;
 }
 
@@ -99,12 +124,15 @@ static int account_checks(void) {
     struct passwd* root   = getpwnam("root");
     struct passwd* by_uid = getpwuid(0);
     struct group*  users  = getgrnam("users");
-    char           login[32];
+
+    char login[32];
+
     if (root == NULL || by_uid == NULL || users == NULL ||
         strcmp(root->pw_name, "root") != 0 || by_uid->pw_uid != 0 ||
         users->gr_gid != 1000 || getlogin_r(login, sizeof login) != 0 ||
         strcmp(login, "root") != 0)
         return fail("account lookup");
+
     return 0;
 }
 
@@ -115,101 +143,136 @@ static int run_env(const char* name, char* const argv[], const char* input,
                    int expected_status, const char* expected_output, int exact,
                    char* const envp[]) {
     int saved_stdin = -1;
+
     if (input != NULL) {
         if (put_file("/tmp/coreutils_stdin", input) != 0)
             return -1;
+
         int fd = open("/tmp/coreutils_stdin", O_RDONLY);
         if (fd < 0)
             return -1;
+
         saved_stdin = dup(0);
         if (saved_stdin < 0) {
             close(fd);
+
             return -1;
         }
+
         if (dup2(fd, 0) < 0) {
             close(fd);
             close(saved_stdin);
+
             return -1;
         }
+
         close(fd);
     }
+
     char path[64];
+
     if (strlen(argv[0]) + 6 >= sizeof path) {
         if (saved_stdin >= 0) {
             (void) dup2(saved_stdin, 0);
             close(saved_stdin);
         }
+
         return -1;
     }
+
     snprintf(path, sizeof path, "/bin/%s", argv[0]);
 
     int saved_stdout = -1;
     int output_fd    = -1;
+
     if (expected_output != NULL) {
         saved_stdout = dup(1);
         output_fd    = open("/tmp/coreutils_stdout", O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
         if (saved_stdout < 0 || output_fd < 0 || dup2(output_fd, 1) < 0) {
             if (output_fd >= 0)
                 close(output_fd);
+
             if (saved_stdout >= 0) {
                 (void) dup2(saved_stdout, 1);
                 close(saved_stdout);
             }
+
             if (saved_stdin >= 0) {
                 (void) dup2(saved_stdin, 0);
                 close(saved_stdin);
             }
+
             return -1;
         }
+
         close(output_fd);
     }
+
     char* const default_envp[] = {"PATH=/bin", "COREUTILS_TEST=present", NULL};
-    int         child          = spawnve(path, argv, envp == NULL ? default_envp : envp);
+
+    int child = spawnve(path, argv, envp == NULL ? default_envp : envp);
     if (child < 0) {
         if (saved_stdout >= 0)
             (void) dup2(saved_stdout, 1);
+
         if (saved_stdout >= 0)
             close(saved_stdout);
+
         if (saved_stdin >= 0) {
             (void) dup2(saved_stdin, 0);
             close(saved_stdin);
         }
+
         return -1;
     }
+
     int status = 0;
     int ok =
         waitpid(child, &status, 0) == child && ((status >> 8) & 255) == expected_status;
+
     if (saved_stdout >= 0) {
         if (dup2(saved_stdout, 1) < 0)
             ok = 0;
+
         close(saved_stdout);
     }
+
     if (saved_stdin >= 0) {
         if (dup2(saved_stdin, 0) < 0)
             ok = 0;
+
         close(saved_stdin);
     }
+
     if (!ok) {
         printf("run %s: status=%d\n", name, status >> 8 & 255);
+
         return -1;
     }
+
     if (expected_output != NULL &&
         !file_equals("/tmp/coreutils_stdout", expected_output)) {
         if (exact == 0) {
-            FILE* output      = fopen("/tmp/coreutils_stdout", "r");
-            char  actual[512] = {0};
+            FILE* output = fopen("/tmp/coreutils_stdout", "r");
+
+            char actual[512] = {0};
+
             if (output == NULL || fread(actual, 1, sizeof actual - 1, output) == 0 ||
                 strstr(actual, expected_output) == NULL) {
                 if (output != NULL)
                     fclose(output);
+
                 return -1;
             }
+
             fclose(output);
         }
         else {
             return -1;
         }
     }
+
     return 0;
 }
 
@@ -220,89 +283,128 @@ static int run(const char* name, char* const argv[], const char* input,
 
 static int read_all(int fd, char* buffer, size_t capacity) {
     size_t used = 0;
+
     while (used + 1 < capacity) {
         long count = read(fd, buffer + used, capacity - 1 - used);
+
         if (count < 0 && errno == EINTR)
             continue;
+
         if (count <= 0)
             break;
+
         used += (size_t) count;
     }
+
     buffer[used] = '\0';
+
     return 0;
 }
 
 static int is_kernel_log_line(const char* line, size_t length) {
     if (length == 0 || line[0] != '[')
         return 0;
+
     static const char* const markers[] = {" INFO] ", " WARN] ", "ERROR] ", "DEBUG] ",
                                           "PANIC] "};
     const char*              end       = line + length;
+
     for (size_t marker = 0; marker < sizeof markers / sizeof markers[0]; ++marker) {
         size_t marker_length = strlen(markers[marker]);
-        for (const char* cursor = line; cursor + marker_length <= end; ++cursor)
+
+        for (const char* cursor = line; cursor + marker_length <= end; ++cursor) {
             if (memcmp(cursor, markers[marker], marker_length) == 0)
                 return 1;
+        }
     }
+
     return 0;
 }
 
 static void strip_kernel_log(char* text) {
     char* read  = text;
     char* write = text;
+
     while (*read != '\0') {
-        char*  newline = strchr(read, '\n');
-        size_t length  = newline != NULL ? (size_t) (newline - read) + 1 : strlen(read);
+        char* newline = strchr(read, '\n');
+
+        size_t length = newline != NULL ? (size_t) (newline - read) + 1 : strlen(read);
+
         if (!is_kernel_log_line(read, length)) {
             memmove(write, read, length);
+
             write += length;
         }
+
         read += length;
     }
+
     *write = '\0';
 }
 
 static int run_pty(const char* name, char* const argv[], char* const envp[],
                    unsigned short columns, const char* expected_output) {
-    int            master = -1;
-    int            slave  = -1;
+    int master = -1;
+    int slave  = -1;
+
     struct winsize window = {24, columns, 0, 0};
-    char           output[512];
-    char           path[64];
+
+    char output[512];
+    char path[64];
+
     if (openpty(&master, &slave, NULL, NULL, &window) != 0)
         return fail(name);
+
     struct termios settings;
+
     if (tcgetattr(slave, &settings) == 0) {
         settings.c_oflag &= ~OPOST;
         settings.c_lflag &= ~(ECHO | ICANON);
+
         (void) tcsetattr(slave, TCSANOW, &settings);
     }
+
     snprintf(path, sizeof path, "/bin/%s", argv[0]);
+
     int saved_stdout = dup(1);
+
     if (saved_stdout < 0 || dup2(slave, 1) < 0) {
         if (saved_stdout >= 0)
             close(saved_stdout);
+
         close(master);
         close(slave);
+
         return fail(name);
     }
+
     close(slave);
+
     int child = spawnve(path, argv, envp);
+
     (void) dup2(saved_stdout, 1);
     close(saved_stdout);
+
     if (child < 0) {
         close(master);
+
         return fail(name);
     }
+
     read_all(master, output, sizeof output);
     strip_kernel_log(output);
+
     int status = 0;
     int ok     = waitpid(child, &status, 0) == child && ((status >> 8) & 255) == 0;
+
     close(master);
+
     if (!ok || strcmp(output, expected_output) != 0) {
         printf("run %s: status=%d output=[%s]\n", name, status >> 8 & 255, output);
+
         return fail(name);
     }
+
     return 0;
 }
 
@@ -326,21 +428,28 @@ static int id_checks(void) {
     char* id_help[]    = {"id", "--help", NULL};
     char* id_version[] = {"id", "--version", NULL};
     gid_t group        = 1000;
+
     if (check("id newline", id, NULL, 0, "uid=0(root) gid=0(root) groups=0(root)\n", 1) !=
         0)
         return 1;
+
     if (setgroups(1, &group) != 0)
         return fail("id supplementary setup");
+
     int rc = check("id groups newline", id, NULL, 0,
                    "uid=0(root) gid=0(root) groups=0(root),1000(users)\n", 1);
+
     if (setgroups(0, NULL) != 0)
         return fail("id supplementary restore");
+
     if (rc != 0)
         return 1;
+
     if (check("id help newline", id_help, NULL, 0,
               "Usage: id\n\nPrint the effective UID, GID, and supplementary groups.\n",
               1) != 0)
         return 1;
+
     return check("id version newline", id_version, NULL, 0, "id (Astia coreutils) 0.1\n",
                  1);
 }
@@ -348,14 +457,19 @@ static int id_checks(void) {
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
+
     if (credential_checks() != 0)
         return 1;
+
     if (account_checks() != 0)
         return 1;
+
     if (id_checks() != 0)
         return 1;
+
     if (chdir("/bin") != 0)
         return fail("runner chdir");
+
     char* cat_stdin[]         = {"cat", NULL};
     char* cat_files[]         = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* cat_missing[]       = {"cat", "/tmp/coreutils_missing", NULL};
@@ -462,6 +576,7 @@ int main(void) {
     (void) rmdir("/tmp/coreutils_tree_bad");
     /* The minimal initrd need not ship a /tmp directory. */
     (void) mkdir("/tmp", 0777);
+
     if (put_file("/tmp/coreutils_a", "alpha\n") != 0 ||
         put_file("/tmp/coreutils_b", "beta\ngamma\n") != 0 ||
         put_file("/tmp/coreutils_lines", "one\ntwo\nthree\n") != 0 ||
@@ -605,14 +720,20 @@ int main(void) {
                           "uname", "echo",  "env",   "true",     "false",   "mkdir",
                           "rm",    "cp",    "mv",    "grep",     "sort",    "cut",
                           "tee",   "touch", "chmod", "basename", "dirname", NULL};
+
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
+
         if (check("--help", args, NULL, 0, "Usage: ", 0))
             return 1;
+
         args[1] = "--version";
+
         if (check(help[i], args, NULL, 0, "(Astia coreutils) 0.1\n", 0))
             return 1;
     }
+
     printf("coreutils tests ok\n");
+
     return 0;
 }

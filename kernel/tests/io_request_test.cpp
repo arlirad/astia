@@ -3,7 +3,8 @@
 #include <cassert>
 
 namespace {
-    int  wake_count = 0;
+    int wake_count = 0;
+
     void count_wake(void*) {
         ++wake_count;
     }
@@ -12,15 +13,20 @@ namespace {
 int main() {
     astia::core::clsource source;
     const auto            initial_token = source.token();
+
     assert(initial_token.valid());
     assert(!initial_token.canceled());
     assert(source.cancel(astia::core::cancel_reason::detach));
     assert(initial_token.canceled());
     assert(initial_token.reason() == astia::core::cancel_reason::detach);
     assert(!source.cancel(astia::core::cancel_reason::timeout));
+
     const astia::u64 initial_generation = initial_token.generation();
+
     source.reset();
+
     const auto fresh_token = source.token();
+
     assert(fresh_token.valid());
     assert(fresh_token.generation() != initial_generation);
     assert(initial_token.stale());
@@ -60,6 +66,7 @@ int main() {
     // A child created after the parent was cancelled sees it immediately.
     astia::core::clsource late{root};
     const auto            late_token = late.token();
+
     assert(late_token.canceled());
     assert(late_token.reason() == astia::core::cancel_reason::shutdown);
 
@@ -76,6 +83,7 @@ int main() {
     astia::core::clsource child{local};
     const auto            local_token = local.token();
     const auto            child_token = child.token();
+
     child.reset();
     assert(child_token.stale());
     assert(local_token.valid());
@@ -86,6 +94,7 @@ int main() {
     astia::core::clsource parent{grandparent};
     astia::core::clsource leaf{parent};
     const auto            leaf_token = leaf.token();
+
     assert(leaf_token.source() == &leaf);
     assert(parent.cancel(astia::core::cancel_reason::timeout));
     assert(leaf_token.canceled());
@@ -101,14 +110,17 @@ int main() {
     const auto            grandroot_token   = grandroot.token();
     const auto            middle_leaf_token = middle_leaf.token();
     const auto            cousin_token      = cousin.token();
+
     middle.reset();
     assert(middle_leaf_token.stale());
     assert(!grandroot_token.stale());
     assert(!cousin_token.stale());
     assert(!middle.token().stale());
     assert(middle_leaf.token().stale());
+
     // Only a child created in the new epoch is fresh again.
     astia::core::clsource middle_new{middle};
+
     assert(!middle_new.token().stale());
     assert(grandroot.cancel(astia::core::cancel_reason::shutdown));
     assert(cousin_token.canceled());
@@ -119,6 +131,7 @@ int main() {
     // Reset followed by a new cancellation is a fresh epoch and reason.
     astia::core::clsource rearmed;
     const auto            rearmed_old = rearmed.token();
+
     assert(rearmed.cancel(astia::core::cancel_reason::detach));
     rearmed.reset();
     assert(!rearmed.token().canceled());
@@ -131,6 +144,7 @@ int main() {
 
     astia::io::request pre_canceled(nullptr, 0, 0, 0, astia::io::direction::input);
     const auto         request_token = pre_canceled.cancellation_token();
+
     assert(request_token.valid());
     assert(pre_canceled.cancel_device(false, astia::core::cancel_reason::owner));
     assert(pre_canceled.cancellation_requested());
@@ -139,9 +153,12 @@ int main() {
 
     astia::io::generation generations;
     const astia::u64      first = generations.issue();
+
     assert(first == 1);
     assert(generations.current(first));
+
     const astia::u64 second = generations.issue();
+
     assert(generations.current(second));
     assert(!generations.current(first));
     assert(!generations.current(0));
@@ -149,6 +166,7 @@ int main() {
     astia::core::clsource request_source;
 
     astia::io::request request(nullptr, 0, 0, 0, astia::io::direction::input);
+
     request.external_token(request_source.token());
     request.poll_interval_ns(1000);
     assert(request.poll_interval_set());
@@ -160,7 +178,9 @@ int main() {
     assert(!request.poll_wakeup());
     request.generation(17);
     request.wake_handler_set(count_wake, nullptr);
+
     wake_count = 0;
+
     assert(!request.wake(16));
     assert(wake_count == 0);
     assert(request.wake(17));

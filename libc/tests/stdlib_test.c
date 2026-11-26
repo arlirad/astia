@@ -21,7 +21,8 @@ static void test_strtol(void) {
     const char* empty   = "";
     const char* nodigit = "xyz";
     const char* no8     = "888";
-    char        minbuf[32];
+
+    char minbuf[32];
 
     CHECK(strtol("42", &end, 10) == 42 && *end == '\0');
     CHECK(strtol("  -17x", &end, 10) == -17 && strcmp(end, "x") == 0);
@@ -46,9 +47,12 @@ static void test_strtol(void) {
 
     /* saturation */
     errno = 0;
+
     CHECK(strtol("99999999999999999999999999", NULL, 10) == LONG_MAX);
     CHECK(errno == ERANGE);
+
     errno = 0;
+
     CHECK(strtol("-99999999999999999999999999", NULL, 10) == LONG_MIN);
     CHECK(errno == ERANGE);
 
@@ -67,7 +71,9 @@ static void test_strtoul(void) {
     CHECK(strtoul("abc", &end, 16) == 0xabcUL && *end == '\0');
     CHECK(strtoul("42", NULL, 10) == 42);
     CHECK(strtoul("-1", NULL, 10) == ULONG_MAX); /* wraps, per the rules */
+
     errno = 0;
+
     CHECK(strtoul("99999999999999999999999999", NULL, 10) == ULONG_MAX);
     CHECK(errno == ERANGE);
 }
@@ -101,13 +107,15 @@ static int cmp_item(const void* a, const void* b) {
 }
 
 static void check_sorted(const int* a, size_t n, int line) {
-    for (size_t i = 0; i + 1 < n; i++)
+    for (size_t i = 0; i + 1 < n; i++) {
         if (a[i] > a[i + 1]) {
             printf("FAIL stdlib_test:%d: unsorted at %zu (%d > %d)\n", line, i, a[i],
                    a[i + 1]);
             fails++;
+
             return;
         }
+    }
 }
 
 /* same elements in, same elements out — not just "looks sorted" */
@@ -116,21 +124,27 @@ static void check_same_multiset(const int* x, size_t nx, const int* y, size_t ny
     if (nx != ny) {
         printf("FAIL stdlib_test:%d: length %zu vs %zu\n", line, nx, ny);
         fails++;
+
         return;
     }
+
     for (size_t i = 0; i < nx; i++) {
         size_t cx = 0;
         size_t cy = 0;
+
         for (size_t j = 0; j < nx; j++) {
             if (x[j] == x[i])
                 cx++;
+
             if (y[j] == x[i])
                 cy++;
         }
+
         if (cx != cy) {
             printf("FAIL stdlib_test:%d: value %d count %zu vs %zu\n", line, x[i], cx,
                    cy);
             fails++;
+
             return;
         }
     }
@@ -163,13 +177,15 @@ static void test_qsort_bsearch(void) {
                         sizeof equal / sizeof equal[0], __LINE__);
 
     work[0] = 42;
+
     qsort(work, 1, sizeof work[0], cmp_int);
     CHECK(work[0] == 42);
 
     /* element size beyond an int: tags must travel with their keys */
     {
         struct item it[] = {{3, 30}, {1, 10}, {2, 20}, {-5, -50}};
-        size_t      m    = sizeof it / sizeof it[0];
+
+        size_t m = sizeof it / sizeof it[0];
 
         qsort(it, m, sizeof it[0], cmp_item);
         CHECK(it[0].key == -5 && it[0].tag == -50);
@@ -201,15 +217,19 @@ static void test_rand(void) {
     int i;
 
     srand(42);
+
     for (i = 0; i < 32; i++) {
         seq[i] = rand();
+
         CHECK(seq[i] >= 0 && seq[i] <= RAND_MAX);
     }
 
     /* same seed, same sequence */
     srand(42);
-    for (i = 0; i < 32; i++)
+
+    for (i = 0; i < 32; i++) {
         CHECK(rand() == seq[i]);
+    }
 
     /* different seed, different sequence */
     srand(43);
@@ -242,5 +262,6 @@ int main(void) {
 
     if (fails)
         printf("stdlib_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

@@ -13,7 +13,7 @@ namespace astia::plat::aarch64_virt::psci {
                          : "r"(system_off_function)
                          : "x0", "memory");
 
-        for (;;) {
+        while (true) {
             __asm__ volatile("wfe");
         }
     }

@@ -16,11 +16,11 @@ int   memcmp(const void* lhs, const void* rhs, astia::usize count);
 }
 
 namespace astia {
-
     /// Round `value` up to the next multiple of `alignment` (a power of two).
     template <typename value_type, typename alignment_type>
     constexpr value_type align_up(value_type value, alignment_type alignment) {
         const value_type step = static_cast<value_type>(alignment);
+
         return static_cast<value_type>((value + step - 1) & ~(step - 1));
     }
 
@@ -28,6 +28,7 @@ namespace astia {
     template <typename value_type, typename alignment_type>
     constexpr value_type align_down(value_type value, alignment_type alignment) {
         const value_type step = static_cast<value_type>(alignment);
+
         return static_cast<value_type>(value & ~(step - 1));
     }
 
@@ -35,5 +36,4 @@ namespace astia {
     inline void fill_zero(void* dst, usize count) {
         memset(dst, 0, count);
     }
-
 } // namespace astia

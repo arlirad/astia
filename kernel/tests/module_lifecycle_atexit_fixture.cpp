@@ -12,6 +12,7 @@ static void nested_handler(void*) {
 
 static void reentrant() {
     lifecycle_record(302 + reentries++);
+
     if (reentries == 1)
         atexit(reentrant);
 }
@@ -27,7 +28,9 @@ lifecycle_object object;
 
 int module_main() {
     lifecycle_record(300);
+
     reentries = 0;
+
     return atexit(reentrant) == 0 &&
                    __cxa_atexit(nested_handler, nullptr, __dso_handle) == 0
                ? 38

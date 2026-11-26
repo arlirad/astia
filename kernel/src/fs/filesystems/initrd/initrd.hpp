@@ -7,16 +7,17 @@
 #include <initrd.hpp>
 
 namespace astia::fs::filesystems {
-
     inline constexpr u32 initrd_max_entries = 128;
 
     class initrd_mount final : public mount {
         public:
         bool attach(const initrd::archive& archive);
         bool add(const char* path, astia::span<const u8> data);
+
         bool add(const char* path, const void* data, usize size) {
             return add(path, astia::span<const u8>(static_cast<const u8*>(data), size));
         }
+
         mm::shptr<open_file> open(const char* path, u32 flags) override;
         file_type            node_type(const char* path) const override;
         file_mode            node_mode(const char* path) const override;
@@ -42,6 +43,7 @@ namespace astia::fs::filesystems {
         const char* name() const override {
             return "initrd";
         }
+
         fs::mount* mount(const char* source) const override;
         bool       attach(const initrd::archive& archive);
 
@@ -50,5 +52,4 @@ namespace astia::fs::filesystems {
     };
 
     initrd_filesystem& initrd_type();
-
 } // namespace astia::fs::filesystems

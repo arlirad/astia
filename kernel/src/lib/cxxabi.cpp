@@ -25,29 +25,37 @@ void __cxa_finalize(void* dso_handle) {
 
 int __cxa_guard_acquire(long long* guard) {
     auto* state = reinterpret_cast<unsigned char*>(guard);
+
     if (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 2)
         return 0;
+
     unsigned char expected = 0;
+
     if (__atomic_compare_exchange_n(state, &expected, 1, false, __ATOMIC_ACQUIRE,
                                     __ATOMIC_ACQUIRE))
         return 1;
-    while (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 1)
+
+    while (__atomic_load_n(state, __ATOMIC_ACQUIRE) == 1) {
         astia::arch::cpu::relax();
+    }
+
     return 0;
 }
 
 void __cxa_guard_release(long long* guard) {
     auto* state = reinterpret_cast<unsigned char*>(guard);
+
     __atomic_store_n(state, static_cast<unsigned char>(2), __ATOMIC_RELEASE);
 }
 
 void __cxa_guard_abort(long long* guard) {
     auto* state = reinterpret_cast<unsigned char*>(guard);
+
     __atomic_store_n(state, static_cast<unsigned char>(0), __ATOMIC_RELEASE);
 }
 
 [[noreturn]] void __cxa_pure_virtual() {
-    for (;;) {
+    while (true) {
         astia::arch::cpu::halt();
     }
 }

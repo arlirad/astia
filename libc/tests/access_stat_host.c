@@ -24,11 +24,15 @@ void __astia_test_stat_clear(void) {
 long __astia_fio_statat(int dirfd, const char* path, void* out, uint32_t length,
                         int flags) {
     long rc = __astia_host_fio_statat(dirfd, path, out, length, flags);
+
     if (rc < 0 || !override_active)
         return rc;
+
     astia_stat* value = (astia_stat*) out;
-    value->uid        = override_uid;
-    value->gid        = override_gid;
-    value->mode       = (value->mode & ~0777u) | (override_mode & 0777u);
+
+    value->uid  = override_uid;
+    value->gid  = override_gid;
+    value->mode = (value->mode & ~0777u) | (override_mode & 0777u);
+
     return rc;
 }

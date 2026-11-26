@@ -17,17 +17,15 @@
 
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
-
     struct thread_exit : sys::syscall_handler<thread_exit, sys::syscall_id::thread_exit,
                                               sys::syscall_mode::sync> {
         static i64 invoke(i64 result) {
             auto* self = current_thread();
-            if (self == nullptr) {
+            if (self == nullptr)
                 return -ESRCH;
-            }
+
             self->exit(reinterpret_cast<void*>(static_cast<usize>(result)));
             __builtin_unreachable();
         }
     };
-
 } // namespace astia::proc::syscalls

@@ -34,11 +34,16 @@ long __astia_process_setgroups(int count, const unsigned int* groups) {
     int i;
 
     ++captured_calls;
+
     captured_count = count;
-    for (i = 0; i < count && i < CAPTURE_MAX; ++i)
+
+    for (i = 0; i < count && i < CAPTURE_MAX; ++i) {
         captured_groups[i] = groups[i];
+    }
+
     if (setgroups_error != 0)
         return -setgroups_error;
+
     return 0;
 }
 
@@ -46,12 +51,15 @@ static void reset_capture(void) {
     captured_count  = -1;
     captured_calls  = 0;
     setgroups_error = 0;
+
     memset(captured_groups, 0, sizeof captured_groups);
 }
 
 static void use_database(const char* path) {
     endgrent();
+
     database_path = path;
+
     reset_capture();
 }
 
@@ -60,18 +68,24 @@ static int create_fixture(char* path, const char* contents) {
     int    fd;
 
     strcpy(path, "/tmp/astia-initgroups-XXXXXX");
+
     fd = mkstemp(path);
     if (fd < 0)
         return -1;
+
     if (length != 0 && write(fd, contents, length) != (long) length) {
         close(fd);
         unlink(path);
+
         return -1;
     }
+
     if (close(fd) != 0) {
         unlink(path);
+
         return -1;
     }
+
     return 0;
 }
 
@@ -80,8 +94,10 @@ static void expect_groups(const gid_t* expected, int count) {
 
     CHECK(captured_calls == 1);
     CHECK(captured_count == count);
-    for (i = 0; i < count && i < captured_count; ++i)
+
+    for (i = 0; i < count && i < captured_count; ++i) {
         CHECK(captured_groups[i] == (unsigned int) expected[i]);
+    }
 }
 
 static const char primary_fixture[] = "root:x:0:\n"
@@ -113,12 +129,15 @@ static void test_primary_fixture(void) {
     const gid_t alice_groups[] = {42, 10, 100};
     const gid_t carol_groups[] = {200, 10, 20};
     const gid_t missing_user[] = {55};
-    char        path[64];
+
+    char path[64];
 
     if (create_fixture(path, primary_fixture) != 0) {
         CHECK(0);
+
         return;
     }
+
     use_database(path);
     CHECK(initgroups("alice", 42) == 0);
     expect_groups(alice_groups, 3);
@@ -135,18 +154,23 @@ static void test_primary_fixture(void) {
 
 static void test_max_boundary(void) {
     gid_t expected[] = {16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-    char  path[64];
+
+    char path[64];
 
     if (create_fixture(path, max_fixture) != 0) {
         CHECK(0);
+
         return;
     }
+
     use_database(path);
     CHECK(initgroups("alice", 16) == 0);
     expect_groups(expected, 16);
 
     reset_capture();
+
     errno = 0;
+
     CHECK(initgroups("alice", 100) == -1);
     CHECK(errno == EINVAL);
     CHECK(captured_calls == 0);
@@ -159,7 +183,9 @@ static void test_max_boundary(void) {
 
 static void test_null_user(void) {
     use_database("/tmp/astia-initgroups-unused");
+
     errno = 0;
+
     CHECK(initgroups(NULL, 42) == -1);
     CHECK(errno == EINVAL);
     CHECK(captured_calls == 0);
@@ -167,25 +193,34 @@ static void test_null_user(void) {
 
 static void test_database_failures(void) {
     const gid_t base_only[] = {77};
-    char        missing[64];
-    char        directory[64];
-    int         fd;
+
+    char missing[64];
+    char directory[64];
+    int  fd;
 
     strcpy(missing, "/tmp/astia-initgroups-missing-XXXXXX");
+
     fd = mkstemp(missing);
+
     CHECK(fd >= 0);
+
     if (fd >= 0)
         close(fd);
+
     unlink(missing);
     use_database(missing);
     CHECK(initgroups("alice", 77) == 0);
     expect_groups(base_only, 1);
 
     strcpy(directory, "/tmp/astia-initgroups-dir-XXXXXX");
+
     fd = mkstemp(directory);
+
     CHECK(fd >= 0);
+
     if (fd >= 0)
         close(fd);
+
     unlink(directory);
     CHECK(mkdir(directory, 0700) == 0);
     use_database(directory);
@@ -196,15 +231,20 @@ static void test_database_failures(void) {
 
 static void test_setgroups_error(void) {
     const gid_t alice_groups[] = {42, 10, 100};
-    char        path[64];
+
+    char path[64];
 
     if (create_fixture(path, primary_fixture) != 0) {
         CHECK(0);
+
         return;
     }
+
     use_database(path);
+
     setgroups_error = EPERM;
     errno           = 0;
+
     CHECK(initgroups("alice", 42) == -1);
     CHECK(errno == EPERM);
     expect_groups(alice_groups, 3);
@@ -217,5 +257,6 @@ int main(void) {
     test_max_boundary();
     test_database_failures();
     test_setgroups_error();
+
     return failures != 0;
 }

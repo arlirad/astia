@@ -21,7 +21,6 @@ namespace astia::io::aio::runner {
 }
 
 namespace astia::io::aio::ring {
-
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
     inline constexpr u32 parked_slot_count =
         resource_limits::queue::aio_parked_operations;
@@ -104,6 +103,7 @@ namespace astia::io::aio::ring {
         void clear() {
             if (operation != nullptr)
                 operation->release_owner();
+
             operation             = nullptr;
             cancel                = {};
             used                  = false;
@@ -156,11 +156,13 @@ namespace astia::io::aio::ring {
         u32                      waiters;
         atomic<u32>              detached_ops;
         runner::detached_state*  detached_head;
+
         struct pending_detached_cqe {
             u64  user_data;
             i32  result;
             bool used;
         };
+
         pending_detached_cqe pending_detached[aio::kernel_ring_max_entries];
         bool                 detached_reclaim;
         atomic<bool>         reclaiming;
@@ -202,5 +204,4 @@ namespace astia::io::aio::ring {
 
     long setup(u32 entries, u32 flags, astia_rings** out);
     long destroy(astia_rings* ring);
-
 } // namespace astia::io::aio::ring

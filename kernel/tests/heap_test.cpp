@@ -1,11 +1,11 @@
-#include "arena.hpp"
-#include "test.hpp"
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/mm/share.hpp>
 
-namespace {
+#include "arena.hpp"
+#include "test.hpp"
 
+namespace {
     using astia::error_t;
     using astia::mm::heap::alloc;
     using astia::mm::heap::alloc_zeroed;
@@ -25,20 +25,22 @@ namespace {
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
+
             map.add(astia_test::arena_base, astia_test::arena_size,
                     astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
+
             ready = true;
         }
     }
 
     alignas(16) astia::u8 region[64 * 1024];
-
 } // namespace
 
 // Must run before anything configures the heap.
 ASTIA_TEST(heap_before_init_reports_enomem) {
     auto got = alloc(16);
+
     ASTIA_CHECK(!got);
     ASTIA_CHECK(got.error == error_t::enomem);
     ASTIA_CHECK(!astia::mm::heap::ready());
@@ -49,6 +51,7 @@ ASTIA_TEST(heap_configure_and_init) {
     for (astia::usize i = 0; i < sizeof(region); ++i) {
         region[i] = 0xaa;
     }
+
     init_frames();
     astia::mm::heap::configure(region, sizeof(region), fake_map);
     ASTIA_CHECK(astia::mm::heap::init());
@@ -59,6 +62,7 @@ ASTIA_TEST(heap_configure_and_init) {
 
 ASTIA_TEST(heap_alloc_round_trip) {
     auto got = alloc(100);
+
     ASTIA_CHECK(got);
     ASTIA_CHECK((reinterpret_cast<astia::u64>(got.value) % 16) == 0);
     // Plain alloc does not zero: the poison is still there.
@@ -69,19 +73,24 @@ ASTIA_TEST(heap_alloc_round_trip) {
 
 ASTIA_TEST(heap_alloc_zeroed_clears_payload) {
     auto got = alloc_zeroed(64);
+
     ASTIA_CHECK(got);
+
     for (astia::usize i = 0; i < 64; ++i) {
         ASTIA_CHECK(got.value[i] == 0);
     }
+
     free(got.value);
 }
 
 ASTIA_TEST(heap_oom_is_an_error_not_a_panic) {
     auto got = alloc(sizeof(region) * 4);
+
     ASTIA_CHECK(!got);
     ASTIA_CHECK(got.error == error_t::enomem);
 
     auto zero = alloc(0);
+
     ASTIA_CHECK(!zero);
     ASTIA_CHECK(zero.error == error_t::einval);
 }
@@ -90,6 +99,7 @@ ASTIA_TEST(heap_free_coalesces_blocks) {
     auto a = alloc(100);
     auto b = alloc(100);
     auto c = alloc(100);
+
     ASTIA_CHECK(a && b && c);
 
     free(a.value);
@@ -97,6 +107,7 @@ ASTIA_TEST(heap_free_coalesces_blocks) {
 
     // Only the merged a+b block can satisfy this; two 100-byte holes cannot.
     auto big = alloc(150);
+
     ASTIA_CHECK(big);
     ASTIA_CHECK(big.value == a.value);
 
@@ -106,19 +117,22 @@ ASTIA_TEST(heap_free_coalesces_blocks) {
 
 ASTIA_TEST(heap_ignores_foreign_and_double_frees) {
     int on_stack = 0;
+
     free(&on_stack); // outside the region: ignored
     free(nullptr);   // ignored
 
     auto got = alloc(32);
+
     ASTIA_CHECK(got);
     free(got.value);
+
     const auto used_before = astia::mm::heap::used();
+
     free(got.value); // double free: ignored
     ASTIA_CHECK(astia::mm::heap::used() == used_before);
 }
 
 namespace {
-
     struct shared_probe {
         int* destroyed;
 
@@ -126,14 +140,17 @@ namespace {
             ++*destroyed;
         }
     };
-
 }
 
 ASTIA_TEST(shptr_share_releases_value_when_control_block_allocation_fails) {
-    int                destroyed   = 0;
+    int destroyed = 0;
+
     const astia::usize used_before = astia::mm::heap::used();
+
     astia_test::fail_next_allocation();
+
     auto shared = astia::mm::share<shared_probe>(&destroyed);
+
     ASTIA_CHECK(!shared);
     ASTIA_CHECK(destroyed == 1);
     ASTIA_CHECK(astia::mm::heap::used() == used_before);

@@ -21,9 +21,7 @@
 #include <cstdlib>
 
 namespace astia::io::aio::test_support {
-
     namespace detail {
-
         using fs::file_mode;
         using fs::file_type;
         using fs::open_file;
@@ -72,15 +70,19 @@ namespace astia::io::aio::test_support {
                            mm::iovec& out, bool) {
             if (!inside_range(range))
                 return -EFAULT;
+
             if (range.empty())
                 return 0;
+
             return out.append_kernel(range.data(), range.length()) ? 0 : -ENOMEM;
         }
 
         bool copy_in(proc::process*, void* destination, span<u8> source) {
             if (!inside_range(source) || destination == nullptr || source.empty())
                 return false;
+
             __builtin_memcpy(destination, source.data(), source.length());
+
             return true;
         }
 
@@ -88,34 +90,43 @@ namespace astia::io::aio::test_support {
             if (!inside_range(source) || destination.null() || destination.empty() ||
                 source.null())
                 return false;
+
             const usize limit =
                 source.empty() ? destination.length() - 1 : source.length();
             usize length = 0;
+
             while (length < limit && length + 1 < destination.length()) {
-                const char value    = static_cast<char>(source[length]);
+                const char value = static_cast<char>(source[length]);
+
                 destination[length] = value;
+
                 ++length;
+
                 if (value == '\0')
                     return true;
             }
+
             return false;
         }
 
         bool copy_out(proc::process*, span<u8> destination, const void* source) {
             if (!inside_range(destination) || source == nullptr)
                 return false;
+
             if (destination.empty())
                 return true;
+
             __builtin_memcpy(destination.data(), source, destination.length());
+
             return true;
         }
 
         bool realtime_now(u64& sec, u64& nsec) {
             sec  = 100;
             nsec = 0;
+
             return true;
         }
-
     } // namespace detail
 
     using namespace detail;
@@ -132,11 +143,13 @@ namespace astia::io::aio::test_support {
     u32 cq_capture::count() const {
         const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
         const u32 tail = __atomic_load_n(&cq.tail, __ATOMIC_ACQUIRE);
+
         return tail - head;
     }
 
     const astia_cqe* cq_capture::at(u32 index) const {
         const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+
         return &cqes[(head + index) & cq.mask];
     }
 
@@ -150,12 +163,15 @@ namespace astia::io::aio::test_support {
 
     void cq_capture::consume(u32 count) {
         const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+
         __atomic_store_n(&cq.head, head + count, __ATOMIC_RELEASE);
     }
 
     void reset_environment() {
-        for (auto& entry : descriptors)
+        for (auto& entry : descriptors) {
             entry = {};
+        }
+
         open_file_value   = {};
         pipe_read_value   = {};
         pipe_write_value  = {};
@@ -173,10 +189,13 @@ namespace astia::io::aio::test_support {
     void install_current_process() {
         if (current == nullptr)
             current = reinterpret_cast<proc::process*>(process_storage);
+
         if (!descriptors[0].file) {
             auto standard = mm::share<open_file>(mm::shptr<fs::file>{}, 0u);
-            for (i32 fd = 0; fd < 3; ++fd)
+
+            for (i32 fd = 0; fd < 3; ++fd) {
                 descriptors[fd].file = standard;
+            }
         }
     }
 
@@ -189,9 +208,11 @@ namespace astia::io::aio::test_support {
             if (!descriptors[fd].file) {
                 descriptors[fd].file  = file;
                 descriptors[fd].flags = flags;
+
                 return fd;
             }
         }
+
         return -EMFILE;
     }
 
@@ -244,21 +265,22 @@ namespace astia::io::aio::test_support {
     void release_parked(ring::ring_slot& slot) {
         for (u32 i = 0; i < ring::parked_operation_slots; ++i) {
             ring::parked_op& op = slot.park[i];
+
             if (!op.used)
                 continue;
+
             if (!op.done && op.operation != nullptr) {
                 op.operation->request().cancel_device(false,
                                                       core::cancel_reason::shutdown);
                 op.operation->request().acknowledge();
             }
+
             op.clear();
         }
     }
-
 } // namespace astia::io::aio::test_support
 
 namespace astia::io::aio {
-
     const user_memory_adapter& user_memory() {
         static const user_memory_adapter value = {
             ::astia::io::aio::test_support::detail::user_span_ok,
@@ -270,13 +292,12 @@ namespace astia::io::aio {
             ::astia::io::aio::test_support::detail::copy_out,
             ::astia::io::aio::test_support::detail::realtime_now,
         };
+
         return value;
     }
-
 } // namespace astia::io::aio
 
 namespace astia::io::aio::ring {
-
     void ring_lock::acquire() {
         const u32 cpu = arch::cpu::current_index();
         if (cpu < cpu_slots)
@@ -285,6 +306,7 @@ namespace astia::io::aio::ring {
 
     void ring_lock::release() {
         const u32 cpu = arch::cpu::current_index();
+
         if (cpu < cpu_slots && depth[cpu] != 0)
             --depth[cpu];
     }
@@ -301,6 +323,7 @@ namespace astia::io::aio::ring {
     void ring_guard::unlock() {
         if (_held) {
             _lock.release();
+
             _held = false;
         }
     }
@@ -308,6 +331,7 @@ namespace astia::io::aio::ring {
     void ring_guard::release_lock() {
         if (_held) {
             _lock.release();
+
             _held = false;
         }
     }
@@ -315,12 +339,17 @@ namespace astia::io::aio::ring {
     bool cq_post(astia_rings* ring, u64 user_data, i32 result) {
         astia_cq_ring* cq   = astia_rings_cq(ring);
         astia_cqe*     cqes = astia_rings_cqes(ring);
-        const u32      head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-        const u32      tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+
+        const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
+        const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+
         if (tail - head >= cq->entries)
             return false;
+
         cqes[tail & cq->mask] = {user_data, result, 0};
+
         __atomic_store_n(&cq->tail, tail + 1, __ATOMIC_RELEASE);
+
         return true;
     }
 
@@ -333,23 +362,17 @@ namespace astia::io::aio::ring {
     }
 
     void publish_waiter_hint(const ring_slot&, u32, const fs::file*) {}
-
 } // namespace astia::io::aio::ring
 
 namespace astia::io::aio {
-
     void io_device_ready_context(const io_device*) {}
-
 } // namespace astia::io::aio
 
 namespace astia::sys {
-
     void io_device_ready_context(const ::astia::io::aio::io_device*) {}
-
 } // namespace astia::sys
 
 namespace astia::arch {
-
     u64 timer_ticks() {
         return ::astia::io::aio::test_support::detail::timer_ticks_value;
     }
@@ -357,44 +380,41 @@ namespace astia::arch {
     u32 timer_hz() {
         return static_cast<u32>(::astia::io::aio::test_support::detail::timer_hz_value);
     }
-
 } // namespace astia::arch
 
 namespace astia::core {
-
     bool schedule_resume(std::coroutine_handle<>, u64) {
         return false;
     }
 
     void cancel_resume(std::coroutine_handle<>, u64) {}
-
 } // namespace astia::core
 
 namespace astia::mm::heap {
-
     optional<u8*> alloc(usize bytes) {
         if (bytes == 0)
             return error_t::einval;
+
         void* value = std::malloc(bytes);
         if (value == nullptr)
             return error_t::enomem;
+
         return static_cast<u8*>(value);
     }
 
     void free(void* value) {
         std::free(value);
     }
-
 } // namespace astia::mm::heap
 
 namespace astia::mm {
-
     iovec::iovec(iovec&& other) noexcept {
         for (usize i = 0; i < other._count; ++i) {
             _segments[i].base   = other._segments[i].base;
             _segments[i].offset = other._segments[i].offset;
             _segments[i].length = other._segments[i].length;
         }
+
         _count           = other._count;
         _total           = other._total;
         _index           = other._index;
@@ -410,11 +430,13 @@ namespace astia::mm {
     iovec& iovec::operator=(iovec&& other) noexcept {
         if (this != &other) {
             release();
+
             for (usize i = 0; i < other._count; ++i) {
                 _segments[i].base   = other._segments[i].base;
                 _segments[i].offset = other._segments[i].offset;
                 _segments[i].length = other._segments[i].length;
             }
+
             _count           = other._count;
             _total           = other._total;
             _index           = other._index;
@@ -426,6 +448,7 @@ namespace astia::mm {
             other._offset    = 0;
             other._remaining = 0;
         }
+
         return *this;
     }
 
@@ -448,53 +471,67 @@ namespace astia::mm {
     void* iovec::window() const {
         if (_remaining == 0 || _index >= _count)
             return nullptr;
+
         const pinned_segment& segment = _segments[_index];
+
         return segment.base + segment.offset + _offset;
     }
 
     usize iovec::chunk() const {
         if (_remaining == 0 || _index >= _count)
             return 0;
+
         const pinned_segment& segment = _segments[_index];
-        const usize           left    = segment.length - _offset;
+
+        const usize left = segment.length - _offset;
+
         return left < _remaining ? left : _remaining;
     }
 
     usize iovec::advance(usize bytes) {
         usize moved = 0;
+
         while (moved < bytes && _remaining != 0 && _index < _count) {
             const usize take = chunk();
             if (take == 0)
                 break;
+
             const usize step = take < bytes - moved ? take : bytes - moved;
+
             _offset += step;
             _remaining -= step;
             moved += step;
+
             if (_offset == _segments[_index].length) {
                 ++_index;
+
                 _offset = 0;
             }
         }
+
         return moved;
     }
 
     bool iovec::append_kernel(void* address, usize length) {
         if (_count >= max_segments || length == 0)
             return _count < max_segments;
+
         pinned_segment& segment = _segments[_count];
-        segment.base            = static_cast<u8*>(address);
-        segment.offset          = 0;
-        segment.length          = length;
+
+        segment.base   = static_cast<u8*>(address);
+        segment.offset = 0;
+        segment.length = length;
+
         ++_count;
+
         _total += length;
         _remaining += length;
+
         return true;
     }
-
 } // namespace astia::mm
 
 namespace astia::proc {
-
     process* current_process() {
         return ::astia::io::aio::test_support::detail::current;
     }
@@ -510,6 +547,7 @@ namespace astia::proc {
     mm::shptr<fs::open_file> process::descriptor(fd_t fd) const {
         if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
             return {};
+
         return ::astia::io::aio::test_support::detail::descriptors[fd.value].file;
     }
 
@@ -521,15 +559,19 @@ namespace astia::proc {
                                  u32 flags) {
         if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
             return false;
+
         ::astia::io::aio::test_support::detail::descriptors[fd.value].file  = value;
         ::astia::io::aio::test_support::detail::descriptors[fd.value].flags = flags;
+
         return true;
     }
 
     bool process::clear_descriptor(fd_t fd) {
         if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
             return false;
+
         ::astia::io::aio::test_support::detail::descriptors[fd.value] = {};
+
         return true;
     }
 
@@ -541,21 +583,25 @@ namespace astia::proc {
         if (!::astia::io::aio::test_support::is_valid_fd(old_fd.value) ||
             !::astia::io::aio::test_support::detail::descriptors[old_fd.value].file)
             return error_t::ebadf;
+
         for (i32 fd = minimum.value; fd < static_cast<i32>(max_process_fds); ++fd) {
             if (!::astia::io::aio::test_support::detail::descriptors[fd].file) {
                 ::astia::io::aio::test_support::detail::descriptors[fd].file =
                     ::astia::io::aio::test_support::detail::descriptors[old_fd.value]
                         .file;
                 ::astia::io::aio::test_support::detail::descriptors[fd].flags = flags;
+
                 return fd_t{fd};
             }
         }
+
         return error_t::emfile;
     }
 
     u32 process::descriptor_flags(fd_t fd) const {
         if (!::astia::io::aio::test_support::is_valid_fd(fd.value))
             return 0;
+
         return ::astia::io::aio::test_support::detail::descriptors[fd.value].flags;
     }
 
@@ -563,7 +609,9 @@ namespace astia::proc {
         if (!::astia::io::aio::test_support::is_valid_fd(fd.value) ||
             !::astia::io::aio::test_support::detail::descriptors[fd.value].file)
             return false;
+
         ::astia::io::aio::test_support::detail::descriptors[fd.value].flags = flags;
+
         return true;
     }
 
@@ -572,23 +620,32 @@ namespace astia::proc {
             !::astia::io::aio::test_support::is_valid_fd(new_fd.value) ||
             !::astia::io::aio::test_support::detail::descriptors[old_fd.value].file)
             return error_t::ebadf;
+
         ::astia::io::aio::test_support::detail::descriptors[new_fd.value].file =
             ::astia::io::aio::test_support::detail::descriptors[old_fd.value].file;
         ::astia::io::aio::test_support::detail::descriptors[new_fd.value].flags =
             ::astia::io::aio::test_support::detail::descriptors[old_fd.value].flags;
+
         return new_fd;
     }
 
     i64 process::compose_path(const char* path, span<char> buffer) const {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
+
         usize length = 0;
-        while (path[length] != '\0')
+
+        while (path[length] != '\0') {
             ++length;
+        }
+
         if (length + 1 > buffer.length())
             return -ENAMETOOLONG;
-        for (usize i = 0; i <= length; ++i)
+
+        for (usize i = 0; i <= length; ++i) {
             buffer[i] = path[i];
+        }
+
         return static_cast<i64>(length);
     }
 
@@ -599,17 +656,17 @@ namespace astia::proc {
     bool process::in_group(gid_t group) const {
         return group.value == _gid;
     }
-
 } // namespace astia::proc
 
 namespace astia::fs {
-
     open_file::~open_file() {}
 
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
             return -EINVAL;
+
         *offset = 0;
+
         return 0;
     }
 
@@ -620,14 +677,19 @@ namespace astia::fs {
     u32 open_file::poll(u32 events) const {
         if (!_parent)
             return 0;
+
         auto contract = _parent->as_pollable();
         if (contract)
             return contract->poll(events, _flags);
+
         u32 ready = 0;
+
         if (_parent->as_readable())
             ready |= POLLIN;
+
         if (_parent->as_writable())
             ready |= POLLOUT;
+
         return ready & events;
     }
 
@@ -642,20 +704,26 @@ namespace astia::fs {
     long open_file::truncate(u64 length) {
         if (!_parent)
             return -EBADF;
+
         auto contract = _parent->as_truncatable();
         if (!contract)
             return -EINVAL;
+
         auto result = detail::await_now(contract->truncate(length, {}));
+
         return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
     long open_file::ioctl(u64 request, void* argument, usize size) {
         if (!_parent)
             return -EBADF;
+
         auto contract = _parent->as_ioctlable();
         if (!contract)
             return -ENOTTY;
+
         auto result = detail::await_now(contract->ioctl(request, argument, size, {}));
+
         return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
@@ -690,13 +758,20 @@ namespace astia::fs {
     long resolve_path(const char* path, char* buffer, u32 capacity, bool) {
         if (path == nullptr || buffer == nullptr)
             return -EINVAL;
+
         usize length = 0;
-        while (path[length] != '\0')
+
+        while (path[length] != '\0') {
             ++length;
+        }
+
         if (length + 1 > capacity)
             return -ENAMETOOLONG;
-        for (usize i = 0; i <= length; ++i)
+
+        for (usize i = 0; i <= length; ++i) {
             buffer[i] = path[i];
+        }
+
         return 0;
     }
 
@@ -757,10 +832,13 @@ namespace astia::fs {
     long read_directory(const char*, u64, char* name, u32 capacity, file_type* type) {
         if (name == nullptr || capacity == 0)
             return -EINVAL;
+
         name[0] = 'x';
         name[1] = '\0';
+
         if (type != nullptr)
             *type = ::astia::io::aio::test_support::detail::node_mode.type();
+
         return 1;
     }
 
@@ -768,6 +846,7 @@ namespace astia::fs {
         if (!::astia::io::aio::test_support::detail::pipe_read_value ||
             !::astia::io::aio::test_support::detail::pipe_write_value)
             return error_t::emfile;
+
         return pipe_endpoints{::astia::io::aio::test_support::detail::pipe_read_value,
                               ::astia::io::aio::test_support::detail::pipe_write_value};
     }
@@ -775,7 +854,9 @@ namespace astia::fs {
     long create_unix_socket(mm::shptr<open_file>& out, u32) {
         if (!::astia::io::aio::test_support::detail::socket_value)
             return -EAFNOSUPPORT;
+
         out = ::astia::io::aio::test_support::detail::socket_value;
+
         return 0;
     }
 
@@ -783,23 +864,25 @@ namespace astia::fs {
         if (!::astia::io::aio::test_support::detail::socketpair_first ||
             !::astia::io::aio::test_support::detail::socketpair_second)
             return -EMFILE;
+
         first  = ::astia::io::aio::test_support::detail::socketpair_first;
         second = ::astia::io::aio::test_support::detail::socketpair_second;
+
         return 0;
     }
-
 } // namespace astia::fs
 
 namespace astia::io::aio::ring {
-
     bool park_detached_cqe(ring_slot& slot, u64 user_data, i32 result) {
         for (u32 i = 0; i < kernel_ring_max_entries; ++i) {
             if (slot.pending_detached[i].used)
                 continue;
+
             slot.pending_detached[i] = {user_data, result, true};
+
             return true;
         }
+
         return false;
     }
-
 } // namespace astia::io::aio::ring

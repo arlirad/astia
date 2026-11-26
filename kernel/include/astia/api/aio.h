@@ -556,6 +556,7 @@ static inline uint32_t astia_sq_space(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
     uint32_t       head = __atomic_load_n(&sq->head, __ATOMIC_ACQUIRE);
+
     return sq->entries - (tail - head);
 }
 
@@ -564,8 +565,10 @@ static inline uint32_t astia_sq_space(astia_rings* r) {
 static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
+
     if (tail - __atomic_load_n(&sq->head, __ATOMIC_ACQUIRE) >= sq->entries)
         return NULL;
+
     return &astia_rings_sqes(r)[tail & sq->mask];
 }
 
@@ -574,12 +577,14 @@ static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
 static inline void astia_sq_publish(astia_rings* r, uint32_t n) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
+
     __atomic_store_n(&sq->tail, tail + n, __ATOMIC_RELEASE);
 }
 
 /* Unreaped completions available right now. */
 static inline uint32_t astia_cq_ready(astia_rings* r) {
     astia_cq_ring* cq = astia_rings_cq(r);
+
     return __atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE) -
            __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
 }
@@ -587,9 +592,11 @@ static inline uint32_t astia_cq_ready(astia_rings* r) {
 /* Oldest un-reaped completion, or NULL. */
 static inline astia_cqe* astia_cq_peek(astia_rings* r) {
     astia_cq_ring* cq = astia_rings_cq(r);
+
     if (__atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE) ==
         __atomic_load_n(&cq->head, __ATOMIC_RELAXED))
         return NULL;
+
     return &astia_rings_cqes(r)[cq->head & cq->mask];
 }
 
@@ -597,7 +604,9 @@ static inline astia_cqe* astia_cq_peek(astia_rings* r) {
 static inline void astia_cq_consume(astia_rings* r, uint32_t n) {
     astia_cq_ring* cq   = astia_rings_cq(r);
     uint32_t       head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
+
     __atomic_store_n(&cq->head, head + n, __ATOMIC_RELEASE);
+
     if (n != 0)
         __atomic_store_n(&cq->notify_ack,
                          __atomic_load_n(&cq->notify_generation, __ATOMIC_ACQUIRE),

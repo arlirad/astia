@@ -35,6 +35,7 @@ static void* setter(void* arg) {
     __astia_errno = want;
     if (__astia_errno != want)
         return (void*) 1; /* did not keep its own value */
+
     return NULL;
 }
 
@@ -46,15 +47,19 @@ int main(void) {
 
     if (pthread_create(&t, NULL, setter, (void*) 111L) != 0) {
         printf("FAIL: pthread_create\n");
+
         return 1;
     }
+
     pthread_join(t, &status);
 
     CHECK(status == NULL);     /* the thread saw its own write ... */
     CHECK(__astia_errno == 7); /* ... and it did not touch ours */
 
     __astia_errno = 0; /* leave the slot pristine */
+
     if (fails)
         printf("errno_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }
