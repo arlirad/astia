@@ -993,6 +993,7 @@ namespace astia::fs {
                               ::astia::io::aio::test_support::detail::pipe_write_value};
     }
 
+#ifndef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
     long create_unix_socket(mm::shptr<open_file>& out, u32) {
         if (!::astia::io::aio::test_support::detail::socket_value)
             return -EAFNOSUPPORT;
@@ -1012,6 +1013,7 @@ namespace astia::fs {
 
         return 0;
     }
+#endif
 } // namespace astia::fs
 
 namespace astia::io::aio::ring {
