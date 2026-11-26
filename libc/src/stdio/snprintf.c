@@ -30,6 +30,10 @@ struct sink {
     size_t len;
 };
 
+#define FLOAT_BODY_LIMIT 1000
+#define FLOAT_BODY_SIZE 1002
+#define FLOAT_EXP_RESERVE 7
+
 static void sink_putc(struct sink* s, char c) {
     if (s->buf != NULL && s->len + 1 < s->cap)
         s->buf[s->len] = c;
@@ -95,7 +99,7 @@ static int float_special(double value, int* inf, int* nan) {
 }
 
 static void float_append(char* out, size_t* n, char c) {
-    if (*n < 1000)
+    if (*n < FLOAT_BODY_LIMIT)
         out[(*n)++] = c;
 }
 
@@ -123,8 +127,11 @@ static size_t float_exp_body(char* out, double value, size_t precision, int alte
     int         exponent = 0;
     size_t      n        = 0;
     size_t      i;
-    char        digits[1002];
+    char        digits[FLOAT_BODY_SIZE];
     int         next;
+
+    if (precision > FLOAT_BODY_LIMIT - FLOAT_EXP_RESERVE)
+        precision = FLOAT_BODY_LIMIT - FLOAT_EXP_RESERVE;
 
     if (x == 0.0L) {
         float_append(out, &n, '0');
@@ -214,10 +221,13 @@ static size_t float_fixed_body(char* out, double value, size_t precision, int al
     size_t      n        = 0;
     size_t      i;
     size_t      integer_digits;
-    char        digits[1002];
+    char        digits[FLOAT_BODY_SIZE];
     int         next;
 
     if (x == 0.0L) {
+        if (precision > FLOAT_BODY_LIMIT - 2)
+            precision = FLOAT_BODY_LIMIT - 2;
+
         float_append(out, &n, '0');
 
         if (precision != 0 || alternate)
@@ -279,6 +289,9 @@ static size_t float_fixed_body(char* out, double value, size_t precision, int al
 
     {
         size_t at = integer_digits + ((precision != 0 || alternate) ? 1 : 0);
+
+        if (precision > FLOAT_BODY_LIMIT - 1 - at)
+            precision = FLOAT_BODY_LIMIT - 1 - at;
 
         for (i = 0; i < precision; i++) {
             int digit = (int) work;
@@ -865,7 +878,7 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
         }
         else if (spec == 'a' || spec == 'A' || spec == 'e' || spec == 'E' ||
                  spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G') {
-            char   body_buf[1002];
+            char   body_buf[FLOAT_BODY_SIZE];
             double value = va_arg(ap, double);
             size_t body_len;
             size_t prefix_len;
