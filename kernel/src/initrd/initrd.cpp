@@ -15,6 +15,10 @@ namespace astia::initrd {
         constexpr u8    zstd_magic_1      = 0xb5;
         constexpr u8    zstd_magic_2      = 0x2f;
         constexpr u8    zstd_magic_3      = 0xfd;
+        constexpr u8    zstd_skippable_0  = 0x50;
+        constexpr u8    zstd_skippable_1  = 0x2a;
+        constexpr u8    zstd_skippable_2  = 0x4d;
+        constexpr u8    zstd_skippable_3  = 0x18;
         constexpr u32   cpio_type_mask    = 0170000;
         constexpr u32   cpio_type_regular = 0100000;
         constexpr char  cpio_trailer[]    = "TRAILER!!!";
@@ -187,6 +191,11 @@ namespace astia::initrd {
             p[2] == zstd_magic_2 && p[3] == zstd_magic_3)
             return archive_container::zstd;
 
+        if (image.size() >= 4 && p[0] >= zstd_skippable_0 && p[0] <= 0x5f &&
+            p[1] == zstd_skippable_1 && p[2] == zstd_skippable_2 &&
+            p[3] == zstd_skippable_3)
+            return archive_container::zstd_skippable;
+
         return archive_container::raw;
     }
 
@@ -260,6 +269,10 @@ namespace astia::initrd {
 
     bool each(const archive& a, visit_fn visit, void* ctx) {
         return each_cpio(a, visit, ctx);
+    }
+
+    bool validate(const archive& a) {
+        return each_cpio(a, nullptr, nullptr);
     }
 
     namespace {
