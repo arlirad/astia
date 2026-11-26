@@ -146,6 +146,30 @@ static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
     return 0;
 }
 
+/* Highest mapped address in the image, or zero when a PT_LOAD entry overflows
+   the address space.  Every dynamic table and symbol slot must land below it. */
+static uint64_t image_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t base) {
+    uint64_t end = 0;
+
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type != PT_LOAD)
+            continue;
+
+        const uint64_t start = base + phdr[i].p_vaddr;
+        if (start < base)
+            return 0;
+
+        const uint64_t stop = start + phdr[i].p_memsz;
+        if (stop < start)
+            return 0;
+
+        if (stop > end)
+            end = stop;
+    }
+
+    return end;
+}
+
 /* End of the PT_LOAD segment containing `vaddr`, or zero when no segment
    maps it.  The distance to that end bounds every table the loader indexes. */
 static uint64_t load_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t vaddr) {
@@ -198,6 +222,10 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     if (module->dynamic == 0)
         return -1;
 
+    const uint64_t image_end = image_extent_end(phdr, phnum, base);
+    if (image_end == 0)
+        return -1;
+
     const uint64_t strtab = dyn_tag(module, DT_STRTAB);
     const uint64_t symtab = dyn_tag(module, DT_SYMTAB);
     const uint64_t hash   = dyn_tag(module, DT_HASH);
@@ -247,6 +275,18 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
 
     if (ld_symbol_count(&symbols, &module->symbol_count) != 0)
         return -1;
+
+    /* ld_symbol_count bounds the count by the .dynsym segment; this keeps the
+       final count inside the image as a whole, so lookup_symbol() cannot walk
+       past the mapping even if two PT_LOAD extents disagree. */
+    if (module->symbol_count != 0) {
+        const uint64_t first = (uint64_t) (uintptr_t) module->symtab;
+        const uint64_t bytes = (uint64_t) module->symbol_count * sizeof(Elf64_Sym);
+        const uint64_t last  = first + bytes;
+
+        if (last < first || last > image_end)
+            return -1;
+    }
 
     const uint64_t soname = dyn_tag(module, DT_SONAME);
 
