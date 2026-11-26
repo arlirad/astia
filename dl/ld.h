@@ -76,9 +76,10 @@ enum {
     AT_ENTRY  = 9,
     AT_EXECFN = 31,
     /* astia extensions: the static TLS arena the kernel reserved. */
-    AT_ASTIA_TLS_BASE  = 0x41,
-    AT_ASTIA_TLS_TP    = 0x42,
-    AT_ASTIA_TLS_LIMIT = 0x43,
+    AT_ASTIA_TLS_BASE     = 0x41,
+    AT_ASTIA_TLS_TP       = 0x42,
+    AT_ASTIA_TLS_LIMIT    = 0x43,
+    AT_ASTIA_PAYLOAD_BASE = 0x44,
 };
 
 #define LD_MAX_MODULES 8

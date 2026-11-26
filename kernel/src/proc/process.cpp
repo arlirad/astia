@@ -251,8 +251,26 @@ namespace astia::proc {
             }
 
             // The startup block: argc + argv[] + NULL + envp[] + NULL
-            // + the interpreter-relevant auxv pairs + AT_NULL.
-            const u64 block = sizeof(u64) * (1 + argc + 1 + envc + 1 + 18);
+            // + the interpreter-relevant auxv pairs + AT_NULL.  The auxv
+            // size is derived from the array so adding a pair cannot overrun
+            // the block into the argument strings.
+            const auto info = owner->exec_image();
+            const struct {
+                u64 type;
+                u64 value;
+            } auxv[] = {
+                {3, info.phdr},         // AT_PHDR
+                {4, info.phent},        // AT_PHENT
+                {5, info.phnum},        // AT_PHNUM
+                {7, info.interp},       // AT_BASE
+                {9, info.entry},        // AT_ENTRY
+                {0x41, info.tls_base},  // AT_ASTIA_TLS_BASE
+                {0x42, info.tls_tp},    // AT_ASTIA_TLS_TP
+                {0x43, info.tls_limit}, // AT_ASTIA_TLS_LIMIT
+                {0x44, info.base},      // AT_ASTIA_PAYLOAD_BASE
+            };
+            const u64 block =
+                sizeof(u64) * (1 + argc + 1 + envc + 1) + sizeof(auxv) + 2 * sizeof(u64);
             if (cursor < base + block) {
                 return false;
             }
@@ -284,23 +302,6 @@ namespace astia::proc {
                 return false;
             }
             at += sizeof(u64);
-            // auxv: the interpreter needs the payload's entry, phdr table and
-            // its own load base.  Values are emitted for static images too,
-            // with AT_BASE = 0.
-            const auto info = owner->exec_image();
-            const struct {
-                u64 type;
-                u64 value;
-            } auxv[] = {
-                {3, info.phdr},         // AT_PHDR
-                {4, info.phent},        // AT_PHENT
-                {5, info.phnum},        // AT_PHNUM
-                {7, info.interp},       // AT_BASE
-                {9, info.entry},        // AT_ENTRY
-                {0x41, info.tls_base},  // AT_ASTIA_TLS_BASE
-                {0x42, info.tls_tp},    // AT_ASTIA_TLS_TP
-                {0x43, info.tls_limit}, // AT_ASTIA_TLS_LIMIT
-            };
             for (const auto& entry : auxv) {
                 if (!write_user_u64(owner, base, top, at, entry.type) ||
                     !write_user_u64(owner, base, top, at + sizeof(u64), entry.value))
