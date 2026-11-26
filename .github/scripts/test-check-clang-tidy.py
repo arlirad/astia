@@ -83,7 +83,7 @@ if os.environ.get("SKIP_OUTPUT") == "1":
     return path
 
 
-def check(repo, build, base, head, tidy, flags=None, cwd=None):
+def check(repo, build, base, head, tidy, flags=None, cwd=None, extra=None):
     env = os.environ.copy()
     env["TIDY_RECORD"] = str(repo / "record")
     env.update(flags or {})
@@ -91,6 +91,7 @@ def check(repo, build, base, head, tidy, flags=None, cwd=None):
         [
             sys.executable,
             str(SCRIPTS / "check-clang-tidy.py"),
+            *(extra or []),
             "--root",
             str(repo),
             "--build",
@@ -147,8 +148,7 @@ def test_special_paths_and_hunk_content():
         for invocation in invocations
     ]
     assert any(
-        item["name"] == "kernel/src/λ.cpp"
-        and item["lines"] == [[2, 3]]
+        item["name"] == "kernel/src/λ.cpp" and item["lines"] == [[2, 3]]
         for item in filters[0]
     ), filters
     assert any(
@@ -309,9 +309,9 @@ def test_rename_only_fails_closed_and_modified_rename_analyzed():
         encoding="utf-8",
     )
     edited = commit(repo, "rename with edit")
-    assert git(repo, "diff", "--name-status", base, edited, "--", "kernel/src").startswith(
-        "R"
-    )
+    assert git(
+        repo, "diff", "--name-status", base, edited, "--", "kernel/src"
+    ).startswith("R")
     record = repo / "record"
     if record.exists():
         record.unlink()
@@ -410,6 +410,60 @@ def test_base_trusted_config_ignores_pr_config():
     assert ".clang-tidy" not in config
 
 
+def test_split_line_filter_under_argument_limit():
+    repo = repo_fixture()
+    names = ["kernel/src/alpha.cpp", "kernel/src/beta.cpp", "kernel/src/gamma.cpp"]
+    for name in names:
+        (repo / name).write_text("int base_value;\n", encoding="utf-8")
+    base = commit(repo, "base")
+    for name in names:
+        with (repo / name).open("a", encoding="utf-8") as stream:
+            stream.write("int added_value;\n")
+    head = commit(repo, "whitespace-wide change")
+    result = check(
+        repo,
+        database(repo, names),
+        base,
+        head,
+        fake_tidy(repo),
+        extra=["--line-filter-budget", "300"],
+    )
+    assert result.returncode == 0, result.stdout
+    invocations = [
+        json.loads(line) for line in (repo / "record").read_text().splitlines()
+    ]
+    assert len(invocations) > len(names), invocations
+    by_source = {}
+    for invocation in invocations:
+        source = invocation[-1]
+        raw = next(
+            value.split("=", 1)[1]
+            for value in invocation
+            if value.startswith("-line-filter=")
+        )
+        assert len(raw.encode()) <= 300, (source, len(raw.encode()), raw)
+        chunk = json.loads(raw)
+        assert chunk, invocation
+        by_source.setdefault(source, []).append(chunk)
+    for source in by_source:
+        assert len(by_source[source]) > 1, (source, by_source[source])
+        union = [entry for chunk in by_source[source] for entry in chunk]
+        expected = [
+            entry
+            for name in names
+            for entry in (
+                {"name": name, "lines": [[2, 2]]},
+                {"name": str((repo / name).resolve()), "lines": [[2, 2]]},
+            )
+        ]
+        assert sorted(
+            union, key=lambda entry: (entry["name"], entry["lines"])
+        ) == sorted(expected, key=lambda entry: (entry["name"], entry["lines"])), (
+            source,
+            union,
+        )
+
+
 def main():
     test_special_paths_and_hunk_content()
     test_mixed_header_source_fails_on_header()
@@ -420,6 +474,7 @@ def main():
     test_empty_diff_smoke_and_errors()
     test_real_clang_tidy_finding_with_relative_database()
     test_base_trusted_config_ignores_pr_config()
+    test_split_line_filter_under_argument_limit()
     print("clang-tidy checker tests: passed")
 
 
