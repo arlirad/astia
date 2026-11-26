@@ -124,7 +124,6 @@ namespace astia::io::aio::ring {
 
     void clear_all_armed(ring_slot& slot) {
         const u64 previous = slot.armed_mask.exchange(0, memory_order::acq_rel);
-
         if (previous != 0)
             g_armed_ring_bitmap.fetch_and(~(u64{1} << slot.pool_index),
                                           memory_order::acq_rel);
@@ -347,10 +346,9 @@ namespace astia::io::aio::ring {
         remove_owner_ring(slot);
         __builtin_memset(slot.map, 0, sizeof slot.map);
 
-        slot.user_base  = 0;
-        slot.sq_entries = 0;
-        slot.cq_entries = 0;
-        slot.waiters    = 0;
+        slot.user_base = 0;
+        slot.layout    = {};
+        slot.waiters   = 0;
 
         slot.detached_ops.store(0, memory_order::relaxed);
 
@@ -386,34 +384,10 @@ namespace astia::io::aio::ring {
     }
 
     bool ring_layout_ok(const ring_slot& slot, const astia_rings* ring) {
-        if (ring == nullptr || ring->magic != RINGS_MAGIC ||
-            ring->version != API_VERSION || ring->features != FEAT_SINGLE_MMAP ||
-            ring->sq_entries != slot.sq_entries || ring->cq_entries != slot.cq_entries ||
-            ring->sq_off != sizeof(astia_rings) ||
-            ring->cq_off != ring->sq_off + sizeof(astia_sq_ring) ||
-            ring->sqes_off != ring->cq_off + sizeof(astia_cq_ring) ||
-            ring->cqes_off !=
-                ring->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * slot.sq_entries)
+        if (ring == nullptr || !slot.layout.valid())
             return false;
 
-        const astia_sq_ring* sq = astia_rings_sq(const_cast<astia_rings*>(ring));
-        const astia_cq_ring* cq = astia_rings_cq(const_cast<astia_rings*>(ring));
-
-        if (sq->entries != slot.sq_entries || sq->mask != slot.sq_entries - 1 ||
-            cq->entries != slot.cq_entries || cq->mask != slot.cq_entries - 1)
-            return false;
-
-        const u32 sq_tail =
-            astia::atomic_ref(sq->tail).load(astia::memory_order::acquire);
-        const u32 sq_head =
-            astia::atomic_ref(sq->head).load(astia::memory_order::relaxed);
-        const u32 cq_tail =
-            astia::atomic_ref(cq->tail).load(astia::memory_order::acquire);
-        const u32 cq_head =
-            astia::atomic_ref(cq->head).load(astia::memory_order::relaxed);
-
-        return sq_tail - sq_head <= slot.sq_entries &&
-               cq_tail - cq_head <= slot.cq_entries;
+        return slot.layout.header_matches(slot.map);
     }
 
     long map_ring_for_user(ring_slot& slot, u32 index, proc::process* owner, u64* out) {
@@ -470,8 +444,11 @@ namespace astia::io::aio::ring {
         slot.user_base = 0;
     }
 
-    void cq_retrigger(ring_slot& slot, astia_rings* ring) {
-        astia_cq_ring* cq = astia_rings_cq(ring);
+    void cq_retrigger(ring_slot& slot) {
+        if (!slot.layout.valid())
+            return;
+
+        astia_cq_ring* cq = slot.layout.cq(slot.map);
 
         const u32 acknowledged =
             astia::atomic_ref(cq->notify_ack).load(astia::memory_order::acquire);
@@ -479,7 +456,7 @@ namespace astia::io::aio::ring {
         if (slot.notify_pending && acknowledged == slot.notify_signaled)
             slot.notify_pending = false;
 
-        if (!slot.notify_pending && astia_cq_ready(ring) != 0 && slot.owner) {
+        if (!slot.notify_pending && slot.layout.cq_pending(slot.map) != 0 && slot.owner) {
             const u32 generation = astia::atomic_ref(cq->notify_generation)
                                        .fetch_add(1, astia::memory_order::acq_rel) +
                                    1;
@@ -510,29 +487,24 @@ namespace astia::io::aio::ring {
         if (storage == nullptr)
             return false;
 
-        astia_rings*   storage_ring = rings_of(*storage);
-        astia_cq_ring* cq           = astia_rings_cq(storage_ring);
-
-        const u32 head = astia::atomic_ref(cq->head).load(astia::memory_order::acquire);
-        const u32 tail = astia::atomic_ref(cq->tail).load(astia::memory_order::relaxed);
-
-        if (tail - head >= cq->entries)
+        if (!storage->layout.post_cqe(storage->map, user_data, result))
             return false;
 
-        astia_cqe* c = &astia_rings_cqes(storage_ring)[tail & cq->mask];
-
-        c->user_data = user_data;
-        c->result    = result;
-        c->flags     = 0;
-
-        astia::atomic_ref(cq->tail).store(tail + 1, astia::memory_order::release);
-        cq_retrigger(*storage, storage_ring);
+        cq_retrigger(*storage);
 
         return true;
     }
 
     bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result) {
         return cq_post(ring, user_data, result);
+    }
+
+    bool cq_has_capacity(const ring_slot& slot, const astia_rings* ring, u32 count) {
+        if (ring == nullptr || !slot.layout.valid() ||
+            !slot.layout.header_matches(slot.map) || count > slot.layout.cq_entries)
+            return false;
+
+        return slot.layout.cq_pending(slot.map) <= slot.layout.cq_entries - count;
     }
 
     long setup(u32 entries, u32 flags, astia_rings** out) {
@@ -588,29 +560,31 @@ namespace astia::io::aio::ring {
 
             add_owner_ring(slot);
 
+            const ring_layout layout = ring_layout::make(sq, cq);
+
+            slot.layout = layout;
+
             astia_rings* r = rings_of(slot);
 
-            r->magic        = RINGS_MAGIC;
-            r->version      = API_VERSION;
-            r->features     = FEAT_SINGLE_MMAP;
-            r->sq_entries   = sq;
-            r->cq_entries   = cq;
-            r->sq_off       = sizeof(astia_rings);
-            r->cq_off       = r->sq_off + sizeof(astia_sq_ring);
-            r->sqes_off     = r->cq_off + sizeof(astia_cq_ring);
-            r->cqes_off     = r->sqes_off + static_cast<u32>(sizeof(astia_sqe)) * sq;
-            slot.sq_entries = sq;
-            slot.cq_entries = cq;
+            r->magic      = RINGS_MAGIC;
+            r->version    = API_VERSION;
+            r->features   = FEAT_SINGLE_MMAP;
+            r->sq_entries = layout.sq_entries;
+            r->cq_entries = layout.cq_entries;
+            r->sq_off     = layout.sq_off;
+            r->cq_off     = layout.cq_off;
+            r->sqes_off   = layout.sqes_off;
+            r->cqes_off   = layout.cqes_off;
 
-            astia_sq_ring* sqp = astia_rings_sq(r);
+            astia_sq_ring* sqp = layout.sq(slot.map);
 
-            sqp->mask    = sq - 1;
-            sqp->entries = sq;
+            sqp->mask    = layout.sq_mask;
+            sqp->entries = layout.sq_entries;
 
-            astia_cq_ring* cqp = astia_rings_cq(r);
+            astia_cq_ring* cqp = layout.cq(slot.map);
 
-            cqp->mask    = cq - 1;
-            cqp->entries = cq;
+            cqp->mask    = layout.cq_mask;
+            cqp->entries = layout.cq_entries;
 
             astia_rings*   visible = r;
             proc::process* owner   = proc::current_process();

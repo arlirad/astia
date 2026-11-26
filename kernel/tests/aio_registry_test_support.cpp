@@ -463,6 +463,21 @@ namespace astia::io::aio::ring {
         return cq_post(ring, user_data, result);
     }
 
+    bool cq_has_capacity(const ring_slot&, const astia_rings* ring, u32 count) {
+        if (ring == nullptr)
+            return false;
+
+        astia_cq_ring* cq = astia_rings_cq(const_cast<astia_rings*>(ring));
+
+        if (count > cq->entries)
+            return false;
+
+        const u32 head = astia::atomic_ref(cq->head).load(astia::memory_order::acquire);
+        const u32 tail = astia::atomic_ref(cq->tail).load(astia::memory_order::relaxed);
+
+        return tail - head <= cq->entries - count;
+    }
+
     u64 ready_generation() {
         return ++::astia::io::aio::test_support::detail::generation_value;
     }

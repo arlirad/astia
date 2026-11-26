@@ -224,6 +224,7 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
+astia_add_host_test(astia_aio_ring_metadata_test aio_ring_metadata_test.cpp)
 file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
 file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
