@@ -11,10 +11,40 @@ public abstract class PkgsrvApplicationException : Exception
     public string Code { get; }
 }
 
+public sealed class AuthenticationRequiredException : PkgsrvApplicationException
+{
+    public AuthenticationRequiredException(string action, string reason)
+        : base("authorization.unauthenticated", $"Authentication required for {action}: {reason}")
+    {
+        Action = action;
+        Reason = reason;
+    }
+
+    public string Action { get; }
+
+    public string Reason { get; }
+}
+
 public sealed class AuthorizationDeniedException : PkgsrvApplicationException
 {
     public AuthorizationDeniedException(string action, string reason)
         : base("authorization.denied", $"Authorization denied for {action}: {reason}")
+    {
+        Action = action;
+        Reason = reason;
+    }
+
+    public string Action { get; }
+
+    public string Reason { get; }
+}
+
+public sealed class AuthorizationUnavailableException : PkgsrvApplicationException
+{
+    public AuthorizationUnavailableException(string action, string reason)
+        : base(
+            "authorization.unavailable",
+            $"Authorization is unavailable for {action}: {reason}")
     {
         Action = action;
         Reason = reason;

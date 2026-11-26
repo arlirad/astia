@@ -42,11 +42,7 @@ public sealed class GetPackageQueryHandler
             PackageAction.Read,
             key,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(nameof(PackageAction.Read), authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Read));
 
         var package = await _repository.FindAsync(key, cancellationToken).ConfigureAwait(false);
 

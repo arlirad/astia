@@ -30,11 +30,7 @@ public sealed class ListPackagesQueryHandler
             PackageAction.Read,
             null,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(nameof(PackageAction.Read), authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Read));
 
         var entries = await _index.SearchAsync(request.Search, cancellationToken).ConfigureAwait(false);
 

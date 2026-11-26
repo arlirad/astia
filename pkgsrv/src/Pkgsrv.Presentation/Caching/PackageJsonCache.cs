@@ -40,11 +40,11 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         Func<CancellationToken, Task<PackageListResponse>> load,
         CancellationToken cancellationToken)
     {
-        await AuthorizeAsync(actor, PackageAction.Read, null, cancellationToken)
+        var verifiedActor = await AuthorizeAsync(actor, PackageAction.Read, null, cancellationToken)
             .ConfigureAwait(false);
 
         var generation = CurrentGeneration();
-        var key = $"pkgsrv:json:{generation}:list:{ActorKey(actor)}:{NormalizeSearch(search)}";
+        var key = $"pkgsrv:json:{generation}:list:{ActorKey(verifiedActor)}:{NormalizeSearch(search)}";
 
         return await GetOrCreateAsync(key, generation, load, cancellationToken)
             .ConfigureAwait(false);
@@ -65,11 +65,11 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         }
 
         var key = PackageKey.Create(name, version);
-        await AuthorizeAsync(actor, PackageAction.Read, key, cancellationToken)
+        var verifiedActor = await AuthorizeAsync(actor, PackageAction.Read, key, cancellationToken)
             .ConfigureAwait(false);
 
         var generation = CurrentGeneration();
-        var cacheKey = $"pkgsrv:json:{generation}:package:{ActorKey(actor)}:{key.Name.Value}@{key.Version}";
+        var cacheKey = $"pkgsrv:json:{generation}:package:{ActorKey(verifiedActor)}:{key.Name.Value}@{key.Version}";
 
         return await GetOrCreateAsync(cacheKey, generation, load, cancellationToken)
             .ConfigureAwait(false);
@@ -80,7 +80,7 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         Interlocked.Increment(ref _generation);
     }
 
-    private async Task AuthorizeAsync(
+    private async Task<AuthorizationContext> AuthorizeAsync(
         AuthorizationContext actor,
         PackageAction action,
         PackageKey? package,
@@ -89,11 +89,9 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         var authorization = await _authorization
             .AuthorizeAsync(actor, action, package, cancellationToken)
             .ConfigureAwait(false);
+        authorization.EnsureAuthorized(action.ToString());
 
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(action.ToString(), authorization.Reason);
-        }
+        return authorization.VerifiedContext ?? actor;
     }
 
     private async Task<string> GetOrCreateAsync<TResponse>(
