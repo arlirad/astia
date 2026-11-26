@@ -376,7 +376,9 @@ if(ASTIA_BUILD_TESTS)
             nvme_polling_module
             virtio_blk_module
             usb_module
-            rtl8139_module)
+            rtl8139_module
+            ps2_keyboard_module
+            astia_ps2_keyboard_iso)
         if(TARGET ${_astia_qemu_target})
             add_dependencies(astia_qemu_test_artifacts ${_astia_qemu_target})
         endif()
@@ -402,7 +404,10 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             usb_unit_target
-            rtl8139_unit_target)
+            rtl8139_unit_target
+            ps2_controller_unit_target
+            ps2_scancode_unit_target
+            ps2_keyboard_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -420,7 +425,10 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             usb_unit_target
-            rtl8139_unit_target)
+            rtl8139_unit_target
+            ps2_controller_unit_target
+            ps2_scancode_unit_target
+            ps2_keyboard_unit_target)
 
     add_test(NAME astia_module_host_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
