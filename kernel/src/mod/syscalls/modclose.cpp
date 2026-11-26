@@ -41,3 +41,16 @@ namespace astia::mod::syscalls {
     };
 
 } // namespace astia::mod::syscalls
+
+#if defined(ASTIA_MODULE_HOST_TEST)
+namespace {
+    struct modclose_host_registration {
+        modclose_host_registration() {
+            (void) astia::sys::register_descriptor(
+                &astia::sys::syscall_handler<
+                    astia::mod::syscalls::modclose, astia::sys::syscall_id::modclose,
+                    astia::sys::syscall_mode::async>::descriptor);
+        }
+    } modclose_host_registration_instance;
+} // namespace
+#endif
