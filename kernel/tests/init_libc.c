@@ -1052,15 +1052,32 @@ static int libc_tcflush_contract(void) {
         result[0] != 'o' || result[1] != 'k')
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCOFLUSH) != -1 || errno != ENOSYS)
+    if (tcflush(slave, TCOFLUSH) != 0)
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCIOFLUSH) != -1 || errno != ENOSYS)
+    if (write(slave, "abc", 3) != 3 || tcflush(slave, TCOFLUSH) != 0)
         return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
+
+    if (write(master, "old", 3) != 3 || write(slave, "abc", 3) != 3 ||
+        tcflush(slave, TCIOFLUSH) != 0)
+        return 28;
+
+    if (read(slave, result, sizeof result) != 0)
+        return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
 
     errno = 0;
 

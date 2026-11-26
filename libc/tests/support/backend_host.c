@@ -511,11 +511,8 @@ long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
             return syscall(SYS_ioctl, fd, TCGETS, storage) < 0 ? -HOST_ERRNO : -ENOTTY;
         }
 
-        if (selector == TCIFLUSH)
+        if (selector == TCIFLUSH || selector == TCOFLUSH || selector == TCIOFLUSH)
             return 0;
-
-        if (selector == TCOFLUSH || selector == TCIOFLUSH)
-            return -ENOSYS;
 
         return -EINVAL;
     }
