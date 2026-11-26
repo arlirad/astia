@@ -58,10 +58,7 @@ namespace astia::dev {
         const pio_bus* _bus = nullptr;
     };
 
-    /// The one narrow window the platform exposes.
-    extern pio_bus               ps2_platform_pio;
+    /// The one narrow window the platform exposes. The raw PIO bus and the
+    /// legacy IRQ line stay private to the platform implementation.
     extern const ps2_port_window ps2_platform_ports;
-
-    /// IRQ1 claim/unmask, mirroring the uart16550 platform line.
-    extern irq_line ps2_platform_irq;
 } // namespace astia::dev

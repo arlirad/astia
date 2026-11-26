@@ -1,3 +1,4 @@
+#include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/dev/input_platform.hpp>
@@ -8,6 +9,16 @@
 #include "pic.hpp"
 #include "smp.hpp"
 
+namespace {
+    constinit astia::dev::pio_bus ps2_pio{nullptr,
+                                          astia::arch::x86_64::pio_read8,
+                                          astia::arch::x86_64::pio_read16,
+                                          astia::arch::x86_64::pio_read32,
+                                          astia::arch::x86_64::pio_write8,
+                                          astia::arch::x86_64::pio_write16,
+                                          astia::arch::x86_64::pio_write32};
+}
+
 namespace astia::dev {
     constinit pio_bus               uart16550_platform_pio{nullptr,
                                              arch::x86_64::pio_read8,
@@ -16,14 +27,7 @@ namespace astia::dev {
                                              arch::x86_64::pio_write8,
                                              arch::x86_64::pio_write16,
                                              arch::x86_64::pio_write32};
-    constinit pio_bus               ps2_platform_pio{nullptr,
-                                       arch::x86_64::pio_read8,
-                                       arch::x86_64::pio_read16,
-                                       arch::x86_64::pio_read32,
-                                       arch::x86_64::pio_write8,
-                                       arch::x86_64::pio_write16,
-                                       arch::x86_64::pio_write32};
-    constinit const ps2_port_window ps2_platform_ports{ps2_platform_pio};
+    constinit const ps2_port_window ps2_platform_ports{ps2_pio};
 }
 
 namespace astia::arch::platform {
@@ -77,9 +81,12 @@ namespace astia::arch::x86_64 {
 namespace astia::dev {
     constinit irq_line uart16550_platform_irq{nullptr, arch::x86_64::uart_irq_claim,
                                               arch::x86_64::uart_irq_unmask};
-    constinit irq_line ps2_platform_irq{nullptr, arch::x86_64::ps2_irq_claim,
-                                        arch::x86_64::ps2_irq_unmask,
-                                        arch::x86_64::ps2_irq_claim_guarded};
+}
+
+namespace {
+    constinit astia::dev::irq_line ps2_irq{nullptr, astia::arch::x86_64::ps2_irq_claim,
+                                           astia::arch::x86_64::ps2_irq_unmask,
+                                           astia::arch::x86_64::ps2_irq_claim_guarded};
 }
 
 namespace astia::module {
@@ -91,12 +98,25 @@ namespace astia::module {
         if (!token.valid())
             return false;
 
-        return dev::ps2_platform_irq.claim_guarded(handler, arch::x86_64::ps2_irq_enter,
-                                                   arch::x86_64::ps2_irq_leave, &token);
+        return ps2_irq.claim_guarded(handler, arch::x86_64::ps2_irq_enter,
+                                     arch::x86_64::ps2_irq_leave, &token);
     }
 
     bool ps2_unmask_irq() {
-        return dev::ps2_platform_irq.unmask();
+        return ps2_irq.unmask();
+    }
+
+    bool ps2_release_irq() {
+        (void) arch::mask_irq_handler(1);
+
+        while (!arch::unregister_irq_handler(1)) {
+            if (arch::cpu::in_interrupt())
+                return false;
+
+            arch::cpu::relax();
+        }
+
+        return true;
     }
 } // namespace astia::module
 
