@@ -257,7 +257,8 @@ python -m pip install clang-format==18.1.8
 .github/scripts/check-format.sh
 ```
 
-The workflow also enforces control-statement layout: a blank line before and
+The workflow also enforces the repository statement, brace, declaration, and
+namespace layout rules: a blank line before and
 after every `if`, `for`, `while`, `switch`, `do`, `try`, or bare `{ ... }`
 block that stands on its own line (a block-level `return` only needs a blank line before it, and an `if` checking the variable assigned directly above (`x`, `!x`, `x == nullptr`, `x != nullptr`, `x < 0`, …) is kept attached, with any blank line between them removed), and no
 braces around single-statement `if`/`else` bodies. `for`, `while`, and `do`
