@@ -70,31 +70,28 @@ ASTIA_TEST(string_views_are_length_delimited) {
     const char same[]     = {'a', '\0', 'b'};
     const char shorter[]  = {'a', '\0'};
 
-    ASTIA_CHECK(astia::string_equal({embedded, sizeof(embedded)}, {same, sizeof(same)}));
-    ASTIA_CHECK(
-        !astia::string_equal({embedded, sizeof(embedded)}, {shorter, sizeof(shorter)}));
-    ASTIA_CHECK(astia::string_equal({}, {nullptr, 0}));
-    ASTIA_CHECK(!astia::string_equal({nullptr, 1}, {nullptr, 1}));
-    ASTIA_CHECK(!astia::string_starts_with({nullptr, 1}, {}));
+    const astia::string_view embedded_view{embedded, sizeof(embedded)};
+    const astia::string_view same_view{same, sizeof(same)};
+    const astia::string_view shorter_view{shorter, sizeof(shorter)};
+    const astia::string_view invalid_view{nullptr, 1};
+
+    ASTIA_CHECK(embedded_view.equals(same_view));
+    ASTIA_CHECK(!embedded_view.equals(shorter_view));
+    ASTIA_CHECK(astia::string_view{}.equals({nullptr, 0}));
+    ASTIA_CHECK(!invalid_view.equals(invalid_view));
+    ASTIA_CHECK(!invalid_view.starts_with({}));
 }
 
-ASTIA_TEST(c_string_equal_compares_nul_terminated_bytes) {
-    ASTIA_CHECK(astia::string_equal("path", "path"));
-    ASTIA_CHECK(!astia::string_equal("path", "pata"));
-    ASTIA_CHECK(!astia::string_equal("path", "pat"));
-    ASTIA_CHECK(!astia::string_equal("pat", "path"));
-    ASTIA_CHECK(astia::string_equal("", ""));
-    ASTIA_CHECK(!astia::string_equal("", "x"));
-    ASTIA_CHECK(!astia::string_equal("x", ""));
-    ASTIA_CHECK(!astia::string_equal(nullptr, "x"));
-    ASTIA_CHECK(!astia::string_equal("x", nullptr));
-    ASTIA_CHECK(!astia::string_equal(nullptr, nullptr));
-
-    // The C-string and string_view overloads stay callable side by side.
+ASTIA_TEST(c_string_views_are_constructed_explicitly) {
     const char value[] = "path";
 
-    ASTIA_CHECK(
-        astia::string_equal({value, sizeof(value) - 1}, {value, sizeof(value) - 1}));
+    const astia::string_view value_view = astia::string_view::from_c_str(value);
+
+    ASTIA_CHECK(value_view.equals({value, sizeof(value) - 1}));
+    ASTIA_CHECK(astia::string_view::from_c_str("").empty());
+    ASTIA_CHECK(astia::string_view::from_c_str("").valid());
+    ASTIA_CHECK(astia::string_view::from_c_str(nullptr).valid());
+    ASTIA_CHECK(astia::string_view::from_c_str(nullptr).empty());
 }
 
 ASTIA_TEST(string_view_prefix_and_ordering) {
@@ -102,28 +99,32 @@ ASTIA_TEST(string_view_prefix_and_ordering) {
     const char prefix[] = "ker";
     const char longer[] = "kernels";
 
-    ASTIA_CHECK(astia::string_starts_with({value, sizeof(value) - 1},
-                                          {prefix, sizeof(prefix) - 1}));
-    ASTIA_CHECK(astia::string_starts_with({}, {}));
-    ASTIA_CHECK(!astia::string_starts_with({prefix, sizeof(prefix) - 1},
-                                           {value, sizeof(value) - 1}));
-    ASTIA_CHECK(astia::string_compare({value, sizeof(value) - 1},
-                                      {longer, sizeof(longer) - 1}) < 0);
-    ASTIA_CHECK(astia::string_compare({longer, sizeof(longer) - 1},
-                                      {value, sizeof(value) - 1}) > 0);
-    ASTIA_CHECK(astia::string_compare({nullptr, 1}, {}) < 0);
+    const astia::string_view value_view{value, sizeof(value) - 1};
+    const astia::string_view prefix_view{prefix, sizeof(prefix) - 1};
+    const astia::string_view longer_view{longer, sizeof(longer) - 1};
+    const astia::string_view invalid_view{nullptr, 1};
+
+    ASTIA_CHECK(value_view.starts_with(prefix_view));
+    ASTIA_CHECK(astia::string_view{}.starts_with({}));
+    ASTIA_CHECK(!prefix_view.starts_with(value_view));
+    ASTIA_CHECK(value_view.compare(longer_view) < 0);
+    ASTIA_CHECK(longer_view.compare(value_view) > 0);
+    ASTIA_CHECK(invalid_view.compare({}) < 0);
 }
 
-ASTIA_TEST(string_before_nul_respects_range_boundary) {
+ASTIA_TEST(string_view_find_nul_respects_range_boundary) {
     const char no_terminator[] = {'x', 'y'};
     const char terminated[]    = {'x', '\0', 'y'};
 
+    const astia::string_view no_terminator_view{no_terminator, sizeof(no_terminator)};
+    const astia::string_view terminated_view{terminated, sizeof(terminated)};
+    const astia::string_view invalid_view{nullptr, 1};
+
     astia::string_view result;
 
-    ASTIA_CHECK(
-        !astia::string_before_nul({no_terminator, sizeof(no_terminator)}, result));
-    ASTIA_CHECK(astia::string_before_nul({terminated, sizeof(terminated)}, result));
+    ASTIA_CHECK(!no_terminator_view.find_nul(result));
+    ASTIA_CHECK(terminated_view.find_nul(result));
     ASTIA_CHECK(result.data == terminated && result.size == 1);
-    ASTIA_CHECK(!astia::string_before_nul({nullptr, 1}, result));
-    ASTIA_CHECK(!astia::string_before_nul({}, result));
+    ASTIA_CHECK(!invalid_view.find_nul(result));
+    ASTIA_CHECK(!astia::string_view{}.find_nul(result));
 }

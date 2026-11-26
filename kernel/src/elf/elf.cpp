@@ -24,7 +24,7 @@ namespace astia::elf::loader {
             const char* name = v.str + sym.st_name;
             string_view name_view;
 
-            if (!string_before_nul({name, v.strsize - sym.st_name}, name_view))
+            if (!string_view{name, v.strsize - sym.st_name}.find_nul(name_view))
                 return false;
 
             out = name_view.data;
@@ -44,7 +44,7 @@ namespace astia::elf::loader {
             const char* name = v.shstr + offset;
             string_view name_view;
 
-            if (!string_before_nul({name, v.shstrsize - offset}, name_view))
+            if (!string_view{name, v.shstrsize - offset}.find_nul(name_view))
                 return false;
 
             out      = name_view.data;
