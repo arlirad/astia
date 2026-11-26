@@ -1633,7 +1633,8 @@ namespace astia::proc {
         (void) child->set_rlimit(RLIMIT_NOFILE, nofile_limit);
         (void) child->set_rlimit(RLIMIT_AS, address_limit);
 
-        child->_tls_tp = _tls_tp;
+        child->_tls_tp     = _tls_tp;
+        child->_exec_image = _exec_image;
 
         if (saved_writable_storage)
             mm::heap::free(saved_writable_storage.value);
