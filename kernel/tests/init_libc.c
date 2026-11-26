@@ -1316,6 +1316,32 @@ static void sigpipe_handler(int signal_number) {
     ++sigpipe_hits;
 }
 
+/* Run one staged payload in a child.  0 means it exited 0, 1 means this boot's
+   initrd does not carry the fixture, -1 means it ran and failed. */
+static int run_staged_fixture(const char* path) {
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) path, NULL};
+
+        execv(path, child_argv);
+        printf("astia: fixture exec failed path=%s errno=%d\n", path, errno);
+        _Exit(144);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child)
+        return -1;
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
+        return 1;
+
+    return status == 0 ? 0 : -1;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
@@ -4514,83 +4540,87 @@ int main(int argc, char** argv) {
        which stamps argc and jumps to the payload's AT_ENTRY; the payload
        exits 0 only if it saw the stamp and a non-zero AT_BASE. */
     {
-        const pid_t child = fork();
-        if (child < 0)
-            return 87;
-
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_main", NULL};
-
-            execv("/bin/interp_main", child_argv);
-            printf("astia: interp exec failed errno=%d\n", errno);
-            _Exit(143); /* fixture not staged in this initrd */
-        }
-
-        int status = 0;
-
-        if (waitpid(child, &status, 0) != child)
+        const int fixture = run_staged_fixture("/bin/interp_main");
+        if (fixture < 0)
             return 88;
 
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 143)
-            ; /* daemond/native initrds do not carry the fixture */
-        else if (status != 0)
-            return 88;
-        else
+        if (fixture == 0)
             printf("astia: interp ok\n");
     }
 
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {
-        const pid_t child = fork();
-        if (child < 0)
+        const int fixture = run_staged_fixture("/bin/interp_link");
+        if (fixture < 0)
             return 89;
 
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_link", NULL};
-
-            execv("/bin/interp_link", child_argv);
-            _Exit(144);
-        }
-
-        int status = 0;
-
-        if (waitpid(child, &status, 0) != child)
-            return 89;
-
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
-            ; /* not staged in this initrd */
-        else if (status != 0)
-            return 89;
-        else
+        if (fixture == 0)
             printf("astia: ld ok\n");
     }
 
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
        recover the load bias from auxv instead of guessing zero. */
     {
-        const pid_t child = fork();
-        if (child < 0)
+        const int fixture = run_staged_fixture("/bin/interp_nophdr");
+        if (fixture < 0)
             return 89;
 
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_nophdr", NULL};
+        if (fixture == 0)
+            printf("astia: ld nophdr ok\n");
+    }
 
-            execv("/bin/interp_nophdr", child_argv);
-            _Exit(144);
+    /* GNU-hash-only images: the payload and libfixture_gnu.so have no
+       DT_HASH, so the symbol counts come from .gnu.hash; the payload's
+       undefined import additionally needs the .dynsym/.dynstr span.
+       libfixture_semihash.so carries both tables and must not be counted
+       from the GNU hash. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_gnu");
+        if (fixture < 0)
+            return 210;
+
+        if (fixture == 0)
+            printf("astia: gnu-hash ok\n");
+    }
+
+    /* R_X86_64_TPOFF32: one slot names the defining library's own TLS block
+       and one names an import owned by another image. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_tpoff32");
+        if (fixture < 0)
+            return 211;
+
+        if (fixture == 0)
+            printf("astia: tpoff32 ok\n");
+    }
+
+    /* A dynamic R_X86_64_RELATIVE whose slot lives in a read-only PT_LOAD:
+       the kernel applies it at load, the interpreter must not write it. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_relative_ro");
+        if (fixture < 0)
+            return 212;
+
+        if (fixture == 0)
+            printf("astia: relative ro ok\n");
+    }
+
+    /* execve() of the same dynamic image is repeatable: every run builds a
+       fresh address space, so stale loader or mapping state shows up on the
+       second run rather than the first. */
+    {
+        int fixture = 0;
+
+        for (int round = 0; round < 2 && fixture == 0; ++round) {
+            fixture = run_staged_fixture("/bin/interp_link");
         }
 
-        int status = 0;
+        if (fixture < 0)
+            return 213;
 
-        if (waitpid(child, &status, 0) != child)
-            return 89;
-
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
-            ; /* not staged in this initrd */
-        else if (status != 0)
-            return 89;
-        else
-            printf("astia: ld nophdr ok\n");
+        if (fixture == 0)
+            printf("astia: exec repeat ok\n");
     }
 
     /* 54: the initrd namespace is immutable: create and mutation calls
