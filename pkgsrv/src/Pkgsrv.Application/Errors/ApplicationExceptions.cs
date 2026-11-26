@@ -59,3 +59,56 @@ public sealed class SourceNotAllowedException : PkgsrvApplicationException
 
     public string Host { get; }
 }
+
+public sealed class PackagePublishException : PkgsrvApplicationException
+{
+    public PackagePublishException(string package, string reason)
+        : base("package.publish-refused", $"Package {package} could not be published: {reason}")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
+}
+
+public sealed class PackageArtifactNotFoundException : PkgsrvApplicationException
+{
+    public PackageArtifactNotFoundException(string package, string contentHash)
+        : base(
+            "package.artifact-not-found",
+            $"Artifact {contentHash} for package {package} was not found.")
+    {
+        Package = package;
+        ContentHash = contentHash;
+    }
+
+    public string Package { get; }
+
+    public string ContentHash { get; }
+}
+
+public sealed class PackageSignatureInvalidException : PkgsrvApplicationException
+{
+    public PackageSignatureInvalidException(string package)
+        : base(
+            "package.signature-invalid",
+            $"Package {package} does not have a valid publishable signature.")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
+}
+
+public sealed class PackageNotPublishedException : PkgsrvApplicationException
+{
+    public PackageNotPublishedException(string package)
+        : base(
+            "package.not-published",
+            $"Package {package} has not been durably published.")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
+}

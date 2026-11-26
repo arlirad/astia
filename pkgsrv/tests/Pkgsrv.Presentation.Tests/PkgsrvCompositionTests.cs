@@ -44,6 +44,21 @@ public sealed class PkgsrvCompositionTests
     }
 
     [Fact]
+    public async Task PkgsrvHost_MapsPublishAndDownloadRoutes()
+    {
+        await using var app = PkgsrvHost.Create([]);
+
+        var routes = ((IEndpointRouteBuilder)app).DataSources
+            .SelectMany(source => source.Endpoints)
+            .OfType<RouteEndpoint>()
+            .Select(endpoint => endpoint.RoutePattern.RawText)
+            .ToArray();
+
+        Assert.Contains("/packages/{name}/{version}/publish", routes);
+        Assert.Contains("/packages/{name}/{version}/download", routes);
+    }
+
+    [Fact]
     public async Task AddPkgsrv_RegistersErviMediatorAndDefaultDenyAuthorization()
     {
         var services = new ServiceCollection();

@@ -12,12 +12,20 @@ public enum BuildExecutionStatus
 public sealed record BuildSandboxRequest(
     PackageKey Package,
     PackageSource Source,
-    BuildPolicy Policy);
+    BuildPolicy Policy,
+    Toolchain? Toolchain = null,
+    ContentHash? ExpectedArtifactHash = null);
 
-public sealed record BuildSandboxResult(BuildExecutionStatus Status, string Detail)
+public sealed record BuildSandboxResult(
+    BuildExecutionStatus Status,
+    string Detail,
+    ContentHash? ArtifactHash = null)
 {
     public static BuildSandboxResult NotExecuted(string detail) =>
         new(BuildExecutionStatus.NotExecuted, detail);
+
+    public static BuildSandboxResult Failed(string detail) =>
+        new(BuildExecutionStatus.Failed, detail);
 }
 
 public interface IBuildSandbox

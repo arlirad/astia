@@ -6,8 +6,10 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
+using Pkgsrv.Application.Features.Packages.Download;
 using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
+using Pkgsrv.Application.Features.Packages.Publish;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -322,6 +324,55 @@ public sealed class PackageEndpointHandlerTests
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
         Assert.Equal(409, problem.ProblemDetails.Status);
+    }
+
+    [Fact]
+    public async Task Publish_ReturnsOkAndPassesActor()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                new PublishPackageResult("widget", "1.2.3", TestPackages.ContentHashValue, "test-signature"))
+        };
+
+        var result = await PackageEndpointHandlers.PublishAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("publisher"),
+            CancellationToken.None);
+
+        var ok = Assert.IsType<Ok<PublishResponse>>(result);
+        Assert.Equal("test-signature", ok.Value!.Signature);
+        var command = Assert.IsType<PublishPackageCommand>(mediator.LastRequest);
+        Assert.Equal("publisher", command.Actor.ActorId);
+    }
+
+    [Fact]
+    public async Task Download_ReturnsBinaryContent()
+    {
+        var content = "artifact"u8.ToArray();
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                new PackageDownloadResult(
+                    "widget",
+                    "1.2.3",
+                    TestPackages.ContentHashValue,
+                    content))
+        };
+
+        var result = await PackageEndpointHandlers.DownloadAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("reader"),
+            CancellationToken.None);
+        var response = await ExecuteAsync(result);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("application/octet-stream", response.ContentType, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("artifact", response.Body);
     }
 
     [Fact]
