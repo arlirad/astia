@@ -22,11 +22,12 @@ namespace astia::dev {
     }
 
     bool virtual_tty::inject_input(u8 byte) {
-        const bool ready = tty_receive(byte);
-        if (ready)
+        const tty_input_result result = tty_receive(byte);
+
+        if (result == tty_input_result::ready)
             tty_input_ready();
 
-        return ready;
+        return result == tty_input_result::ready;
     }
 
     void virtual_tty::bind_ready_file(fs::file* file) {

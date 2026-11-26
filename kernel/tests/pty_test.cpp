@@ -98,3 +98,95 @@ ASTIA_TEST(pty_hangup_returns_eio_and_poll_hup) {
     ASTIA_CHECK(terminal.write(&byte, 1, 0) == -EIO);
     ASTIA_CHECK((terminal.poll(POLLIN, 0) & POLLHUP) != 0);
 }
+
+ASTIA_TEST(pty_master_write_returns_short_count_when_slave_input_queue_full) {
+    astia::dev::pty terminal(4);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    constexpr astia::u32 total = 4096;
+
+    char input[total];
+
+    memset(input, 'w', sizeof input);
+
+    astia::u32 offset       = 0;
+    astia::u32 short_writes = 0;
+
+    while (offset < total) {
+        const long count = terminal.master_write(input + offset, total - offset);
+
+        ASTIA_CHECK(count > 0);
+
+        if (count <= 0)
+            break;
+
+        const astia::u32 accepted = static_cast<astia::u32>(count);
+
+        if (accepted < total - offset)
+            ++short_writes;
+
+        char       output[total]{};
+        const long delivered = terminal.read(output, sizeof output, 0);
+
+        ASTIA_CHECK(delivered == count);
+
+        for (astia::u32 i = 0; i < accepted; ++i) {
+            ASTIA_CHECK(output[i] == 'w');
+        }
+
+        offset += accepted;
+    }
+
+    ASTIA_CHECK(offset == total);
+    ASTIA_CHECK(short_writes != 0);
+}
+
+ASTIA_TEST(pty_master_submit_parks_when_slave_input_queue_full) {
+    astia::dev::pty terminal(5);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    const char byte = 'f';
+
+    astia::u32 queued = 0;
+
+    while (terminal.master_write(&byte, 1) == 1) {
+        ++queued;
+    }
+
+    ASTIA_CHECK(queued > 0);
+
+    char pending = 'z';
+
+    astia::io::request request(&pending, 1, 0, 0, astia::io::direction::output);
+
+    ASTIA_CHECK(terminal.master_submit(request) == 0);
+    ASTIA_CHECK(request.stage() == 1);
+
+    char       drained[4096]{};
+    const long count = terminal.read(drained, sizeof drained, 0);
+
+    ASTIA_CHECK(count == static_cast<long>(queued));
+    ASTIA_CHECK(terminal.master_submit(request) == 1);
+}
+
+ASTIA_TEST(pty_master_write_counts_consumed_flow_control_bytes) {
+    astia::dev::pty terminal(6);
+
+    int lock = 0;
+
+    ASTIA_CHECK(terminal.master_ioctl(TIOCSPTLCK, &lock, sizeof lock) == 0);
+    ASTIA_CHECK(terminal.open_slave());
+
+    const char input[] = {'\x13', 'a', 'b', 'c'};
+
+    ASTIA_CHECK(terminal.master_write(input, sizeof input) ==
+                static_cast<long>(sizeof input));
+
+    const char resume = '\x11';
+
+    ASTIA_CHECK(terminal.master_write(&resume, 1) == 1);
+}
