@@ -3,6 +3,7 @@ using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.Download;
 using Pkgsrv.Application.Features.Packages.Publish;
 using Pkgsrv.Application.Interfaces.Artifacts;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.TestSupport;
@@ -39,6 +40,65 @@ public sealed class PackagePublishDownloadHandlerTests
         Assert.True(harness.Package.Manifest.IsPublishable);
         Assert.Equal(PackageState.Published, harness.Package.State);
         Assert.NotNull(harness.Package.PublishedAt);
+    }
+
+    [Fact]
+    public async Task Publish_Success_NotifiesSignatureThenPublicationStateOnceEach()
+    {
+        var harness = await PublishHarness.CreateAsync();
+        var notifier = new RecordingPackageCacheInvalidationNotifier();
+        var publisher = new TestPublisher();
+        var notificationsAtPublisher = -1;
+        publisher.OnPublish = () =>
+            notificationsAtPublisher = notifier.Invalidations.Count;
+        var handler = harness.CreatePublishHandler(
+            new TestSigner(),
+            publisher,
+            new TestArtifactMetadataStore(),
+            notifier: notifier);
+
+        await handler.Handle(
+            new PublishPackageCommand("widget", "1.2.3", TestPackages.Actor),
+            CancellationToken.None);
+
+        Assert.Equal(1, notificationsAtPublisher);
+        Assert.Equal(2, notifier.Invalidations.Count);
+        Assert.All(notifier.Invalidations, invalidation =>
+        {
+            Assert.Equal(PackageCacheInvalidationScope.Package, invalidation.Scope);
+            Assert.Equal(harness.Package.Key, invalidation.Package);
+        });
+    }
+
+    [Fact]
+    public async Task Publish_FailedExternalPublication_DoesNotEmitPublicationNotification()
+    {
+        var harness = await PublishHarness.CreateAsync();
+        var notifier = new RecordingPackageCacheInvalidationNotifier();
+        var publisher = new TestPublisher
+        {
+            Result = PublishResult.Refused("verification failed")
+        };
+        var notificationsAtPublisher = -1;
+        publisher.OnPublish = () =>
+            notificationsAtPublisher = notifier.Invalidations.Count;
+        var handler = harness.CreatePublishHandler(
+            new TestSigner(),
+            publisher,
+            new TestArtifactMetadataStore(),
+            notifier: notifier);
+
+        await Assert.ThrowsAsync<PackagePublishException>(
+            async () => await handler.Handle(
+                new PublishPackageCommand("widget", "1.2.3", TestPackages.Actor),
+                CancellationToken.None));
+
+        Assert.Equal(1, notificationsAtPublisher);
+        var invalidation = Assert.Single(notifier.Invalidations);
+        Assert.Equal(PackageCacheInvalidationScope.Package, invalidation.Scope);
+        Assert.Equal(harness.Package.Key, invalidation.Package);
+        Assert.Equal(PackageState.BuildRequested, harness.Package.State);
+        Assert.True(harness.Package.Manifest.Signature.IsPublishable);
     }
 
     [Fact]
@@ -444,7 +504,8 @@ public sealed class PackagePublishDownloadHandlerTests
             TestSigner signer,
             TestPublisher publisher,
             TestArtifactMetadataStore metadataStore,
-            TestSignatureVerifier? verifier = null) =>
+            TestSignatureVerifier? verifier = null,
+            RecordingPackageCacheInvalidationNotifier? notifier = null) =>
             new(
                 Repository,
                 ArtifactStore,
@@ -453,7 +514,8 @@ public sealed class PackagePublishDownloadHandlerTests
                 verifier ?? new TestSignatureVerifier(),
                 publisher,
                 Authorization,
-                new TestClock());
+                new TestClock(),
+                notifier);
 
         private async Task InitializeAsync(bool storeArtifact)
         {

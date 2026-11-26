@@ -329,6 +329,8 @@ internal sealed class TestPublisher : IPackagePublisher
 {
     public PublishResult Result { get; set; } = PublishResult.Success();
 
+    public Action? OnPublish { get; set; }
+
     public PackageManifest? LastManifest { get; private set; }
 
     public int Calls { get; private set; }
@@ -340,6 +342,7 @@ internal sealed class TestPublisher : IPackagePublisher
     {
         Calls++;
         LastManifest = manifest;
+        OnPublish?.Invoke();
         return Task.FromResult(Result);
     }
 }
@@ -359,9 +362,18 @@ internal sealed class ThrowingArtifactStore : IArtifactStore
         throw new InvalidOperationException("artifact store failed");
 }
 
-internal sealed class RecordingPackageCacheInvalidator : IPackageCacheInvalidator
+internal sealed class RecordingPackageCacheInvalidationNotifier
+    : IPackageCacheInvalidationNotifier
 {
-    public int Calls { get; private set; }
+    public List<PackageCacheInvalidation> Invalidations { get; } = new();
 
-    public void InvalidateAfterMutation() => Calls++;
+    public int Calls => Invalidations.Count;
+
+    public Task NotifyAsync(
+        PackageCacheInvalidation invalidation,
+        CancellationToken cancellationToken)
+    {
+        Invalidations.Add(invalidation);
+        return Task.CompletedTask;
+    }
 }
