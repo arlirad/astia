@@ -597,6 +597,45 @@ add_custom_command(
 astia_embed_blob(_lifecycle_priority_fixture_cpp
         ${_fix_dir}/module_lifecycle_priority.o module_lifecycle_priority_blob)
 
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_wait.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_wait.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_wait_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_wait_fixture.cpp
+        COMMENT "Compiling ET_REL lifecycle wait fixture"
+)
+astia_embed_blob(_lifecycle_wait_fixture_cpp
+        ${_fix_dir}/module_lifecycle_wait.o module_lifecycle_wait_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_reentrant.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_reentrant.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_reentrant_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_reentrant_fixture.cpp
+        COMMENT "Compiling ET_REL lifecycle reentrant fixture"
+)
+astia_embed_blob(_lifecycle_reentrant_fixture_cpp
+        ${_fix_dir}/module_lifecycle_reentrant.o module_lifecycle_reentrant_blob)
+
+# Compile-only target: these fixtures are normally built by the custom
+# ET_REL commands above, which do not appear in compile_commands.json.  The
+# object library supplies valid compilation-database entries for clang-tidy
+# without linking the fixture symbols into any test binary.
+add_library(astia_module_lifecycle_fixture_compile_db OBJECT
+        module_lifecycle_reentrant_fixture.cpp
+        module_lifecycle_wait_fixture.cpp)
+target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
+        -ffreestanding -fno-pic -fno-pie -mcmodel=large
+        -fno-exceptions -fno-rtti -fno-use-cxa-atexit)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(
@@ -747,17 +786,51 @@ astia_add_host_test(astia_module_lifecycle_test
          ${_lifecycle_dso_fixture_cpp}
         ${_lifecycle_no_fini_fixture_cpp}
          ${_lifecycle_priority_fixture_cpp}
+         ${_lifecycle_wait_fixture_cpp}
+         ${_lifecycle_reentrant_fixture_cpp}
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
          module_cxxabi_host_test.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+         support/resume_queue_host.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/exec.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/reloc.cpp
 )
+target_link_libraries(astia_module_lifecycle_test PRIVATE Threads::Threads)
 target_compile_options(astia_module_lifecycle_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_compile_definitions(astia_module_lifecycle_test PRIVATE
         ASTIA_MODULE_HOST_TEST=1)
 target_link_options(astia_module_lifecycle_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
+
+astia_add_host_test(astia_module_syscall_test
+        module_syscall_test.cpp
+        module_syscall_host.cpp
+        ${_lifecycle_no_fini_fixture_cpp}
+        ${_fixture_dyn_cpp}
+        ${_fixture_exec_cpp}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modopen.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modls.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modstat.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modclose.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/dispatch.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/elf.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/exec.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/reloc.cpp
+)
+target_link_libraries(astia_module_syscall_test PRIVATE Threads::Threads)
+target_compile_options(astia_module_syscall_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_module_syscall_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
+# Discovery walks the astia_syscall_handlers section, which --gc-sections
+# drops for executable targets.  Keep the section only for this test target.
+target_link_options(astia_module_syscall_test PRIVATE
         "-Wl,-no-pie" "-Wl,--gc-sections")
 add_test(NAME astia_kernel_symbol_visibility
         COMMAND ${Python3_EXECUTABLE}

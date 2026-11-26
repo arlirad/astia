@@ -20,7 +20,7 @@
  * Return convention: >= 0 on success, or a negative value from
  * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
  * This tree is a deliberate, repository-only breaking migration: the table is
- * contiguous 0..70 and uname moved from 82 to 70.  There is no legacy 82
+ * contiguous 0..76 and uname moved from 82 to 70.  There is no legacy 82
  * alias; new public calls append from 71.  The API_VERSION constant below
  * versions the AIO ring layout, not the syscall table, and is unchanged by
  * this migration.
@@ -70,7 +70,7 @@ extern "C" {
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, contiguous 0..70.      */
+/* syscall numbers — architecture-independent, contiguous 0..76.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -149,6 +149,10 @@ enum {
     SYS_UNAME                 = 70,
     SYS_DLMAP                 = 71,
     SYS_DLUNMAP               = 72,
+    SYS_MODOPEN               = 73,
+    SYS_MODLS                 = 74,
+    SYS_MODSTAT               = 75,
+    SYS_MODCLOSE              = 76,
 };
 
 /* ------------------------------------------------------------------ */
@@ -235,6 +239,109 @@ enum { ASTIA_DL_INFO_VERSION = 1 };
 
 /* dlmap flags (reserved; must be 0 for now) */
 enum { ASTIA_DL_MAP_SHARED = 0 };
+
+/* ------------------------------------------------------------------ */
+/* module management                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Every module is addressed by a stable slot/generation pair.  A slot is
+ * never reused with its old generation, so a stale handle deterministically
+ * reports -ENOENT instead of aliasing a later module.  `reserved` must be
+ * zero. */
+typedef struct astia_module_id {
+    uint32_t slot;
+    uint32_t reserved;
+    uint64_t generation;
+} astia_module_id;
+
+#define ASTIA_MODULE_SLOT_NONE 0xffffffffu
+
+enum {
+    ASTIA_MODULE_NAME_MAX         = 64,
+    ASTIA_MODULE_PATH_MAX         = 64,
+    ASTIA_MODULE_MAX_DEPENDENCIES = 8,
+    ASTIA_MODULE_LIST_MAX         = 16,
+};
+
+enum {
+    ASTIA_MODULE_INFO_VERSION = 1,
+    ASTIA_MODULE_LIST_VERSION = 1,
+    ASTIA_MODULE_STAT_VERSION = 1,
+};
+
+/* Open flags (reserved; must be 0 for now).  Creating a resident module is
+ * boot policy, not a userspace request. */
+enum { ASTIA_MODULE_OPEN_NONE = 0 };
+
+/* Published module lifecycle state.  Loading/unloading slots are not
+ * published and therefore never appear in a list or stat result. */
+enum {
+    ASTIA_MODULE_STATE_LOADED  = 0,
+    ASTIA_MODULE_STATE_RUNNING = 1,
+    ASTIA_MODULE_STATE_EXITING = 2,
+};
+
+/* Capability and liveness flags of one snapshot. */
+enum {
+    ASTIA_MODULE_FLAG_RUNNING     = 1u << 0,
+    ASTIA_MODULE_FLAG_INITIALIZED = 1u << 1,
+    ASTIA_MODULE_FLAG_RESIDENT    = 1u << 2,
+    ASTIA_MODULE_FLAG_QUIESCING   = 1u << 3,
+    ASTIA_MODULE_FLAG_UNLOADABLE  = 1u << 4,
+};
+
+/* One dependency edge.  `flags` is reserved and currently zero. */
+typedef struct astia_module_dependency {
+    astia_module_id id;
+    uint32_t        flags;
+    uint32_t        reserved;
+} astia_module_dependency;
+
+/* One bounded module list entry.  `size` is sizeof(astia_module_record) and
+ * `version` is ASTIA_MODULE_INFO_VERSION.  `name` is always NUL-terminated. */
+typedef struct astia_module_record {
+    uint32_t        size;
+    uint32_t        version;
+    astia_module_id id;
+    uint32_t        state;
+    uint32_t        flags;
+    uint64_t        image_size;
+    uint32_t        active_refs;
+    uint32_t        dependent_count;
+    uint32_t        dependency_count;
+    uint32_t        reserved;
+    char            name[ASTIA_MODULE_NAME_MAX];
+} astia_module_record;
+
+/* Result of astia_modls().  `count` is the number of records written;
+ * `total` is the number of published modules at snapshot time.  A caller can
+ * pass capacity 0 and a null records pointer to learn `total` first. */
+typedef struct astia_module_list_info {
+    uint32_t size;
+    uint32_t version;
+    uint32_t count;
+    uint32_t total;
+    uint32_t capacity;
+    uint32_t reserved;
+} astia_module_list_info;
+
+/* One stable module snapshot.  `dependency_count` is the total number of
+ * stored edges; `dependencies_written` is how many were copied into the
+ * bounded inline array. */
+typedef struct astia_module_stat {
+    uint32_t                size;
+    uint32_t                version;
+    astia_module_id         id;
+    uint32_t                state;
+    uint32_t                flags;
+    uint64_t                image_size;
+    uint32_t                active_refs;
+    uint32_t                dependent_count;
+    uint32_t                dependency_count;
+    uint32_t                dependencies_written;
+    char                    name[ASTIA_MODULE_NAME_MAX];
+    astia_module_dependency dependencies[ASTIA_MODULE_MAX_DEPENDENCIES];
+} astia_module_stat;
 
 /* ------------------------------------------------------------------ */
 /* constants for the direct-call flag words                            */
@@ -384,6 +491,30 @@ static inline long astia_dlmap(int32_t fd, uint32_t flags, astia_dl_info* info) 
 }
 static inline long astia_dlunmap(uint64_t base) {
     return astia_raw6(SYS_DLUNMAP, (long) base, 0, 0, 0, 0, 0);
+}
+
+/* Loads and publishes the kernel module image at `path`.  Resolution,
+ * permission checks, file type, ELF class and dependency pinning all happen
+ * before publication; a failure leaves no visible module.  Root only. */
+static inline long astia_modopen(const char* path, uint32_t flags, astia_module_id* out) {
+    return astia_raw6(SYS_MODOPEN, (long) path, (long) flags, (long) out, 0, 0, 0);
+}
+/* Copies up to `capacity` bounded module records and always reports the
+ * total published count through `info`.  Root only. */
+static inline long astia_modls(astia_module_record* records, uint32_t capacity,
+                               astia_module_list_info* info) {
+    return astia_raw6(SYS_MODLS, (long) records, (long) capacity, (long) info, 0, 0, 0);
+}
+/* Copies one stable module snapshot, including its bounded dependency
+ * list.  Root only. */
+static inline long astia_modstat(const astia_module_id* id, astia_module_stat* out) {
+    return astia_raw6(SYS_MODSTAT, (long) id, (long) out, 0, 0, 0, 0);
+}
+/* Quiesces and unloads a module, waiting for active references and
+ * dependents to drain.  Running and resident modules are rejected.  Root
+ * only. */
+static inline long astia_modclose(const astia_module_id* id) {
+    return astia_raw6(SYS_MODCLOSE, (long) id, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_lseek(int32_t fd, int64_t offset, int32_t whence) {

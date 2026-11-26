@@ -2,7 +2,7 @@
 
 namespace astia::arch {
 
-    static bool interrupts_enabled = true;
+    static thread_local bool interrupts_enabled = true;
 
     u32 cpu::current_index() {
         return 0;
@@ -20,7 +20,7 @@ namespace astia::arch {
         return interrupts_enabled;
     }
 
-    static bool reschedule_pending = false;
+    static thread_local bool reschedule_pending = false;
 
     void cpu::request_local_reschedule() {
         reschedule_pending = true;

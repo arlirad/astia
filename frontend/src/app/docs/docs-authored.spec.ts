@@ -76,7 +76,7 @@ describe('Authored documentation sources', () => {
     expect(DOC_PAGES.filter((page) => page.group === 'Manual page').length).toBe(7);
 
     const syscalls = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
-    expect(syscalls.length).toBe(73);
+    expect(syscalls.length).toBe(77);
     for (const page of syscalls) {
       const name = page.title.replace(/\(2\)$/, '');
       const folder = page.subsystem === 'proc' ? `proc/${page.category}/` : `${page.subsystem}/`;
@@ -89,6 +89,14 @@ describe('Authored documentation sources', () => {
     expect(
       syscalls.filter((page) => page.subsystem === 'dl').map((page) => page.slug),
     ).toEqual(['syscall-71-dlmap', 'syscall-72-dlunmap']);
+    expect(
+      syscalls.filter((page) => page.subsystem === 'mod').map((page) => page.slug),
+    ).toEqual([
+      'syscall-73-modopen',
+      'syscall-74-modls',
+      'syscall-75-modstat',
+      'syscall-76-modclose',
+    ]);
 
     for (const page of DOC_PAGES) {
       expect('content' in page).toBeFalse();

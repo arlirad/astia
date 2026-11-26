@@ -294,8 +294,20 @@ namespace astia::test {
         bool uname_checks() {
             static_assert(static_cast<u32>(sys::syscall_id::fchdir) == 69);
             static_assert(static_cast<u32>(sys::syscall_id::uname) == 70);
+            static_assert(static_cast<u32>(sys::syscall_id::dlmap) == 71);
+            static_assert(static_cast<u32>(sys::syscall_id::dlunmap) == 72);
+            static_assert(static_cast<u32>(sys::syscall_id::modopen) == 73);
+            static_assert(static_cast<u32>(sys::syscall_id::modls) == 74);
+            static_assert(static_cast<u32>(sys::syscall_id::modstat) == 75);
+            static_assert(static_cast<u32>(sys::syscall_id::modclose) == 76);
             static_assert(SYS_FCHDIR == 69);
             static_assert(SYS_UNAME == 70);
+            static_assert(SYS_DLMAP == 71);
+            static_assert(SYS_DLUNMAP == 72);
+            static_assert(SYS_MODOPEN == 73);
+            static_assert(SYS_MODLS == 74);
+            static_assert(SYS_MODSTAT == 75);
+            static_assert(SYS_MODCLOSE == 76);
             auto call = [](u64 output) -> long {
                 arch::syscall_return image{};
                 return static_cast<long>(sys::dispatch(sys::syscall_id::uname,
@@ -343,9 +355,9 @@ namespace astia::test {
                 return false;
             }
             arch::syscall_return unassigned{};
-            if (sys::dispatch(static_cast<sys::syscall_id>(73), 0, 0, 0, 0, 0, 0,
+            if (sys::dispatch(static_cast<sys::syscall_id>(77), 0, 0, 0, 0, 0, 0,
                               unassigned) != -ENOSYS) {
-                logs::error("syscall id 73 is not unassigned");
+                logs::error("syscall id 77 is not unassigned");
                 return false;
             }
             logs::info("uname ok");
