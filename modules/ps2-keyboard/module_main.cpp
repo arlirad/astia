@@ -3,6 +3,8 @@
 
 #include "ps2_keyboard.hpp"
 
+#include <new>
+
 namespace {
     using logs = astia::log::context<"ps2-keyboard">;
 
@@ -17,9 +19,14 @@ namespace {
 
     constexpr input_sink ttv0_sink{nullptr, ttv0_put};
 
-    constinit ps2_controller                controller{};
-    constinit ps2_keyboard                  keyboard{controller, ttv0_sink};
-    constinit astia::module::lifetime_token lifetime;
+    constinit ps2_controller controller{};
+    constinit ps2_keyboard   keyboard{controller, ttv0_sink};
+
+    // The resident lease lives for the image's whole lifetime. Construct it in
+    // static storage instead of as a namespace-scope object: clang registers a
+    // global destructor through `atexit`, which the module ABI does not import.
+    alignas(astia::module::lifetime_token) unsigned char lifetime_storage[sizeof(
+        astia::module::lifetime_token)];
 
     const char* error_text(ps2_error error) {
         switch (error) {
@@ -96,6 +103,9 @@ int module_main() {
 
     if (result != ps2_error::none)
         return fail(result);
+
+    // The lease is held for the image's lifetime and never destroyed.
+    auto& lifetime = *new (lifetime_storage) astia::module::lifetime_token();
 
     lifetime = astia::module::lifetime_token::acquire();
 
