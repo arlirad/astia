@@ -825,6 +825,65 @@ static void* libc_cancel_sigsuspend_worker(void* opaque) {
     return (void*) (unsigned long) 0x1357;
 }
 
+static volatile int   libc_exit_waitpid_started;
+static volatile pid_t libc_exit_live_child;
+
+static void* libc_exit_waitpid_worker(void* opaque) {
+    (void) opaque;
+
+    int status = 0;
+
+    libc_exit_waitpid_started = 1;
+
+    (void) waitpid((pid_t) libc_exit_live_child, &status, 0);
+
+    return NULL;
+}
+
+static int libc_exit_parked_waiters(void) {
+    int pipe_fds[2];
+
+    pthread_t waitpid_worker;
+    pthread_t signal_worker;
+
+    if (pipe(pipe_fds) != 0)
+        return 1;
+
+    const pid_t live_child = fork();
+    if (live_child < 0)
+        return 2;
+
+    if (live_child == 0) {
+        char byte;
+
+        close(pipe_fds[1]);
+        (void) read(pipe_fds[0], &byte, 1);
+        _Exit(0);
+    }
+
+    close(pipe_fds[0]);
+
+    libc_exit_live_child           = live_child;
+    libc_exit_waitpid_started      = 0;
+    libc_cancel_sigsuspend_started = 0;
+
+    if (pthread_create(&waitpid_worker, NULL, libc_exit_waitpid_worker, NULL) != 0)
+        return 3;
+
+    if (pthread_create(&signal_worker, NULL, libc_cancel_sigsuspend_worker, NULL) != 0)
+        return 4;
+
+    while (!libc_exit_waitpid_started || !libc_cancel_sigsuspend_started) {
+        sched_yield();
+    }
+
+    for (int i = 0; i < 16; ++i) {
+        sched_yield();
+    }
+
+    return 0;
+}
+
 static void* libc_cancel_sem_worker(void* opaque) {
     void* result;
 
@@ -5113,5 +5172,13 @@ int main(int argc, char** argv) {
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,
            argc > 0 ? argv[0] : "-");
 
-    return 0;
+    /* 52: process exit must terminate threads parked in waitpid and a
+       signal wait, otherwise the process never becomes a zombie. */
+    if (libc_exit_parked_waiters() != 0)
+        return 230;
+
+    printf("astia: exit parked waiters start\n");
+    fflush(NULL);
+
+    exit(0);
 }

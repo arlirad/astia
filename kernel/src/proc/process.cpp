@@ -740,6 +740,8 @@ namespace astia::proc {
                     continue;
 
                 value->request_exit();
+                value->request_cancellation();
+                (void) value->wake_wait();
 
                 if (value->state() == thread_state::blocked)
                     wake_list[count++] = value;

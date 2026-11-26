@@ -1686,6 +1686,7 @@ if (ARCH STREQUAL "x86_64")
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
+                "astia: exit parked waiters start"
                 "astia: exec permission ok"
                 "astia: random ok"
                 "astia: interp ok"
