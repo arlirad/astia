@@ -11,6 +11,10 @@ namespace astia::mm {
         void* identity_access(u64 physical) {
             return reinterpret_cast<void*>(static_cast<usize>(physical));
         }
+
+        u64 identity_physical(const void* address) {
+            return reinterpret_cast<u64>(address);
+        }
     }
 
     void frame_allocator::init(const memory_map& map) {
@@ -39,6 +43,9 @@ namespace astia::mm {
 
         if (_access == nullptr)
             _access = identity_access;
+
+        if (_physical == nullptr)
+            _physical = identity_physical;
 
         // Access hooks can be arch callbacks (and may take paging locks), so
         // never invoke one while holding the allocator lock.  The allocator
@@ -78,24 +85,30 @@ namespace astia::mm {
         _ready = true;
     }
 
-    void frame_allocator::configure_access(frame_access_fn access) {
+    void frame_allocator::configure_access(frame_access_fn   access,
+                                           frame_physical_fn physical) {
         arch::interrupt_spinlock_guard guard(_lock);
-        const frame_access_fn selected = access == nullptr ? identity_access : access;
+        const frame_access_fn   selected = access == nullptr ? identity_access : access;
+        const frame_physical_fn inverse =
+            physical == nullptr ? identity_physical : physical;
 
-        const u64 physical = _bitmap_physical;
+        const u64 physical_address = _bitmap_physical;
 
         guard.unlock();
 
         // As in init(), resolve the physical address without the allocator
         // lock: an arch access hook is external code and must not be called
         // in the allocator's critical section.
-        u64* bitmap = physical == 0 ? nullptr : static_cast<u64*>(selected(physical));
+        u64* bitmap = physical_address == 0
+                          ? nullptr
+                          : static_cast<u64*>(selected(physical_address));
 
         arch::interrupt_spinlock_guard publish(_lock);
 
-        _access = selected;
+        _access   = selected;
+        _physical = inverse;
 
-        if (physical != 0)
+        if (physical_address != 0)
             _bitmap = bitmap;
     }
 

@@ -1,5 +1,6 @@
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/module.hpp>
 
 #include "../../device_file.hpp"
 #include "framebuffer_console.hpp"
@@ -49,3 +50,9 @@ namespace astia::dev {
         return accepted;
     }
 } // namespace astia::dev
+
+namespace astia::module {
+    bool tty_input_write(u8 byte) {
+        return dev::virtual_tty_forward_input(byte);
+    }
+} // namespace astia::module

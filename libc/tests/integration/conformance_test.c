@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
 #include <locale.h>
 #include <stdio.h>
@@ -134,6 +135,25 @@ static void test_scan_family(void) {
     CHECK(strcmp(set, "abc") == 0 && count == 3);
     CHECK(sscanf("3.125", "%lf", &value) == 1);
     CHECK(value == 3.125);
+
+    {
+        float fvalue = 0.0f;
+
+        errno = 0;
+
+        CHECK(sscanf("3.5e38", "%f", &fvalue) == 1);
+        CHECK(fvalue > FLT_MAX && errno == ERANGE);
+    }
+
+    if ((long double) LDBL_MAX > (long double) DBL_MAX) {
+        long double ldvalue = 0.0L;
+
+        errno = 0;
+
+        CHECK(sscanf("1e400", "%Lf", &ldvalue) == 1);
+        CHECK(ldvalue > (long double) DBL_MAX && errno == 0);
+    }
+
     CHECK(sscanf("xy", "%2c", set) == 1);
     CHECK(set[0] == 'x' && set[1] == 'y');
 }

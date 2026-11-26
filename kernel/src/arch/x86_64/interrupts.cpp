@@ -93,10 +93,21 @@ namespace astia::arch {
         timer_hook   tick_hook        = nullptr;
         timer_source current_source   = timer_source::pit; // flipped by init_interrupts()
 
-        // One handler per PIC line; null = line claimed by nobody, in
-        // which case the dispatch only EOIs (a latched edge with no
-        // owner is acknowledged and forgotten).
-        irq_handler irq_handlers[16]{};
+        // One binding per PIC line; null handler = line claimed by nobody,
+        // in which case the dispatch only EOIs (a latched edge with no
+        // owner is acknowledged and forgotten). A guarded binding enters
+        // through the module's callback guard before touching module text.
+        struct irq_binding {
+            irq_handler        handler   = nullptr;
+            irq_callback_enter enter     = nullptr;
+            irq_callback_leave leave     = nullptr;
+            void*              context   = nullptr;
+            bool               masked    = false;
+            u32                in_flight = 0;
+        };
+
+        irq_binding    irq_handlers[16]{};
+        core::spinlock irq_lock;
 
         constexpr u32 first_device_vector = 50;
         constexpr u32 last_device_vector  = 254;
@@ -248,10 +259,44 @@ namespace astia::arch {
         if (vector >= pic::irq_base && vector < pic::irq_base + 16) {
             // Driver-owned lines: service first, EOI after, so the 8259
             // sees the next edge only once the device has been drained.
-            const auto irq = static_cast<u8>(vector - pic::irq_base);
+            const auto         irq     = static_cast<u8>(vector - pic::irq_base);
+            irq_handler        handler = nullptr;
+            irq_callback_enter enter   = nullptr;
+            irq_callback_leave leave   = nullptr;
+            void*              context = nullptr;
 
-            if (irq_handlers[irq] != nullptr)
-                irq_handlers[irq]();
+            {
+                interrupt_spinlock_guard guard(irq_lock);
+
+                irq_binding& binding = irq_handlers[irq];
+
+                if (binding.handler != nullptr && !binding.masked) {
+                    handler = binding.handler;
+                    enter   = binding.enter;
+                    leave   = binding.leave;
+                    context = binding.context;
+
+                    ++binding.in_flight;
+                }
+            }
+
+            if (handler != nullptr) {
+                const bool entered = enter == nullptr || enter(context);
+                if (entered)
+                    handler();
+
+                if (entered && leave != nullptr)
+                    leave(context);
+
+                {
+                    interrupt_spinlock_guard guard(irq_lock);
+
+                    irq_binding& binding = irq_handlers[irq];
+
+                    if (binding.in_flight != 0)
+                        --binding.in_flight;
+                }
+            }
 
             pic::eoi(vector);
 
@@ -361,10 +406,58 @@ namespace astia::arch {
     }
 
     bool register_irq_handler(u8 irq, irq_handler handler) {
-        if (irq >= 16 || handler == nullptr || irq_handlers[irq] != nullptr)
+        return register_irq_handler(irq, handler, nullptr, nullptr, nullptr);
+    }
+
+    bool register_irq_handler(u8 irq, irq_handler handler, irq_callback_enter enter,
+                              irq_callback_leave leave, void* context) {
+        if (irq >= 16 || handler == nullptr || (enter == nullptr) != (leave == nullptr))
             return false;
 
-        irq_handlers[irq] = handler;
+        interrupt_spinlock_guard guard(irq_lock);
+
+        irq_binding& binding = irq_handlers[irq];
+
+        if (binding.handler != nullptr)
+            return false;
+
+        binding = {handler, enter, leave, context, false, 0};
+
+        return true;
+    }
+
+    bool mask_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        {
+            interrupt_spinlock_guard guard(irq_lock);
+
+            irq_binding& binding = irq_handlers[irq];
+
+            if (binding.handler == nullptr)
+                return false;
+
+            binding.masked = true;
+        }
+
+        x86_64::pic::mask(irq);
+
+        return true;
+    }
+
+    bool unregister_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        interrupt_spinlock_guard guard(irq_lock);
+
+        irq_binding& binding = irq_handlers[irq];
+
+        if (binding.in_flight != 0)
+            return false;
+
+        binding = {};
 
         return true;
     }

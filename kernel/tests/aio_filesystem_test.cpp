@@ -63,6 +63,40 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_chown_path(char* path, u32 owner, u64 group, u32 flags = 0) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_CHOWN);
+
+        sqe.address  = reinterpret_cast<u64>(path);
+        sqe.aux      = owner;
+        sqe.offset   = group;
+        sqe.op_flags = flags;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_fchown(i32 fd, u32 owner, u64 group) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_CHOWN, fd);
+
+        sqe.aux    = owner;
+        sqe.offset = group;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     void set_directory(const char* path, u16 permissions, uid_t owner, gid_t group) {
         using namespace aio::test_support;
 
@@ -107,6 +141,21 @@ ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 3);
     ASTIA_CHECK(descriptor_present(3));
+}
+
+ASTIA_TEST(aio_filesystem_openat_reuses_lowest_free_descriptor) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    clear_descriptor(0);
+    set_node_mode(astia::fs::file_mode(astia::fs::file_type::regular));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/aio";
+
+    ASTIA_CHECK(submit_openat(path, 0) == 0);
+    ASTIA_CHECK(descriptor_present(0));
 }
 
 ASTIA_TEST(aio_filesystem_openat_create_requires_writable_parent) {
@@ -446,6 +495,99 @@ ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 0);
     ASTIA_CHECK(stat.size == 37);
+}
+
+ASTIA_TEST(aio_filesystem_chown_owner_sentinel_keeps_existing_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1234});
+    set_node_owner("/owned", uid_t{1000}, gid_t{4242});
+
+    char path[] = "/owned";
+
+    ASTIA_CHECK(submit_chown_path(path, 0xffffffffu, 1234) == 0);
+
+    const chown_record& call = last_chown_path();
+
+    ASTIA_CHECK(call.called);
+    ASTIA_CHECK(call.uid == uid_t{1000});
+    ASTIA_CHECK(call.gid == gid_t{1234});
+}
+
+ASTIA_TEST(aio_filesystem_chown_group_sentinel_keeps_existing_group) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_owner("/owned", uid_t{1000}, gid_t{4242});
+
+    char path[] = "/owned";
+
+    ASTIA_CHECK(submit_chown_path(path, 1000, 0xffffffffull) == 0);
+
+    const chown_record& call = last_chown_path();
+
+    ASTIA_CHECK(call.called);
+    ASTIA_CHECK(call.uid == uid_t{1000});
+    ASTIA_CHECK(call.gid == gid_t{4242});
+}
+
+ASTIA_TEST(aio_filesystem_chown_rejects_ids_above_32_bits) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_owner("/owned", uid_t{1000}, gid_t{1000});
+
+    char path[] = "/owned";
+
+    ASTIA_CHECK(submit_chown_path(path, 1000, 0x100000000ull) == -EINVAL);
+    ASTIA_CHECK(!last_chown_path().called);
+}
+
+ASTIA_TEST(aio_filesystem_fchown_owner_sentinel_keeps_existing_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1234});
+
+    auto* node = new aio_test::fake_file;
+
+    node->uid_value = uid_t{1000};
+    node->gid_value = gid_t{4242};
+
+    const i32 fd = install_descriptor(aio_test::make_open_file(node, ASTIA_AIO_O_RDWR));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchown(fd, 0xffffffffu, 1234) == 0);
+    ASTIA_CHECK(node->chown_called);
+    ASTIA_CHECK(node->chown_uid == uid_t{1000});
+    ASTIA_CHECK(node->chown_gid == gid_t{1234});
+}
+
+ASTIA_TEST(aio_filesystem_fchown_group_sentinel_keeps_existing_group) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+
+    auto* node = new aio_test::fake_file;
+
+    node->uid_value = uid_t{1000};
+    node->gid_value = gid_t{4242};
+
+    const i32 fd = install_descriptor(aio_test::make_open_file(node, ASTIA_AIO_O_RDWR));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchown(fd, 1000, 0xffffffffull) == 0);
+    ASTIA_CHECK(node->chown_called);
+    ASTIA_CHECK(node->chown_uid == uid_t{1000});
+    ASTIA_CHECK(node->chown_gid == gid_t{4242});
 }
 
 ASTIA_TEST(aio_filesystem_errors_stay_on_production_path) {

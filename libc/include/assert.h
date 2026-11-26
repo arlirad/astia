@@ -4,8 +4,8 @@
  * astia libc — <assert.h>
  *
  * A failed assertion prints through the runtime printf (host libc in
- * tests; the astia CRT once it exists) and then aborts, which is
- * currently a trap instruction.  NDEBUG strips the check entirely.
+ * tests; the astia CRT once it exists) and then aborts with SIGABRT.
+ * NDEBUG strips the check entirely.
  */
 
 #ifdef __cplusplus

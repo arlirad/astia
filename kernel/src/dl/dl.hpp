@@ -82,7 +82,9 @@ namespace astia::dl {
     void             release(proc::process& target);
     /// Move a staging process's bindings (the image exec built) onto the
     /// process that replaces it.  The target must have released its own.
-    void adopt(proc::process& target, proc::process& staging);
+    /// Returns false only when the staging bindings cannot be published;
+    /// they are released before returning so no mapping is left unregistered.
+    bool adopt(proc::process& target, proc::process& staging);
     bool clone(proc::process& child, proc::process& parent);
 } // namespace astia::dl
 

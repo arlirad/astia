@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,9 +113,129 @@ static void test_strtod(void) {
     /* decimal parsing is unaffected */
     CHECK(strtod("12.5x", &end) == 12.5 && strcmp(end, "x") == 0);
 
+    errno = 0;
+
+    {
+        double value = strtod("1e309", NULL);
+
+        CHECK(value == DBL_MAX);
+        CHECK(errno == ERANGE);
+    }
+
+    errno = 0;
+
+    {
+        double value = strtod("1.7e308", NULL);
+
+        CHECK(value > 0.0 && value <= DBL_MAX);
+        CHECK(errno == 0);
+    }
+
+    errno = 0;
+
+    {
+        double value = strtod("1e-400", NULL);
+
+        CHECK(value == 0.0);
+        CHECK(errno == ERANGE);
+    }
+
     /* strtof/strtold share the corrected helper */
     CHECK(strtof("0x1.8", &end) == 1.5f && *end == '\0');
     CHECK(strtold("0x1.8", &end) == 1.5L && *end == '\0');
+}
+
+static void test_strtof(void) {
+    char* end;
+
+    CHECK(strtof("  -1.25x", &end) == -1.25f && strcmp(end, "x") == 0);
+
+    errno = 0;
+
+    {
+        float value = strtof("1e300", NULL);
+
+        CHECK(value > FLT_MAX);
+        CHECK(errno == ERANGE);
+    }
+
+    errno = 0;
+
+    {
+        float value = strtof("-1e300", NULL);
+
+        CHECK(value < -FLT_MAX);
+        CHECK(errno == ERANGE);
+    }
+
+    errno = 0;
+
+    {
+        float value = strtof("1e-50", NULL);
+
+        CHECK(value >= 0.0f && value < FLT_MIN);
+        CHECK(errno == ERANGE);
+    }
+
+    errno = 0;
+
+    {
+        float value = strtof("3.4028234e38", NULL);
+
+        CHECK(value > 0.0f && value <= FLT_MAX);
+        CHECK(errno == 0);
+    }
+
+    CHECK(strtof("inf", NULL) > FLT_MAX);
+    CHECK(strtof("-inf", NULL) < -FLT_MAX);
+    CHECK(strtof("nan", NULL) != strtof("nan", NULL));
+}
+
+static void test_strtold(void) {
+    char* end;
+
+    CHECK(strtold("  -2.5x", &end) == -2.5L && strcmp(end, "x") == 0);
+
+    if ((long double) LDBL_MAX > (long double) DBL_MAX) {
+        errno = 0;
+
+        {
+            long double value = strtold("1e400", NULL);
+
+            CHECK(value > (long double) DBL_MAX);
+            CHECK(value < LDBL_MAX);
+            CHECK(errno == 0);
+        }
+
+        errno = 0;
+
+        {
+            long double value = strtold("1.0000000000000000001", NULL);
+
+            CHECK(value != 1.0L);
+            CHECK(errno == 0);
+        }
+    }
+
+    errno = 0;
+
+    {
+        long double value = strtold("1e4933", NULL);
+
+        CHECK(value > LDBL_MAX);
+        CHECK(errno == ERANGE);
+    }
+
+    errno = 0;
+
+    {
+        long double value = strtold("1e-5000", NULL);
+
+        CHECK(value >= 0.0L && value < LDBL_MIN);
+        CHECK(errno == ERANGE);
+    }
+
+    CHECK(strtold("inf", NULL) > LDBL_MAX);
 }
 
 /* ----------------------------------------------------------------- sorting */
@@ -322,6 +443,8 @@ int main(void) {
     test_strtoul();
     test_atoi();
     test_strtod();
+    test_strtof();
+    test_strtold();
     test_qsort_bsearch();
     test_rand();
     test_environment();

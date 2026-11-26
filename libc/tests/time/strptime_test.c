@@ -185,6 +185,360 @@ static void test_strftime_round_trip(void) {
     CHECK(mktime(&value) == -1);
 }
 
+static void test_two_digit_year(void) {
+    static const struct {
+        const char* text;
+        int         year;
+    } cases[] = {
+        {"00", 100}, {"24", 124}, {"68", 168}, {"69", 69}, {"99", 99},
+    };
+
+    struct tm value;
+
+    size_t i;
+
+    for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        char* end;
+
+        memset(&value, 0, sizeof value);
+
+        end = strptime(cases[i].text, "%y", &value);
+
+        CHECK(end != NULL && *end == '\0');
+        CHECK(value.tm_year == cases[i].year);
+    }
+}
+
+static void test_month_weekday_names(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("Monday November", "%A %B", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_wday == 1 && value.tm_mon == 10);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("monday november", "%A %B", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_wday == 1 && value.tm_mon == 10);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("Wed Nov", "%a %h", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_wday == 3 && value.tm_mon == 10);
+
+    memset(&value, 0, sizeof value);
+    CHECK(strptime("Funday", "%A", &value) == NULL);
+    CHECK(strptime("Nox 1", "%b %d", &value) == NULL);
+}
+
+static void test_rfc1123(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("Mon, 23 Nov 2026 14:05:09 +0000", "%a, %d %b %Y %H:%M:%S %z", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+    CHECK(value.tm_wday == 1);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("monday, 23 november 2026 14:05:09 -05:30", "%A, %d %B %Y %H:%M:%S %z",
+                   &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+}
+
+static void test_padded_and_clock_fields(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime(" 1  9", "%e %k", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_mday == 1 && value.tm_hour == 9);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime(" 2", "%l", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 2);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("02:05:09 PM", "%r", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("12:00:00 AM", "%r", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 0);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("12:00:00 PM", "%r", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 12);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("11 pm", "%I %p", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 23);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("11 am", "%I %P", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 11);
+
+    memset(&value, 0, sizeof value);
+    CHECK(strptime("11 xm", "%I %p", &value) == NULL);
+}
+
+static void test_day_of_year_and_week_fields(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("327", "%j", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_yday == 326);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("1", "%u", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_wday == 1);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("0", "%w", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_wday == 0);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("2026 47 1", "%Y %U %w", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_wday == 1 && value.tm_yday == 326);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("2026 47 1", "%Y %W %u", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_wday == 1 && value.tm_yday == 326);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("2020 53 5", "%G %V %u", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 120 && value.tm_wday == 5 && value.tm_yday == 366);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("26 48 1", "%g %V %u", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_wday == 1 && value.tm_yday == 326);
+
+    memset(&value, 0, sizeof value);
+    CHECK(strptime("367", "%j", &value) == NULL);
+    CHECK(strptime("2026 54 1", "%Y %U %w", &value) == NULL);
+    CHECK(strptime("00", "%V", &value) == NULL);
+}
+
+static void test_century(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("20 26", "%C %y", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("19 99", "%C %y", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 99);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("20", "%C", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 100);
+}
+
+static void test_zone_and_epoch(void) {
+    const time_t epoch = 1795442709;
+    struct tm    value;
+    char*        end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("UTC", "%Z", &value);
+
+    CHECK(end != NULL && *end == '\0');
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("+0530", "%z", &value);
+
+    CHECK(end != NULL && *end == '\0');
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("-05:30", "%z", &value);
+
+    CHECK(end != NULL && *end == '\0');
+
+    CHECK(strptime("UTC", "%z", &value) == NULL);
+    CHECK(strptime("123", "%Z", &value) == NULL);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("1795442709", "%s", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+    CHECK(value.tm_wday == 1 && value.tm_yday == 326);
+    CHECK(mktime(&value) == epoch);
+}
+
+static void test_composite_conversions(void) {
+    struct tm value;
+    char*     end;
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("Mon Nov 23 14:05:09 2026", "%c", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("11/23/26", "%D", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("2026-11-23", "%F", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("14:05", "%R", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 14 && value.tm_min == 5);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("14:05:09", "%T", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("11/23/26", "%x", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_year == 126 && value.tm_mon == 10 && value.tm_mday == 23);
+
+    memset(&value, 0, sizeof value);
+
+    end = strptime("14:05:09", "%X", &value);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(value.tm_hour == 14 && value.tm_min == 5 && value.tm_sec == 9);
+}
+
+static void test_extended_round_trip(void) {
+    const time_t epoch = 1795442709;
+    struct tm    source;
+    struct tm    parsed;
+
+    char text[128];
+    char again[128];
+
+    char* end;
+
+    CHECK(gmtime_r(&epoch, &source) != NULL);
+
+    CHECK(strftime(text, sizeof text, "%a, %d %b %Y %H:%M:%S", &source) > 0);
+
+    memset(&parsed, 0, sizeof parsed);
+
+    end = strptime(text, "%a, %d %b %Y %H:%M:%S", &parsed);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(mktime(&parsed) == epoch);
+
+    CHECK(strftime(text, sizeof text, "%C %y %j %U %W %w", &source) > 0);
+
+    memset(&parsed, 0, sizeof parsed);
+
+    end = strptime(text, "%C %y %j %U %W %w", &parsed);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(parsed.tm_year == source.tm_year && parsed.tm_yday == source.tm_yday);
+    CHECK(strftime(again, sizeof again, "%U %W %w", &parsed) > 0);
+    CHECK(strcmp(again, "47 47 1") == 0);
+
+    CHECK(strftime(text, sizeof text, "%G %V %u", &source) > 0);
+
+    memset(&parsed, 0, sizeof parsed);
+
+    end = strptime(text, "%G %V %u", &parsed);
+
+    CHECK(end != NULL && *end == '\0');
+    CHECK(strftime(again, sizeof again, "%G %V %u", &parsed) > 0);
+    CHECK(strcmp(again, text) == 0);
+}
+
 int main(void) {
     test_full_timestamp();
     test_partial_input();
@@ -197,6 +551,15 @@ int main(void) {
     test_invalid_input();
     test_null_arguments();
     test_strftime_round_trip();
+    test_two_digit_year();
+    test_month_weekday_names();
+    test_rfc1123();
+    test_padded_and_clock_fields();
+    test_day_of_year_and_week_fields();
+    test_century();
+    test_zone_and_epoch();
+    test_composite_conversions();
+    test_extended_round_trip();
 
     if (fails)
         printf("strptime_test: %d failure(s)\n", fails);

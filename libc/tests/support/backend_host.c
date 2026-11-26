@@ -534,11 +534,57 @@ static int host_is_tty(int fd) {
     return syscall(SYS_ioctl, fd, TCGETS, storage) == 0;
 }
 
-long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
-    (void) length;
+static void host_fd_link(int fd, char* out, size_t capacity) {
+    static const char prefix[] = "/proc/self/fd/";
+    char              digits[12];
+    size_t            length = 0;
+    size_t            count  = 0;
+    unsigned int      value  = (unsigned int) fd;
 
+    do {
+        digits[count++] = (char) ('0' + value % 10);
+        value /= 10;
+    } while (value != 0);
+
+    while (prefix[length] != '\0' && length + 1 < capacity) {
+        out[length] = prefix[length];
+
+        ++length;
+    }
+
+    while (count != 0 && length + 1 < capacity) {
+        out[length++] = digits[--count];
+    }
+
+    out[length] = '\0';
+}
+
+long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
     if (fd < 0)
         return -EBADF;
+
+    if (request == TIOCGNAME) {
+        struct astia_tty_name* name = arg;
+
+        char link[32];
+        long count;
+
+        if (arg == NULL || length < sizeof(*name))
+            return -EINVAL;
+
+        host_fd_link(fd, link, sizeof(link));
+
+        count = syscall(SYS_readlinkat, -100, link, name->path, sizeof(name->path) - 1);
+        if (count < 0)
+            return -HOST_ERRNO;
+
+        if ((size_t) count >= sizeof(name->path) - 1)
+            return -ENAMETOOLONG;
+
+        name->path[count] = '\0';
+
+        return 0;
+    }
 
     if (request == TIOCGPGRP) {
         if (arg == NULL)

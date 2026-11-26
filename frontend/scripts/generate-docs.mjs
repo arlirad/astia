@@ -20,10 +20,10 @@ const guides = [
   'pkg/README.md',
 ];
 const EXCLUDED_DOCS = new Set(['aarch64-virt-boot.md']);
-const AUTHORED_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index), 77];
+const AUTHORED_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index), 77, 78];
 const DL_SYSCALL_IDS = [71, 72];
 const MOD_SYSCALL_IDS = [73, 74, 75, 76];
-const CANONICAL_SYSCALL_IDS = Array.from({ length: 78 }, (_, index) => index);
+const CANONICAL_SYSCALL_IDS = Array.from({ length: 79 }, (_, index) => index);
 
 if (!existsSync(docsDir)) {
   console.log('Documentation sources are unavailable; keeping the existing docs manifest.');
@@ -192,7 +192,7 @@ requireValue(manifest.pages.length === CANONICAL_SYSCALL_IDS.length, 'section-2 
 const syscallIds = manifest.pages.map((page) => page.id);
 const sortedSyscallIds = [...syscallIds].sort((a, b) => a - b);
 requireValue(new Set(syscallIds).size === CANONICAL_SYSCALL_IDS.length, 'section-2 export has duplicate IDs');
-requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..77');
+requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..78');
 
 const seenSlugs = new Set(basePages.map((page) => page.slug));
 const seenSourcePaths = new Set(basePages.map((page) => page.sourcePath));

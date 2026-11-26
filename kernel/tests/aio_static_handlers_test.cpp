@@ -458,11 +458,13 @@ ASTIA_TEST(aio_parked_io_settles_a_canceled_token) {
 }
 
 ASTIA_TEST(aio_production_handler_manifest_covers_abi_range) {
-    ASTIA_CHECK(aio::opcode_count == 42);
+    ASTIA_CHECK(aio::opcode_count == 44);
     ASTIA_CHECK(aio::registry::size() == aio::opcode_count);
     ASTIA_CHECK(aio::registry::valid());
     ASTIA_CHECK(aio::valid_opcode(aio::opcode::nop));
     ASTIA_CHECK(aio::valid_opcode(aio::opcode::getsockopt));
+    ASTIA_CHECK(aio::valid_opcode(aio::opcode::sendmsg));
+    ASTIA_CHECK(aio::valid_opcode(aio::opcode::recvmsg));
     ASTIA_CHECK(!aio::valid_opcode(aio::opcode::count));
 }
 

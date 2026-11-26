@@ -26,6 +26,9 @@ namespace astia::proc::syscalls {
             if (!file->mode().is_directory())
                 return -ENOTDIR;
 
+            if (file->path() != nullptr && !owner->path_within_root(file->path()))
+                return -ENOENT;
+
             return owner->change_directory(*file);
         }
     };

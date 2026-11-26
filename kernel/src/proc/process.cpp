@@ -67,6 +67,68 @@ namespace astia::proc {
         return _cwd.compose_path_at(directory->path(), path, buffer);
     }
 
+    i64 process::resolve_path(const char* path, span<char> buffer,
+                              bool follow_final) const {
+        return _cwd.resolve_path(path, buffer, follow_final);
+    }
+
+    i64 process::resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
+                                 bool follow_final) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        if (path[0] == '/' || dirfd.value == AT_FDCWD)
+            return _cwd.resolve_path(path, buffer, follow_final);
+
+        auto directory = descriptor(dirfd);
+        if (!directory)
+            return -EBADF;
+
+        if (!directory->path() || !directory->mode().is_directory())
+            return -ENOTDIR;
+
+        if (!_cwd.within_root(directory->path()))
+            return -ENOENT;
+
+        return _cwd.resolve_path_at(directory->path(), path, buffer, follow_final);
+    }
+
+    i64 process::chroot(const char* path) {
+        if (euid() != 0)
+            return -EPERM;
+
+        if (path == nullptr || path[0] == '\0')
+            return -ENOENT;
+
+        char      canonical[fs::path_max]{};
+        const i64 resolve_rc =
+            _cwd.resolve_path(path, span<char>(canonical, sizeof canonical), true);
+        if (resolve_rc < 0)
+            return resolve_rc;
+
+        const fs::file_type type = fs::node_type(canonical);
+
+        if (type == fs::directory_unknown)
+            return -ENOENT;
+
+        if (type != fs::directory_dir)
+            return -ENOTDIR;
+
+        const fs::file_mode mode = fs::node_mode(canonical);
+
+        if (mode.exists() &&
+            !can_access(mode, fs::node_uid(canonical), fs::node_gid(canonical),
+                        fs::permission_bits::execute))
+            return -EACCES;
+
+        auto handle = fs::open_directory(canonical);
+        if (!handle)
+            return -ENOENT;
+
+        return _cwd.change_root(canonical,
+                                static_cast<mm::shptr<fs::open_file>&&>(handle));
+    }
+
     namespace {
         // Process-owned thread and lifecycle state stays on each process's
         // lock.  The waitpid/signal waiter lists have their own IRQ-safe lock: their
@@ -1251,6 +1313,19 @@ namespace astia::proc {
         return _descriptors.set(fd, value, flags);
     }
 
+    optional<fd_t> process::allocate_descriptor(const mm::shptr<fs::open_file>& value,
+                                                u32                             flags) {
+        astia_rlimit limit{};
+
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
+
+        u32 maximum = static_cast<u32>(limit.current);
+        if (maximum > max_process_fds)
+            maximum = max_process_fds;
+
+        return _descriptors.allocate(value, flags, maximum);
+    }
+
     void process::close_on_exec_descriptors() {
         _descriptors.close_on_exec();
     }
@@ -1460,8 +1535,11 @@ namespace astia::proc {
             return false;
 
         release_exec_bindings(*this);
+
+        if (!adopt_exec_bindings(*this, staging))
+            return false;
+
         replace_image(staging);
-        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
 
@@ -1501,8 +1579,11 @@ namespace astia::proc {
         _cancellation_root.cancel(core::cancel_reason::shutdown);
         _cancellation_root.reset();
         sys::io_exec_process(this);
+
+        if (!adopt_exec_bindings(*this, staging))
+            co_return error_t::enospc;
+
         replace_image(staging);
-        adopt_exec_bindings(*this, staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
 

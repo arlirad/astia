@@ -3,6 +3,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,6 +40,79 @@ static const char* base_name(const char* path) {
     return end;
 }
 
+static int prepare_output(int input, int output) {
+    struct stat input_info;
+    struct stat output_info;
+
+    int input_known  = fstat(input, &input_info) == 0;
+    int output_known = fstat(output, &output_info) == 0;
+
+    if (input_known && output_known && input_info.st_dev == output_info.st_dev &&
+        input_info.st_ino == output_info.st_ino)
+        return cu_error("cp", "source and destination are the same file");
+
+    if (output_known && !S_ISREG(output_info.st_mode))
+        return 0;
+
+    if (ftruncate(output, 0) < 0)
+        return cu_error("cp", "cannot truncate destination");
+
+    return 0;
+}
+
+static int destination_inside_source(const char* source, const char* destination) {
+    char resolved_source[PATH_MAX];
+    char resolved_destination[PATH_MAX];
+
+    if (realpath(source, resolved_source) == 0)
+        return 0;
+
+    if (realpath(destination, resolved_destination) == 0) {
+        const char* name = base_name(destination);
+
+        size_t prefix = (size_t) (name - destination);
+        char   parent[PATH_MAX];
+
+        if (prefix == 0) {
+            if (realpath(".", resolved_destination) == 0)
+                return 0;
+        }
+        else {
+            if (prefix >= sizeof parent)
+                return 0;
+
+            memcpy(parent, destination, prefix);
+
+            parent[prefix] = '\0';
+
+            if (realpath(parent, resolved_destination) == 0)
+                return 0;
+        }
+
+        size_t length      = strlen(resolved_destination);
+        size_t name_length = strlen(name);
+
+        if (length + name_length + 2 > sizeof resolved_destination)
+            return 0;
+
+        if (length == 0 || resolved_destination[length - 1] != '/')
+            resolved_destination[length++] = '/';
+
+        memcpy(resolved_destination + length, name, name_length + 1);
+    }
+
+    size_t source_length = strlen(resolved_source);
+
+    while (source_length > 1 && resolved_source[source_length - 1] == '/') {
+        --source_length;
+    }
+
+    if (__builtin_strncmp(resolved_source, resolved_destination, source_length) != 0)
+        return 0;
+
+    return source_length == 1 || resolved_destination[source_length] == '/';
+}
+
 static int copy_fd(int input, int output, const char* name) {
     char buffer[4096];
 
@@ -55,10 +129,13 @@ static int copy_fd(int input, int output, const char* name) {
 static int copy_one(const char* source, const char* destination, mode_t mode);
 
 static int copy_directory(const char* source, const char* destination, mode_t mode) {
-    DIR*           directory = opendir(source);
+    DIR*           directory;
     struct dirent* entry;
 
     int status = 0;
+
+    if (destination_inside_source(source, destination))
+        return cu_error("cp", "cannot copy a directory into itself");
 
     if (mkdir(destination, mode & 0777) < 0) {
         struct stat existing;
@@ -68,6 +145,7 @@ static int copy_directory(const char* source, const char* destination, mode_t mo
             return cu_error("cp", destination);
     }
 
+    directory = opendir(source);
     if (directory == 0)
         return cu_error("cp", source);
 
@@ -129,14 +207,16 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
     if (input < 0)
         return cu_error("cp", source);
 
-    output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, mode & 0777);
+    output = open(destination, O_WRONLY | O_CREAT, mode & 0777);
     if (output < 0) {
         close(input);
 
         return cu_error("cp", destination);
     }
 
-    status = copy_fd(input, output, source);
+    status = prepare_output(input, output);
+    if (status == 0)
+        status = copy_fd(input, output, source);
 
     if (close(input) < 0 || close(output) < 0)
         status = cu_error("cp", source);
@@ -215,7 +295,7 @@ int main(int argc, char** argv) {
             input = open(source, O_RDONLY);
 
         if (__builtin_strcmp(destination, "-") != 0)
-            output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            output = open(destination, O_WRONLY | O_CREAT, 0666);
 
         if (input < 0 || output < 0) {
             if (input > CU_STDERR)
@@ -229,7 +309,13 @@ int main(int argc, char** argv) {
             return cu_error("cp", destination);
         }
 
-        int status = copy_fd(input, output, source);
+        int status = 0;
+
+        if (output > CU_STDERR)
+            status = prepare_output(input, output);
+
+        if (status == 0)
+            status = copy_fd(input, output, source);
 
         if (input > CU_STDERR)
             close(input);

@@ -90,6 +90,12 @@ namespace astia::elf::loader {
         if (e.map == nullptr || e.unmap == nullptr)
             return false;
 
+        // Defence in depth: every ET_REL entry point re-checks the relocation
+        // contract, so a direct caller cannot map an image the registry would
+        // have refused.
+        if (audit_relocatable(bytes) != relocatable_problem::none)
+            return false;
+
         out = {};
 
         view v;

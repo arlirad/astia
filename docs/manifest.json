@@ -936,6 +936,18 @@
         "source": "kernel/src/proc/syscalls/getrandom.cpp",
         "synopsisKind": "public",
         "synopsis": "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);"
+      },
+      {
+        "id": 78,
+        "name": "chroot",
+        "slug": "syscall-78-chroot",
+        "title": "chroot(2)",
+        "subsystem": "proc",
+        "category": "process",
+        "sourcePath": "docs/2/proc/process/chroot.md",
+        "source": "kernel/src/proc/syscalls/process/chroot.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_chroot(const char* path);"
       }
     ]
   },

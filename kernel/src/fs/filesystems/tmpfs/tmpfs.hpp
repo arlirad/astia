@@ -44,7 +44,7 @@ namespace astia::fs::filesystems {
         core::task<i64> readv(span<const buffer> buffers, u64 offset,
                               core::cltoken token) override;
         core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                               core::cltoken token) override;
+                               core::cltoken token, bool nonblock) override;
         core::task<i64> sync(core::cltoken token) override;
         core::task<i64> sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                      u32 flags, core::cltoken token) override;
