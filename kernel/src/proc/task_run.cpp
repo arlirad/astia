@@ -9,6 +9,10 @@
 #include "scheduler.hpp"
 
 namespace astia::proc {
+    namespace detail {
+        wait_park_checkpoint wait_park_checkpoint_hook = nullptr;
+    }
+
     namespace {
         bool wait_live(const mm::shptr<process>& owner, const mm::shptr<thread>& self) {
             if (!owner || !self || self->state() == thread_state::dead)
@@ -41,6 +45,9 @@ namespace astia::proc {
                 // A wait queue may have handed this thread a continuation to
                 // run on its own stack.  Do that before parking again.
                 self->resume_pending();
+
+                if (detail::wait_park_checkpoint_hook != nullptr)
+                    detail::wait_park_checkpoint_hook(*self);
 
                 bool parked = false;
 

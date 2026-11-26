@@ -1158,6 +1158,7 @@ if (ARCH STREQUAL "x86_64")
                 "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
+                "selftest: wait park preemption ok"
                 "selftest: uname ok"
                 "selftest: statx ok"
         )
