@@ -5618,6 +5618,18 @@ int main(int argc, char** argv) {
             return 199;
     }
 
+    /* 56: dlopen/dlsym/dlclose through the interpreter's handle API.  The
+       payload proves constructors, duplicate handles, the default scope,
+       NODELETE and real unload against a fresh image. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_dlopen");
+        if (fixture < 0)
+            return 207;
+
+        if (fixture == 0)
+            printf("astia: dlopen ok\n");
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */

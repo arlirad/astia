@@ -21,7 +21,7 @@ man-page blocks to syscall handlers. The authored documentation is:
 
 ```text
 docs/2/<subsystem>/<category>/<canonical>.md
-                             77 public syscall pages, IDs 0..76
+                             81 public syscall pages, IDs 0..80
 docs/2/fs/<canonical>.md     fs pages
 docs/2/abi/<canonical>.md    public ABI pages
 docs/7/<name>.md             seven subsystem overviews
@@ -85,7 +85,7 @@ the code block in the authored page.
 
 `docs/manifest.json` contains no Markdown bodies. It is the authority for:
 
-- exact public IDs `0..76` and canonical names;
+- exact public IDs `0..80` and canonical names;
 - stable slugs of the form `syscall-<id>-<name-with-dashes>`;
 - source handler paths, including expected shared paths;
 - category and `public`/`raw` synopsis kind;

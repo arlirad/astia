@@ -430,6 +430,19 @@ namespace astia::proc {
             return _thread_count;
         }
 
+        u32 live_thread_count() {
+            arch::interrupt_spinlock_guard guard(_lifecycle_lock);
+
+            u32 count = 0;
+
+            for (u32 i = 0; i < max_threads_per_process; ++i) {
+                if (_threads[i] && _threads[i]->state() != thread_state::dead)
+                    ++count;
+            }
+
+            return count;
+        }
+
         bool                     install_standard_streams();
         mm::shptr<fs::open_file> descriptor(fd_t fd) const;
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value);

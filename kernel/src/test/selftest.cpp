@@ -701,9 +701,9 @@ namespace astia::test {
 
             arch::syscall_return unassigned{};
 
-            if (sys::dispatch(static_cast<sys::syscall_id>(80), 0, 0, 0, 0, 0, 0,
+            if (sys::dispatch(static_cast<sys::syscall_id>(81), 0, 0, 0, 0, 0, 0,
                               unassigned) != -ENOSYS) {
-                logs::error("syscall id 80 is not unassigned");
+                logs::error("syscall id 81 is not unassigned");
 
                 return false;
             }

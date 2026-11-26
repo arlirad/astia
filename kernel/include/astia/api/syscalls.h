@@ -20,7 +20,7 @@
  * Return convention: >= 0 on success, or a negative value from
  * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
  * This tree is a deliberate, repository-only breaking migration: the table is
- * contiguous 0..79 and uname moved from 82 to 70.  There is no legacy 82
+ * contiguous 0..80 and uname moved from 82 to 70.  There is no legacy 82
  * alias; new public calls append from 71.  The API_VERSION constant below
  * versions the AIO ring layout, not the syscall table, and is unchanged by
  * this migration.
@@ -70,7 +70,7 @@ extern "C" {
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, contiguous 0..79.      */
+/* syscall numbers — architecture-independent, contiguous 0..80.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -156,6 +156,7 @@ enum {
     SYS_GETRANDOM             = 77,
     SYS_CHROOT                = 78,
     SYS_POWER                 = 79,
+    SYS_THREAD_COUNT          = 80,
 };
 
 /* System power operations for astia_power().  These values are part of the
@@ -807,6 +808,11 @@ static inline long astia_thread_cancel_pending(void) {
 
 static inline long astia_thread_exists(uint32_t tid) {
     return astia_raw6(SYS_THREAD_EXISTS, (long) tid, 0, 0, 0, 0, 0);
+}
+
+/* Number of live threads in the calling process, including the caller. */
+static inline long astia_thread_count(void) {
+    return astia_raw6(SYS_THREAD_COUNT, 0, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_thread_kill(uint32_t tid, int32_t signal) {

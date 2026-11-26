@@ -6,6 +6,23 @@
 /* The ELF64 subset the linker needs.  Deliberately not <elf.h>: this runs
  * freestanding, and the layout is the ABI, not the host's headers. */
 typedef struct {
+    unsigned char e_ident[16];
+    uint16_t      e_type;
+    uint16_t      e_machine;
+    uint32_t      e_version;
+    uint64_t      e_entry;
+    uint64_t      e_phoff;
+    uint64_t      e_shoff;
+    uint32_t      e_flags;
+    uint16_t      e_ehsize;
+    uint16_t      e_phentsize;
+    uint16_t      e_phnum;
+    uint16_t      e_shentsize;
+    uint16_t      e_shnum;
+    uint16_t      e_shstrndx;
+} Elf64_Ehdr;
+
+typedef struct {
     uint32_t p_type;
     uint32_t p_flags;
     uint64_t p_offset;
@@ -67,6 +84,9 @@ enum {
     DT_JMPREL       = 23,
 };
 
+/* Symbol type from st_info & 0xf. */
+enum { LD_STT_GNU_IFUNC = 10 };
+
 /* Auxiliary vector tags. */
 enum {
     AT_NULL   = 0,
@@ -86,13 +106,18 @@ enum {
 /* Symbol types: only the one the linker distinguishes matters. */
 #define LD_STT_GNU_IFUNC 10
 
-#define LD_MAX_MODULES 8
+#define LD_MAX_MODULES 32
+#define LD_MAX_HANDLES 16
 #define LD_MAX_IFUNCS 64
 #define LD_PATH_MAX 64
 
 typedef struct {
-    uint64_t          base;
-    const Elf64_Dyn*  dynamic;
+    uint64_t base;
+    /* Absolute executable PT_LOAD bounds; vaddr_end is bias-relative. */
+    const Elf64_Phdr* phdr;
+    uint32_t          phnum;
+    uint64_t          span;
+    const Elf64_Dyn*  dynamic_section;
     const char*       strtab;
     const Elf64_Sym*  symtab;
     const uint32_t*   hash;     /* DT_HASH, when present */
@@ -105,6 +130,9 @@ typedef struct {
     uint64_t          init;
     const uint64_t*   init_array;
     uint64_t          init_array_size;
+    uint64_t          fini;
+    const uint64_t*   fini_array;
+    uint64_t          fini_array_size;
     uint32_t          symbol_count;
     /* PT_TLS template and the static-TLS offset assigned to this module. */
     uint64_t tls_vaddr;
@@ -115,4 +143,15 @@ typedef struct {
     /* Absolute PT_GNU_RELRO start (base + p_vaddr) and its p_memsz. */
     uint64_t relro_start;
     uint64_t relro_size;
+    /* Registry and handle state. */
+    int      used;
+    int      startup;
+    int      dynamic;
+    int      prelinked;
+    int      nodelete;
+    int      in_global;
+    int      pending;
+    int      finalized;
+    uint32_t refcount;
+    char     name[LD_PATH_MAX];
 } ld_module;

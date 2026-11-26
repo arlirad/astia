@@ -97,6 +97,7 @@ namespace astia::sys {
         getrandom             = 77,
         chroot                = 78,
         power                 = 79,
+        thread_count          = 80,
     };
 
     /// How many registers the ABI hands every trap — and so the most
