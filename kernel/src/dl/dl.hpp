@@ -45,6 +45,7 @@ namespace astia::dl {
         mm::phys_region* region        = nullptr;
         u64              base          = 0; ///< load bias and dlunmap handle
         u64              span          = 0;
+        u64              reserved      = 0; ///< aligned slot held in the DSO gap
         u64              entry         = 0;
         u64              phdr          = 0;
         u64              ident_mount   = 0;
