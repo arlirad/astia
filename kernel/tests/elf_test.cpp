@@ -36,6 +36,8 @@ extern unsigned char module_priority_init_trailing_dot_blob[];
 extern unsigned int  module_priority_init_trailing_dot_blob_len;
 extern unsigned char module_priority_fini_trailing_dot_blob[];
 extern unsigned int  module_priority_fini_trailing_dot_blob_len;
+extern unsigned char module_lifecycle_reloc32_blob[];
+extern unsigned int  module_lifecycle_reloc32_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
@@ -329,6 +331,30 @@ namespace {
 
     size_t section_header_offset(const blob_copy& blob, size_t index) {
         return section_table_offset(blob) + index * section_table_size(blob);
+    }
+
+    size_t first_allocated_relocation_info_offset(const blob_copy& blob) {
+        for (size_t i = 0; i < section_count(blob); ++i) {
+            const size_t section = section_header_offset(blob, i);
+
+            if (blob_u32(blob, section + 4) != 4)
+                continue;
+
+            const size_t target = blob_u32(blob, section + 44);
+
+            if (target >= section_count(blob))
+                continue;
+
+            if ((blob_u64(blob, section_header_offset(blob, target) + 8) & 2) == 0)
+                continue;
+
+            if (blob_u64(blob, section + 32) < 24)
+                continue;
+
+            return static_cast<size_t>(blob_u64(blob, section + 24)) + 8;
+        }
+
+        return 0;
     }
 
     size_t module_symbol_offset(const blob_copy& blob, size_t* string_name = nullptr) {
@@ -2178,4 +2204,51 @@ ASTIA_TEST(elf_executable_rejects_truncated_phdrs) {
 
     // Shorter than the program-header table the header points at.
     ASTIA_CHECK(!astia::elf::loader::load(buf.data, 60, e, img));
+}
+
+ASTIA_TEST(elf_audit_accepts_relocatable_module) {
+    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+
+    ASTIA_CHECK(astia::elf::loader::audit_relocatable(astia::span<const astia::u8>(
+                    buf.data, buf.len)) == astia::elf::loader::relocatable_problem::none);
+    ASTIA_CHECK(std::strcmp(astia::elf::loader::relocatable_problem_text(
+                                astia::elf::loader::relocatable_problem::none),
+                            "compatible") == 0);
+}
+
+ASTIA_TEST(elf_audit_rejects_32bit_absolute_relocation) {
+    blob_copy buf(module_lifecycle_reloc32_blob, module_lifecycle_reloc32_blob_len);
+
+    ASTIA_CHECK(astia::elf::loader::audit_relocatable(
+                    astia::span<const astia::u8>(buf.data, buf.len)) ==
+                astia::elf::loader::relocatable_problem::incompatible_code_model);
+    ASTIA_CHECK(
+        std::strstr(astia::elf::loader::relocatable_problem_text(
+                        astia::elf::loader::relocatable_problem::incompatible_code_model),
+                    "-mcmodel=large") != nullptr);
+}
+
+ASTIA_TEST(elf_audit_rejects_unsupported_relocation) {
+    blob_copy buf(hello_mod_blob, hello_mod_blob_len);
+
+    const size_t info = first_allocated_relocation_info_offset(buf);
+
+    ASTIA_CHECK(info != 0);
+
+    if (info == 0)
+        return;
+
+    blob_put_u32(buf, info, 9); // R_X86_64_GOTPCREL is outside the module ABI
+
+    ASTIA_CHECK(astia::elf::loader::audit_relocatable(
+                    astia::span<const astia::u8>(buf.data, buf.len)) ==
+                astia::elf::loader::relocatable_problem::unsupported_relocation);
+}
+
+ASTIA_TEST(elf_audit_rejects_non_relocatable_image) {
+    blob_copy buf(fixture_exec_blob, fixture_exec_blob_len);
+
+    ASTIA_CHECK(astia::elf::loader::audit_relocatable(
+                    astia::span<const astia::u8>(buf.data, buf.len)) ==
+                astia::elf::loader::relocatable_problem::not_relocatable);
 }
