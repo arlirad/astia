@@ -48,6 +48,11 @@ void c_main(const long* frame) {
     unsigned long i        = 0;
     int           found    = 0;
 
+    clear_bytes(&info, sizeof info);
+    clear_bytes(&stat, sizeof stat);
+    clear_bytes(&id, sizeof id);
+    clear_bytes(records, sizeof records);
+
     if (list_total(&baseline) != 0 || baseline == 0)
         astia_exit(1);
 

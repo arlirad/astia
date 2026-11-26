@@ -1475,20 +1475,25 @@ if (ARCH STREQUAL "x86_64")
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp
                 COMMENT "Compiling invalid-dependency ET_REL fixture")
 
+        add_library(astia_module_syscall_init_object OBJECT
+                ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
+        target_include_directories(astia_module_syscall_init_object PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/include)
+        target_compile_options(astia_module_syscall_init_object PRIVATE
+                -ffreestanding -fno-pic -fno-pie -fno-builtin
+                -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone)
+        set_target_properties(astia_module_syscall_init_object PROPERTIES
+                C_STANDARD 11 C_STANDARD_REQUIRED ON)
+
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_syscall_init
-                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
-                -fno-builtin -fno-stack-protector
-                -fno-asynchronous-unwind-tables -mno-red-zone
-                -I${ASTIA_KERNEL_SOURCE_DIR}/include
-                -o ${_fix_dir}/module_syscall_init.o
-                ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
                 -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
-                -o ${_fix_dir}/module_syscall_init ${_fix_dir}/module_syscall_init.o
-                DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c
+                -o ${_fix_dir}/module_syscall_init
+                $<TARGET_OBJECTS:astia_module_syscall_init_object>
+                DEPENDS astia_module_syscall_init_object
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/syscalls.h
-                COMMENT "Building module syscall userspace fixture")
+                COMMENT "Linking module syscall userspace fixture")
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_syscall_initrd.cpio
