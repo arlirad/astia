@@ -39,4 +39,30 @@ public sealed class ErviMediatorIntegrationTests
             PackageKey.Create("widget", "1.2.3"),
             CancellationToken.None));
     }
+
+    [Fact]
+    public async Task AddMediator_InjectsTransactionalOutboxWhenRegistered()
+    {
+        var repository = new TestOutboxRepository();
+        var publisher = new TestEventPublisher();
+        var services = new ServiceCollection();
+        services.AddSingleton<IPackageRepository>(repository);
+        services.AddSingleton<IPackageIndex>(repository);
+        services.AddSingleton<IPackageEventOutbox>(repository);
+        services.AddSingleton<ISourceAllowlist>(new TestSourceAllowlist());
+        services.AddSingleton<IIrvaAuthorization>(new TestAuthorization());
+        services.AddSingleton<IDomainEventPublisher>(publisher);
+        services.AddSingleton<ISystemClock>(new TestClock());
+        services.AddMediator(typeof(RegisterPackageCommandHandler));
+
+        await using var provider = services.BuildServiceProvider();
+        var mediator = provider.GetRequiredService<IMediator>();
+
+        await mediator.Send(
+            TestPackages.CreateRegistrationCommand(),
+            CancellationToken.None);
+
+        Assert.Single(repository.Outboxed);
+        Assert.Empty(publisher.Events);
+    }
 }

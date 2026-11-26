@@ -294,10 +294,16 @@ derive authorization from local token contents or client headers.
 - A package can transition to durable `Published` only after publication succeeds;
   the transition is a conditional write requiring the expected build state, hash,
   and signature. Downloads refuse until that marker is persisted.
-- Domain events are published from a stable snapshot. In PostgreSQL mode they are
-  also persisted in the package row; both the in-memory aggregate and the durable
-  pending-event representation are acknowledged only after publication succeeds.
-  A publication or acknowledgement-persistence failure retains the pending event.
+- In PostgreSQL mode package registration/build state and its supported domain
+  events are committed in one transaction into the package row and the
+  `package_outbox` table. A crash cannot commit a package without its outbox rows.
+  In-memory mode keeps the synchronous in-memory publisher and has no outbox.
+- A PostgreSQL background dispatcher claims outbox rows with row locks, publishes
+  through an injected event publisher adapter, and marks a row delivered only after
+  publication succeeds. Failed deliveries retain the row, retry with bounded
+  exponential backoff, and stop at the configured maximum attempt count. Delivery
+  is at-least-once; every outbox row exposes a stable idempotency key and consumers
+  must deduplicate on it.
 - PostgreSQL build transitions use a conditional row update requiring the persisted
   state to still be `Registered`; a stale transition raises the 409 conflict path.
 - `PendingPackageSigner` returns a pending signature; it does not sign.
@@ -366,19 +372,30 @@ strategy ([#177](https://github.com/arlirad/astia/issues/177)). Search treats `%
 `_` in user input literally by escaping them, matching the in-memory
 `Contains`/`StartsWith` behavior.
 
-Pending domain events are stored in the same row in `PendingEventsJson` and are
-written atomically with registration/build state. Only the supported
-`PackageRegistered` and `PackageBuildRequested` event kinds are serialized by
-Infrastructure. On load, pending events are rehydrated into the aggregate without
-raising new events. Acknowledgement removes only semantically published
-descriptors and uses a compare-and-swap on the exact pending-events JSON with
-bounded retries; newer pending events are preserved, and exhausted retries map to
-the `409` package-conflict path. After successful publication, handlers clear the
-persisted pending events and then the in-memory list. If publication or
-acknowledgement persistence fails, the durable pending event remains.
+PostgreSQL registration and build transitions use a transactional outbox. The
+package row (including the existing `PendingEventsJson` compatibility payload) and
+one `package_outbox` row per supported domain event are written in the same EF Core
+transaction. `PendingEventsJson` is retained so existing durable pending-event data
+is not dropped; the outbox rows are the dispatch source. Only the supported
+`PackageRegistered` and `PackageBuildRequested` events are serialized, including
+their manifest/build-policy fields and no authorization tokens or connection
+secrets. Payload JSON is deterministic.
 
-This is an **at-least-once durable pending-event/outbox boundary**. Publishers must
-be idempotent. Automatic outbox dispatch/retry is not implemented yet.
+The outbox table uses a stable idempotency key as its primary key: event type,
+package name/version, and occurrence timestamp. Replaying the same semantic event
+inserts nothing (`ON CONFLICT DO NOTHING`), so duplicate writes do not create
+duplicate rows. A PostgreSQL `PackageOutboxDispatcher` hosted service polls in
+bounded batches, claims pending rows with `FOR UPDATE SKIP LOCKED` plus a lease,
+publishes after commit through the configured publisher adapter, and marks rows
+delivered only after success. Failures retain the row and retry with bounded
+exponential backoff up to a maximum attempt count; exhausted rows remain durably
+`Failed`. Restart or a crash after claim is recovered after the lease expires.
+
+This is an **at-least-once durable transactional outbox**. Consumers must
+deduplicate on the exposed idempotency key. A publication failure after the atomic
+commit cannot roll back the package write and does not fail the package request;
+the row remains for the dispatcher. In-memory mode has no outbox table or hosted
+dispatcher and keeps its simple synchronous publisher for development and tests.
 
 ## Health and readiness
 
@@ -715,6 +732,10 @@ chain is:
   index.
 - `20261126095757_AddPublicationTimestamp` — adds the nullable `PublishedAt`
   publication marker non-destructively.
+- `20261126210108_AddPackageOutbox` — creates the `package_outbox` table with the
+  idempotency-key primary key, package key, event type/payload, occurrence and
+  availability timestamps, claim lease, attempt count, status, and last-error
+  fields, plus package and status/availability indexes.
 
 With `InitializeSchema=true`, startup calls `Database.MigrateAsync()` before
 listening. With `InitializeSchema=false`, startup never applies migrations; it
@@ -746,9 +767,11 @@ dotnet ef database update \
 The design-time factory reads `PKGSRV_DESIGN_POSTGRES_CONNECTION` when generating or
 applying migrations.
 
-An opt-in integration test runs only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
-otherwise the PostgreSQL tests are reported as skipped. It covers fresh creation and
-old-v1 upgrade/data preservation through the EF migration chain.
+Opt-in integration tests run only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
+otherwise the PostgreSQL tests are reported as skipped. They cover fresh creation,
+old-v1 upgrade/data preservation through the EF migration chain, atomic
+package+outbox commit/rollback, duplicate idempotency-key deduplication, and
+claim/retry/delivered replay transitions.
 
 ## Issue #175 acceptance evidence
 
@@ -778,9 +801,48 @@ old-v1 upgrade/data preservation through the EF migration chain.
   notification follows it; Postgres payload/channel unit tests; and an opt-in
   live PostgreSQL integration test skipped unless
   `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
-- Future: a durable bus/transactional outbox remains tracked in
-  [#176](https://github.com/arlirad/astia/issues/176). No deployment
+- Package domain events now use the durable transactional outbox from
+  [#176](https://github.com/arlirad/astia/issues/176); cache invalidation remains a
+  separate best-effort notification channel with the absolute TTL fallback. No
+  deployment configuration changes are part of #176.
+
+## Issue #176 acceptance evidence
+
+- Transactional write path: PostgreSQL `IPackageEventOutbox` is implemented by the
+  repository. Register and build handlers use it when composed, so the package
+  insert/state update and its supported outbox rows commit or roll back together.
+  In-memory composition registers no outbox and keeps the synchronous
+  `InMemoryDomainEventPublisher` path.
+- Schema and idempotency: `package_outbox` stores the idempotency key as its primary
+  key plus package key, event type, deterministic JSON payload, occurrence and
+  availability timestamps, claim lease, attempt count, status, and last error. Only
+  `PackageRegistered` and `PackageBuildRequested` are serialized; payloads contain no
+  authorization tokens or connection secrets. `PendingEventsJson` compatibility
+  data remains written and is not silently dropped.
+- Dispatch semantics: a PostgreSQL-only hosted dispatcher polls bounded batches,
+  claims rows with `FOR UPDATE SKIP LOCKED` plus a lease, publishes through an
+  injected adapter that exposes the idempotency key, and marks delivered only after
+  publication succeeds. Failures retain the row with bounded exponential backoff and
+  a maximum attempt count; exhausted rows remain `Failed`. Lease expiry and restart
+  replay pending rows. Dispatcher or publication failures cannot roll back a
+  committed package write, and the hosted service does not block startup.
+- Tests: DB-free coverage asserts serializer determinism/round-trip and unsupported
+  event rejection, retry/backoff bounds, dispatcher success/failure/exhaustion,
+  mark-delivered ordering, restart replay, handler atomic commit/rollback behavior,
+  no synchronous publish in outbox mode, and InMemory/PostgreSQL composition
+  differences. The opt-in live PostgreSQL suite verifies atomic package+outbox
+  commit, rollback on outbox write failure, duplicate idempotency-key deduplication,
+  and claim/retry/delivered replay; it is skipped unless
+  `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
+- Delivery is at-least-once and consumers must deduplicate on the idempotency key.
+  Live PostgreSQL outbox conformance remains part of the opt-in
+  [#174](https://github.com/arlirad/astia/issues/174) harness. No deployment
   configuration changes are part of this issue.
+- Residuals: the default composition still binds the in-memory event publisher, so
+  external delivery requires a deployment-supplied `IDomainEventPublisher`/consumer
+  adapter. The migration retains legacy `PendingEventsJson` rows but does not
+  auto-enqueue them into `package_outbox`; a deployment with pre-existing
+  undelivered pending events needs an explicit backfill/replay.
 
 ## Issue #179 acceptance evidence
 
@@ -902,7 +964,8 @@ host shutdown.
 The in-memory provider has no cross-process channel, so invalidation is
 process-local. Notifications are best-effort and can be lost during a transient
 PostgreSQL outage. The bounded absolute TTL still caps how long an instance can
-serve stale data. A durable bus/transactional outbox remains tracked in
+serve stale data. Cache invalidation notifications remain best-effort and are not
+part of the package-event transactional outbox added in
 [#176](https://github.com/arlirad/astia/issues/176).
 
 ## Listening endpoint
@@ -1088,8 +1151,11 @@ listening endpoint section.
   the artifact root or mutate mount configuration.
 - PostgreSQL durability depends on a configured database and a provisioned schema;
   in-memory mode is not durable.
-- Automatic pending-event dispatch/retry is not implemented. The durable boundary
-  is at-least-once, so publishers must be idempotent.
+- The transactional outbox dispatcher is PostgreSQL-only. Delivery is
+  at-least-once, so consumers must deduplicate on the exposed idempotency key;
+  exhausted rows remain `Failed` until an operator replays them. Live PostgreSQL
+  outbox integration remains opt-in and is skipped without
+  `PKGSRV_TEST_POSTGRES_CONNECTION`.
 - Versioned schema DDL is owned by EF Core migrations under
   `Persistence/Postgres/Migrations`; `__EFMigrationsHistory` is authoritative.
   `InitializeSchema=true` applies pending migrations, while `false` fails clearly
@@ -1140,8 +1206,10 @@ listening endpoint section.
   namespace policy exists; no per-build disk-I/O controller.
 - [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration
   and migration conformance tests.
-- [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox
-  dispatch/retry for package domain events.
+- [#176](https://github.com/arlirad/astia/issues/176) - PostgreSQL transactional
+  outbox dispatch/retry is implemented; live database outbox conformance remains
+  opt-in and is covered with the [#174](https://github.com/arlirad/astia/issues/174)
+  live PostgreSQL test harness when `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
 - [#177](https://github.com/arlirad/astia/issues/177) - search supports name
   contains and source-commit prefix with bounded SQL filtering; neither field is
   claimed as indexed unless verified in the current EF migration/schema; provenance

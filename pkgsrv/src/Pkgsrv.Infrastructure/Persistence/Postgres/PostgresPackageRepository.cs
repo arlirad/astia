@@ -8,7 +8,7 @@ using Pkgsrv.Infrastructure.Packages;
 
 namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
-public sealed class PostgresPackageRepository : IPackageRepository, IPackageIndex
+public sealed class PostgresPackageRepository : IPackageRepository, IPackageIndex, IPackageEventOutbox
 {
     public const int MaxListResults = PackageIndexLimits.MaxListResults;
 
@@ -38,7 +38,23 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         return record is null ? null : PostgresPackageMapper.ToDomain(record);
     }
 
-    public async Task<bool> TryAddAsync(Package package, CancellationToken cancellationToken)
+    public Task<bool> TryAddAsync(Package package, CancellationToken cancellationToken) =>
+        TryAddCoreAsync(package, Array.Empty<IDomainEvent>(), cancellationToken);
+
+    public async Task<bool> TryAddWithEventsAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(domainEvents);
+        return await TryAddCoreAsync(package, domainEvents, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<bool> TryAddCoreAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
         cancellationToken.ThrowIfCancellationRequested();
@@ -46,26 +62,57 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         await using var context = await _contextFactory
             .CreateDbContextAsync(cancellationToken)
             .ConfigureAwait(false);
+        await using var transaction = await context.Database
+            .BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
         context.Packages.Add(PostgresPackageMapper.FromDomain(package));
 
         try
         {
             await context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await PostgresPackageOutboxWriter
+                .WriteAsync(
+                    context,
+                    domainEvents,
+                    DateTimeOffset.UtcNow,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             return false;
         }
     }
 
-    public async Task UpdateAsync(Package package, CancellationToken cancellationToken)
+    public Task UpdateAsync(Package package, CancellationToken cancellationToken) =>
+        UpdateCoreAsync(package, Array.Empty<IDomainEvent>(), cancellationToken);
+
+    public async Task UpdateWithEventsAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(domainEvents);
+        await UpdateCoreAsync(package, domainEvents, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task UpdateCoreAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(package);
         cancellationToken.ThrowIfCancellationRequested();
 
         await using var context = await _contextFactory
             .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var transaction = await context.Database
+            .BeginTransactionAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var name = package.Key.Name.Value;
@@ -113,10 +160,21 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
 
         if (affected == 0)
         {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
             throw new PackageConflictException(
                 package.Key.ToString(),
                 $"Package {package.Key} was modified by another request; the persisted state was stale.");
         }
+
+        await PostgresPackageOutboxWriter
+            .WriteAsync(
+                context,
+                domainEvents,
+                DateTimeOffset.UtcNow,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken)

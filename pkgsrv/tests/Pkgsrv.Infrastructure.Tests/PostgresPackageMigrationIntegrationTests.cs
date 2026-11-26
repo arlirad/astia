@@ -18,12 +18,13 @@ public sealed class PostgresPackageMigrationIntegrationTests
 
         var applied = (await context.Database.GetAppliedMigrationsAsync(CancellationToken.None))
             .ToArray();
-        Assert.Equal(3, applied.Length);
+        Assert.Equal(4, applied.Length);
         Assert.EndsWith("_InitialCreate", applied[0], StringComparison.Ordinal);
         Assert.EndsWith("_AddVersionOrderColumns", applied[1], StringComparison.Ordinal);
         Assert.EndsWith("_AddPublicationTimestamp", applied[2], StringComparison.Ordinal);
+        Assert.EndsWith("_AddPackageOutbox", applied[3], StringComparison.Ordinal);
         Assert.Equal(
-            3L,
+            4L,
             await context.Database
                 .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM \"__EFMigrationsHistory\"")
                 .SingleAsync(CancellationToken.None));
@@ -54,9 +55,9 @@ public sealed class PostgresPackageMigrationIntegrationTests
 
         var applied = (await context.Database.GetAppliedMigrationsAsync(CancellationToken.None))
             .ToArray();
-        Assert.Equal(3, applied.Length);
+        Assert.Equal(4, applied.Length);
         Assert.Equal(
-            3L,
+            4L,
             await context.Database
                 .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM \"__EFMigrationsHistory\"")
                 .SingleAsync(CancellationToken.None));

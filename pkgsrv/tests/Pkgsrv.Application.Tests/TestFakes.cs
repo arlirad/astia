@@ -140,6 +140,82 @@ internal sealed class TestRepository : IPackageRepository, IPackageIndex
     }
 }
 
+internal sealed class TestOutboxRepository
+    : IPackageRepository, IPackageIndex, IPackageEventOutbox
+{
+    private readonly TestRepository _inner = new();
+
+    public List<(PackageKey Key, IReadOnlyCollection<IDomainEvent> Events)> Outboxed { get; } = new();
+
+    public bool ThrowOnOutbox { get; set; }
+
+    public Task<Package?> FindAsync(PackageKey key, CancellationToken cancellationToken) =>
+        _inner.FindAsync(key, cancellationToken);
+
+    public Task<bool> TryAddAsync(Package package, CancellationToken cancellationToken) =>
+        _inner.TryAddAsync(package, cancellationToken);
+
+    public async Task<bool> TryAddWithEventsAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
+    {
+        await Task.CompletedTask;
+
+        if (ThrowOnOutbox)
+        {
+            throw new InvalidOperationException("atomic package and outbox write failed");
+        }
+
+        if (!await _inner.TryAddAsync(package, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        Outboxed.Add((package.Key, domainEvents));
+        return true;
+    }
+
+    public Task UpdateAsync(Package package, CancellationToken cancellationToken) =>
+        _inner.UpdateAsync(package, cancellationToken);
+
+    public async Task UpdateWithEventsAsync(
+        Package package,
+        IReadOnlyCollection<IDomainEvent> domainEvents,
+        CancellationToken cancellationToken)
+    {
+        await Task.CompletedTask;
+
+        if (ThrowOnOutbox)
+        {
+            throw new InvalidOperationException("atomic package and outbox write failed");
+        }
+
+        await _inner.UpdateAsync(package, cancellationToken).ConfigureAwait(false);
+        Outboxed.Add((package.Key, domainEvents));
+    }
+
+    public Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken) =>
+        _inner.UpdateSignatureAsync(package, cancellationToken);
+
+    public Task MarkPublishedAsync(
+        Package package,
+        DateTimeOffset publishedAt,
+        CancellationToken cancellationToken) =>
+        _inner.MarkPublishedAsync(package, publishedAt, cancellationToken);
+
+    public Task AcknowledgeDomainEventsAsync(
+        PackageKey key,
+        IReadOnlyCollection<IDomainEvent> publishedEvents,
+        CancellationToken cancellationToken) =>
+        _inner.AcknowledgeDomainEventsAsync(key, publishedEvents, cancellationToken);
+
+    public Task<IReadOnlyList<PackageIndexEntry>> SearchAsync(
+        string? search,
+        CancellationToken cancellationToken) =>
+        _inner.SearchAsync(search, cancellationToken);
+}
+
 internal sealed class TestAuthorization : IIrvaAuthorization
 {
     public bool Allow { get; set; } = true;
