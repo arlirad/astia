@@ -99,6 +99,7 @@ namespace astia::fs::filesystems {
                                  file_type* type) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
+        u64       node_inode(const char* path) const override;
         uid_t     node_uid(const char* path) const override;
         gid_t     node_gid(const char* path) const override;
         long      readlink(const char* path, char* buffer, u32 capacity) const override;

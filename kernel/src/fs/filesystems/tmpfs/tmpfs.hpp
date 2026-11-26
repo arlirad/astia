@@ -160,6 +160,7 @@ namespace astia::fs::filesystems {
         long      link(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
+        u64       node_inode(const char* path) const override;
         uid_t     node_uid(const char* path) const override;
         gid_t     node_gid(const char* path) const override;
         long      chmod(const char* path, file_permissions permissions) override;

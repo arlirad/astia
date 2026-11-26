@@ -38,9 +38,14 @@ namespace astia::fs {
     long      link_path(const char* old_path, const char* new_path);
     file_type node_type(const char* path);
     file_mode node_mode(const char* path);
-    uid_t     node_uid(const char* path);
-    gid_t     node_gid(const char* path);
-    long      chmod_path(const char* path, file_permissions permissions);
+    /// True when the path still names the directory identified by the
+    /// retained mount/inode pair.  A renamed, unlinked, or recycled name
+    /// no longer matches, so callers can reject it instead of silently
+    /// using a different directory.
+    bool   directory_matches(const char* path, mount* owner, u64 inode);
+    uid_t  node_uid(const char* path);
+    gid_t  node_gid(const char* path);
+    long   chmod_path(const char* path, file_permissions permissions);
     long   chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
     long   touch_path(const char* path, u64 sec, u64 nsec);
     long   make_symlink(const char* target, const char* path);

@@ -2096,6 +2096,49 @@ int main(int argc, char** argv) {
             return 56;
 
         closedir(root);
+
+        /* fchdir keeps the directory the descriptor was opened on, even
+           after its name has been renamed or removed. */
+        {
+            const char* moved = "/tmp/fchdir-moved";
+
+            char stale[64];
+            int  dir_fd;
+
+            (void) rmdir("/tmp/fchdir-moved/child");
+            (void) rmdir("/tmp/fchdir-moved");
+            (void) rmdir("/tmp/fchdir-src");
+            (void) rmdir("/tmp/fchdir-gone");
+
+            if (mkdir("/tmp/fchdir-src", 0755) != 0 ||
+                mkdir("/tmp/fchdir-src/child", 0755) != 0)
+                return 206;
+
+            dir_fd = open("/tmp/fchdir-src", O_RDONLY | O_DIRECTORY);
+            if (dir_fd < 0)
+                return 207;
+
+            if (rename("/tmp/fchdir-src", moved) != 0 || direct_chdir("/") != 0 ||
+                fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-src") != 0 || close(dir_fd) != 0)
+                return 208;
+
+            if (direct_chdir("/") != 0 || mkdir("/tmp/fchdir-gone", 0755) != 0)
+                return 209;
+
+            dir_fd = open("/tmp/fchdir-gone", O_RDONLY | O_DIRECTORY);
+
+            if (dir_fd < 0 || rmdir("/tmp/fchdir-gone") != 0)
+                return 210;
+
+            if (fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-gone") != 0 || close(dir_fd) != 0)
+                return 211;
+
+            if (direct_chdir("/") != 0 || rmdir("/tmp/fchdir-moved/child") != 0 ||
+                rmdir(moved) != 0)
+                return 212;
+        }
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
