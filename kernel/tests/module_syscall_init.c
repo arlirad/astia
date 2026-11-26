@@ -10,10 +10,18 @@ static int streq(const char* a, const char* b) {
     return *a == *b;
 }
 
-static long list_total(unsigned long* total) {
-    astia_module_list_info info = {0};
+static void clear_bytes(void* destination, unsigned long length) {
+    unsigned char* bytes = destination;
 
-    info.size = 0;
+    for (unsigned long i = 0; i < length; ++i) {
+        bytes[i] = 0;
+    }
+}
+
+static long list_total(unsigned long* total) {
+    astia_module_list_info info;
+
+    clear_bytes(&info, sizeof info);
 
     if (astia_modls((astia_module_record*) 0, 0, &info) != 0)
         return -1;
@@ -46,7 +54,7 @@ void c_main(const long* frame) {
     if (astia_seteuid(1) != 0)
         astia_exit(2);
 
-    id = (astia_module_id){0};
+    clear_bytes(&id, sizeof id);
 
     if (astia_modopen("/mods/does-not-exist", ASTIA_MODULE_OPEN_NONE, &id) != -EPERM)
         astia_exit(2);
@@ -74,7 +82,7 @@ void c_main(const long* frame) {
         };
 
         for (i = 0; i < sizeof failures / sizeof failures[0]; ++i) {
-            id = (astia_module_id){0};
+            clear_bytes(&id, sizeof id);
 
             if (astia_modopen(failures[i].path, ASTIA_MODULE_OPEN_NONE, &id) !=
                 failures[i].error)
@@ -85,7 +93,7 @@ void c_main(const long* frame) {
         }
     }
 
-    id = (astia_module_id){0};
+    clear_bytes(&id, sizeof id);
 
     if (astia_modopen("/mods/hello.o", 1, &id) != -EINVAL)
         astia_exit(16);
@@ -120,7 +128,13 @@ void c_main(const long* frame) {
         astia_exit(19);
 
     {
-        astia_module_id first = id;
+        astia_module_id first;
+
+        clear_bytes(&first, sizeof first);
+
+        first.slot       = id.slot;
+        first.reserved   = id.reserved;
+        first.generation = id.generation;
 
         if (astia_modclose(&first) != 0)
             astia_exit(20);
@@ -131,7 +145,7 @@ void c_main(const long* frame) {
         if (list_total(&after) != 0 || after != baseline)
             astia_exit(20);
 
-        id = (astia_module_id){0};
+        clear_bytes(&id, sizeof id);
 
         if (astia_modopen("/mods/hello.o", ASTIA_MODULE_OPEN_NONE, &id) != 0)
             astia_exit(21);
