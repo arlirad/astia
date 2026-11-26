@@ -351,7 +351,7 @@ namespace astia::fs {
     }
 
     long read_unix_directory(const char* directory, mount* owner, u64 index,
-                             astia::span<char> name, file_type* type) {
+                             astia::span<char> name, file_type* type, u64* inode) {
         if (!directory || !owner || name.data() == nullptr || name.empty() || !type)
             return -EINVAL;
 
@@ -391,6 +391,9 @@ namespace astia::fs {
 
             name.data()[end - start] = '\0';
             *type                    = directory_sock;
+
+            if (inode != nullptr)
+                *inode = 0;
 
             return 1;
         }

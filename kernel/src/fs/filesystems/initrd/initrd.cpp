@@ -315,7 +315,7 @@ namespace astia::fs::filesystems {
     }
 
     long initrd_mount::read_directory(const char* path, u64 index, char* name,
-                                      u32 capacity, file_type* type) {
+                                      u32 capacity, file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -355,6 +355,9 @@ namespace astia::fs::filesystems {
 
             name[candidate.length] = '\0';
             *type                  = candidate.type;
+
+            if (inode != nullptr)
+                *inode = 0;
 
             return 1;
         }

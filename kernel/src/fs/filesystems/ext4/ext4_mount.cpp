@@ -80,6 +80,7 @@ namespace astia::fs::filesystems {
             char*      name;
             u32        capacity;
             file_type* type;
+            u64*       inode;
             long       result = 0;
         };
 
@@ -101,6 +102,9 @@ namespace astia::fs::filesystems {
 
             *context.type  = convert_type(entry.type);
             context.result = 1;
+
+            if (context.inode != nullptr)
+                *context.inode = entry.inode;
 
             return false;
         }
@@ -250,7 +254,7 @@ namespace astia::fs::filesystems {
     }
 
     long ext4_mount::read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    file_type* type) {
+                                    file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -262,7 +266,7 @@ namespace astia::fs::filesystems {
         if (node.type() != ext4::node_type::directory)
             return -ENOTDIR;
 
-        directory_context context{index, 0, name, capacity, type};
+        directory_context context{index, 0, name, capacity, type, inode};
 
         if (!_reader.read_directory(node, enumerate_entry, &context))
             return -EIO;

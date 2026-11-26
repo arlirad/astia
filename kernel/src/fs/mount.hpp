@@ -20,7 +20,7 @@ namespace astia::fs {
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    file_type* type);
+                                    file_type* type, u64* inode);
         virtual long mkdir(const char* path, file_mode mode);
         virtual long unlink(const char* path, bool directory);
         virtual long rename(const char* old_path, const char* new_path);

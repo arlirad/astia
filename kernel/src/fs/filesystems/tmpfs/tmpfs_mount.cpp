@@ -297,13 +297,15 @@ namespace astia::fs::filesystems {
     }
 
     long tmpfs_mount::read_directory(const char* path, u64 index, char* name,
-                                     u32 capacity, file_type* type) {
+                                     u32 capacity, file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
         char selected[path_max]{};
 
         file_type selected_type{};
+
+        u64 selected_inode = 0;
 
         bool found = false;
 
@@ -408,7 +410,8 @@ namespace astia::fs::filesystems {
                                ? directory_dir
                                : (_entries[i].mode.is_symlink() ? directory_lnk
                                                                 : directory_reg));
-                found = true;
+                selected_inode = _entries[i].target ? _entries[i].target->inode() : 0;
+                found          = true;
 
                 break;
             }
@@ -426,6 +429,9 @@ namespace astia::fs::filesystems {
             }
 
             *type = selected_type;
+
+            if (inode != nullptr)
+                *inode = selected_inode;
 
             return 1;
         }

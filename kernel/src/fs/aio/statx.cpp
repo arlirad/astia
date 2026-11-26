@@ -109,8 +109,8 @@ namespace astia::io::aio::operations {
 
                     fs::file_type child_type = fs::directory_unknown;
 
-                    if (fs::read_directory(resolved, 0, child, sizeof child,
-                                           &child_type) <= 0)
+                    if (fs::read_directory(resolved, 0, child, sizeof child, &child_type,
+                                           nullptr) <= 0)
                         co_return -ENOENT;
 
                     __builtin_memset(reinterpret_cast<void*>(out.value.get()), 0,

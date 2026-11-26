@@ -105,9 +105,10 @@ namespace astia::io::aio::test_support {
             return entry;
         }
 
-        u64 timer_hz_value    = 1000;
-        u64 timer_ticks_value = 0;
-        u64 generation_value  = 0;
+        u64 timer_hz_value        = 1000;
+        u64 timer_ticks_value     = 0;
+        u64 generation_value      = 0;
+        u64 directory_entry_inode = 0;
 
         bool inside_range(span<u8> range) {
             return memory_allowed && (!range.null() || range.empty());
@@ -260,6 +261,7 @@ namespace astia::io::aio::test_support {
         timer_hz_value         = 1000;
         timer_ticks_value      = 0;
         generation_value       = 0;
+        directory_entry_inode  = 0;
         current                = nullptr;
     }
 
@@ -347,6 +349,10 @@ namespace astia::io::aio::test_support {
         entry->uid       = uid;
         entry->gid       = gid;
         entry->owner_set = true;
+    }
+
+    void set_directory_entry_inode(u64 inode) {
+        detail::directory_entry_inode = inode;
     }
 
     void set_process_credentials(uid_t uid, gid_t gid) {
@@ -1043,7 +1049,8 @@ namespace astia::fs {
         return 0;
     }
 
-    long read_directory(const char*, u64, char* name, u32 capacity, file_type* type) {
+    long read_directory(const char*, u64, char* name, u32 capacity, file_type* type,
+                        u64* inode) {
         if (name == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -1053,15 +1060,18 @@ namespace astia::fs {
         if (type != nullptr)
             *type = ::astia::io::aio::test_support::detail::node_mode.type();
 
+        if (inode != nullptr)
+            *inode = ::astia::io::aio::test_support::detail::directory_entry_inode;
+
         return 1;
     }
 
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type) {
+                        u32 capacity, file_type* type, u64* inode) {
         if (!directory)
             return -EBADF;
 
-        return read_directory(nullptr, index, name, capacity, type);
+        return read_directory(nullptr, index, name, capacity, type, inode);
     }
 
     optional<pipe_endpoints> create_pipe() {
