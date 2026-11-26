@@ -49,6 +49,9 @@ namespace astia::fs::filesystems {
             target[i] = source[offset + i];
         }
 
+        if (count != 0)
+            advance_times(true, false, false);
+
         return static_cast<long>(count);
     }
 
@@ -75,6 +78,8 @@ namespace astia::fs::filesystems {
 
         if (offset + length > _size)
             _size = offset + length;
+
+        advance_times(false, true, true);
 
         return static_cast<long>(length);
     }
@@ -139,6 +144,8 @@ namespace astia::fs::filesystems {
 
         astia::atomic_thread_fence(astia::memory_order::seq_cst);
 
+        advance_times(false, true, true);
+
         co_return 0;
     }
 
@@ -162,16 +169,55 @@ namespace astia::fs::filesystems {
 
         _size = length;
 
+        advance_times(false, true, true);
+
         return 0;
     }
 
     long tmpfs_file::touch(u64 sec, u64 nsec) {
         core::spinlock_guard guard(_lock);
 
-        _mtime_sec  = sec;
-        _mtime_nsec = nsec;
+        _times.atime_sec  = sec;
+        _times.atime_nsec = nsec;
+        _times.mtime_sec  = sec;
+        _times.mtime_nsec = nsec;
+
+        u64 ctime_sec  = 0;
+        u64 ctime_nsec = 0;
+
+        if (fs::realtime_now(ctime_sec, ctime_nsec)) {
+            _times.ctime_sec  = ctime_sec;
+            _times.ctime_nsec = ctime_nsec;
+        }
+        else {
+            _times.ctime_sec  = sec;
+            _times.ctime_nsec = nsec;
+        }
 
         return 0;
+    }
+
+    void tmpfs_file::advance_times(bool atime, bool mtime, bool ctime) {
+        u64 sec  = 0;
+        u64 nsec = 0;
+
+        if (!fs::realtime_now(sec, nsec))
+            return;
+
+        if (atime) {
+            _times.atime_sec  = sec;
+            _times.atime_nsec = nsec;
+        }
+
+        if (mtime) {
+            _times.mtime_sec  = sec;
+            _times.mtime_nsec = nsec;
+        }
+
+        if (ctime) {
+            _times.ctime_sec  = sec;
+            _times.ctime_nsec = nsec;
+        }
     }
 
     long tmpfs_file::size() const {

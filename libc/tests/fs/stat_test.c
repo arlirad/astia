@@ -60,11 +60,13 @@ int main(void) {
     if (fd >= 0) {
         CHECK(write(fd, "abc", 3) == 3);
         CHECK(fstat(fd, &fst) == 0 && S_ISREG(fst.st_mode) && fst.st_size == 3);
+        CHECK(fst.st_atime != 0 && fst.st_mtime != 0 && fst.st_ctime != 0);
         poison_stat(&fst);
         CHECK(fstat(fd, &fst) == 0);
         CHECK(fst.st_rdev == 0);
         CHECK(fst.st_blksize == 512);
         CHECK(stat(file, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
+        CHECK(st.st_atime != 0 && st.st_mtime != 0 && st.st_ctime != 0);
         poison_stat(&st);
         CHECK(stat(file, &st) == 0);
         CHECK(st.st_rdev == 0);

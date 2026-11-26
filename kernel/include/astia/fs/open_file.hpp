@@ -145,6 +145,8 @@ namespace astia::fs {
             return _parent;
         }
 
+        file_timestamps timestamps() const;
+
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
 

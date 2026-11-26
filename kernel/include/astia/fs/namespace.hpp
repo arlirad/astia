@@ -51,13 +51,16 @@ namespace astia::fs {
     bool  directory_matches(const char* path, mount* owner, u64 inode);
     uid_t node_uid(const char* path);
     gid_t node_gid(const char* path);
-    long  chmod_path(const char* path, file_permissions permissions);
-    long  chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
-    long  touch_path(const char* path, u64 sec, u64 nsec);
-    long  make_symlink(const char* target, const char* path);
-    long  read_symlink(const char* path, char* buffer, u32 capacity);
-    long  resolve_path(const char* path, char* buffer, u32 capacity,
-                       bool follow_final = true);
+    /// Timestamps the mount records for this node, all zero when it records
+    /// none.
+    file_timestamps node_timestamps(const char* path);
+    long            chmod_path(const char* path, file_permissions permissions);
+    long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
+    long touch_path(const char* path, u64 sec, u64 nsec);
+    long make_symlink(const char* target, const char* path);
+    long read_symlink(const char* path, char* buffer, u32 capacity);
+    long resolve_path(const char* path, char* buffer, u32 capacity,
+                      bool follow_final = true);
     long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
                            bool follow_final = true);
     mount*    retain_mount_for_unix_path(const char* canonical);

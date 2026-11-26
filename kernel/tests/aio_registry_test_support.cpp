@@ -913,6 +913,10 @@ namespace astia::fs {
         return _parent ? _parent->acquire_controlling_terminal(group) : -EBADF;
     }
 
+    file_timestamps open_file::timestamps() const {
+        return _parent ? _parent->timestamps() : file_timestamps{};
+    }
+
     u64 open_file::mtime_sec() const {
         return _parent ? _parent->mtime_sec() : 0;
     }
@@ -987,6 +991,10 @@ namespace astia::fs {
         auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
 
         return entry != nullptr && entry->owner_set ? entry->gid : gid_t{};
+    }
+
+    file_timestamps node_timestamps(const char*) {
+        return {};
     }
 
     long chmod_path(const char*, file_permissions) {

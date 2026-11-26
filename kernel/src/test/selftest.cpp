@@ -1797,6 +1797,16 @@ namespace astia::test {
                 return false;
             }
 
+            auto timed =
+                fs::open("/tmp/statx_times_probe", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+            if (!timed || statx("/tmp/statx_times_probe", -1, &st) != 0 ||
+                st.atime_sec == 0 || st.mtime_sec == 0 || st.ctime_sec == 0) {
+                logs::error("statx fail (timestamps)");
+
+                return false;
+            }
+
             if (statx(missing_path, -1, &st) != -ENOENT) {
                 logs::error("statx fail (missing path)");
 

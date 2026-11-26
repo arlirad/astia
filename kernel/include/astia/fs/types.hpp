@@ -109,6 +109,33 @@ namespace astia::fs {
     inline constexpr file_permissions readonly_file_permissions{0755};
     inline constexpr file_permissions readonly_directory_permissions{0755};
 
+    /// Access, modification and change timestamps in Unix epoch form.  A
+    /// backend that records no timestamp leaves the corresponding fields at
+    /// zero; the VFS never invents a wall-clock value for it.
+    struct file_timestamps {
+        u64 atime_sec  = 0;
+        u64 atime_nsec = 0;
+        u64 mtime_sec  = 0;
+        u64 mtime_nsec = 0;
+        u64 ctime_sec  = 0;
+        u64 ctime_nsec = 0;
+    };
+
+    /// Wall-clock source used for file timestamps.  The kernel installs the
+    /// system clock once the timer is running; until then, and in host tests
+    /// that never install one, timestamps stay at their documented zero.
+    void set_realtime_source(bool (*source)(u64& sec, u64& nsec));
+    bool realtime_now(u64& sec, u64& nsec);
+
+    inline file_timestamps current_timestamps() {
+        u64 sec  = 0;
+        u64 nsec = 0;
+
+        (void) realtime_now(sec, nsec);
+
+        return {sec, nsec, sec, nsec, sec, nsec};
+    }
+
     class file_mode {
         public:
         constexpr file_mode(file_type        type        = file_type::unknown,
