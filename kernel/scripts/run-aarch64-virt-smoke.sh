@@ -233,18 +233,36 @@ grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER ARMED' "$log" ||
 for irq_line in 'irq: iar=0x0000001e' 'irq: eoi=0x0000001e' \
     'irq: dir=0x0000001e' 'irq: timer=0x0000001e' \
     'ASTIA AARCH64 VIRT BOOT: TIMER HANDLED'; do
-    [[ "$(grep -Fxc "$irq_line" "$log")" -eq 5 ]] ||
-        die "expected five '$irq_line' lines"
+    [[ "$(grep -Fxc "$irq_line" "$log")" -eq 10 ]] ||
+        die "expected ten '$irq_line' lines"
 done
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER RETURNED' "$log" ||
     die "timer IRQ handler did not return to the interrupted context"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER TICK OK' "$log" ||
     die "periodic timer tick verification did not complete"
 awk '
-    /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ { armed = NR; next }
+    /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ {
+        armed = NR
+        window = 1
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED/ {
+        sched_armed = NR
+        window = 2
+        next
+    }
     /irq: iar=0x0000001e/ {
-        if (state != 0 || handled >= 5) bad = 1
-        if (!first_ack) first_ack = NR
+        if (state != 0) bad = 1
+        if (window == 1) {
+            if (!first_ack) first_ack = NR
+            handled1++
+        }
+        else if (window == 2) {
+            if (!sched_first_ack) sched_first_ack = NR
+            handled2++
+        }
+        else
+            bad = 1
         state = 1
         next
     }
@@ -265,14 +283,19 @@ awk '
     }
     /ASTIA AARCH64 VIRT BOOT: TIMER HANDLED/ {
         if (state != 4) bad = 1
-        handled++
-        last_handled = NR
+        if (window == 1)
+            last1 = NR
+        else if (window == 2)
+            last2 = NR
+        else
+            bad = 1
         state = 0
         next
     }
     /ASTIA AARCH64 VIRT BOOT: TIMER RETURNED/ {
-        if (state != 0) bad = 1
+        if (state != 0 || window != 1) bad = 1
         returned = NR
+        window = 0
         next
     }
     /ASTIA AARCH64 VIRT BOOT: TIMER TICK OK/ {
@@ -280,12 +303,24 @@ awk '
         tick_ok = NR
         next
     }
+    /ASTIA AARCH64 VIRT BOOT: DEADLINE OK/ { deadline = NR; next }
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED/ {
+        if (state != 0 || window != 2) bad = 1
+        sched_returned = NR
+        window = 0
+        next
+    }
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER OK/ { sched_ok = NR; next }
     /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR; next }
     END {
-        exit !(armed && first_ack && returned && tick_ok && brk &&
-               handled == 5 && !bad && state == 0 &&
-               armed < first_ack && last_handled < returned &&
-               returned < tick_ok && tick_ok < brk)
+        exit !(armed && first_ack && returned && tick_ok && deadline &&
+               sched_armed && sched_first_ack && last2 && sched_returned &&
+               sched_ok && brk && handled1 == 5 && handled2 == 5 &&
+               !bad && state == 0 && armed < first_ack && last1 < returned &&
+               returned < tick_ok && tick_ok < deadline &&
+               deadline < sched_armed && sched_armed < sched_first_ack &&
+               last2 < sched_returned && sched_returned < sched_ok &&
+               sched_ok < brk)
     }
 ' "$log" || die "timer proof markers are out of order"
 grep -Fxq 'deadline: capacity=0x00000008' "$log" ||
@@ -306,6 +341,78 @@ awk '
         exit !(tick && deadline && brk && tick < deadline && deadline < brk)
     }
 ' "$log" || die "deadline proof markers are out of order"
+grep -Fxq 'sched: contexts=0x00000002' "$log" ||
+    die "scheduler context count is missing or unexpected"
+grep -Fxq 'sched: a=0x00000000' "$log" ||
+    die "scheduler context A id is missing or unexpected"
+grep -Fxq 'sched: b=0x00000001' "$log" ||
+    die "scheduler context B id is missing or unexpected"
+grep -Fxq 'sched: sleep-ms=0x00000014' "$log" ||
+    die "scheduler sleep interval is missing or unexpected"
+grep -Fxq 'sched: timer-window=0x00000005' "$log" ||
+    die "scheduler timer window is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED' "$log" ||
+    die "scheduler arm marker is missing"
+[[ "$(grep -Fxc 'sched: A start' "$log")" -eq 1 ]] ||
+    die "context A did not start exactly once"
+[[ "$(grep -Fxc 'sched: B start' "$log")" -eq 1 ]] ||
+    die "context B did not start exactly once"
+sched_woke_line="$(grep -E \
+    '^sched: A woke now=0x[0-9a-f]{16} deadline=0x[0-9a-f]{16} wake-count=0x00000001$' \
+    "$log" | head -n 1)"
+[[ -n "$sched_woke_line" ]] ||
+    die "context A wake line is missing or unexpected"
+sched_now_hex="$(sed -nE 's/^sched: A woke now=0x([0-9a-f]{16}) .*/\1/p' \
+    "$log" | head -n 1)"
+sched_deadline_hex="$(sed -nE \
+    's/^sched: A woke now=0x[0-9a-f]{16} deadline=0x([0-9a-f]{16}) .*/\1/p' \
+    "$log" | head -n 1)"
+[[ "$sched_now_hex" =~ ^[0-9a-f]{16}$ ]] ||
+    die "cannot parse context A wake time"
+[[ "$sched_deadline_hex" =~ ^[0-9a-f]{16}$ ]] ||
+    die "cannot parse context A deadline"
+(( 0x${sched_now_hex} >= 0x${sched_deadline_hex} )) ||
+    die "context A resumed before its deadline"
+grep -Fxq 'sched: A deadline-met=1' "$log" ||
+    die "context A did not report its deadline as met"
+grep -Eq '^sched: B loops=0x[0-9a-f]{8}$' "$log" ||
+    die "context B loop diagnostic is missing or malformed"
+grep -Fxq 'sched: B observed-a-finished=1' "$log" ||
+    die "context B did not observe A finishing"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED' "$log" ||
+    die "scheduler timer window did not return"
+grep -Fxq 'sched: started=0x00000002' "$log" ||
+    die "scheduler started count is missing or unexpected"
+grep -Fxq 'sched: retires=0x00000002' "$log" ||
+    die "scheduler retire count is missing or unexpected"
+grep -Fxq 'sched: sleeps=0x00000001' "$log" ||
+    die "scheduler sleep count is missing or unexpected"
+grep -Fxq 'sched: wakes=0x00000001' "$log" ||
+    die "scheduler wake count is missing or unexpected"
+grep -Fxq 'sched: deadline-wakes=0x00000001' "$log" ||
+    die "scheduler deadline-wake count is missing or unexpected"
+grep -Fxq 'sched: spurious-wakes=0x00000000' "$log" ||
+    die "scheduler reported a wake without a deadline"
+grep -Fxq 'sched: a-wake=0x00000001 a-deadline-met=1 b-ran-while-a-slept=1' \
+    "$log" ||
+    die "scheduler sleep/wake proof line is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: SCHEDULER OK' "$log" ||
+    die "scheduler verification did not complete"
+awk '
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED/ { armed = NR }
+    /sched: A start/ { a_start = NR }
+    /sched: B start/ { b_start = NR }
+    /sched: A woke/ { a_woke = NR }
+    /sched: B observed-a-finished=1/ { b_finished = NR }
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED/ { timer_returned = NR }
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER OK/ { ok = NR }
+    END {
+        exit !(armed && a_start && b_start && a_woke && b_finished &&
+               timer_returned && ok && armed < a_start && a_start < b_start &&
+               b_start < a_woke && a_woke < timer_returned &&
+               b_finished < timer_returned && timer_returned < ok)
+    }
+' "$log" || die "scheduler proof markers are out of order"
 grep -Fxq 'exception: vector=current-el-spx-sync' "$log" ||
     die "synchronous exception did not enter the current-EL SPx slot"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC' "$log" ||

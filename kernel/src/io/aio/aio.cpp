@@ -96,16 +96,26 @@ namespace astia::io::aio {
         // needed only for lookup/lifetime, not for dispatch or CQ work.
         pool_guard.release_lock();
 
+        const ring_layout& layout = slot->layout;
+
+        u8* const base = slot->map;
+
+        if (!layout.sq_cursors_ok(base))
+            return -EINVAL;
+
         dispatch::retry_pending(*slot, rings_of(*slot));
 
-        astia_sq_ring* sq = astia_rings_sq(ring);
+        astia_sq_ring* sq = layout.sq(base);
 
         const u32 tail = astia::atomic_ref(sq->tail).load(astia::memory_order::acquire);
         u32       head = astia::atomic_ref(sq->head).load(astia::memory_order::relaxed);
         u32       consumed = 0;
 
+        if (tail - head > layout.sq_entries)
+            return -EINVAL;
+
         while (consumed < to_submit && head != tail) {
-            const astia_sqe s = astia_rings_sqes(ring)[head & sq->mask];
+            const astia_sqe s = *layout.sqe(base, head);
 
             if (!dispatch::dispatch_one(*slot, ring, s))
                 break;
@@ -127,7 +137,7 @@ namespace astia::io::aio {
         parked_cleanup& cleanup = slot->cleanup;
 
         reap_completed(*slot, cleanup);
-        cq_retrigger(*slot, rings_of(*slot));
+        cq_retrigger(*slot);
 
         ring_lock_guard.unlock();
         cleanup.release();
@@ -287,7 +297,7 @@ namespace astia::io::aio {
                     }
                 }
 
-                cq_retrigger(slot, rings_of(slot));
+                cq_retrigger(slot);
             }
         }
     }
@@ -329,7 +339,7 @@ namespace astia::io::aio {
                     dispatch::complete_control(owner, ring, op, result);
             }
 
-            cq_retrigger(slot, ring);
+            cq_retrigger(slot);
         }
     }
 

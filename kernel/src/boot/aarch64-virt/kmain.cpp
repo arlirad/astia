@@ -6,7 +6,9 @@
 #include "gic.hpp"
 #include "page_map_policy.hpp"
 #include "pl011.hpp"
+#include "port.hpp"
 #include "psci.hpp"
+#include "scheduler.hpp"
 #include "timer.hpp"
 
 extern "C" char              __image_start[];
@@ -103,6 +105,8 @@ namespace {
         state->deadline_fired =
             state->deadline_fired + timer::dispatch_due(timer::now_ms());
 
+        astia::arch::aarch64::notify_timer_tick();
+
         if (timer::next_tick_action(handled, timer::periodic_tick_budget) ==
             timer::tick_action::rearm) {
             astia::u32 control = 0;
@@ -169,6 +173,75 @@ namespace {
     void write_line_field(const pl011_uart& console, const char* name, astia::u64 value,
                           astia::u32 digits) {
         write_field(console, name, value, digits);
+        console.write_line("");
+    }
+
+    namespace sched = astia::boot::aarch64::virt::sched;
+
+    constexpr astia::u32 scheduler_sleep_ms = 20;
+
+    struct scheduler_proof {
+        const pl011_uart* console               = nullptr;
+        astia::i32        a_id                  = -1;
+        astia::i32        b_id                  = -1;
+        astia::u64        a_deadline_ms         = 0;
+        astia::u64        a_woke_ms             = 0;
+        astia::u32        a_wake_count          = 0;
+        astia::u32        b_observed_sleeping   = 0;
+        astia::u32        b_loops               = 0;
+        bool              a_slept               = false;
+        bool              a_deadline_met        = false;
+        bool              b_observed_a_finished = false;
+    };
+
+    void scheduler_a_entry(void* context) {
+        auto&             proof   = *static_cast<scheduler_proof*>(context);
+        const pl011_uart& console = *proof.console;
+
+        console.write_line("sched: A start");
+
+        proof.a_deadline_ms = timer::now_ms() + scheduler_sleep_ms;
+        proof.a_slept       = sched::sleep_until(proof.a_deadline_ms);
+
+        if (!proof.a_slept) {
+            console.write_line("sched: A sleep-failed");
+
+            return;
+        }
+
+        proof.a_woke_ms      = timer::now_ms();
+        proof.a_wake_count   = sched::wake_count(proof.a_id);
+        proof.a_deadline_met = proof.a_woke_ms >= proof.a_deadline_ms;
+
+        write_field(console, "sched: A woke now=", proof.a_woke_ms, 16);
+        write_field(console, " deadline=", proof.a_deadline_ms, 16);
+        write_line_field(console, " wake-count=", proof.a_wake_count, 8);
+        console.write("sched: A deadline-met=");
+        console.write_hex(proof.a_deadline_met ? 1 : 0, 1);
+        console.write_line("");
+    }
+
+    void scheduler_b_entry(void* context) {
+        auto&             proof   = *static_cast<scheduler_proof*>(context);
+        const pl011_uart& console = *proof.console;
+
+        console.write_line("sched: B start");
+
+        constexpr astia::u32 loop_limit = 100000000;
+
+        while (!sched::finished(proof.a_id) && proof.b_loops < loop_limit) {
+            if (sched::sleeping(proof.a_id))
+                proof.b_observed_sleeping = 1;
+
+            sched::yield();
+            ++proof.b_loops;
+        }
+
+        proof.b_observed_a_finished = sched::finished(proof.a_id);
+
+        write_line_field(console, "sched: B loops=", proof.b_loops, 8);
+        console.write("sched: B observed-a-finished=");
+        console.write_hex(proof.b_observed_a_finished ? 1 : 0, 1);
         console.write_line("");
     }
 
@@ -748,6 +821,100 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     console.write_line("deadline: fired-a=1 fired-b=1 fired-c=0");
     console.write_line("ASTIA AARCH64 VIRT BOOT: DEADLINE OK");
+
+    scheduler_proof scheduler_state{};
+
+    scheduler_state.console = &console;
+
+    if (!sched::init())
+        fail(console, "scheduler initialization failed");
+
+    scheduler_state.a_id = sched::create(scheduler_a_entry, &scheduler_state);
+    scheduler_state.b_id = sched::create(scheduler_b_entry, &scheduler_state);
+
+    if (scheduler_state.a_id != 0 || scheduler_state.b_id != 1)
+        fail(console, "scheduler context creation failed");
+
+    write_line_field(console, "sched: contexts=", 2, 8);
+    write_line_field(console, "sched: a=", static_cast<astia::u64>(scheduler_state.a_id),
+                     8);
+    write_line_field(console, "sched: b=", static_cast<astia::u64>(scheduler_state.b_id),
+                     8);
+    write_line_field(console, "sched: sleep-ms=", scheduler_sleep_ms, 8);
+    write_line_field(console, "sched: timer-window=", timer::periodic_tick_budget, 8);
+
+    local_irqs.timer_count        = 0;
+    local_irqs.timer_rearm_failed = false;
+
+    timer::arm_result  scheduler_armed{};
+    const timer::error scheduler_timer_error = timer::arm_one_shot(scheduler_armed);
+
+    if (scheduler_timer_error != timer::error::none) {
+        console.write("sched: timer-error=");
+        console.write_line(timer::describe(scheduler_timer_error));
+        fail(console, "scheduler timer arm failed");
+    }
+
+    local_irqs.timer_ticks = scheduler_armed.ticks;
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED");
+
+    __asm__ volatile("msr daifclr, #2" : : : "memory");
+    __asm__ volatile("isb" : : : "memory");
+
+    if (!sched::start())
+        fail(console, "scheduler start failed");
+
+    constexpr astia::u32 scheduler_spin_limit = 100000000;
+
+    astia::u32 scheduler_spin = 0;
+
+    while (local_irqs.timer_count != timer::periodic_tick_budget &&
+           scheduler_spin < scheduler_spin_limit) {
+        __asm__ volatile("yield" : : : "memory");
+        ++scheduler_spin;
+    }
+
+    __asm__ volatile("msr daifset, #2" : : : "memory");
+    __asm__ volatile("isb" : : : "memory");
+
+    if (local_irqs.timer_rearm_failed)
+        fail(console, "scheduler timer re-arm failed");
+
+    if (local_irqs.timer_count != timer::periodic_tick_budget)
+        fail(console, "scheduler timer window did not complete");
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED");
+
+    if (timer::pending_deadlines() != 0)
+        fail(console, "scheduler sleep deadline was not consumed");
+
+    const sched::evidence& scheduler_stats = sched::stats();
+
+    write_line_field(console, "sched: started=", scheduler_stats.started, 8);
+    write_line_field(console, "sched: retires=", scheduler_stats.retires, 8);
+    write_line_field(console, "sched: sleeps=", scheduler_stats.sleeps, 8);
+    write_line_field(console, "sched: wakes=", scheduler_stats.wakes, 8);
+    write_line_field(console, "sched: deadline-wakes=", scheduler_stats.deadline_wakes,
+                     8);
+    write_line_field(console, "sched: spurious-wakes=", scheduler_stats.spurious_wakes,
+                     8);
+    write_field(console, "sched: a-wake=", scheduler_state.a_wake_count, 8);
+    console.write(" a-deadline-met=");
+    console.write_hex(scheduler_state.a_deadline_met ? 1 : 0, 1);
+    console.write(" b-ran-while-a-slept=");
+    console.write_hex(scheduler_state.b_observed_sleeping != 0 ? 1 : 0, 1);
+    console.write_line("");
+
+    if (scheduler_stats.started != 2 || scheduler_stats.retires != 2 ||
+        scheduler_stats.sleeps != 1 || scheduler_stats.wakes != 1 ||
+        scheduler_stats.deadline_wakes != 1 || scheduler_stats.spurious_wakes != 0 ||
+        !scheduler_state.a_slept || !scheduler_state.a_deadline_met ||
+        scheduler_state.a_wake_count != 1 || scheduler_state.b_observed_sleeping == 0 ||
+        !scheduler_state.b_observed_a_finished)
+        fail(console, "scheduler sleep/wake proof failed");
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
 

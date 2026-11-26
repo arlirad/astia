@@ -24,13 +24,14 @@ namespace astia::proc {
         /// is replaced).
         void (*release_bindings)(process& target) = nullptr;
         /// Move the staging process's bindings onto the process that
-        /// replaces it.
-        void (*adopt_bindings)(process& target, process& staging) = nullptr;
+        /// replaces it.  Returns false if the handoff failed and the
+        /// staging bindings were released.
+        bool (*adopt_bindings)(process& target, process& staging) = nullptr;
     };
 
     bool register_exec_hooks(const exec_hooks& hooks);
 
     core::task<interpreter_info> load_interpreter(process& target, const char* path);
     void                         release_exec_bindings(process& target);
-    void                         adopt_exec_bindings(process& target, process& staging);
+    bool                         adopt_exec_bindings(process& target, process& staging);
 } // namespace astia::proc

@@ -158,6 +158,7 @@ namespace astia::proc {
         }
 
         i64 change_directory(const char* path);
+        i64 change_directory(const fs::open_file& directory);
         i64 copy_cwd(span<char> buffer) const;
 
         i64 copy_cwd(char* buffer, usize length) const {
@@ -178,6 +179,35 @@ namespace astia::proc {
                             usize length) const {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
+
+        /// Resolve a path through this process's filesystem root and cwd.
+        /// Absolute paths start at the root; relative paths resolve from cwd
+        /// and fail with -ENOENT while cwd is outside the root.
+        i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
+
+        i64 resolve_path(const char* path, char* buffer, usize length,
+                         bool follow_final) const {
+            return resolve_path(path, span<char>(buffer, length), follow_final);
+        }
+
+        /// Resolve a path relative to dirfd, rejecting a directory descriptor
+        /// whose canonical path is outside this process's root.
+        i64 resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
+                            bool follow_final) const;
+
+        i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length,
+                            bool follow_final) const {
+            return resolve_path_at(dirfd, path, span<char>(buffer, length), follow_final);
+        }
+
+        bool path_within_root(const char* path) const {
+            return _cwd.within_root(path);
+        }
+
+        /// Make `path` the process filesystem root.  Only euid 0 may call it;
+        /// the path is resolved through the current root first, so a process
+        /// can only move its root deeper, never back out.
+        i64 chroot(const char* path);
 
         void inherit_groups(const process& parent) {
             _cwd.inherit_from(parent._cwd);
@@ -375,8 +405,10 @@ namespace astia::proc {
         mm::shptr<fs::open_file> descriptor(fd_t fd) const;
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value);
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value, u32 flags);
-        bool clear_descriptor(fd_t fd);
-        void close_on_exec_descriptors();
+        optional<fd_t> allocate_descriptor(const mm::shptr<fs::open_file>& value,
+                                           u32                             flags = 0);
+        bool           clear_descriptor(fd_t fd);
+        void           close_on_exec_descriptors();
         optional<fd_t> duplicate_descriptor(fd_t old_fd);
         optional<fd_t> duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags);
         u32            descriptor_flags(fd_t fd) const;
@@ -526,7 +558,7 @@ namespace astia::proc {
         /// write bits on BOTH sides, and the child's PTEs start
         /// read-only — the first write anywhere faults into a private
         /// copy.  _tls_tp is copied as well.
-        bool clone_address_space_cow(process* child);
+        core::task<bool> clone_address_space_cow(process* child);
 
         /// Share this process's open file descriptions with a fork
         /// child: the child's entries reference the SAME descriptions
@@ -661,6 +693,7 @@ namespace astia::proc {
         // read frequently but are independent of thread lifetime and waits.
         mutable core::spinlock _metadata_lock{};
         core::spinlock         _mmap_lock{};
+        core::spinlock         _clone_gate{};
     };
 
     /// Queue a just-died thread for destruction once its kernel stack

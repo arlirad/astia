@@ -6,35 +6,39 @@
 #include <string.h>
 
 struct astia_dir {
-    char*         path;
+    int           fd;
     unsigned long index;
     struct dirent entry;
 };
 
 DIR* opendir(const char* path) {
+    struct astia_dir* directory;
+
+    long fd;
+
     if (path == 0) {
         errno = EINVAL;
 
         return 0;
     }
 
-    struct astia_dir* directory = malloc(sizeof *directory);
+    fd = __astia_fio_open(path, FIO_READ | FIO_DIRECTORY, 0);
+    if (fd < 0) {
+        errno = (int) -fd;
+
+        return 0;
+    }
+
+    directory = malloc(sizeof *directory);
     if (directory == 0) {
-        errno = ENOMEM;
-
-        return 0;
-    }
-
-    directory->path = strdup(path);
-
-    if (directory->path == 0) {
-        free(directory);
+        (void) __astia_fio_close((int) fd);
 
         errno = ENOMEM;
 
         return 0;
     }
 
+    directory->fd    = (int) fd;
     directory->index = 0;
 
     return directory;
@@ -52,7 +56,7 @@ struct dirent* readdir(DIR* handle) {
         return 0;
     }
 
-    rc = __astia_fio_readdir(directory->path, directory->index, &result);
+    rc = __astia_fio_readdir(directory->fd, directory->index, &result);
     if (rc == 0)
         return 0;
 
@@ -77,14 +81,24 @@ struct dirent* readdir(DIR* handle) {
 
 int closedir(DIR* handle) {
     struct astia_dir* directory = (struct astia_dir*) handle;
+
+    long rc;
+
     if (directory == 0) {
         errno = EBADF;
 
         return -1;
     }
 
-    free(directory->path);
+    rc = __astia_fio_close(directory->fd);
+
     free(directory);
+
+    if (rc < 0) {
+        errno = (int) -rc;
+
+        return -1;
+    }
 
     return 0;
 }

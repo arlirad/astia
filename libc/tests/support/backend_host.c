@@ -457,12 +457,75 @@ void __astia_fio_prepare_fork(void) {}
 
 void __astia_fio_after_fork(void) {}
 
-long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
-    (void) path;
-    (void) index;
-    (void) out;
+struct host_dirent64 {
+    unsigned long  d_ino;
+    long           d_off;
+    unsigned short d_reclen;
+    unsigned char  d_type;
+    char           d_name[];
+};
 
-    return -ENOSYS;
+static unsigned char host_dirent_type(unsigned char type) {
+    /* DT_BLK is 6 on the host; the ABI reports file_type::block, 3. */
+    return type == 6 ? 3 : type;
+}
+
+long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
+    unsigned char buffer[4096];
+
+    uint64_t seen = 0;
+
+    if (out == NULL)
+        return -EINVAL;
+
+    if (syscall(SYS_lseek, fd, 0, 0) < 0)
+        return -HOST_ERRNO;
+
+    for (;;) {
+        long count = syscall(SYS_getdents64, fd, buffer, sizeof buffer);
+        if (count < 0)
+            return -HOST_ERRNO;
+
+        if (count == 0)
+            return 0;
+
+        for (long offset = 0; offset < count;) {
+            const struct host_dirent64* entry =
+                (const struct host_dirent64*) (const void*) (buffer + offset);
+            const char* name = entry->d_name;
+
+            unsigned int length = 0;
+
+            if (entry->d_reclen == 0)
+                return -EIO;
+
+            offset += (long) entry->d_reclen;
+
+            if (name[0] == '.' &&
+                (name[1] == '\0' || (name[1] == '.' && name[2] == '\0')))
+                continue;
+
+            if (seen++ != index)
+                continue;
+
+            while (length < sizeof out->name - 1 && name[length] != '\0') {
+                ++length;
+            }
+
+            if (name[length] != '\0')
+                return -ENAMETOOLONG;
+
+            for (unsigned int i = 0; i < length; ++i) {
+                out->name[i] = name[i];
+            }
+
+            out->name[length] = '\0';
+            out->namelen      = length;
+            out->type         = host_dirent_type(entry->d_type);
+
+            return 1;
+        }
+    }
 }
 
 static int host_is_tty(int fd) {
@@ -471,11 +534,57 @@ static int host_is_tty(int fd) {
     return syscall(SYS_ioctl, fd, TCGETS, storage) == 0;
 }
 
-long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
-    (void) length;
+static void host_fd_link(int fd, char* out, size_t capacity) {
+    static const char prefix[] = "/proc/self/fd/";
+    char              digits[12];
+    size_t            length = 0;
+    size_t            count  = 0;
+    unsigned int      value  = (unsigned int) fd;
 
+    do {
+        digits[count++] = (char) ('0' + value % 10);
+        value /= 10;
+    } while (value != 0);
+
+    while (prefix[length] != '\0' && length + 1 < capacity) {
+        out[length] = prefix[length];
+
+        ++length;
+    }
+
+    while (count != 0 && length + 1 < capacity) {
+        out[length++] = digits[--count];
+    }
+
+    out[length] = '\0';
+}
+
+long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
     if (fd < 0)
         return -EBADF;
+
+    if (request == TIOCGNAME) {
+        struct astia_tty_name* name = arg;
+
+        char link[32];
+        long count;
+
+        if (arg == NULL || length < sizeof(*name))
+            return -EINVAL;
+
+        host_fd_link(fd, link, sizeof(link));
+
+        count = syscall(SYS_readlinkat, -100, link, name->path, sizeof(name->path) - 1);
+        if (count < 0)
+            return -HOST_ERRNO;
+
+        if ((size_t) count >= sizeof(name->path) - 1)
+            return -ENAMETOOLONG;
+
+        name->path[count] = '\0';
+
+        return 0;
+    }
 
     if (request == TIOCGPGRP) {
         if (arg == NULL)
@@ -511,11 +620,8 @@ long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
             return syscall(SYS_ioctl, fd, TCGETS, storage) < 0 ? -HOST_ERRNO : -ENOTTY;
         }
 
-        if (selector == TCIFLUSH)
+        if (selector == TCIFLUSH || selector == TCOFLUSH || selector == TCIOFLUSH)
             return 0;
-
-        if (selector == TCOFLUSH || selector == TCIOFLUSH)
-            return -ENOSYS;
 
         return -EINVAL;
     }

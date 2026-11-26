@@ -107,7 +107,7 @@ long __astia_fio_mkdirat(int dirfd, const char* path, int mode);
 long __astia_fio_symlink(const char* target, const char* path);
 long __astia_fio_readlink(const char* path, char* buffer, size_t capacity);
 long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t capacity);
-long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out);
+long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out);
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length);
 long __astia_fio_pipe(int fds[2]);
 long __astia_fio_dup(int fd);

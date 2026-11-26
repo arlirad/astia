@@ -207,6 +207,81 @@ namespace astia::elf::loader {
     //  Shared entry points
     // ========================================================================
 
+    relocatable_problem audit_relocatable(span<const u8> bytes) {
+        view v;
+
+        if (!detail::parse_relocatable(bytes, v))
+            return relocatable_problem::not_relocatable;
+
+        for (u16 i = 0; i < v.shnum; ++i) {
+            const elf64_shdr& sh = v.sh[i];
+
+            // The module ABI applies RELA only: every arithmetic path uses the
+            // explicit addend. A REL section that patches an allocated section
+            // is a well-formed image using a format the ABI does not support,
+            // so it is rejected rather than loaded with implicit addends.
+            if (sh.sh_type == sht_rel) {
+                if (sh.sh_info >= v.shnum)
+                    return relocatable_problem::not_relocatable;
+
+                if ((v.sh[sh.sh_info].sh_flags & shf_alloc) != 0)
+                    return relocatable_problem::unsupported_relocation;
+
+                continue;
+            }
+
+            if (sh.sh_type != sht_rela)
+                continue;
+
+            if (sh.sh_info >= v.shnum || sh.sh_link != v.sym_index ||
+                sh.sh_entsize != sizeof(elf64_rela) ||
+                sh.sh_size % sizeof(elf64_rela) != 0 ||
+                !in_bounds(sh.sh_offset, sh.sh_size, v.len))
+                return relocatable_problem::not_relocatable;
+
+            if ((v.sh[sh.sh_info].sh_flags & shf_alloc) == 0)
+                continue;
+
+            const elf64_rela* rela =
+                reinterpret_cast<const elf64_rela*>(v.base + sh.sh_offset);
+
+            const usize count = sh.sh_size / sizeof(elf64_rela);
+
+            for (usize k = 0; k < count; ++k) {
+                switch (r_type(rela[k].r_info)) {
+                case r_x86_64_none:
+                case r_x86_64_64:
+                case r_x86_64_pc32:
+                case r_x86_64_plt32:
+                    break;
+                case r_x86_64_32:
+                case r_x86_64_32s:
+                    return relocatable_problem::incompatible_code_model;
+                default:
+                    return relocatable_problem::unsupported_relocation;
+                }
+            }
+        }
+
+        return relocatable_problem::none;
+    }
+
+    const char* relocatable_problem_text(relocatable_problem problem) {
+        switch (problem) {
+        case relocatable_problem::none:
+            return "compatible";
+        case relocatable_problem::not_relocatable:
+            return "not a well-formed relocatable module";
+        case relocatable_problem::incompatible_code_model:
+            return "R_X86_64_32/32S cannot address the direct-map image; "
+                   "rebuild with -mcmodel=large";
+        case relocatable_problem::unsupported_relocation:
+            return "unsupported relocation type";
+        }
+
+        return "unknown";
+    }
+
     kind kind_of(span<const u8> bytes) {
         u16 type = 0;
 

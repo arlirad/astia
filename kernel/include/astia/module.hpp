@@ -3,6 +3,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>
+#include <astia/dev/input_platform.hpp>
 #include <astia/hw/pci.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
@@ -169,4 +170,30 @@ namespace astia::module {
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);
     int  callback_context();
+
+    /// The narrow PS/2 port window the platform exposes to the keyboard
+    /// module; only ports 0x60/0x64 are addressable.
+    const dev::ps2_port_window& ps2_platform_ports();
+
+    /// Claim IRQ1 for the calling module. The kernel resolves and holds the
+    /// module itself and binds a guarded route, so the image cannot be closed
+    /// while the line is claimed. Refuses outside module entrypoint context or
+    /// when the line already has an owner.
+    bool ps2_claim_irq(arch::irq_handler handler);
+
+    /// Unmask PIC IRQ1 after the guarded claim is in place.
+    bool ps2_unmask_irq();
+
+    /// Mask IRQ1 and retry clearing the guarded claim, so a failed module
+    /// bring-up cannot leave a handler pointing into an image that is about to
+    /// be torn down. Returns false in interrupt context if a dispatch is still
+    /// in flight; normal-context callers retry to completion.
+    bool ps2_release_irq();
+
+    /// Permanently mark the calling module non-unloadable. Only valid while
+    /// the module owns its entrypoint context.
+    bool make_resident();
+
+    /// Forward one layout-mapped byte to the ttv0 input path.
+    bool tty_input_write(u8 byte);
 } // namespace astia::module

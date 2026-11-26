@@ -18,6 +18,7 @@
 #include <astia/api/syscalls.h>
 
 #include "reloc.h"
+#include "symcount.h"
 
 /*
  * clang lowers struct copies and zero-initialisation to memcpy/memset even
@@ -145,28 +146,24 @@ static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
     return 0;
 }
 
-/* Symbol count from a GNU hash table: the highest bucket's chain decides. */
-static uint32_t gnu_symbol_count(const uint32_t* hash) {
-    const uint32_t  buckets   = hash[0];
-    const uint32_t  symoffset = hash[1];
-    const uint32_t  bloom     = hash[2];
-    const uint32_t* bucket    = hash + 4 + bloom * 2; /* 64-bit bloom words */
-    const uint32_t* chain     = bucket + buckets;
-    uint32_t        last      = 0;
+/* End of the PT_LOAD segment containing `vaddr`, or zero when no segment
+   maps it.  The distance to that end bounds every table the loader indexes. */
+static uint64_t load_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t vaddr) {
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type != PT_LOAD)
+            continue;
 
-    for (uint32_t i = 0; i < buckets; ++i) {
-        if (bucket[i] > last)
-            last = bucket[i];
+        const uint64_t start = phdr[i].p_vaddr;
+        const uint64_t end   = start + phdr[i].p_memsz;
+
+        if (end < start)
+            return 0;
+
+        if (vaddr >= start && vaddr < end)
+            return end;
     }
 
-    if (last < symoffset)
-        return symoffset;
-
-    while ((chain[last - symoffset] & 1u) == 0) {
-        ++last;
-    }
-
-    return last + 1;
+    return 0;
 }
 
 static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
@@ -217,21 +214,39 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     /* SysV hash: nbucket, nchain — nchain is the dynamic symbol count.  GNU
        hash alone cannot count undefined imports (they are not hashed), so
        fall back to the .dynsym/.dynstr adjacency when it holds. */
+    const uint64_t symtab_end = load_extent_end(phdr, phnum, symtab);
+
+    if (symtab_end == 0)
+        return -1;
+
+    ld_symcount_input symbols = {
+        .symtab       = symtab,
+        .strtab       = strtab,
+        .symtab_bytes = symtab_end - symtab,
+        .hash         = module->hash,
+        .hash_bytes   = 0,
+        .gnu_hash     = module->gnu_hash,
+        .gnu_bytes    = 0,
+    };
+
     if (module->hash != 0) {
-        module->symbol_count = module->hash[1];
-    }
-    else {
-        module->symbol_count = gnu_symbol_count(module->gnu_hash);
+        const uint64_t end = load_extent_end(phdr, phnum, hash);
+        if (end == 0)
+            return -1;
 
-        if (module->strtab > (const char*) module->symtab) {
-            const uint64_t adjacent =
-                (uint64_t) ((const char*) module->strtab - (const char*) module->symtab) /
-                sizeof(Elf64_Sym);
-
-            if (adjacent < 0x10000 && adjacent > module->symbol_count)
-                module->symbol_count = (uint32_t) adjacent;
-        }
+        symbols.hash_bytes = end - hash;
     }
+
+    if (module->gnu_hash != 0) {
+        const uint64_t end = load_extent_end(phdr, phnum, gnu);
+        if (end == 0)
+            return -1;
+
+        symbols.gnu_bytes = end - gnu;
+    }
+
+    if (ld_symbol_count(&symbols, &module->symbol_count) != 0)
+        return -1;
 
     const uint64_t soname = dyn_tag(module, DT_SONAME);
 

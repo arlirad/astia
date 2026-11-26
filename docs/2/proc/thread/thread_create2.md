@@ -20,5 +20,4 @@ Returns the new thread ID or a negative errno.
 ## ERRORS
 
 - `-EAGAIN`: The thread limit or memory limit was reached.
-- `-EFAULT`: The entry point, stack, or argument pointer is invalid.
-- `-ESRCH`: There is no current process.
+- `-EFAULT`: The entry point, stack, or argument pointer is invalid, or there is no current process.

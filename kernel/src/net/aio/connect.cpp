@@ -24,12 +24,16 @@ namespace astia::io::aio::operations {
             if (path_rc < 0)
                 co_return static_cast<i32>(path_rc);
 
-            path_rc =
-                fs::resolve_path(socket_path, socket_path, sizeof socket_path, false);
+            auto* current = proc::current_process();
+            if (current == nullptr)
+                co_return -ESRCH;
+
+            path_rc = current->resolve_path(socket_path, socket_path, sizeof socket_path,
+                                            false);
             if (path_rc < 0)
                 co_return static_cast<i32>(path_rc);
 
-            if (!socket_node_writable(proc::current_process(), socket_path))
+            if (!socket_node_writable(current, socket_path))
                 co_return -EACCES;
 
             const auto* socket = handle->parent()->unix_socket_capability();

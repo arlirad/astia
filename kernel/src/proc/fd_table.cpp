@@ -106,6 +106,28 @@ namespace astia::proc {
         }
     }
 
+    optional<fd_t> fd_table::allocate(const mm::shptr<fs::open_file>& file, u32 flags,
+                                      u32 maximum) {
+        if (!file)
+            return error_t::emfile;
+
+        if (maximum > max_process_fds)
+            maximum = max_process_fds;
+
+        arch::interrupt_spinlock_guard guard(_lock);
+
+        for (u32 fd = 0; fd < maximum; ++fd) {
+            if (!_entries[fd].file) {
+                _entries[fd].file  = file;
+                _entries[fd].flags = flags;
+
+                return fd_t{static_cast<i32>(fd)};
+            }
+        }
+
+        return error_t::emfile;
+    }
+
     void fd_table::close_on_exec() {
         mm::shptr<fs::open_file> old[max_process_fds];
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
 
@@ -202,18 +203,31 @@ namespace astia::dev {
     using irq_handler = void (*)();
 
     struct irq_claimable {
-        using callback = bool (*)(void*, irq_handler);
+        using callback         = bool (*)(void*, irq_handler);
+        using guarded_callback = bool (*)(void*, irq_handler, arch::irq_callback_enter,
+                                          arch::irq_callback_leave, void*);
 
-        void*    context  = nullptr;
-        callback claim_fn = nullptr;
+        void*            context          = nullptr;
+        callback         claim_fn         = nullptr;
+        guarded_callback guarded_claim_fn = nullptr;
 
         constexpr bool valid() const {
             return claim_fn != nullptr;
         }
 
+        constexpr bool guarded() const {
+            return guarded_claim_fn != nullptr;
+        }
+
         bool claim(irq_handler handler) const {
             return handler != nullptr && claim_fn != nullptr &&
                    claim_fn(context, handler);
+        }
+
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return handler != nullptr && guarded_claim_fn != nullptr &&
+                   guarded_claim_fn(context, handler, enter, leave, guard_context);
         }
     };
 
@@ -233,16 +247,19 @@ namespace astia::dev {
     };
 
     struct irq_line {
-        using claim_callback  = irq_claimable::callback;
-        using unmask_callback = irq_unmaskable::callback;
+        using claim_callback         = irq_claimable::callback;
+        using guarded_claim_callback = irq_claimable::guarded_callback;
+        using unmask_callback        = irq_unmaskable::callback;
 
         irq_claimable  claimable;
         irq_unmaskable unmaskable;
 
         constexpr irq_line() = default;
         constexpr irq_line(void* context, claim_callback claim_fn,
-                           unmask_callback unmask_fn)
-            : claimable{context, claim_fn}, unmaskable{context, unmask_fn} {}
+                           unmask_callback        unmask_fn,
+                           guarded_claim_callback guarded_claim_fn = nullptr)
+            : claimable{context, claim_fn, guarded_claim_fn},
+              unmaskable{context, unmask_fn} {}
 
         constexpr bool valid() const {
             return claimable.valid() && unmaskable.valid();
@@ -258,6 +275,11 @@ namespace astia::dev {
 
         bool claim(irq_handler handler) const {
             return claimable.claim(handler);
+        }
+
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return claimable.claim_guarded(handler, enter, leave, guard_context);
         }
 
         bool unmask() const {

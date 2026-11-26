@@ -56,7 +56,9 @@ namespace astia::io::aio {
         linkat         = OP_LINKAT,
         ftruncate      = OP_FTRUNCATE,
         getsockopt     = OP_GETSOCKOPT,
-        count          = OP_GETSOCKOPT + 1,
+        sendmsg        = OP_SENDMSG,
+        recvmsg        = OP_RECVMSG,
+        count          = OP_RECVMSG + 1,
     };
 
     inline constexpr u32 opcode_count = static_cast<u32>(opcode::count);

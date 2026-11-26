@@ -202,6 +202,139 @@ static void test_realloc(void) {
     CHECK(realloc(p, 0) == NULL); /* frees, returns NULL */
 }
 
+static void test_realloc_memalign(void) {
+    static const size_t alignments[] = {16, 32, 64, 256, 4096};
+
+    for (size_t i = 0; i < sizeof alignments / sizeof alignments[0]; i++) {
+        size_t alignment = alignments[i];
+
+        unsigned char* p = NULL;
+        unsigned char* guard;
+        unsigned char* q;
+
+        int ok;
+
+        CHECK(posix_memalign((void**) &p, alignment, 64) == 0);
+        CHECK(p != NULL);
+
+        if (!p)
+            continue;
+
+        CHECK(((uintptr_t) p % alignment) == 0);
+
+        for (size_t j = 0; j < 64; j++) {
+            p[j] = (unsigned char) (j * 5 + 7);
+        }
+
+        guard = malloc(96);
+
+        CHECK(guard != NULL);
+
+        if (!guard) {
+            free(p);
+
+            continue;
+        }
+
+        for (size_t j = 0; j < 96; j++) {
+            guard[j] = (unsigned char) (0xc0 | (j & 0x3f));
+        }
+
+        q = realloc(p, 4096);
+
+        CHECK(q != NULL);
+
+        if (!q) {
+            free(p);
+            free(guard);
+
+            continue;
+        }
+
+        CHECK(((uintptr_t) q % alignment) == 0);
+
+        ok = 1;
+
+        for (size_t j = 0; j < 64; j++) {
+            if (q[j] != (unsigned char) (j * 5 + 7))
+                ok = 0;
+        }
+
+        CHECK(ok);
+
+        ok = 1;
+
+        for (size_t j = 0; j < 96; j++) {
+            if (guard[j] != (unsigned char) (0xc0 | (j & 0x3f)))
+                ok = 0;
+        }
+
+        CHECK(ok);
+
+        {
+            unsigned char* shrunk = realloc(q, 16);
+
+            CHECK(shrunk != NULL);
+
+            if (shrunk)
+                q = shrunk;
+        }
+
+        CHECK(((uintptr_t) q % alignment) == 0);
+
+        ok = 1;
+
+        for (size_t j = 0; j < 16; j++) {
+            if (q[j] != (unsigned char) (j * 5 + 7))
+                ok = 0;
+        }
+
+        CHECK(ok);
+
+        ok = 1;
+
+        for (size_t j = 0; j < 96; j++) {
+            if (guard[j] != (unsigned char) (0xc0 | (j & 0x3f)))
+                ok = 0;
+        }
+
+        CHECK(ok);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+        CHECK(realloc(q, 4u << 20) == NULL);
+        CHECK(((uintptr_t) q % alignment) == 0);
+
+        ok = 1;
+
+        for (size_t j = 0; j < 16; j++) {
+            if (q[j] != (unsigned char) (j * 5 + 7))
+                ok = 0;
+        }
+
+        CHECK(ok);
+#pragma GCC diagnostic pop
+
+        free(q);
+        free(guard);
+    }
+
+    {
+        void* p = NULL;
+
+        CHECK(posix_memalign(&p, 64, 32) == 0);
+
+        if (p) {
+            CHECK(realloc(p, 0) == NULL);
+
+            p = malloc(64);
+
+            CHECK(p != NULL);
+            free(p);
+        }
+    }
+}
+
 static void test_coalesce(void) {
     enum { N = 64 };
 
@@ -354,6 +487,7 @@ int main(void) {
     test_calloc();
     test_posix_memalign();
     test_realloc();
+    test_realloc_memalign();
     test_coalesce(); /* needs a drained arena */
     test_exhaustion();
     test_stress();

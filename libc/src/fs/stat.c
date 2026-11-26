@@ -16,17 +16,21 @@ static int finish(const astia_stat* value, struct stat* result) {
         return -1;
     }
 
-    result->st_dev    = value->dev;
-    result->st_ino    = value->ino;
-    result->st_size   = (off_t) value->size;
-    result->st_mode   = (mode_t) value->mode;
-    result->st_nlink  = value->nlink;
-    result->st_uid    = value->uid;
-    result->st_gid    = value->gid;
-    result->st_blocks = (long) value->blocks;
-    result->st_atime  = (time_t) value->atime_sec;
-    result->st_mtime  = (time_t) value->mtime_sec;
-    result->st_ctime  = (time_t) value->ctime_sec;
+    *result = (struct stat){0};
+
+    result->st_dev     = value->dev;
+    result->st_ino     = value->ino;
+    result->st_mode    = (mode_t) value->mode;
+    result->st_nlink   = value->nlink;
+    result->st_uid     = value->uid;
+    result->st_gid     = value->gid;
+    result->st_rdev    = 0;
+    result->st_size    = (off_t) value->size;
+    result->st_blksize = 512;
+    result->st_blocks  = (long) value->blocks;
+    result->st_atime   = (time_t) value->atime_sec;
+    result->st_mtime   = (time_t) value->mtime_sec;
+    result->st_ctime   = (time_t) value->ctime_sec;
 
     return 0;
 }

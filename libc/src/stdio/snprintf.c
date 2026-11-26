@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -54,6 +55,27 @@ static void sink_pad(struct sink* s, char c, size_t n) {
     while (n--) {
         sink_putc(s, c);
     }
+}
+
+static void sink_text(struct sink* s, const char* text, size_t length, int width,
+                      size_t precision, int precision_set, int left) {
+    size_t pad;
+    size_t i;
+
+    if (precision_set && length > precision)
+        length = precision;
+
+    pad = ((size_t) width > length) ? (size_t) width - length : 0;
+
+    if (!left)
+        sink_pad(s, ' ', pad);
+
+    for (i = 0; i < length; i++) {
+        sink_putc(s, text[i]);
+    }
+
+    if (left)
+        sink_pad(s, ' ', pad);
 }
 
 /* Reverse-ordered digits of v; returns how many. */
@@ -877,33 +899,15 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
         }
         else if (spec == 's') {
             const char* strarg = va_arg(ap, const char*);
-
-            size_t slen;
-            size_t pad;
-            size_t i;
-
-            if (strarg == NULL) {
+            if (strarg == NULL)
                 strarg = "(null)";
-                slen   = 6;
-            }
-            else {
-                slen = strlen(strarg);
-            }
 
-            if (prec_set && slen > prec)
-                slen = prec;
+            sink_text(&s, strarg, strlen(strarg), width, prec, prec_set, left);
+        }
+        else if (spec == 'm') {
+            const char* message = strerror(errno);
 
-            pad = ((size_t) width > slen) ? (size_t) width - slen : 0;
-
-            if (!left)
-                sink_pad(&s, ' ', pad);
-
-            for (i = 0; i < slen; i++) {
-                sink_putc(&s, strarg[i]);
-            }
-
-            if (left)
-                sink_pad(&s, ' ', pad);
+            sink_text(&s, message, strlen(message), width, prec, prec_set, left);
         }
         else if (spec == 'a' || spec == 'A' || spec == 'e' || spec == 'E' ||
                  spec == 'f' || spec == 'F' || spec == 'g' || spec == 'G') {

@@ -741,16 +741,31 @@ ASTIA_TEST(tty_rejects_invalid_ioctl_arguments_and_unknown_requests) {
     ASTIA_CHECK(tty.ioctl(0x1234, nullptr, 0) == -ENOTTY);
 }
 
-ASTIA_TEST(tty_tcflsh_rejects_unsupported_and_invalid_requests) {
+ASTIA_TEST(tty_tcflsh_flushes_supported_queues_and_rejects_invalid_requests) {
     test_tty tty;
+
+    set_termios(tty, 0, 0, 0);
+
+    tty.tty_receive('x');
 
     int selector = TCOFLUSH;
 
-    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+
+    char result[8]{};
+
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
+    ASTIA_CHECK(result[0] == 'x');
+
+    tty.tty_receive('y');
 
     selector = TCIOFLUSH;
 
-    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    ASTIA_CHECK(tty.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 0);
+
+    ASTIA_CHECK(tty.write("ok", 2, 0) == 2);
+    ASTIA_CHECK(tty.output == "ok");
 
     selector = 99;
 

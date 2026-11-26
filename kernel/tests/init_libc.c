@@ -833,6 +833,7 @@ static volatile int          user_signal_info_seen;
 static siginfo_t             user_signal_info;
 static volatile uintptr_t    fault_expected_addr;
 static volatile int          fault_expected_code;
+static int                   abort_pipe_write_fd = -1;
 
 static void page_fault_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
@@ -883,6 +884,13 @@ static void altstack_handler(int signal_number) {
 
     if (altstack_calls == 1)
         raise(SIGUSR1);
+}
+
+static void abort_handler(int signal_number) {
+    char byte = 'A';
+
+    (void) signal_number;
+    (void) write(abort_pipe_write_fd, &byte, 1);
 }
 
 static void* libc_mutex_worker(void* opaque) {
@@ -1017,6 +1025,7 @@ static int libc_tcflush_contract(void) {
     int  master;
     int  slave;
     char slave_name[64];
+    char tty_name[64];
     char result[8];
 
     struct termios raw;
@@ -1028,7 +1037,9 @@ static int libc_tcflush_contract(void) {
         return 28;
 
     slave = open(slave_name, O_RDWR | O_NOCTTY);
-    if (slave < 0)
+
+    if (slave < 0 || ttyname_r(slave, tty_name, sizeof tty_name) != 0 ||
+        strcmp(tty_name, slave_name) != 0)
         return 28;
 
     if (tcgetattr(slave, &raw) != 0)
@@ -1053,15 +1064,32 @@ static int libc_tcflush_contract(void) {
         result[0] != 'o' || result[1] != 'k')
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCOFLUSH) != -1 || errno != ENOSYS)
+    if (tcflush(slave, TCOFLUSH) != 0)
         return 28;
 
-    errno = 0;
-
-    if (tcflush(slave, TCIOFLUSH) != -1 || errno != ENOSYS)
+    if (write(slave, "abc", 3) != 3 || tcflush(slave, TCOFLUSH) != 0)
         return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
+
+    if (write(master, "old", 3) != 3 || write(slave, "abc", 3) != 3 ||
+        tcflush(slave, TCIOFLUSH) != 0)
+        return 28;
+
+    if (read(slave, result, sizeof result) != 0)
+        return 28;
+
+    {
+        struct pollfd master_ready = {.fd = master, .events = POLLIN};
+
+        if (poll(&master_ready, 1, 0) != 0)
+            return 28;
+    }
 
     errno = 0;
 
@@ -1340,6 +1368,40 @@ int main(int argc, char** argv) {
         _Exit(0);
     }
 
+    if (argc > 1 && strcmp(argv[1], "--chroot-check") == 0) {
+        char cwd[64];
+        int  fd;
+
+        if (getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
+            _Exit(201);
+
+        fd = open("/init_libc", O_RDONLY);
+        if (fd < 0)
+            _Exit(202);
+
+        close(fd);
+
+        fd = open("/etc/passwd", O_RDONLY);
+        if (fd < 0)
+            _Exit(203);
+
+        close(fd);
+
+        errno = 0;
+        fd    = open("/../sbin/init", O_RDONLY);
+
+        if (fd >= 0 || errno != ENOENT)
+            _Exit(204);
+
+        if (chdir("..") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
+            _Exit(205);
+
+        printf("astia: chroot exec ok\n");
+        fflush(stdout);
+
+        _Exit(0);
+    }
+
     {
         struct timeval zero = {0, 0};
         struct pollfd  fd;
@@ -1554,6 +1616,88 @@ int main(int argc, char** argv) {
         if (sigaction(SIGUSR1, &caught, NULL) != 0 ||
             sigaction(SIGUSR2, &ignored, NULL) != 0)
             return 127;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 206;
+
+        if (child == 0)
+            abort();
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGABRT)
+            return 207;
+    }
+
+    {
+        int pipe_fds[2];
+
+        if (pipe(pipe_fds) != 0)
+            return 208;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 209;
+
+        if (child == 0) {
+            struct sigaction action = {0};
+
+            action.sa_handler = abort_handler;
+
+            close(pipe_fds[0]);
+
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGABRT, &action, NULL) != 0)
+                _Exit(210);
+
+            abort_pipe_write_fd = pipe_fds[1];
+
+            abort();
+            _Exit(211);
+        }
+
+        close(pipe_fds[1]);
+
+        char byte   = 0;
+        int  status = 0;
+        int  rc     = read(pipe_fds[0], &byte, 1);
+
+        close(pipe_fds[0]);
+
+        if (rc != 1 || byte != 'A' || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGABRT)
+            return 212;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 213;
+
+        if (child == 0) {
+            struct sigaction ignored = {0};
+            sigset_t         mask;
+
+            ignored.sa_handler = SIG_IGN;
+
+            if (sigemptyset(&ignored.sa_mask) != 0 || sigemptyset(&mask) != 0 ||
+                sigaddset(&mask, SIGABRT) != 0 ||
+                sigprocmask(SIG_BLOCK, &mask, NULL) != 0 ||
+                sigaction(SIGABRT, &ignored, NULL) != 0)
+                _Exit(214);
+
+            abort();
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGABRT)
+            return 215;
     }
 
     {
@@ -2097,6 +2241,49 @@ int main(int argc, char** argv) {
             return 56;
 
         closedir(root);
+
+        /* fchdir keeps the directory the descriptor was opened on, even
+           after its name has been renamed or removed. */
+        {
+            const char* moved = "/tmp/fchdir-moved";
+
+            char stale[64];
+            int  dir_fd;
+
+            (void) rmdir("/tmp/fchdir-moved/child");
+            (void) rmdir("/tmp/fchdir-moved");
+            (void) rmdir("/tmp/fchdir-src");
+            (void) rmdir("/tmp/fchdir-gone");
+
+            if (mkdir("/tmp/fchdir-src", 0755) != 0 ||
+                mkdir("/tmp/fchdir-src/child", 0755) != 0)
+                return 206;
+
+            dir_fd = open("/tmp/fchdir-src", O_RDONLY | O_DIRECTORY);
+            if (dir_fd < 0)
+                return 207;
+
+            if (rename("/tmp/fchdir-src", moved) != 0 || direct_chdir("/") != 0 ||
+                fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-src") != 0 || close(dir_fd) != 0)
+                return 208;
+
+            if (direct_chdir("/") != 0 || mkdir("/tmp/fchdir-gone", 0755) != 0)
+                return 209;
+
+            dir_fd = open("/tmp/fchdir-gone", O_RDONLY | O_DIRECTORY);
+
+            if (dir_fd < 0 || rmdir("/tmp/fchdir-gone") != 0)
+                return 210;
+
+            if (fchdir(dir_fd) != 0 || getcwd(stale, sizeof(stale)) == NULL ||
+                strcmp(stale, "/tmp/fchdir-gone") != 0 || close(dir_fd) != 0)
+                return 211;
+
+            if (direct_chdir("/") != 0 || rmdir("/tmp/fchdir-moved/child") != 0 ||
+                rmdir(moved) != 0)
+                return 212;
+        }
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
@@ -4253,6 +4440,43 @@ int main(int argc, char** argv) {
             return 192;
     }
 
+    /* chown/fchown honor the (uid_t)-1 / (gid_t)-1 "leave unchanged" sentinels. */
+    if (geteuid() == 0) {
+        const char* target = "/tmp/chown-sentinel";
+        struct stat value;
+
+        int target_fd;
+
+        (void) unlink(target);
+
+        target_fd = open(target, O_CREAT | O_RDWR | O_TRUNC, 0644);
+        if (target_fd < 0)
+            return 206;
+
+        if (chown(target, 4242, 4343) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4242 || value.st_gid != 4343)
+            return 207;
+
+        if (chown(target, (uid_t) -1, 4444) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4242 || value.st_gid != 4444)
+            return 208;
+
+        if (chown(target, 4445, (gid_t) -1) != 0 || stat(target, &value) != 0 ||
+            value.st_uid != 4445 || value.st_gid != 4444)
+            return 209;
+
+        if (fchown(target_fd, 4446, (gid_t) -1) != 0 || fstat(target_fd, &value) != 0 ||
+            value.st_uid != 4446 || value.st_gid != 4444)
+            return 210;
+
+        if (fchown(target_fd, (uid_t) -1, 4447) != 0 || fstat(target_fd, &value) != 0 ||
+            value.st_uid != 4446 || value.st_gid != 4447)
+            return 211;
+
+        if (close(target_fd) != 0 || unlink(target) != 0)
+            return 212;
+    }
+
     {
         struct utsname name;
 
@@ -4402,6 +4626,90 @@ int main(int argc, char** argv) {
 
         if (open("/bin/init_libc", O_WRONLY) >= 0 || errno != EROFS)
             return 95;
+    }
+
+    /* execve rejects an image without any execute bit before the loader
+       inspects it: a 0644 slice of a real image must fail with EACCES. */
+    {
+        const char* source = "/bin/init_libc";
+        const char* target = "/tmp/exec-no-permission";
+
+        char image[4096];
+
+        (void) unlink(target);
+
+        int in = open(source, O_RDONLY);
+        if (in < 0)
+            return 206;
+
+        const ssize_t got = read(in, image, sizeof image);
+
+        if (close(in) != 0 || got <= 0) {
+            (void) unlink(target);
+
+            return 207;
+        }
+
+        int out = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (out < 0) {
+            (void) unlink(target);
+
+            return 208;
+        }
+
+        ssize_t written = 0;
+
+        while (written < got) {
+            const ssize_t step = write(out, image + written, (size_t) (got - written));
+            if (step <= 0) {
+                close(out);
+                (void) unlink(target);
+
+                return 209;
+            }
+
+            written += step;
+        }
+
+        if (close(out) != 0) {
+            (void) unlink(target);
+
+            return 210;
+        }
+
+        if (chmod(target, 0644) != 0) {
+            (void) unlink(target);
+
+            return 211;
+        }
+
+        const pid_t child = fork();
+        if (child < 0) {
+            (void) unlink(target);
+
+            return 212;
+        }
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) target, (char*) "--exec-multithread-check",
+                                  NULL};
+
+            execv(target, child_argv);
+            _Exit(errno == EACCES ? 0 : 1);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0) {
+            (void) unlink(target);
+
+            return 213;
+        }
+
+        if (unlink(target) != 0)
+            return 214;
+
+        printf("astia: exec permission ok\n");
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise
@@ -4595,6 +4903,76 @@ int main(int argc, char** argv) {
 
         printf("astia: urandom %016llx\n", probe);
         printf("astia: random ok\n");
+    }
+
+    /* 52: chroot and privilege-separation sequence.  chroot does not
+       change cwd, so relative paths stay unreachable until chdir("/");
+       then fork+exec must keep the new root and only see the jail. */
+    {
+        char cwd[64];
+        int  fd = open("/jail/init_libc", O_RDONLY);
+
+        if (fd >= 0) {
+            close(fd);
+
+            if (chdir("/") != 0 || chroot("/jail") != 0)
+                return 210;
+
+            errno = 0;
+
+            if (getcwd(cwd, sizeof(cwd)) != NULL || errno != ENOENT)
+                return 211;
+
+            errno = 0;
+
+            if (chdir("etc") != -1 || errno != ENOENT)
+                return 212;
+
+            fd = open("/init_libc", O_RDONLY);
+            if (fd < 0)
+                return 213;
+
+            close(fd);
+
+            fd = open("/etc/passwd", O_RDONLY);
+            if (fd < 0)
+                return 214;
+
+            close(fd);
+
+            errno = 0;
+            fd    = open("/../sbin/init", O_RDONLY);
+
+            if (fd >= 0 || errno != ENOENT)
+                return 215;
+
+            if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+                strcmp(cwd, "/") != 0)
+                return 216;
+
+            if (chdir("..") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+                strcmp(cwd, "/") != 0)
+                return 217;
+
+            const pid_t child = fork();
+            if (child < 0)
+                return 218;
+
+            if (child == 0) {
+                char* child_argv[] = {(char*) "/init_libc", (char*) "--chroot-check",
+                                      NULL};
+
+                execv(child_argv[0], child_argv);
+                _Exit(219);
+            }
+
+            int status = 0;
+
+            if (waitpid(child, &status, 0) != child || status != 0)
+                return 220;
+
+            printf("astia: chroot ok\n");
+        }
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
