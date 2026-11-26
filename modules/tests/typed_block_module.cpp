@@ -50,8 +50,8 @@ namespace {
             return {};
         }
 
-        bool selftest() override {
-            return true;
+        astia::core::task<bool> selftest() override {
+            co_return true;
         }
     };
 

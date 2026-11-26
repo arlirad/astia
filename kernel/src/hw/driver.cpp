@@ -299,15 +299,20 @@ namespace astia::hw {
         return count;
     }
 
-    bool driver_registry::selftests() const {
+    core::task<bool> driver_registry::selftests() const {
         for (u32 i = 0; i < max_drivers; ++i) {
             const registration& item = _drivers[i];
 
-            if (item.used && !item.value->selftest())
-                return false;
+            if (!item.used)
+                continue;
+
+            auto result = co_await item.value->selftest();
+
+            if (!result || !result.value)
+                co_return false;
         }
 
-        return true;
+        co_return true;
     }
 
     driver_registry& drivers() {

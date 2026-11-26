@@ -3,5 +3,5 @@
 #include <astia/module.hpp>
 
 namespace astia::mod {
-    bool run_selftests();
+    core::task<bool> run_selftests();
 }

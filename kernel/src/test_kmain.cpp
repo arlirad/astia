@@ -140,8 +140,12 @@ namespace {
             astia::log::info("pci: enumerated %u function(s)", enumerated.value);
         }
 
-        if (init_ok && !astia::mod::run_selftests())
-            astia::core::kpanic("NVMe sector selftest failed");
+        if (init_ok) {
+            auto selftests = co_await astia::mod::run_selftests();
+
+            if (!selftests || !selftests.value)
+                astia::core::kpanic("NVMe sector selftest failed");
+        }
 
         if (!init_ok || (ASTIA_RUN_SELFTEST && !astia::test::run()))
             astia::core::kpanic("kernel integration selftest failed");

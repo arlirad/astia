@@ -51,6 +51,12 @@ user-buffer pins, registered files, and asynchronous request bridges. A
 module must not retain one of these handles after its matching release,
 unpin, cancellation, or completion.
 
+`astia::module::read_registered` and
+`astia::module::write_registered` are task-shaped: they return
+`core::task<i64>`, await the filesystem/device operation, and return 0 for a
+full-length transfer, a positive short count, or a negative errno. They never
+spin or halt the CPU while a device completion is outstanding.
+
 ## Verification
 
 `modules/tests` compiles the public C++ header independently and builds typed

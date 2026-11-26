@@ -580,8 +580,8 @@ class rtl8139_driver final : public astia::hw::driver {
         co_return astia::error_t::enone;
     }
 
-    bool selftest() override {
-        return controller.selftest() != 0;
+    astia::core::task<bool> selftest() override {
+        co_return controller.selftest() != 0;
     }
 };
 
