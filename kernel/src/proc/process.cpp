@@ -1426,6 +1426,11 @@ namespace astia::proc {
 
     bool process::exec_user_image(span<const u8> bytes, char* const argv[],
                                   char* const envp[], u64* entry_out, u64* stack_out) {
+        // Multithreaded exec is not supported yet: the other threads would
+        // keep user contexts pointing at the unmapped old image.
+        if (thread_count() > 1)
+            return false;
+
         process staging(_pid, _parent_pid, _name);
 
         u64 entry = 0, stack = 0;
@@ -1452,6 +1457,11 @@ namespace astia::proc {
                                                           char* const envp[]) {
         if (!file)
             co_return error_t::ebadf;
+
+        // Multithreaded exec is not supported yet: the other threads would
+        // keep user contexts pointing at the unmapped old image.
+        if (thread_count() > 1)
+            co_return error_t::einval;
 
         process staging(_pid, _parent_pid, _name);
 
