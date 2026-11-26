@@ -65,13 +65,7 @@ public sealed class PublishPackageCommandHandler
             PackageAction.Publish,
             key,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(
-                nameof(PackageAction.Publish),
-                authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Publish));
 
         var package = await _repository.FindAsync(key, cancellationToken).ConfigureAwait(false);
 

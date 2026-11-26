@@ -12,6 +12,7 @@ using Pkgsrv.Presentation.Api;
 using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Composition;
 using Pkgsrv.Presentation.Configuration;
+using Pkgsrv.Presentation.Security;
 
 namespace Pkgsrv.Presentation;
 
@@ -29,6 +30,7 @@ public static class PkgsrvHost
         var artifactOptions = PkgsrvArtifactOptions.FromConfiguration(builder.Configuration);
         var signingOptions = PkgsrvSigningOptions.FromConfiguration(builder.Configuration);
         var buildOptions = PkgsrvBuildOptions.FromConfiguration(builder.Configuration);
+        var irvaOptions = PkgsrvIrvaOptions.FromConfiguration(builder.Configuration);
         var allowedSourceHosts = builder.Configuration
             .GetSection("Pkgsrv:Sources:AllowedHosts")
             .Get<string[]>() ?? Array.Empty<string>();
@@ -108,7 +110,7 @@ public static class PkgsrvHost
             provider.GetRequiredService<PackageJsonCache>());
         builder.Services.AddSingleton<IPackageCacheInvalidator>(provider =>
             provider.GetRequiredService<PackageJsonCache>());
-        builder.Services.AddPkgsrv(allowedSourceHosts, databaseOptions);
+        builder.Services.AddPkgsrv(allowedSourceHosts, databaseOptions, irvaOptions);
 
         builder.Services.AddSingleton(buildOptions);
 
@@ -176,6 +178,7 @@ public static class PkgsrvHost
                 .GetResult();
         }
 
+        app.UseMiddleware<IrvaAuthenticationMiddleware>();
         app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
         app.MapPackageEndpoints();
 
