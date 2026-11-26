@@ -88,6 +88,35 @@ static void test_atoi(void) {
     CHECK(labs(-1234567890123L) == 1234567890123L);
 }
 
+static void test_strtod(void) {
+    char* end;
+
+    /* hexadecimal floats with the binary exponent are unchanged */
+    CHECK(strtod("0x10p3", &end) == 128.0 && *end == '\0');
+    CHECK(strtod("0x1.8p+1", &end) == 3.0 && *end == '\0');
+
+    /* the binary exponent is optional: value 2^0 */
+    CHECK(strtod("0x10", &end) == 16.0 && *end == '\0');
+    CHECK(strtod("0x1.8", &end) == 1.5 && *end == '\0');
+    CHECK(strtod("0x.8", &end) == 0.5 && *end == '\0');
+    CHECK(strtod("-0x1.8", &end) == -1.5 && *end == '\0');
+    CHECK(strtod("0x10x", &end) == 16.0 && strcmp(end, "x") == 0);
+
+    /* 'p' without exponent digits is not part of the subject sequence */
+    CHECK(strtod("0x1p", &end) == 1.0 && strcmp(end, "p") == 0);
+
+    /* a bare 0x is no hex float: the leading 0 is parsed, endptr is at 'x' */
+    CHECK(strtod("0x", &end) == 0.0 && strcmp(end, "x") == 0);
+    CHECK(strtod("0x.", &end) == 0.0 && strcmp(end, "x.") == 0);
+
+    /* decimal parsing is unaffected */
+    CHECK(strtod("12.5x", &end) == 12.5 && strcmp(end, "x") == 0);
+
+    /* strtof/strtold share the corrected helper */
+    CHECK(strtof("0x1.8", &end) == 1.5f && *end == '\0');
+    CHECK(strtold("0x1.8", &end) == 1.5L && *end == '\0');
+}
+
 /* ----------------------------------------------------------------- sorting */
 
 static int cmp_int(const void* a, const void* b) {
@@ -256,6 +285,7 @@ int main(void) {
     test_strtol();
     test_strtoul();
     test_atoi();
+    test_strtod();
     test_qsort_bsearch();
     test_rand();
     test_environment();
