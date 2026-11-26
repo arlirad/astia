@@ -832,8 +832,8 @@ namespace {
             return pci != nullptr && match_pci(pci->device());
         }
         bool probe(const astia::hw::device_info& info) override {
-            astia::u64       token = astia::atomic_ref<astia::u64>(_teardown_token)
-                                         .load(astia::memory_order::acquire);
+            astia::u64 token = astia::atomic_ref<astia::u64>(_teardown_token)
+                                   .load(astia::memory_order::acquire);
             const astia::u64 state = teardown_state(token);
             if (state == teardown_complete &&
                 !astia::atomic_ref<astia::u64>(_teardown_token)
@@ -872,8 +872,8 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
-            astia::u64       expected = astia::atomic_ref<astia::u64>(_teardown_token)
-                                            .load(astia::memory_order::acquire);
+            astia::u64 expected = astia::atomic_ref<astia::u64>(_teardown_token)
+                                      .load(astia::memory_order::acquire);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
                     ? 1

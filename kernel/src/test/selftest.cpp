@@ -181,8 +181,8 @@ namespace astia::test {
                  i < 16 && (scheduler_counts[0] != 3 || scheduler_counts[1] != 3); ++i) {
                 proc::scheduler::yield();
             }
-            const u32 first  = astia::atomic_ref<u32>(scheduler_counts[0])
-                                   .load(astia::memory_order::relaxed);
+            const u32 first = astia::atomic_ref<u32>(scheduler_counts[0])
+                                  .load(astia::memory_order::relaxed);
             const u32 second = astia::atomic_ref<u32>(scheduler_counts[1])
                                    .load(astia::memory_order::relaxed);
             if (!gate_open) {

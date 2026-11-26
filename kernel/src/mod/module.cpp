@@ -627,7 +627,7 @@ namespace astia::mod {
             info.initialized      = slot.module.initialized;
             info.resident         = slot.module.resident;
             info.quiescing        = slot.module.quiescing;
-            info.unloadable = slot.state == module_state::loaded &&
+            info.unloadable       = slot.state == module_state::loaded &&
                               !slot.module.resident && slot.module.active_refs == 0 &&
                               slot.module.dependent_count == 0 &&
                               slot.module.callback_inflight == 0 && !slot.close_owner &&

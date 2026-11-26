@@ -96,9 +96,9 @@ namespace astia::fs {
                         return 0;
                     const u32 peer = socket_peer_side(side),
                               h    = astia::atomic_ref<u32>(channel->head[peer])
-                                         .load(astia::memory_order::acquire),
-                              t    = astia::atomic_ref<u32>(channel->tail[peer])
-                                         .load(astia::memory_order::relaxed);
+                                      .load(astia::memory_order::acquire),
+                              t = astia::atomic_ref<u32>(channel->tail[peer])
+                                      .load(astia::memory_order::relaxed);
                     if (h == t)
                         return 0;
                     count   = h - t < n ? h - t : n;
@@ -140,10 +140,10 @@ namespace astia::fs {
                     if (channel->closed[peer] || channel->shut_rd[peer] ||
                         channel->shut_wr[side])
                         return -EPIPE;
-                    u32 h    = astia::atomic_ref<u32>(channel->head[side])
-                                   .load(astia::memory_order::relaxed),
-                        t    = astia::atomic_ref<u32>(channel->tail[side])
-                                   .load(astia::memory_order::acquire);
+                    u32 h = astia::atomic_ref<u32>(channel->head[side])
+                                .load(astia::memory_order::relaxed),
+                        t = astia::atomic_ref<u32>(channel->tail[side])
+                                .load(astia::memory_order::acquire);
                     u32 free = socket_stream_capacity_bytes - (h - t);
                     if (!free)
                         return 0;
@@ -279,7 +279,7 @@ namespace astia::fs {
             const unix_socket_operations* unix_socket_capability() const override;
             void                          duplicate(u32) override {
                 astia::atomic_ref<u32>(_opens).fetch_add(1u,
-                                                         astia::memory_order::acq_rel);
+                                                                                  astia::memory_order::acq_rel);
             }
             void close(u32) override {
                 if (astia::atomic_ref<u32>(_opens).fetch_sub(

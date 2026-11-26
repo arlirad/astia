@@ -1215,8 +1215,8 @@ namespace astia::proc {
             return false;
         }
 
-        u64  base = process_tls_first -
-                    (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
+        u64 base = process_tls_first -
+                   (static_cast<u64>(id % max_threads_per_process) * process_tls_stride);
         bool free = false;
         for (u32 attempt = 0; attempt < max_threads_per_process; ++attempt) {
             free = true;
@@ -1266,9 +1266,9 @@ namespace astia::proc {
         }
         // The thread pointer's self-reference is per thread; its page was
         // materialised above so it cannot be a demand-zero mapping.
-        fs_base                      = base + (_tls_tp - source->base);
-        auto* tcb                    = static_cast<u8*>(copy->page_direct(tp_index)) +
-                                       ((fs_base - base) % page_bytes);
+        fs_base   = base + (_tls_tp - source->base);
+        auto* tcb = static_cast<u8*>(copy->page_direct(tp_index)) +
+                    ((fs_base - base) % page_bytes);
         *reinterpret_cast<u64*>(tcb) = fs_base;
 
         mapping_base  = base;

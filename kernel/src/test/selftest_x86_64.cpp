@@ -204,9 +204,9 @@ namespace astia::test {
                 arch::interrupt_frame frame{};
                 frame.vector = route.vector;
                 interrupt_dispatch(&frame);
-                const u32  first_hits = astia::atomic_ref<u32>(vector_test_hits)
-                                            .load(astia::memory_order::relaxed);
-                const bool masked     = arch::mask_interrupt_vector(route);
+                const u32 first_hits = astia::atomic_ref<u32>(vector_test_hits)
+                                           .load(astia::memory_order::relaxed);
+                const bool masked = arch::mask_interrupt_vector(route);
                 if (first_hits != 1 || !masked) {
                     logs::error("interrupt vectors fail (dispatch/mask) vec=%u owner=%u "
                                 "hits=%u masked=%u",

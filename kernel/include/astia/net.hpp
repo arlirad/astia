@@ -151,9 +151,9 @@ namespace astia::net {
             u32 position = astia::atomic_ref<u32>(_enqueue_position)
                                .load(astia::memory_order::relaxed);
             for (;;) {
-                cell&     slot       = _cells[position & (Capacity - 1u)];
-                const u32 sequence   = astia::atomic_ref<u32>(slot.sequence)
-                                           .load(astia::memory_order::acquire);
+                cell&     slot     = _cells[position & (Capacity - 1u)];
+                const u32 sequence = astia::atomic_ref<u32>(slot.sequence)
+                                         .load(astia::memory_order::acquire);
                 const i32 difference = static_cast<i32>(sequence - position);
                 if (difference == 0) {
                     if (astia::atomic_ref<u32>(_enqueue_position)
@@ -179,7 +179,7 @@ namespace astia::net {
         bool pop(T& value) {
             const u32 position = astia::atomic_ref<u32>(_dequeue_position)
                                      .load(astia::memory_order::relaxed);
-            cell&     slot     = _cells[position & (Capacity - 1u)];
+            cell&     slot = _cells[position & (Capacity - 1u)];
             const u32 sequence =
                 astia::atomic_ref<u32>(slot.sequence).load(astia::memory_order::acquire);
             if (static_cast<i32>(sequence - (position + 1u)) < 0)

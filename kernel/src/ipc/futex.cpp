@@ -253,11 +253,11 @@ namespace astia::proc {
         i64 result = 0;
 
         arch::interrupt_guard gate;
-        auto& bucket = shared
-                           ? bucket_for_shared(shared_mapping.identity,
-                                               shared_mapping.page, shared_mapping.offset)
-                           : bucket_for_private(address);
-        core::spinlock_guard lock(bucket.lock);
+        auto&                 bucket = shared
+                                           ? bucket_for_shared(shared_mapping.identity,
+                                                               shared_mapping.page, shared_mapping.offset)
+                                           : bucket_for_private(address);
+        core::spinlock_guard  lock(bucket.lock);
         if (astia::atomic_ref<u32>(*word).load(astia::memory_order::seq_cst) !=
             expected) {
             shared_mapping.release();
@@ -340,10 +340,10 @@ namespace astia::proc {
         arch::interrupt_guard gate;
         mm::shptr<thread>     wake_list[futex_bucket_capacity];
         u32                   wake_count = 0;
-        auto& bucket = shared
-                           ? bucket_for_shared(shared_mapping.identity,
-                                               shared_mapping.page, shared_mapping.offset)
-                           : bucket_for_private(address);
+        auto&                 bucket     = shared
+                                               ? bucket_for_shared(shared_mapping.identity,
+                                                                   shared_mapping.page, shared_mapping.offset)
+                                               : bucket_for_private(address);
         {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
