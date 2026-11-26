@@ -1,15 +1,7 @@
-#include "support/test.hpp"
-#ifdef RENAME_NOREPLACE
-#undef RENAME_NOREPLACE
-#endif
-#ifdef RENAME_EXCHANGE
-#undef RENAME_EXCHANGE
-#endif
-#ifdef RENAME_WHITEOUT
-#undef RENAME_WHITEOUT
-#endif
 #include <astia/api/errno.h>
 #include <astia/dev/driver.hpp>
+
+#include "support/test.hpp"
 
 namespace {
 
@@ -47,44 +39,10 @@ namespace {
             static_cast<astia::mm::shptr<test_info>&&>(value));
     }
 
-    class test_driver : public astia::hw::driver {
-        public:
-        test_driver(bool should_match, bool should_probe)
-            : should_match_(should_match), should_probe_(should_probe) {}
-
-        const char* name() const override {
-            return "driver-test";
-        }
-
-        bool match(const astia::hw::device_info& info) const override {
-            const auto& value = static_cast<const test_info&>(info);
-            matched_value_    = value.value();
-            ++match_count_;
-            return should_match_;
-        }
-
-        bool probe(const astia::hw::device_info& info) override {
-            const auto& value = static_cast<const test_info&>(info);
-            probed_value_     = value.value();
-            ++probe_count_;
-            return should_probe_;
-        }
-
-        void remove(const astia::hw::device_info& info) override {
-            const auto& candidate = static_cast<const test_info&>(info);
-            removed_value_        = candidate.value();
-            ++remove_count_;
-        }
-
-        bool               should_match_;
-        bool               should_probe_;
-        mutable int        match_count_   = 0;
-        int                probe_count_   = 0;
-        int                remove_count_  = 0;
-        mutable astia::u32 matched_value_ = 0;
-        astia::u32         probed_value_  = 0;
-        astia::u32         removed_value_ = 0;
-    };
+    astia::mm::shptr<astia::hw::device_info> typed_device(astia::u32 value) {
+        astia::mm::shptr<test_info> info(new test_info(value));
+        return device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info));
+    }
 
     class test_product final : public astia::hw::product {
         public:
@@ -96,10 +54,6 @@ namespace {
         private:
         int* destroyed_;
     };
-
-}
-
-namespace {
 
     struct typed_state {
         astia::u32 match_value        = 0;
@@ -151,125 +105,30 @@ namespace {
         return astia::hw::product_handle(new test_product(&state.destroyed_products));
     }
 
+    bool typed_selftest(void*) {
+        return true;
+    }
+
     astia::hw::driver_descriptor
     typed_descriptor(typed_state& state, astia::hw::owner_id owner = {},
-                     astia::u16 features  = 0,
                      astia::u32 resources = astia::hw::driver_resource_irq |
                                             astia::hw::driver_resource_mmio) {
         astia::hw::driver_descriptor descriptor{};
-        descriptor.name               = "typed-test";
-        descriptor.owner              = owner;
-        descriptor.context            = &state;
-        descriptor.features           = features;
-        descriptor.resources          = resources;
-        descriptor.operations.match   = typed_match;
-        descriptor.operations.probe   = typed_probe;
-        descriptor.operations.start   = typed_start;
-        descriptor.operations.stop    = typed_stop;
-        descriptor.operations.remove  = typed_remove;
-        descriptor.operations.publish = typed_publish;
+        descriptor.name                = "typed-test";
+        descriptor.owner               = owner;
+        descriptor.context             = &state;
+        descriptor.resources           = resources;
+        descriptor.operations.match    = typed_match;
+        descriptor.operations.probe    = typed_probe;
+        descriptor.operations.start    = typed_start;
+        descriptor.operations.stop     = typed_stop;
+        descriptor.operations.remove   = typed_remove;
+        descriptor.operations.publish  = typed_publish;
+        descriptor.operations.selftest = typed_selftest;
         return descriptor;
     }
 
-    astia::mm::shptr<astia::hw::device_info> typed_device(astia::u32 value) {
-        astia::mm::shptr<test_info> info(new test_info(value));
-        return device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info));
-    }
-
 } // namespace
-
-ASTIA_TEST(driver_manager_passes_candidate_to_match_and_probe) {
-    test_driver                 driver(true, true);
-    astia::hw::driver_registry  manager;
-    astia::mm::shptr<test_info> info(new test_info(42));
-    ASTIA_CHECK(info);
-
-    ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(
-        manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
-    ASTIA_CHECK(driver.match_count_ == 1);
-    ASTIA_CHECK(driver.probe_count_ == 1);
-    ASTIA_CHECK(driver.matched_value_ == 42);
-    ASTIA_CHECK(driver.probed_value_ == 42);
-    ASTIA_CHECK(manager.device_count() == 1);
-    manager.unbind_all();
-    ASTIA_CHECK(driver.remove_count_ == 1);
-    ASTIA_CHECK(driver.removed_value_ == 42);
-}
-
-ASTIA_TEST(driver_manager_rejects_failed_probe) {
-    int                         destroyed = 0;
-    test_driver                 driver(true, false);
-    astia::hw::driver_registry  manager;
-    astia::mm::shptr<test_info> info(new test_info(7, &destroyed));
-    ASTIA_CHECK(info);
-
-    ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(!manager.bind(
-        device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
-    ASTIA_CHECK(driver.match_count_ == 1);
-    ASTIA_CHECK(driver.probe_count_ == 1);
-    ASTIA_CHECK(manager.device_count() == 0);
-    ASTIA_CHECK(destroyed == 1);
-}
-
-ASTIA_TEST(driver_manager_shared_device_lifetime) {
-    int                         destroyed = 0;
-    test_driver                 driver(true, true);
-    astia::hw::driver_registry  manager;
-    astia::mm::shptr<test_info> info(new test_info(9, &destroyed));
-    ASTIA_CHECK(info);
-
-    ASTIA_CHECK(manager.register_driver(driver));
-    auto candidate = info;
-    ASTIA_CHECK(
-        manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
-    ASTIA_CHECK(!info);
-    ASTIA_CHECK(candidate);
-    manager.unbind_all();
-    ASTIA_CHECK(driver.remove_count_ == 1);
-    ASTIA_CHECK(destroyed == 0);
-    candidate = {};
-    ASTIA_CHECK(destroyed == 1);
-}
-
-ASTIA_TEST(driver_manager_rejects_equal_candidates) {
-    test_driver                 driver(true, true);
-    astia::hw::driver_registry  manager;
-    astia::mm::shptr<test_info> first(new test_info(11));
-    astia::mm::shptr<test_info> second(new test_info(11));
-
-    ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(manager.bind(
-        device_candidate(static_cast<astia::mm::shptr<test_info>&&>(first))));
-    ASTIA_CHECK(!manager.bind(
-        device_candidate(static_cast<astia::mm::shptr<test_info>&&>(second))));
-    ASTIA_CHECK(manager.device_count() == 1);
-    manager.unbind_all();
-}
-
-ASTIA_TEST(driver_manager_owns_published_product_until_unbind) {
-    int                     destroyed = 0;
-    class publishing_driver final : public test_driver {
-        public:
-        explicit publishing_driver(int* destroyed)
-            : test_driver(true, true), destroyed_(destroyed) {}
-        astia::hw::product_handle publish(const astia::hw::device_info&) override {
-            return astia::hw::product_handle(new test_product(destroyed_));
-        }
-
-        private:
-        int* destroyed_;
-    } driver(&destroyed);
-    astia::hw::driver_registry  manager;
-    astia::mm::shptr<test_info> info(new test_info(12));
-    ASTIA_CHECK(manager.register_driver(driver));
-    ASTIA_CHECK(
-        manager.bind(device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info))));
-    ASTIA_CHECK(destroyed == 0);
-    manager.unbind_all();
-    ASTIA_CHECK(destroyed == 1);
-}
 
 ASTIA_TEST(driver_manager_registers_typed_driver_with_owner) {
     using namespace astia::hw;
@@ -278,7 +137,7 @@ ASTIA_TEST(driver_manager_registers_typed_driver_with_owner) {
     typed_state     state;
     state.match_value = 42;
 
-    driver_token registered{};
+    driver_handle registered{};
     ASTIA_CHECK(
         manager.register_driver(typed_descriptor(state, owner_id{7}), registered) == 0);
     ASTIA_CHECK(registered.valid());
@@ -287,7 +146,7 @@ ASTIA_TEST(driver_manager_registers_typed_driver_with_owner) {
     ASTIA_CHECK(manager.descriptor(registered) != nullptr);
     ASTIA_CHECK(manager.descriptor(registered)->owner == owner_id{7});
 
-    device_token bound{};
+    device_handle bound{};
     ASTIA_CHECK(manager.bind_device(typed_device(42), bound) == 0);
     ASTIA_CHECK(bound.valid());
     ASTIA_CHECK(manager.valid(bound));
@@ -298,7 +157,7 @@ ASTIA_TEST(driver_manager_registers_typed_driver_with_owner) {
     ASTIA_CHECK(manager.owner_of(bound) == owner_id{7});
     ASTIA_CHECK(manager.devices_owned_by(owner_id{7}) == 1);
 
-    driver_token from_binding{};
+    driver_handle from_binding{};
     ASTIA_CHECK(manager.driver_of(bound, from_binding));
     ASTIA_CHECK(from_binding == registered);
 
@@ -319,21 +178,14 @@ ASTIA_TEST(driver_manager_rejects_invalid_typed_descriptors) {
 
     auto expect = [](astia::i64 result, driver_descriptor descriptor) {
         driver_registry manager;
-        driver_token    token{};
-        ASTIA_CHECK(manager.register_driver(descriptor, token) == result);
-        ASTIA_CHECK(!token.valid());
+        driver_handle   handle{};
+        ASTIA_CHECK(manager.register_driver(descriptor, handle) == result);
+        ASTIA_CHECK(!handle.valid());
         ASTIA_CHECK(manager.driver_count() == 0);
     };
 
     typed_state       state;
     driver_descriptor descriptor = typed_descriptor(state);
-
-    descriptor.abi_version = 0;
-    expect(-EPROTONOSUPPORT, descriptor);
-
-    descriptor             = typed_descriptor(state);
-    descriptor.abi_version = driver_abi_version + 1;
-    expect(-EPROTONOSUPPORT, descriptor);
 
     descriptor      = typed_descriptor(state);
     descriptor.name = nullptr;
@@ -351,13 +203,16 @@ ASTIA_TEST(driver_manager_rejects_invalid_typed_descriptors) {
     descriptor.resources = (1u << 31);
     expect(-EINVAL, descriptor);
 
-    descriptor          = typed_descriptor(state);
-    descriptor.features = (1u << 15);
-    expect(-EOPNOTSUPP, descriptor);
-
     descriptor                  = typed_descriptor(state);
     descriptor.operations.start = nullptr;
     expect(-EINVAL, descriptor);
+
+    descriptor                     = typed_descriptor(state);
+    descriptor.operations.selftest = nullptr;
+    driver_registry optional;
+    driver_handle   optional_handle{};
+    ASTIA_CHECK(optional.register_driver(descriptor, optional_handle) == 0);
+    ASTIA_CHECK(optional_handle.valid());
 }
 
 ASTIA_TEST(driver_manager_rolls_back_failed_start) {
@@ -367,10 +222,10 @@ ASTIA_TEST(driver_manager_rolls_back_failed_start) {
     typed_state     state;
     state.start_result = -ENOMEM;
 
-    driver_token registered{};
+    driver_handle registered{};
     ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
 
-    device_token bound{};
+    device_handle bound{};
     ASTIA_CHECK(manager.bind_device(typed_device(3), bound) == -ENOMEM);
     ASTIA_CHECK(state.probe_calls == 1);
     ASTIA_CHECK(state.start_calls == 1);
@@ -380,39 +235,21 @@ ASTIA_TEST(driver_manager_rolls_back_failed_start) {
     ASTIA_CHECK(manager.device_count() == 0);
 }
 
-ASTIA_TEST(driver_manager_probe_rollback_calls_remove) {
+ASTIA_TEST(driver_manager_probe_failure_leaves_rollback_to_driver) {
     using namespace astia::hw;
 
-    {
-        driver_registry manager;
-        typed_state     state;
-        state.probe_result = -EIO;
+    driver_registry manager;
+    typed_state     state;
+    state.probe_result = -EIO;
 
-        driver_token registered{};
-        ASTIA_CHECK(
-            manager.register_driver(
-                typed_descriptor(state, kernel_owner, driver_feature_probe_rollback),
-                registered) == 0);
-        device_token bound{};
-        ASTIA_CHECK(manager.bind_device(typed_device(4), bound) == -EIO);
-        ASTIA_CHECK(state.probe_calls == 1);
-        ASTIA_CHECK(state.remove_calls == 1);
-        ASTIA_CHECK(state.start_calls == 0);
-        ASTIA_CHECK(manager.device_count() == 0);
-    }
-
-    {
-        driver_registry manager;
-        typed_state     state;
-        state.probe_result = -EIO;
-
-        driver_token registered{};
-        ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
-        device_token bound{};
-        ASTIA_CHECK(manager.bind_device(typed_device(4), bound) == -EIO);
-        ASTIA_CHECK(state.remove_calls == 0);
-        ASTIA_CHECK(manager.device_count() == 0);
-    }
+    driver_handle registered{};
+    ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
+    device_handle bound{};
+    ASTIA_CHECK(manager.bind_device(typed_device(4), bound) == -EIO);
+    ASTIA_CHECK(state.probe_calls == 1);
+    ASTIA_CHECK(state.start_calls == 0);
+    ASTIA_CHECK(state.remove_calls == 0);
+    ASTIA_CHECK(manager.device_count() == 0);
 }
 
 ASTIA_TEST(driver_manager_rejects_duplicate_registration_and_device) {
@@ -421,15 +258,15 @@ ASTIA_TEST(driver_manager_rejects_duplicate_registration_and_device) {
     driver_registry manager;
     typed_state     state;
 
-    driver_token registered{};
+    driver_handle registered{};
     ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
-    driver_token duplicate{};
+    driver_handle duplicate{};
     ASTIA_CHECK(manager.register_driver(typed_descriptor(state), duplicate) == -EEXIST);
     ASTIA_CHECK(manager.driver_count() == 1);
 
-    device_token first{};
+    device_handle first{};
     ASTIA_CHECK(manager.bind_device(typed_device(5), first) == 0);
-    device_token second{};
+    device_handle second{};
     ASTIA_CHECK(manager.bind_device(typed_device(5), second) == -EEXIST);
     ASTIA_CHECK(manager.device_count() == 1);
     ASTIA_CHECK(manager.unbind(first) == 0);
@@ -444,15 +281,15 @@ ASTIA_TEST(driver_manager_unbind_owner_releases_only_that_owner) {
     first_state.match_value  = 100;
     second_state.match_value = 200;
 
-    driver_token first_driver{};
-    driver_token second_driver{};
+    driver_handle first_driver{};
+    driver_handle second_driver{};
     ASTIA_CHECK(manager.register_driver(typed_descriptor(first_state, owner_id{1}),
                                         first_driver) == 0);
     ASTIA_CHECK(manager.register_driver(typed_descriptor(second_state, owner_id{2}),
                                         second_driver) == 0);
 
-    device_token first_device{};
-    device_token second_device{};
+    device_handle first_device{};
+    device_handle second_device{};
     ASTIA_CHECK(manager.bind_device(typed_device(100), first_device) == 0);
     ASTIA_CHECK(manager.bind_device(typed_device(200), second_device) == 0);
     ASTIA_CHECK(manager.devices_owned_by(owner_id{1}) == 1);
@@ -476,11 +313,52 @@ ASTIA_TEST(driver_manager_refuses_unregister_while_bound) {
     driver_registry manager;
     typed_state     state;
 
-    driver_token registered{};
+    driver_handle registered{};
     ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
-    device_token bound{};
+    device_handle bound{};
     ASTIA_CHECK(manager.bind_device(typed_device(6), bound) == 0);
     ASTIA_CHECK(manager.unregister_driver(registered) == -EBUSY);
     ASTIA_CHECK(manager.unbind(bound) == 0);
     ASTIA_CHECK(manager.unregister_driver(registered) == 0);
+}
+
+ASTIA_TEST(driver_manager_owns_published_product_until_unbind) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    state.publish_product = true;
+
+    driver_handle registered{};
+    ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
+    device_handle bound{};
+    ASTIA_CHECK(manager.bind_device(typed_device(7), bound) == 0);
+    ASTIA_CHECK(state.destroyed_products == 0);
+    ASTIA_CHECK(manager.unbind(bound) == 0);
+    ASTIA_CHECK(state.destroyed_products == 1);
+}
+
+ASTIA_TEST(driver_manager_shared_device_lifetime) {
+    using namespace astia::hw;
+
+    int             destroyed = 0;
+    driver_registry manager;
+    typed_state     state;
+
+    astia::mm::shptr<test_info> info(new test_info(9, &destroyed));
+    ASTIA_CHECK(info);
+    astia::mm::shptr<test_info> external = info;
+
+    driver_handle registered{};
+    ASTIA_CHECK(manager.register_driver(typed_descriptor(state), registered) == 0);
+    device_handle bound{};
+    ASTIA_CHECK(manager.bind_device(
+                    device_candidate(static_cast<astia::mm::shptr<test_info>&&>(info)),
+                    bound) == 0);
+    ASTIA_CHECK(!info);
+    ASTIA_CHECK(external);
+    ASTIA_CHECK(manager.unbind(bound) == 0);
+    ASTIA_CHECK(destroyed == 0);
+    external = {};
+    ASTIA_CHECK(destroyed == 1);
 }

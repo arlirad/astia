@@ -133,20 +133,6 @@ namespace {
         }
     } bound_device;
 
-    class test_driver final : public astia::hw::driver {
-        public:
-        const char* name() const override {
-            return "pci-test";
-        }
-        bool match(const astia::hw::device_info& value) const override {
-            const auto* pci = astia::hw::pci_device_info::get(value);
-            return pci != nullptr && pci->device().vendor_id == 0x1234;
-        }
-        bool probe(const astia::hw::device_info&) override {
-            return true;
-        }
-    } driver;
-
     class forged_pci_info final : public astia::hw::device_info {
         public:
         astia::hw::bus_kind bus() const override {
