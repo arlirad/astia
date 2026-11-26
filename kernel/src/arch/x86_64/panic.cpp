@@ -1,6 +1,7 @@
+#include <astia/arch/layout.hpp>
 #include <astia/dbg/panic_report.hpp>
 
-#include "../../dbg/stacktrace.hpp"
+#include "../../dbg/record.hpp"
 #include "panic_state.hpp"
 
 namespace astia::arch {
@@ -52,12 +53,54 @@ namespace astia::arch {
 
             out.cr3 = panic_address_space_root();
         }
+
+        void print_stack(const x86_64::panic_state& state, dbg::sink_fn sink,
+                         void* context) {
+            constexpr u32 max_depth = 24;
+            constexpr u64 max_gap   = 1024 * 1024;
+            const u64     base      = astia::arch::kernel_base;
+
+            dbg::record line{};
+
+            line.add("[PANIC] stack trace:");
+            sink(context, line.text, line.length);
+            line.clear();
+
+            u64 rbp = state.frame.rbp;
+            u64 rip = state.frame.rip;
+
+            for (u32 depth = 0; depth < max_depth; ++depth) {
+                line.add("[PANIC]  #");
+                line.add_dec(depth);
+                line.add("  ");
+                line.add_hex_padded(rip);
+                line.add("  rbp=");
+                line.add_hex(rbp);
+                sink(context, line.text, line.length);
+                line.clear();
+
+                if (rbp < base || (rbp & 0xf) != 0)
+                    break;
+
+                const auto* frame = reinterpret_cast<const u64*>(rbp);
+
+                const u64 next   = frame[0];
+                const u64 caller = frame[1];
+
+                if (next <= rbp || next - rbp > max_gap || caller < base)
+                    break;
+
+                rbp = next;
+                rip = caller;
+            }
+        }
     } // namespace
 
     void panic_report_registers(dbg::sink_fn sink, void* context, const void* frame) {
         x86_64::panic_state state{};
 
         if (frame != nullptr) {
+            state.fault = true;
             state.frame = *static_cast<const interrupt_frame*>(frame);
 
             asm volatile("mov %%cr0, %0" : "=r"(state.cr0));
@@ -71,6 +114,6 @@ namespace astia::arch {
         }
 
         x86_64::format_panic_registers(state, sink, context);
-        dbg::stacktrace(state.frame.rbp, state.frame.rip);
+        print_stack(state, sink, context);
     }
 } // namespace astia::arch

@@ -7,17 +7,16 @@ namespace astia::dbg {
     namespace {
         void log_sink(void*, const char* text, u32 length) {
             char      line[512];
-            const u32 count = length < sizeof line - 1 ? length : sizeof line - 1;
+            const u32 count = length < sizeof line - 2 ? length : sizeof line - 2;
 
             for (u32 i = 0; i < count; ++i) {
                 line[i] = text[i];
             }
 
-            line[count] = '\0';
+            line[count]     = '\n';
+            line[count + 1] = '\0';
 
-            const char* message = line;
-
-            log::root::print(log::level::panic, "%s", message);
+            log::detail::emit(log::level::panic, line, count + 1);
         }
     } // namespace
 
