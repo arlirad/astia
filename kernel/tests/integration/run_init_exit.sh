@@ -49,6 +49,10 @@ fail() {
 [ -n "$exited" ] || fail "init did not exit with status 0"
 [ -n "$terminated" ] || fail "init exit was not fatal"
 grep -qF "PANIC" "$log" || fail "init exit did not panic"
+grep -qF "kpanic: proc pid=" "$log" || fail "panic report omitted the process snapshot"
+grep -qF "kpanic: rip=" "$log" || fail "panic report omitted the fault PC"
+grep -qF "kpanic: regs rax=" "$log" || fail "panic report omitted the register dump"
+grep -qF "dbg::stack: #0 rip=" "$log" || fail "panic report omitted the stack trace"
 if grep -qF "init launch failed" "$normalized"; then
     fail "init launch reported a failure"
 fi

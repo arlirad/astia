@@ -376,6 +376,55 @@ namespace astia::proc {
         _name[i] = '\0';
     }
 
+    namespace {
+        const char* process_state_name(process_state state) {
+            switch (state) {
+            case process_state::fresh:
+                return "fresh";
+            case process_state::runnable:
+                return "runnable";
+            case process_state::stopping:
+                return "stopping";
+            case process_state::stopped:
+                return "stopped";
+            case process_state::zombie:
+                return "zombie";
+            case process_state::dead:
+                return "dead";
+            }
+
+            return "unknown";
+        }
+    } // namespace
+
+    void process::panic_snapshot(dbg::panic_process& out) const {
+        out.available = true;
+        out.pid       = static_cast<u32>(raw_id(_pid));
+        out.state     = process_state_name(state());
+
+        u32 i = 0;
+
+        while (i + 1 < sizeof out.name && _name[i] != '\0') {
+            out.name[i] = _name[i];
+
+            ++i;
+        }
+
+        out.name[i] = '\0';
+
+        if (_metadata_lock.try_lock()) {
+            out.metadata_available = true;
+            out.uid                = _uid;
+            out.euid               = _euid;
+            out.gid                = _gid;
+            out.egid               = _egid;
+            out.pgrp               = static_cast<u32>(raw_id(_process_group));
+            out.session            = static_cast<u32>(raw_id(_session));
+
+            _metadata_lock.unlock();
+        }
+    }
+
     i64 process::setuid(u32 v) {
         arch::interrupt_spinlock_guard guard(_metadata_lock);
 

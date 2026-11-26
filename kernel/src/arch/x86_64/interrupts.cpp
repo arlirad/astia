@@ -3,6 +3,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/common.hpp>
+#include <astia/dbg/panic_report.hpp>
 #include <astia/log.hpp>
 
 #include "../../dbg/stacktrace.hpp"
@@ -27,7 +28,9 @@
 //     (absent, disabled, or x2APIC mode) the PIT remains the tick source
 //     with IRQ0 unmasked. Either way the PIC stays remapped and otherwise
 //     fully masked until a driver needs a line.
-//   - Fatal exceptions dump vector/error/RIP (and CR2 for #PF) over uart16550
+//   - Fatal exceptions hand their interrupt frame to the shared panic report:
+//     every GPR, the control registers, vector/error, and a frame trace over
+//     uart16550
 //     and end the boot through debug_exit, so a crash under QEMU is a
 //     readable report instead of a triple fault.
 //
@@ -119,7 +122,7 @@ namespace astia::arch {
         /// This module's log source.
         using logs = astia::log::context<"arch">;
 
-        [[noreturn]] void fatal_exception(const interrupt_frame& regs) {
+        [[noreturn]] void fatal_exception(const interrupt_frame& frame) {
             static const char* const names[32] = {
                 "#DE", "#DB", "NMI", "#BP", "#OF", "#BR", "#UD", "#NM",
                 "#DF", "res", "#TS", "#NP", "#SS", "#GP", "#PF", "res",
@@ -127,21 +130,46 @@ namespace astia::arch {
                 "res", "res", "res", "res", "res", "res", "#SX", "res",
             };
 
-            const char* name = regs.vector < 32 ? names[regs.vector] : "unknown";
+            const char* name = frame.vector < 32 ? names[frame.vector] : "unknown";
 
-            if (regs.vector == 14) { // #PF: the faulting address is the useful part
-                u64 cr2;
+            dbg::panic_registers regs{};
 
-                asm volatile("mov %%cr2, %0" : "=r"(cr2));
-                logs::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx", name,
-                            regs.vector, regs.error, regs.rip, cr2);
-            }
-            else {
-                logs::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
-                            regs.error, regs.rip);
-            }
+            regs.arch      = "x86_64";
+            regs.x86       = true;
+            regs.gpr_count = 16;
+            regs.gpr[0]    = frame.rax;
+            regs.gpr[1]    = frame.rbx;
+            regs.gpr[2]    = frame.rcx;
+            regs.gpr[3]    = frame.rdx;
+            regs.gpr[4]    = frame.rsi;
+            regs.gpr[5]    = frame.rdi;
+            regs.gpr[6]    = frame.rbp;
+            regs.gpr[7]    = frame.rsp;
+            regs.gpr[8]    = frame.r8;
+            regs.gpr[9]    = frame.r9;
+            regs.gpr[10]   = frame.r10;
+            regs.gpr[11]   = frame.r11;
+            regs.gpr[12]   = frame.r12;
+            regs.gpr[13]   = frame.r13;
+            regs.gpr[14]   = frame.r14;
+            regs.gpr[15]   = frame.r15;
+            regs.rip       = frame.rip;
+            regs.rsp       = frame.rsp;
+            regs.rbp       = frame.rbp;
+            regs.rflags    = frame.rflags;
+            regs.vector    = frame.vector;
+            regs.error     = frame.error;
+            regs.cr3       = arch::panic_address_space_root();
 
-            dbg::stacktrace(regs.rbp, regs.rip);
+            asm volatile("mov %%cr0, %0" : "=r"(regs.cr0));
+            asm volatile("mov %%cr2, %0" : "=r"(regs.cr2));
+            asm volatile("mov %%cr4, %0" : "=r"(regs.cr4));
+
+            dbg::panic_process process{};
+
+            proc::panic_snapshot(process);
+
+            dbg::report_registers(regs, process, name);
 
             dev::debug_exit(1);
 
