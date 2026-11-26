@@ -1253,6 +1253,28 @@ astia_add_test_label(astia_tmpfs_readdir_test "sanitizer-host-partial")
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
 # TLB, real physical memory, the boot path itself).
+# Custom-compiled userspace fixtures still need real compile targets so they
+# appear in compile_commands.json even when QEMU is unavailable.
+if (ARCH STREQUAL "x86_64")
+    add_library(astia_module_syscall_init_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
+    target_include_directories(astia_module_syscall_init_object PRIVATE
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+    target_compile_options(astia_module_syscall_init_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -fno-builtin
+            -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone)
+    set_target_properties(astia_module_syscall_init_object PROPERTIES
+            C_STANDARD 11 C_STANDARD_REQUIRED ON)
+
+    add_library(astia_module_missing_dependency_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp)
+    target_compile_options(astia_module_missing_dependency_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -mcmodel=large
+            -fno-stack-protector -fno-asynchronous-unwind-tables)
+    set_target_properties(astia_module_missing_dependency_object PROPERTIES
+            CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+endif ()
+
 if (ARCH STREQUAL "x86_64")
     find_program(ASTIA_QEMU qemu-system-x86_64)
     find_program(GRUB_FILE grub-file)
@@ -1655,6 +1677,74 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Compressing boot initrd with zstd")
         add_custom_target(astia_boot_initrd_zstd ALL
                 DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/module_missing_dependency.o
+                COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_OBJECTS:astia_module_missing_dependency_object>
+                ${_fix_dir}/module_missing_dependency.o
+                DEPENDS astia_module_missing_dependency_object
+                COMMENT "Copying invalid-dependency ET_REL fixture")
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/module_syscall_init
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/module_syscall_init
+                $<TARGET_OBJECTS:astia_module_syscall_init_object>
+                DEPENDS astia_module_syscall_init_object
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/syscalls.h
+                COMMENT "Linking module syscall userspace fixture")
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/module_syscall_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/module_syscall_stage/sbin
+                ${_fix_dir}/module_syscall_stage/bin
+                ${_fix_dir}/module_syscall_stage/mods
+                ${_fix_dir}/module_syscall_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/module_syscall_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/module_syscall_stage/bin/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/hello_initrd.o
+                ${_fix_dir}/module_syscall_stage/mods/hello.o
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/module_missing_dependency.o
+                ${_fix_dir}/module_syscall_stage/mods/bad-dependency.o
+                COMMAND dd if=${_fix_dir}/hello_initrd.o
+                of=${_fix_dir}/module_syscall_stage/mods/truncated.elf
+                bs=64 count=1 status=none
+                COMMAND dd if=/dev/zero
+                of=${_fix_dir}/module_syscall_stage/mods/huge.bin
+                bs=1024 count=1025 status=none
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
+                ${_fix_dir}/module_syscall_stage/etc/passwd
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/module_syscall_stage
+                ${_fix_dir}/module_syscall_initrd.cpio
+                sbin/init bin/init_libc mods/hello.o mods/truncated.elf
+                mods/bad-dependency.o mods/huge.bin etc/passwd
+                DEPENDS ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/hello_initrd.o ${_fix_dir}/module_missing_dependency.o
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing module syscall initrd")
+        add_custom_target(astia_module_syscall_initrd ALL
+                DEPENDS ${_fix_dir}/module_syscall_initrd.cpio)
+
+        add_test(NAME astia_module_syscall_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/module_syscall_initrd.cpio
+                "hello.o rc=42"
+                "spawn reaped pid=1 status=0 path=/sbin/init"
+                "path=/bin/init_libc"
+                "core: selftest ok"
+        )
+        set_tests_properties(astia_module_syscall_boot PROPERTIES TIMEOUT 60)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
@@ -2140,7 +2230,8 @@ astia_append_test_label("kernel;deterministic")
 foreach (_astia_boot_test IN ITEMS
         astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
         astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
-        astia_urandom_fresh_boot astia_production_init_exit
+        astia_module_syscall_boot astia_urandom_fresh_boot
+        astia_production_init_exit
         astia_native_daemond_idle astia_native_daemond_service
         astia_native_daemond_visibility astia_native_daemond_missing_rc
         astia_native_daemond_launch_failure astia_native_daemond_failure)
