@@ -4,6 +4,8 @@
 #include <astia/resource_limits.hpp>
 
 #include "../src/mod/module.hpp"
+#include "support/interrupts_host.hpp"
+#include "support/ps2_irq_host.hpp"
 #include "support/test.hpp"
 #include <sys/mman.h>
 
@@ -36,8 +38,8 @@ extern unsigned char module_lifecycle_wait_blob[];
 extern unsigned int  module_lifecycle_wait_blob_len;
 extern unsigned char module_lifecycle_reentrant_blob[];
 extern unsigned int  module_lifecycle_reentrant_blob_len;
-extern unsigned char module_lifecycle_token_blob[];
-extern unsigned int  module_lifecycle_token_blob_len;
+extern unsigned char module_lifecycle_module_api_blob[];
+extern unsigned int  module_lifecycle_module_api_blob_len;
 extern unsigned char module_lifecycle_reloc32_blob[];
 extern unsigned int  module_lifecycle_reloc32_blob_len;
 
@@ -64,21 +66,38 @@ namespace {
 
     observation* active_observation = nullptr;
 
-    std::optional<astia::module::lifetime_token> lifecycle_lease;
-    bool                                         lifecycle_interrupt_acquire_valid = true;
+    int  lifecycle_api_mode              = 0;
+    bool lifecycle_claim_result          = false;
+    bool lifecycle_release_result        = false;
+    bool lifecycle_resident_result       = false;
+    bool lifecycle_resident_in_interrupt = true;
+    bool lifecycle_claim_in_interrupt    = true;
+    bool lifecycle_handler_ran           = false;
 
-    int lifecycle_token_probe() {
-        lifecycle_lease.emplace(astia::module::lifetime_token::acquire());
+    void lifecycle_irq_entry() {
+        lifecycle_handler_ran = true;
+    }
+
+    int lifecycle_module_api_probe() {
+        if (lifecycle_api_mode == 0) {
+            lifecycle_resident_result = astia::module::make_resident();
+        }
+        else if (lifecycle_api_mode == 1) {
+            lifecycle_claim_result = astia::module::ps2_claim_irq(lifecycle_irq_entry);
+        }
+        else if (lifecycle_api_mode == 2) {
+            lifecycle_claim_result   = astia::module::ps2_claim_irq(lifecycle_irq_entry);
+            lifecycle_release_result = astia::module::ps2_release_irq();
+        }
 
         astia::arch::cpu::interrupt_enter();
 
-        const auto intruder = astia::module::lifetime_token::acquire();
+        lifecycle_resident_in_interrupt = astia::module::make_resident();
+        lifecycle_claim_in_interrupt = astia::module::ps2_claim_irq(lifecycle_irq_entry);
 
         astia::arch::cpu::interrupt_exit();
 
-        lifecycle_interrupt_acquire_valid = intruder.valid();
-
-        return lifecycle_lease->valid() ? 61 : -1;
+        return 61;
     }
 
     std::atomic<bool>     lifecycle_wait_started{false};
@@ -158,8 +177,8 @@ namespace {
         if (std::strcmp(name, "lifecycle_wait_for_release") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_wait_for_release);
 
-        if (std::strcmp(name, "lifecycle_token_probe") == 0)
-            return reinterpret_cast<std::uintptr_t>(&lifecycle_token_probe);
+        if (std::strcmp(name, "lifecycle_module_api_probe") == 0)
+            return reinterpret_cast<std::uintptr_t>(&lifecycle_module_api_probe);
 
         if (std::strcmp(name, "lifecycle_reentrant_outer_handler") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_reentrant_outer_handler);
@@ -1172,95 +1191,6 @@ ASTIA_TEST(module_lifecycle_concurrent_slot_reuse_is_generation_safe) {
     ASTIA_CHECK(astia::mod::count() == 0);
 }
 
-ASTIA_TEST(module_lifecycle_token_lease_defers_close) {
-    loader_state                  state{};
-    const astia::elf::loader::env env = environment(state);
-    astia::mod::module_id         id{};
-
-    lifecycle_lease.reset();
-
-    ASTIA_CHECK(!astia::module::lifetime_token::acquire().valid());
-
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_token_blob, module_lifecycle_token_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
-
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
-    ASTIA_CHECK(lifecycle_lease.has_value());
-    ASTIA_CHECK(lifecycle_lease->valid());
-    ASTIA_CHECK(!lifecycle_interrupt_acquire_valid);
-
-    ASTIA_CHECK(lifecycle_lease->try_enter());
-    lifecycle_lease->leave();
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
-
-    astia::mod::module_info info{};
-
-    ASTIA_CHECK(astia::mod::lookup(id, info) == astia::mod::module_error::ok);
-    ASTIA_CHECK(info.active_refs == 1);
-    ASTIA_CHECK(info.unloadable == false);
-
-    auto closing = astia::mod::close(id);
-
-    closing.resume();
-    ASTIA_CHECK(!closing.done());
-    ASTIA_CHECK(astia::mod::lookup(id, info) == astia::mod::module_error::ok);
-    ASTIA_CHECK(info.quiescing);
-    ASTIA_CHECK(!lifecycle_lease->try_enter());
-
-    lifecycle_lease->release();
-    ASTIA_CHECK(astia::core::drain_resumes() == 1);
-    ASTIA_CHECK(closing.done());
-    ASTIA_CHECK(closing.value() != nullptr &&
-                *closing.value() == astia::mod::module_error::ok);
-    ASTIA_CHECK(state.unmapped == 1);
-
-    lifecycle_lease.reset();
-}
-
-ASTIA_TEST(module_lifecycle_token_resident_close_returns_resident) {
-    loader_state                  state{};
-    const astia::elf::loader::env env = environment(state);
-    astia::mod::module_id         id{};
-
-    lifecycle_lease.reset();
-
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_token_blob, module_lifecycle_token_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
-
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
-    ASTIA_CHECK(!lifecycle_interrupt_acquire_valid);
-    ASTIA_CHECK(lifecycle_lease->make_resident());
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
-
-    auto closing = astia::mod::close(id);
-
-    closing.resume();
-    ASTIA_CHECK(closing.done());
-    ASTIA_CHECK(closing.value() != nullptr &&
-                *closing.value() == astia::mod::module_error::resident);
-    ASTIA_CHECK(state.unmapped == 0);
-
-    astia::mod::module_info info{};
-
-    ASTIA_CHECK(astia::mod::lookup(id, info) == astia::mod::module_error::ok);
-    ASTIA_CHECK(info.resident);
-    ASTIA_CHECK(astia::mod::clear_resident_for_test(id) == astia::mod::module_error::ok);
-
-    lifecycle_lease->release();
-    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
-    ASTIA_CHECK(state.unmapped == 1);
-
-    lifecycle_lease.reset();
-}
-
 ASTIA_TEST(module_lifecycle_rejects_32bit_absolute_relocation_before_mapping) {
     loader_state                  state{};
     const astia::elf::loader::env env    = environment(state);
@@ -1281,14 +1211,16 @@ ASTIA_TEST(module_lifecycle_rejects_32bit_absolute_relocation_before_mapping) {
     ASTIA_CHECK(astia::mod::count() == before);
 }
 
-ASTIA_TEST(module_lifecycle_token_acquire_requires_owner_context) {
+ASTIA_TEST(module_lifecycle_module_api_rejects_outside_context) {
     loader_state                  state{};
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
 
+    ASTIA_CHECK(!astia::module::make_resident());
+    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+
     lifecycle_wait_started.store(false, std::memory_order_release);
     lifecycle_wait_release.store(false, std::memory_order_release);
-    lifecycle_lease.reset();
 
     ASTIA_CHECK(astia::mod::load_image(
                     blob(module_lifecycle_wait_blob, module_lifecycle_wait_blob_len), env,
@@ -1306,9 +1238,13 @@ ASTIA_TEST(module_lifecycle_token_acquire_requires_owner_context) {
         std::this_thread::yield();
     }
 
-    // `active` names the waiting module, but this thread does not own its
-    // execution context, so a lease must not resolve.
-    ASTIA_CHECK(!astia::module::lifetime_token::acquire().valid());
+    ASTIA_CHECK(!astia::module::make_resident());
+    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+
+    astia::arch::cpu::interrupt_enter();
+    ASTIA_CHECK(!astia::module::make_resident());
+    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+    astia::arch::cpu::interrupt_exit();
 
     lifecycle_wait_release.store(true, std::memory_order_release);
     runner.join();
@@ -1319,26 +1255,127 @@ ASTIA_TEST(module_lifecycle_token_acquire_requires_owner_context) {
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
 }
 
-ASTIA_TEST(module_lifecycle_close_waiter_defers_from_interrupt_context) {
+ASTIA_TEST(module_lifecycle_make_resident_marks_calling_module) {
     loader_state                  state{};
     const astia::elf::loader::env env = environment(state);
     astia::mod::module_id         id{};
 
-    lifecycle_lease.reset();
-    astia::core::initialize_resume_queues();
+    lifecycle_api_mode = 0;
 
-    ASTIA_CHECK(astia::mod::load_image(
-                    blob(module_lifecycle_token_blob, module_lifecycle_token_blob_len),
-                    env, {}, id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_module_api_blob,
+                                            module_lifecycle_module_api_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
 
     int result = 0;
 
     ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
     ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(lifecycle_resident_result);
+    ASTIA_CHECK(!lifecycle_resident_in_interrupt);
     ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
 
-    // Saturate the per-CPU resume queue, then release the last lease from an
-    // interrupt context. The close waiter must be parked, not resumed inline.
+    auto closing = astia::mod::close(id);
+
+    closing.resume();
+    ASTIA_CHECK(closing.done());
+    ASTIA_CHECK(closing.value() != nullptr &&
+                *closing.value() == astia::mod::module_error::resident);
+    ASTIA_CHECK(state.unmapped == 0);
+    ASTIA_CHECK(astia::mod::clear_resident_for_test(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(state.unmapped == 1);
+}
+
+ASTIA_TEST(module_lifecycle_claim_route_guards_and_releases) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    lifecycle_api_mode    = 1;
+    lifecycle_handler_ran = false;
+
+    astia::arch::host_test::set_eoi_observer(nullptr);
+
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_module_api_blob,
+                                            module_lifecycle_module_api_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
+
+    int result = 0;
+
+    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
+    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(lifecycle_claim_result);
+    ASTIA_CHECK(!lifecycle_claim_in_interrupt);
+    ASTIA_CHECK(!lifecycle_handler_ran);
+
+    astia::arch::host_test::dispatch_irq(1);
+    ASTIA_CHECK(lifecycle_handler_ran);
+
+    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+
+    auto closing = astia::mod::close(id);
+
+    closing.resume();
+    ASTIA_CHECK(!closing.done());
+
+    lifecycle_handler_ran = false;
+
+    astia::arch::host_test::dispatch_irq(1);
+    ASTIA_CHECK(!lifecycle_handler_ran);
+
+    ASTIA_CHECK(astia::module::ps2_release_irq());
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(closing.done());
+    ASTIA_CHECK(closing.value() != nullptr &&
+                *closing.value() == astia::mod::module_error::ok);
+    ASTIA_CHECK(state.unmapped == 1);
+}
+
+ASTIA_TEST(module_lifecycle_claim_rollback_leaves_line_unowned) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    lifecycle_api_mode = 2;
+
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_module_api_blob,
+                                            module_lifecycle_module_api_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
+
+    int result = 0;
+
+    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
+    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(lifecycle_claim_result);
+    ASTIA_CHECK(lifecycle_release_result);
+    ASTIA_CHECK(!lifecycle_claim_in_interrupt);
+    ASTIA_CHECK(!astia::arch::host_test::irq_registered(1));
+    ASTIA_CHECK(astia::dev::ps2::host_test::masked());
+
+    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+}
+
+ASTIA_TEST(module_lifecycle_close_waiter_defers_from_guarded_route) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    lifecycle_api_mode = 1;
+
+    astia::core::initialize_resume_queues();
+
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_module_api_blob,
+                                            module_lifecycle_module_api_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
+
+    int result = 0;
+
+    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
+    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(lifecycle_claim_result);
+    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+
     const auto filler   = std::noop_coroutine();
     astia::u32 accepted = 0;
 
@@ -1354,9 +1391,12 @@ ASTIA_TEST(module_lifecycle_close_waiter_defers_from_interrupt_context) {
     ASTIA_CHECK(!closing.done());
 
     astia::arch::cpu::interrupt_enter();
-    lifecycle_lease->release();
+
+    const bool released = astia::module::ps2_release_irq();
+
     astia::arch::cpu::interrupt_exit();
 
+    ASTIA_CHECK(released);
     ASTIA_CHECK(!closing.done());
     ASTIA_CHECK(state.unmapped == 0);
 
@@ -1376,6 +1416,4 @@ ASTIA_TEST(module_lifecycle_close_waiter_defers_from_interrupt_context) {
     ASTIA_CHECK(closing.value() != nullptr &&
                 *closing.value() == astia::mod::module_error::ok);
     ASTIA_CHECK(state.unmapped == 1);
-
-    lifecycle_lease.reset();
 }

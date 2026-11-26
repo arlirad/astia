@@ -3,8 +3,6 @@
 
 #include "ps2_keyboard.hpp"
 
-#include <new>
-
 namespace {
     using logs = astia::log::context<"ps2-keyboard">;
 
@@ -21,12 +19,6 @@ namespace {
 
     constinit ps2_controller controller{};
     constinit ps2_keyboard   keyboard{controller, ttv0_sink};
-
-    // The resident lease lives for the image's whole lifetime. Construct it in
-    // static storage instead of as a namespace-scope object: clang registers a
-    // global destructor through `atexit`, which the module ABI does not import.
-    alignas(astia::module::lifetime_token) unsigned char lifetime_storage[sizeof(
-        astia::module::lifetime_token)];
 
     const char* error_text(ps2_error error) {
         switch (error) {
@@ -104,21 +96,9 @@ int module_main() {
     if (result != ps2_error::none)
         return fail(result);
 
-    // The lease is held for the image's lifetime and never destroyed.
-    auto& lifetime = *new (lifetime_storage) astia::module::lifetime_token();
-
-    lifetime = astia::module::lifetime_token::acquire();
-
-    if (!lifetime.valid()) {
-        shutdown();
-        logs::info("unavailable");
-        logs::info("lifetime lease failed");
-
-        return -20;
-    }
-
-    if (!astia::module::ps2_claim_irq(irq_entry, lifetime)) {
-        lifetime.release();
+    // The kernel owns the module reference behind this route and marks the
+    // caller resident itself; there is no module-side lifetime object.
+    if (!astia::module::ps2_claim_irq(irq_entry)) {
         shutdown();
         logs::info("unavailable");
         logs::info("irq claim failed");
@@ -126,11 +106,8 @@ int module_main() {
         return -16;
     }
 
-    // The route now points into this image. Resident holds the lease forever
-    // and makes request_exit return an explicit not-unloadable result.
-    if (!lifetime.make_resident()) {
+    if (!astia::module::make_resident()) {
         (void) astia::module::ps2_release_irq();
-        lifetime.release();
         shutdown();
         logs::info("unavailable");
         logs::info("resident transition failed");
@@ -143,7 +120,6 @@ int module_main() {
     // Unmask last: the lease, route, and controller source are all in place.
     if (!astia::module::ps2_unmask_irq()) {
         (void) astia::module::ps2_release_irq();
-        lifetime.release();
         shutdown();
         logs::info("unavailable");
         logs::info("irq unmask failed");

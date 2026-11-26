@@ -3,8 +3,8 @@
 #include <astia/arch/platform.hpp>
 #include <astia/dev/input_platform.hpp>
 #include <astia/dev/uart_platform.hpp>
-#include <astia/module.hpp>
 
+#include "../../dev/ps2_irq.hpp"
 #include "io.hpp"
 #include "pic.hpp"
 #include "smp.hpp"
@@ -68,14 +68,6 @@ namespace astia::arch::x86_64 {
 
         return true;
     }
-
-    bool ps2_irq_enter(void* context) {
-        return static_cast<astia::module::lifetime_token*>(context)->try_enter();
-    }
-
-    void ps2_irq_leave(void* context) {
-        static_cast<astia::module::lifetime_token*>(context)->leave();
-    }
 }
 
 namespace astia::dev {
@@ -89,36 +81,24 @@ namespace {
                                            astia::arch::x86_64::ps2_irq_claim_guarded};
 }
 
-namespace astia::module {
-    const dev::ps2_port_window& ps2_platform_ports() {
-        return dev::ps2_platform_ports;
+namespace astia::dev::ps2 {
+    bool claim_guarded(arch::irq_handler handler, arch::irq_callback_enter enter,
+                       arch::irq_callback_leave leave, void* context) {
+        return ps2_irq.claim_guarded(handler, enter, leave, context);
     }
 
-    bool ps2_claim_irq(arch::irq_handler handler, lifetime_token& token) {
-        if (!token.valid())
-            return false;
-
-        return ps2_irq.claim_guarded(handler, arch::x86_64::ps2_irq_enter,
-                                     arch::x86_64::ps2_irq_leave, &token);
+    bool mask() {
+        return arch::mask_irq_handler(1);
     }
 
-    bool ps2_unmask_irq() {
+    bool unregister() {
+        return arch::unregister_irq_handler(1);
+    }
+
+    bool unmask() {
         return ps2_irq.unmask();
     }
-
-    bool ps2_release_irq() {
-        (void) arch::mask_irq_handler(1);
-
-        while (!arch::unregister_irq_handler(1)) {
-            if (arch::cpu::in_interrupt())
-                return false;
-
-            arch::cpu::relax();
-        }
-
-        return true;
-    }
-} // namespace astia::module
+} // namespace astia::dev::ps2
 
 namespace astia::arch::x86_64 {
     dev::pio_bus&  device_pio = dev::uart16550_platform_pio;

@@ -54,6 +54,15 @@ namespace astia::arch {
         eoi_observer = observer;
     }
 
+    bool host_test::irq_registered(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        core::spinlock_guard guard(irq_lock);
+
+        return irq_bindings[irq].handler != nullptr;
+    }
+
     u32 cpu::current_index() {
         return 0;
     }

@@ -326,7 +326,7 @@ namespace astia::mod {
 
     /// The module currently executing entrypoint or finalizer callbacks, or an
     /// invalid id outside that context. Used to resolve the calling module for
-    /// lifetime_token.
+    /// kernel-owned route claims and residency.
     module_id active_module_id();
 
     /// True when the module is loaded, not running, and has no active refs.
