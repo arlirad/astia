@@ -193,6 +193,13 @@ namespace astia::fs::path_service {
                         --rlen;
                     }
 
+                    // Drop the separator too: the parent of "/tmp/foo" is
+                    // "/tmp", not "/tmp/". Leaving the slash makes the next
+                    // component resolve as "//x" and the parent check fail
+                    // against filesystems that match paths exactly.
+                    if (rlen > 1 && result[rlen - 1] == '/')
+                        --rlen;
+
                     result[rlen] = '\0';
                 }
 
