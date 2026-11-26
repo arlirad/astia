@@ -74,7 +74,7 @@ Pkgsrv is a bearer-token resource server. It does **not** expose login,
 registration, session, refresh-token, token-proxy, or password endpoints. Irva owns
 identity, login, registration, sessions, and token issuance. Every pkgsrv package
 endpoint requires `Authorization: Bearer <Irva access token>`; only `GET /healthz`
-is unauthenticated.
+and `GET /readyz` are unauthenticated.
 
 Request flow:
 
@@ -244,8 +244,8 @@ refresh is the client contract:
   `PKGSRV_BASE` or a relative same-origin path such as `/packages`.
 - Never send `X-Pkgsrv-Actor`, `X-Pkgsrv-Roles`, or `X-Pkgsrv-Account`; pkgsrv
   ignores them for authorization.
-- Pkgsrv exposes only the resource API: `GET /healthz`, `GET /packages`,
-  `GET /packages/{name}/{version}`, `POST /packages`,
+- Pkgsrv exposes only the resource API: `GET /healthz`, `GET /readyz`,
+  `GET /packages`, `GET /packages/{name}/{version}`, `POST /packages`,
   `POST /packages/{name}/{version}/build`,
   `POST /packages/{name}/{version}/publish`, and
   `GET /packages/{name}/{version}/download`. There are no pkgsrv login, register,
@@ -373,6 +373,60 @@ acknowledgement persistence fails, the durable pending event remains.
 
 This is an **at-least-once durable pending-event/outbox boundary**. Publishers must
 be idempotent. Automatic outbox dispatch/retry is not implemented yet.
+
+## Health and readiness
+
+`GET /healthz` is process liveness only. It returns `200` with
+`{"status":"ok"}` and never opens a database connection. Use it to decide whether
+the process is running, not whether package storage is usable.
+
+`GET /readyz` reports storage readiness with an additive `application/json`
+payload:
+
+```json
+{
+  "status": "ready",
+  "storageProvider": "InMemory",
+  "storageDurable": false,
+  "schemaVersion": null,
+  "postgresAvailable": null
+}
+```
+
+- `status` is `ready` or `not_ready`.
+- `storageProvider` is `InMemory` or `Postgres`.
+- `storageDurable` is `false` for the process-local in-memory store and `true` for
+  PostgreSQL configuration.
+- `schemaVersion` is the number of applied EF Core migrations when migration state
+  was read successfully; it is `null` when PostgreSQL is unreachable or the
+  in-memory provider is selected.
+- `postgresAvailable` is `null` for the in-memory provider, `true` when the
+  PostgreSQL probe connected, and `false` when the probe timed out, failed, or
+  found the database unavailable.
+
+In-memory mode returns `200` and is explicitly non-durable. PostgreSQL mode returns
+`200` only when a bounded probe connects, reads `__EFMigrationsHistory`, finds no
+pending migrations, and the applied migration set exactly matches the migrations
+known to this build. Pending, unknown, unavailable, timed-out, or failed migration
+state returns `503` with the same safe payload. The response never contains a
+connection string, hostname, credential, filesystem path, mount source, or exception
+message. If PostgreSQL is selected but the readiness probe is not registered,
+cannot be resolved, or throws, `/readyz` returns `503` JSON instead of an HTML
+error or `500`.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Readiness__PostgresProbeTimeoutMs` | `2000` | Bounded PostgreSQL probe timeout in milliseconds, accepted range `1`–`10000` |
+
+Each probe creates and disposes a fresh `DbContext`, uses a linked timeout token,
+and holds no long-lived connection. Startup migration behavior is unchanged: with
+`InitializeSchema=true` startup applies migrations, and with `false` startup fails
+before listening when migrations are pending or migration state is unavailable.
+
+Monitoring should use `/readyz` for durable availability and `/healthz` only for
+process liveness. Both routes are unauthenticated and are reached through the same
+same-origin reverse proxy as the rest of the API, for example
+`https://pkgsrv.example/readyz`.
 
 ## Sandboxed build execution
 
@@ -718,6 +772,33 @@ old-v1 upgrade/data preservation through the EF migration chain.
   migration, source port/IP allowlist rules, and missing-egress-proxy failure.
 - Residuals are listed below; none are claimed as implemented.
 
+## Issue #180 acceptance evidence
+
+- Liveness: `GET /healthz` remains a `200` `{"status":"ok"}` process marker and does
+  not call the database.
+- Readiness contract: `GET /readyz` returns `application/json` with `status`,
+  `storageProvider`, `storageDurable`, `schemaVersion`, and `postgresAvailable`;
+  in-memory mode is ready but non-durable.
+- PostgreSQL readiness: a bounded probe opens a fresh `DbContext`, verifies
+  connectivity, reads pending/applied EF Core migrations, and requires the applied
+  migration set to match the migrations known to this build. Pending, unknown,
+  unavailable, timed-out, or failed state returns `503` with the same safe payload.
+- Bounded time: `Pkgsrv:Readiness:PostgresProbeTimeoutMs` defaults to `2000` and is
+  capped at `10000`; the probe uses a linked cancellation token and holds no
+  long-lived connection.
+- Failure semantics: a missing or throwing readiness probe returns `503` JSON, not
+  HTML or `500`. Startup migration behavior and in-memory fallback are unchanged.
+- Redaction: responses contain only the five contract fields; connection strings,
+  hostnames, credentials, filesystem paths, mount sources, and exception messages
+  are never serialized.
+- Tests: in-memory readiness, PostgreSQL success, pending/unknown migration state,
+  unavailable database, bounded timeout, external cancellation, missing probe,
+  throwing probe, payload redaction, and HTTP status/JSON for `/healthz` and
+  `/readyz`, all without a live database.
+- Residual: CI exercises the probe with fakes; live PostgreSQL connectivity and
+  migration-state probing remain covered by the opt-in integration tests tracked in
+  [#174](https://github.com/arlirad/astia/issues/174).
+
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
@@ -837,7 +918,8 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 
 | Method | Route | Result |
 | --- | --- | --- |
-| `GET` | `/healthz` | `200` health marker; no bearer token required |
+| `GET` | `/healthz` | `200` liveness marker; does not touch storage; no bearer token required |
+| `GET` | `/readyz` | `200` when storage is ready or `503` when not; safe JSON payload; no bearer token required |
 | `POST` | `/packages` | `201` registered package; `400`/`401`/`403`/`409`/`422`/`503` on failure |
 | `GET` | `/packages` | `200` package summaries; `401`/`403`/`503` on authorization failure |
 | `GET` | `/packages/{name}/{version}` | `200` package details; `401`/`403`/`404`/`503` |
@@ -845,7 +927,7 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 | `POST` | `/packages/{name}/{version}/publish` | `200` published signature/hash; `401`/`403`/`404`/`409`/`503` |
 | `GET` | `/packages/{name}/{version}/download` | `200` verified artifact bytes; `401`/`403`/`404`/`409`/`503` |
 
-Every route except `/healthz` requires `Authorization: Bearer <Irva access token>`.
+Every route except `/healthz` and `/readyz` requires `Authorization: Bearer <Irva access token>`.
 There are no pkgsrv login/register/session/refresh/proxy-auth endpoints. Error
 responses use RFC 7807 problem details with a stable `code` extension.
 
@@ -979,8 +1061,10 @@ listening endpoint section.
 - [#178](https://github.com/arlirad/astia/issues/178) - external Irva.Client build
   wiring and live integration test remain opt-in; residual limitations are listed
   above.
-- [#180](https://github.com/arlirad/astia/issues/180) - storage mode and PostgreSQL
-  availability in health/readiness.
+- [#180](https://github.com/arlirad/astia/issues/180) - readiness now reports
+  storage provider/schema version and bounded PostgreSQL availability; live
+  PostgreSQL readiness conformance remains part of the opt-in #174 integration
+  coverage.
 - [#197](https://github.com/arlirad/astia/issues/197) - full SemVer precedence and
   version-aware search.
 - Container/VM isolation adapters and cgroup CPU/memory resource limits.

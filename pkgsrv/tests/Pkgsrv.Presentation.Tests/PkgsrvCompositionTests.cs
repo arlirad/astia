@@ -9,6 +9,7 @@ using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.Infrastructure.Packages;
+using Pkgsrv.Infrastructure.Persistence;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Composition;
@@ -98,6 +99,8 @@ public sealed class PkgsrvCompositionTests
 
         Assert.IsType<InMemoryPackageRepository>(
             provider.GetRequiredService<IPackageRepository>());
+        Assert.IsType<InMemoryStorageReadinessProbe>(
+            provider.GetRequiredService<IStorageReadinessProbe>());
     }
 
     [Fact]
@@ -122,6 +125,8 @@ public sealed class PkgsrvCompositionTests
         Assert.IsType<PostgresPackageRepository>(
             provider.GetRequiredService<IPackageIndex>());
         Assert.NotNull(provider.GetRequiredService<IPackageSchemaMigrator>());
+        Assert.IsType<PostgresStorageReadinessProbe>(
+            provider.GetRequiredService<IStorageReadinessProbe>());
     }
 
     [Fact]
