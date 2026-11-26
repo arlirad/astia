@@ -66,6 +66,20 @@ static int is_directory(const char* path) {
     return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
 
+static int is_symlink(const char* path) {
+    struct stat info;
+
+    return lstat(path, &info) == 0 && S_ISLNK(info.st_mode);
+}
+
+static int same_file(const char* left, const char* right) {
+    struct stat left_info;
+    struct stat right_info;
+
+    return stat(left, &left_info) == 0 && stat(right, &right_info) == 0 &&
+           left_info.st_dev == right_info.st_dev && left_info.st_ino == right_info.st_ino;
+}
+
 static int has_mode(const char* path, mode_t mode) {
     struct stat info;
 
@@ -598,6 +612,58 @@ static int mv_directory_checks(void) {
     return status;
 }
 
+static int ln_checks(void) {
+    char* ln_hard[]       = {"ln", "/tmp/coreutils_a", "/tmp/coreutils_hard", NULL};
+    char* ln_force_hard[] = {"ln", "-f", "/tmp/coreutils_b", "/tmp/coreutils_hard", NULL};
+    char* ln_symbolic[]   = {"ln", "-s", "coreutils_a", "/tmp/coreutils_link", NULL};
+    char* ln_symbolic_long[]  = {"ln", "--symbolic", "/tmp/coreutils_a",
+                                 "/tmp/coreutils_symlink_long", NULL};
+    char* ln_force_symbolic[] = {"ln", "-sf", "/tmp/coreutils_a", "/tmp/coreutils_link",
+                                 NULL};
+    char* ln_relative_force[] = {"ln", "-sf", "coreutils_a", "/tmp/coreutils_link", NULL};
+    char* ln_missing[]        = {"ln", "/tmp/coreutils_missing",
+                                 "/tmp/coreutils_symlink_missing", NULL};
+    char* readlink_link[]     = {"readlink", "/tmp/coreutils_link", NULL};
+
+    (void) unlink("/tmp/coreutils_hard");
+    (void) unlink("/tmp/coreutils_link");
+    (void) unlink("/tmp/coreutils_symlink_long");
+    (void) unlink("/tmp/coreutils_symlink_missing");
+
+    int status = 0;
+
+    if (check("ln hard link", ln_hard, NULL, 0, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_a", "/tmp/coreutils_hard") ||
+        is_symlink("/tmp/coreutils_hard") ||
+        check("ln existing target", ln_hard, NULL, 1, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_a", "/tmp/coreutils_hard") ||
+        check("ln force hard link", ln_force_hard, NULL, 0, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_b", "/tmp/coreutils_hard") ||
+        same_file("/tmp/coreutils_a", "/tmp/coreutils_hard") ||
+        check("ln symbolic", ln_symbolic, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_link") ||
+        check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) != 0 ||
+        check("ln -sf symbolic", ln_force_symbolic, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_link") ||
+        check("readlink replaced symlink", readlink_link, NULL, 0, "/tmp/coreutils_a\n",
+              1) != 0 ||
+        check("ln --symbolic", ln_symbolic_long, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_symlink_long") ||
+        check("ln missing target", ln_missing, NULL, 1, NULL, 0) != 0 ||
+        is_symlink("/tmp/coreutils_symlink_missing") ||
+        check("ln -sf relative", ln_relative_force, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_link") ||
+        check("readlink restored symlink", readlink_link, NULL, 0, "coreutils_a\n", 1) !=
+            0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_hard");
+    (void) unlink("/tmp/coreutils_symlink_long");
+    (void) unlink("/tmp/coreutils_symlink_missing");
+
+    return status;
+}
+
 static int ls_symlink_checks(void) {
     char* ls_symlink_file[]     = {"ls", "/tmp/coreutils_link", NULL};
     char* ls_symlink_dir[]      = {"ls", "/tmp/coreutils_ls_link", NULL};
@@ -927,8 +993,6 @@ int main(void) {
     char* cut_dash_only[]          = {"cut", "-d", ":", "-f", "-", NULL};
     char* cut_trailing_comma[]     = {"cut", "-d", ":", "-f", "2,", NULL};
     char* tee_file[]               = {"tee", "/tmp/coreutils_tee", NULL};
-    char* ln_link[]                = {"ln", "coreutils_a", "/tmp/coreutils_link", NULL};
-    char* readlink_link[]          = {"readlink", "/tmp/coreutils_link", NULL};
     char* whoami[]                 = {"whoami", NULL};
     char* login[]                  = {"login", NULL};
 
@@ -947,6 +1011,9 @@ int main(void) {
     (void) unlink("/tmp/coreutils_touch");
     (void) unlink("/tmp/coreutils_touch_missing");
     (void) unlink("/tmp/coreutils_link");
+    (void) unlink("/tmp/coreutils_hard");
+    (void) unlink("/tmp/coreutils_symlink_long");
+    (void) unlink("/tmp/coreutils_symlink_missing");
     (void) unlink("/tmp/coreutils_dangling");
     (void) rmdir("/tmp/coreutils_parent/child");
     (void) rmdir("/tmp/coreutils_parent");
@@ -1008,10 +1075,7 @@ int main(void) {
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
         check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
         check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
-        check("ls invalid", ls_bad, NULL, 1, NULL, 0) ||
-        check("ln relative", ln_link, NULL, 0, NULL, 0) ||
-        !is_file("/tmp/coreutils_link") ||
-        check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
+        check("ls invalid", ls_bad, NULL, 1, NULL, 0) || ln_checks() != 0 ||
         ls_symlink_checks() != 0 || symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
         !S_ISLNK(dangling_stat.st_mode) ||
