@@ -473,6 +473,31 @@ static int mv_directory_checks(void) {
     return status;
 }
 
+static int rm_directory_checks(void) {
+    char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
+
+    (void) unlink("/tmp/coreutils_rm_multi/one");
+    (void) unlink("/tmp/coreutils_rm_multi/two");
+    (void) unlink("/tmp/coreutils_rm_multi/nested/alpha");
+    (void) unlink("/tmp/coreutils_rm_multi/nested/beta");
+    (void) rmdir("/tmp/coreutils_rm_multi/nested");
+    (void) rmdir("/tmp/coreutils_rm_multi");
+
+    if (mkdir("/tmp/coreutils_rm_multi", 0777) != 0 ||
+        put_file("/tmp/coreutils_rm_multi/one", "one\n") != 0 ||
+        put_file("/tmp/coreutils_rm_multi/two", "two\n") != 0 ||
+        mkdir("/tmp/coreutils_rm_multi/nested", 0777) != 0 ||
+        put_file("/tmp/coreutils_rm_multi/nested/alpha", "alpha\n") != 0 ||
+        put_file("/tmp/coreutils_rm_multi/nested/beta", "beta\n") != 0)
+        return fail("rm multi-child fixture setup");
+
+    if (check("rm -r multiple children", rm_multi, NULL, 0, NULL, 0) != 0 ||
+        is_directory("/tmp/coreutils_rm_multi") || is_file("/tmp/coreutils_rm_multi/one"))
+        return 1;
+
+    return 0;
+}
+
 static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
@@ -791,6 +816,9 @@ int main(void) {
         return 1;
 
     if (mv_directory_checks() != 0)
+        return 1;
+
+    if (rm_directory_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
