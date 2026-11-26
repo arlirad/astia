@@ -185,6 +185,10 @@ add_executable(libc_realpath_test fs/realpath_test.c support/backend_host.c)
 target_link_libraries(libc_realpath_test PRIVATE astia_libc)
 add_test(NAME libc_realpath_test COMMAND libc_realpath_test)
 
+add_executable(libc_dirent_test fs/dirent_test.c support/backend_host.c)
+target_link_libraries(libc_dirent_test PRIVATE astia_libc)
+add_test(NAME libc_dirent_test COMMAND libc_dirent_test)
+
 add_executable(libc_mktemp_test stdlib/mktemp_test.c support/backend_host.c)
 target_link_libraries(libc_mktemp_test PRIVATE astia_libc)
 add_test(NAME libc_mktemp_test COMMAND libc_mktemp_test)

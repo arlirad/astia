@@ -949,6 +949,22 @@ namespace astia::fs {
                                    astia::span<char>(name, capacity), type);
     }
 
+    long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
+                        u32 capacity, file_type* type) {
+        if (!directory)
+            return -EBADF;
+
+        const char* path = directory->path();
+
+        if (path == nullptr || path[0] != '/')
+            return -EBADF;
+
+        if (!directory->mode().is_directory())
+            return -ENOTDIR;
+
+        return read_directory(path, index, name, capacity, type);
+    }
+
     long make_directory(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
