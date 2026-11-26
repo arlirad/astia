@@ -4,7 +4,6 @@
 #include <astia/span.hpp>
 
 namespace astia::proc {
-
     /// The DSO static-TLS arena is address space first, memory on demand.
     /// The payload block and its TCB headroom keep their fixed position at
     /// the top; the reserve below them is a lazy region whose pages
@@ -35,5 +34,4 @@ namespace astia::proc {
 
     bool write_tls_word(mm::phys_region& region, const tls_arena& layout, u64 offset,
                         u64 value);
-
 } // namespace astia::proc

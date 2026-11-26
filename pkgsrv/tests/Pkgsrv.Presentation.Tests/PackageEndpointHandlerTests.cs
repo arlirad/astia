@@ -66,7 +66,7 @@ public sealed class PackageEndpointHandlerTests
         {
             Handler = (_, _) => ValueTask.FromResult<object>(Array.Empty<PackageSummaryDto>())
         };
-        var accessor = new HeaderActorContextAccessor(new HttpContextAccessor
+        var accessor = new HttpTransportIdentityAccessor(new HttpContextAccessor
         {
             HttpContext = new DefaultHttpContext()
         });
@@ -236,6 +236,50 @@ public sealed class PackageEndpointHandlerTests
             CreateRegistrationRequest(),
             mediator,
             CreateAccessor("publisher"),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(403, problem.ProblemDetails.Status);
+        Assert.Equal("authorization.denied", problem.ProblemDetails.Extensions["code"]);
+    }
+
+    [Fact]
+    public async Task List_MapsMissingOrInvalidBearerToUnauthorized()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new TargetInvocationException(
+                new AuthenticationRequiredException(
+                    nameof(PackageAction.Read),
+                    "A bearer access token is required."))
+        };
+
+        var result = await PackageEndpointHandlers.ListAsync(
+            mediator,
+            CreateAccessor("anonymous"),
+            new TestPackageJsonCache(),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(401, problem.ProblemDetails.Status);
+        Assert.Equal("authorization.unauthenticated", problem.ProblemDetails.Extensions["code"]);
+    }
+
+    [Fact]
+    public async Task List_MapsVerifiedPermissionDenialToForbidden()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new TargetInvocationException(
+                new AuthorizationDeniedException(
+                    nameof(PackageAction.Read),
+                    "Irva verified account lacks permission 'read'."))
+        };
+
+        var result = await PackageEndpointHandlers.ListAsync(
+            mediator,
+            CreateAccessor("verified-reader"),
+            new TestPackageJsonCache(),
             CancellationToken.None);
 
         var problem = Assert.IsType<ProblemHttpResult>(result);
@@ -416,23 +460,24 @@ public sealed class PackageEndpointHandlerTests
         string? roles = null,
         Guid? accountId = null)
     {
-        var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers[HeaderActorContextAccessor.ActorHeader] = actor;
+        var roleValues = string.IsNullOrWhiteSpace(roles)
+            ? Array.Empty<string>()
+            : roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (roles is not null)
+        return new StubActorContextAccessor(
+            AuthorizationContext.Create(actor, roleValues, accountId));
+    }
+
+    private sealed class StubActorContextAccessor : IActorContextAccessor
+    {
+        private readonly AuthorizationContext _actor;
+
+        public StubActorContextAccessor(AuthorizationContext actor)
         {
-            httpContext.Request.Headers[HeaderActorContextAccessor.RolesHeader] = roles;
+            _actor = actor;
         }
 
-        if (accountId is not null)
-        {
-            httpContext.Request.Headers[HeaderActorContextAccessor.AccountHeader] = accountId.Value.ToString();
-        }
-
-        return new HeaderActorContextAccessor(new HttpContextAccessor
-        {
-            HttpContext = httpContext
-        });
+        public AuthorizationContext GetCurrent() => _actor;
     }
 
     private static async Task<(int StatusCode, string ContentType, string Body)> ExecuteAsync(IResult result)

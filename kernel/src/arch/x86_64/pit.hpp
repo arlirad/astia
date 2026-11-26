@@ -7,7 +7,6 @@
 // against (mode 0 one-shot, polled — calibration needs no interrupts).
 
 namespace astia::arch::x86_64 {
-
     class pit {
         public:
         static constexpr u32 input_hz = 1193182; // PIT input frequency
@@ -23,5 +22,4 @@ namespace astia::arch::x86_64 {
         /// counts down towards 0 in one-shot mode.
         static u32 read_count();
     };
-
 } // namespace astia::arch::x86_64

@@ -38,7 +38,6 @@ namespace astia::fs {
 }
 
 namespace astia::dev {
-
     /// One 16550 UART as a terminal device.  Static storage only —
     /// constant-initialized and never destroyed, hence no virtual
     /// destructor.
@@ -111,5 +110,4 @@ namespace astia::dev {
     /// Polled final marker for boot harnesses; does not depend on the async
     /// descriptor/ring path being drainable.
     void uart16550_console_puts(const char* text);
-
 } // namespace astia::dev

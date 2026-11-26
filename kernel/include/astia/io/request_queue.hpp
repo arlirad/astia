@@ -9,13 +9,13 @@ namespace astia::fs {
 }
 
 namespace astia::io {
-
     /// A file/device-owned queue of parked requests.  submit() that cannot
     /// finish appends here; the file's readiness path re-drives the queue in
     /// task context and completes each request's existing completion.
     class request_queue {
         public:
         constexpr explicit request_queue(fs::file& owner) : _owner(owner) {}
+
         request_queue(const request_queue&)            = delete;
         request_queue& operator=(const request_queue&) = delete;
 
@@ -36,5 +36,4 @@ namespace astia::io {
         u32            _count = 0;
         core::spinlock _lock;
     };
-
 } // namespace astia::io

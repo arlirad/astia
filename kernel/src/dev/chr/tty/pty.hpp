@@ -6,7 +6,6 @@
 #include "../tty.hpp"
 
 namespace astia::dev {
-
     class pty final : public tty {
         public:
         explicit pty(u32 index);
@@ -23,6 +22,7 @@ namespace astia::dev {
         u32 index() const {
             return _index;
         }
+
         bool open_slave();
         void bind_master(fs::file* master);
         void master_closed();
@@ -58,7 +58,8 @@ namespace astia::dev {
         bool                   _locked      = true;
         fs::file*              _master_file = nullptr;
         fs::file*              _slave_file  = nullptr;
-        struct winsize         _winsize {
+
+        struct winsize _winsize {
             24, 80, 0, 0
         };
     };
@@ -69,5 +70,4 @@ namespace astia::dev {
     bool                     pty_node_is_directory(const char* path);
     bool                     pty_node_index(const char* path, u32* index);
     void                     pty_release_slot(u32 index, pty* instance);
-
 } // namespace astia::dev

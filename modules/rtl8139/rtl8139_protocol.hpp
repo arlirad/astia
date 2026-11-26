@@ -7,7 +7,6 @@
 #include <stdint.h>
 
 namespace astia::rtl8139 {
-
     constexpr uint16_t pci_vendor_id             = 0x10ec;
     constexpr uint16_t pci_device_id             = 0x8139;
     constexpr uint8_t  pci_class_network         = 0x02;
@@ -99,11 +98,13 @@ namespace astia::rtl8139 {
 
         bool contains(register_offset offset, uint64_t width) const {
             const uint64_t value = static_cast<uint16_t>(offset);
+
             return _base != nullptr && value <= _size && width <= _size - value;
         }
 
         public:
         register_file() = default;
+
         register_file(volatile uint8_t* base, uint64_t size) : _base(base), _size(size) {}
 
         bool valid() const {
@@ -117,17 +118,21 @@ namespace astia::rtl8139 {
         uint16_t read16(register_offset offset) const {
             if (!contains(offset, 2))
                 return 0xffff;
+
             const uint16_t address = static_cast<uint16_t>(offset);
             const uint8_t  bytes[] = {_base[address], _base[address + 1]};
+
             return le16(bytes);
         }
 
         uint32_t read32(register_offset offset) const {
             if (!contains(offset, 4))
                 return 0xffffffffu;
+
             const uint16_t address = static_cast<uint16_t>(offset);
             const uint8_t  bytes[] = {_base[address], _base[address + 1],
                                       _base[address + 2], _base[address + 3]};
+
             return le32(bytes);
         }
 
@@ -139,19 +144,23 @@ namespace astia::rtl8139 {
         void write16(register_offset offset, uint16_t value) const {
             if (!contains(offset, 2))
                 return;
+
             const uint16_t address = static_cast<uint16_t>(offset);
-            _base[address]         = static_cast<uint8_t>(value);
-            _base[address + 1]     = static_cast<uint8_t>(value >> 8);
+
+            _base[address]     = static_cast<uint8_t>(value);
+            _base[address + 1] = static_cast<uint8_t>(value >> 8);
         }
 
         void write32(register_offset offset, uint32_t value) const {
             if (!contains(offset, 4))
                 return;
+
             const uint16_t address = static_cast<uint16_t>(offset);
-            _base[address]         = static_cast<uint8_t>(value);
-            _base[address + 1]     = static_cast<uint8_t>(value >> 8);
-            _base[address + 2]     = static_cast<uint8_t>(value >> 16);
-            _base[address + 3]     = static_cast<uint8_t>(value >> 24);
+
+            _base[address]     = static_cast<uint8_t>(value);
+            _base[address + 1] = static_cast<uint8_t>(value >> 8);
+            _base[address + 2] = static_cast<uint8_t>(value >> 16);
+            _base[address + 3] = static_cast<uint8_t>(value >> 24);
         }
     };
 
@@ -204,18 +213,23 @@ namespace astia::rtl8139 {
     inline rx_inspect_result inspect_rx_packet(const uint8_t* ring, uint16_t cursor,
                                                rx_packet& result) {
         result = {};
+
         if (ring == nullptr)
             return rx_inspect_result::malformed;
+
         const uint16_t status = static_cast<uint16_t>(ring_byte(ring, cursor)) |
                                 static_cast<uint16_t>(ring_byte(ring, cursor + 1) << 8);
         const uint16_t wire_length =
             static_cast<uint16_t>(ring_byte(ring, cursor + 2)) |
             static_cast<uint16_t>(ring_byte(ring, cursor + 3) << 8);
+
         if (status == 0 && wire_length == 0)
             return rx_inspect_result::empty;
+
         if ((status & rx_status_ok) == 0 || wire_length < rx_crc_size ||
             wire_length > rx_max_frame_with_crc)
             return rx_inspect_result::malformed;
+
         const uint16_t payload_offset =
             ring_offset(static_cast<uint32_t>(cursor) + rx_header_size);
         const uint16_t payload_length = static_cast<uint16_t>(wire_length - rx_crc_size);
@@ -223,6 +237,7 @@ namespace astia::rtl8139 {
             static_cast<uint16_t>(payload_length < rx_ring_size - payload_offset
                                       ? payload_length
                                       : rx_ring_size - payload_offset);
+
         result.view.first  = {ring + payload_offset, first_length};
         result.view.second = {ring, static_cast<uint16_t>(payload_length - first_length)};
         result.view.length = payload_length;
@@ -231,6 +246,7 @@ namespace astia::rtl8139 {
         result.view.next_offset = ring_offset(static_cast<uint32_t>(cursor) +
                                               rx_header_size + wire_length + 3u);
         result.view.status      = status;
+
         return rx_inspect_result::ready;
     }
 
@@ -252,6 +268,7 @@ namespace astia::rtl8139 {
         uint16_t cursor() const {
             return _cursor;
         }
+
         bool pending(uint16_t hardware_cursor) const {
             return _data != nullptr && _cursor != ring_offset(hardware_cursor);
         }
@@ -264,15 +281,20 @@ namespace astia::rtl8139 {
             if (_data == nullptr || packet.view.ring_offset != _cursor ||
                 packet.view.next_offset == _cursor)
                 return false;
+
             _cursor = packet.view.next_offset;
+
             return true;
         }
 
         bool recycle_to(uint16_t next) {
             const uint16_t normalized = ring_offset(next);
+
             if (_data == nullptr || normalized == _cursor)
                 return false;
+
             _cursor = normalized;
+
             return true;
         }
     };
@@ -299,14 +321,17 @@ namespace astia::rtl8139 {
 
         public:
         void initialize() {
-            for (slot& value : _slots)
+            for (slot& value : _slots) {
                 value = {};
+            }
         }
 
         int available() const {
-            for (uint32_t index = 0; index < tx_descriptor_count; ++index)
+            for (uint32_t index = 0; index < tx_descriptor_count; ++index) {
                 if (_slots[index].state == tx_slot_state::free)
                     return static_cast<int>(index);
+            }
+
             return -1;
         }
 
@@ -314,8 +339,10 @@ namespace astia::rtl8139 {
             if (index >= tx_descriptor_count ||
                 _slots[index].state != tx_slot_state::free)
                 return false;
+
             _slots[index].request = request;
             _slots[index].state   = tx_slot_state::device;
+
             return true;
         }
 
@@ -335,8 +362,10 @@ namespace astia::rtl8139 {
             if (index >= tx_descriptor_count ||
                 _slots[index].state != tx_slot_state::device)
                 return false;
+
             result              = _slots[index].request;
             _slots[index].state = tx_slot_state::completion;
+
             return true;
         }
 
@@ -344,7 +373,9 @@ namespace astia::rtl8139 {
             if (index >= tx_descriptor_count ||
                 _slots[index].state != tx_slot_state::completion)
                 return false;
+
             _slots[index].state = tx_slot_state::device;
+
             return true;
         }
 
@@ -352,7 +383,9 @@ namespace astia::rtl8139 {
             if (index >= tx_descriptor_count ||
                 _slots[index].state == tx_slot_state::free)
                 return false;
+
             _slots[index] = {};
+
             return true;
         }
     };
@@ -370,5 +403,4 @@ namespace astia::rtl8139 {
         stopping,
         reset,
     };
-
 } // namespace astia::rtl8139

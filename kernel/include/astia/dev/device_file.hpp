@@ -6,7 +6,6 @@
 #include <astia/mm/shptr.hpp>
 
 namespace astia::dev {
-
     class device_file : public fs::file,
                         public fs::readable,
                         public fs::writable,
@@ -14,17 +13,21 @@ namespace astia::dev {
                         public fs::ioctlable {
         public:
         constexpr explicit device_file(device* device) : borrowed_(device) {}
+
         explicit device_file(const mm::shptr<device>& device) : owner_(device) {}
 
         optional<fs::readable&> as_readable() override {
             return *this;
         }
+
         optional<fs::writable&> as_writable() override {
             return *this;
         }
+
         optional<fs::pollable&> as_pollable() override {
             return *this;
         }
+
         optional<fs::ioctlable&> as_ioctlable() override {
             return *this;
         }
@@ -45,7 +48,8 @@ namespace astia::dev {
         long            acquire_controlling_terminal(i32 group) override;
         long            size() const override;
         u32             block_size() const override;
-        fs::file_mode   mode() const override {
+
+        fs::file_mode mode() const override {
             device*             value = begin_operation();
             const fs::file_mode result(
                 (value != nullptr && (value->flags() & dv_block) != 0)
@@ -74,6 +78,7 @@ namespace astia::dev {
         device* device_instance() const {
             return owner_ ? owner_.get() : borrowed_;
         }
+
         device* begin_operation(const io::request* request = nullptr) const;
         void    end_operation() const;
         void    notify_quiescent() const;
@@ -81,5 +86,4 @@ namespace astia::dev {
         bool    tracked_request(const io::request& request) const;
         void    untrack_request(io::request& request) const;
     };
-
 } // namespace astia::dev

@@ -5,7 +5,6 @@
 #include <concepts>
 
 namespace astia::arch {
-
     class user_context;
 
     /// Selects what the exit path does with the return image.  These are
@@ -34,6 +33,7 @@ namespace astia::arch {
         void set_mode(return_mode mode) noexcept {
             raw_.mode = static_cast<u64>(mode);
         }
+
         return_mode mode() const noexcept {
             return static_cast<return_mode>(raw_.mode);
         }
@@ -86,6 +86,7 @@ namespace astia::arch {
             u64 rip, rflags, rsp;
             u64 rbx, rbp, r12, r13, r14, r15;
         };
+
         static_assert(sizeof(layout) == bytes);
         static_assert(__builtin_offsetof(layout, mode) == 0);
         static_assert(__builtin_offsetof(layout, rip) == 56);
@@ -113,5 +114,4 @@ namespace astia::arch {
     };
 
     static_assert(syscall_return_image<syscall_return>);
-
 } // namespace astia::arch

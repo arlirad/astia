@@ -2,7 +2,6 @@
 #include <astia/arch/mmio.hpp>
 
 namespace astia::arch {
-
     // x86_64 layout (4-level paging):
     //   kernel_base    = start of the canonical higher half (PML4 slot 256,
     //                    PDPT index 0); also the direct physical map
@@ -24,5 +23,4 @@ namespace astia::arch {
     mmio_window_bounds mmio_window() {
         return {0xFFFFC00000000000ull, 0xFFFFF00000000000ull};
     }
-
 } // namespace astia::arch

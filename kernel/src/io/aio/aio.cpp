@@ -11,7 +11,6 @@
 #include "ring.hpp"
 
 namespace astia::io::aio {
-
     namespace {
         user_memory_adapter g_user_memory{};
         constexpr u32       max_ready_files = 64;
@@ -22,27 +21,39 @@ namespace astia::io::aio {
         void note_ready_file(const io_device* dev) {
             if (dev == nullptr || const_cast<io_device*>(dev)->pending().empty())
                 return;
+
             arch::interrupt_spinlock_guard guard(g_ready_lock);
-            for (u32 i = 0; i < g_ready_count; ++i)
+
+            for (u32 i = 0; i < g_ready_count; ++i) {
                 if (g_ready_files[i] == dev)
                     return;
+            }
+
             if (g_ready_count < max_ready_files)
                 g_ready_files[g_ready_count++] = dev;
         }
 
         void service_ready_files() {
             const io_device* ready[max_ready_files]{};
-            u32              count = 0;
+
+            u32 count = 0;
+
             {
                 arch::interrupt_spinlock_guard guard(g_ready_lock);
+
                 count = g_ready_count;
-                for (u32 i = 0; i < count; ++i)
+
+                for (u32 i = 0; i < count; ++i) {
                     ready[i] = g_ready_files[i];
+                }
+
                 g_ready_count = 0;
             }
+
             for (u32 i = 0; i < count; ++i) {
                 if (ready[i] == nullptr)
                     continue;
+
                 const_cast<io_device*>(ready[i])->service_ready();
                 // A queue that still has parked work must run again on the
                 // next task tick: poll-driven backends make progress only
@@ -72,12 +83,15 @@ namespace astia::io::aio {
 
     long io_submit(astia_rings* ring, u32 to_submit) {
         io_process_deferred_ready();
+
         ring_guard pool_guard(g_ring_pool_lock);
         ring_slot* slot = slot_of(ring);
-        if (slot == nullptr || !ring_layout_ok(*slot, ring)) {
+
+        if (slot == nullptr || !ring_layout_ok(*slot, ring))
             return -EINVAL;
-        }
+
         ring_guard ring_lock_guard(slot->lock);
+
         // The ring lock pins the slot while the submitter runs.  The pool is
         // needed only for lookup/lifetime, not for dispatch or CQ work.
         pool_guard.release_lock();
@@ -85,16 +99,21 @@ namespace astia::io::aio {
         dispatch::retry_pending(*slot, rings_of(*slot));
 
         astia_sq_ring* sq = astia_rings_sq(ring);
+
         const u32 tail = astia::atomic_ref(sq->tail).load(astia::memory_order::acquire);
         u32       head = astia::atomic_ref(sq->head).load(astia::memory_order::relaxed);
         u32       consumed = 0;
+
         while (consumed < to_submit && head != tail) {
             const astia_sqe s = astia_rings_sqes(ring)[head & sq->mask];
-            if (!dispatch::dispatch_one(*slot, ring, s)) {
+
+            if (!dispatch::dispatch_one(*slot, ring, s))
                 break;
-            }
+
             head += 1;
+
             astia::atomic_ref(sq->head).store(head, astia::memory_order::release);
+
             consumed += 1;
         }
 
@@ -106,22 +125,29 @@ namespace astia::io::aio {
         // kernel stack would both overwrite resources when slots are reused
         // and exceed the 16 KiB stack budget.
         parked_cleanup& cleanup = slot->cleanup;
+
         reap_completed(*slot, cleanup);
         cq_retrigger(*slot, rings_of(*slot));
 
         ring_lock_guard.unlock();
         cleanup.release();
+
         return static_cast<long>(consumed);
     }
 
     bool io_allow_kernel_buffers(astia_rings* ring) {
         ring_guard pool_guard(g_ring_pool_lock);
         ring_slot* slot = slot_of(ring);
+
         if (slot == nullptr || slot->owner.get() != proc::current_process())
             return false;
+
         ring_guard ring_lock_guard(slot->lock);
+
         pool_guard.release_lock();
+
         slot->kernel_buffers = true;
+
         return true;
     }
 
@@ -129,9 +155,9 @@ namespace astia::io::aio {
         proc::process* current        = proc::current_process();
         auto           current_handle = current == nullptr ? mm::shptr<fs::open_file>{}
                                                            : current->descriptor(fd_t{fd});
-        if (!current_handle) {
+        if (!current_handle)
             return;
-        }
+
         io_device_ready_context(current_handle->parent().get());
     }
 
@@ -140,31 +166,43 @@ namespace astia::io::aio {
     }
 
     void io_device_ready_context_except(const io_device* dev, u64 excluded_user_data) {
-        if (dev == nullptr) {
+        if (dev == nullptr)
             return;
-        }
+
         note_device_ready(dev);
+
         bool indexed[kernel_ring_slot_count][parked_operation_slots]{};
+
         snapshot_waiters(dev, indexed);
+
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 if (!indexed[i][p])
                     continue;
+
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot_ptr = g_slots[i];
+
                 if (slot_ptr == nullptr || !slot_ptr->used)
                     continue;
+
                 ring_slot& slot = *slot_ptr;
+
                 ring_guard ring_lock_guard(slot.lock);
+
                 pool_guard.release_lock();
+
                 parked_op& op = slot.park[p];
+
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
                     op.handle && op.handle->parent().get() == dev &&
                     op.operation->request().user_data() != excluded_user_data)
                     op.device_ready = true;
             }
         }
+
         note_ready_file(dev);
+
         if (::astia::arch::cpu::in_interrupt())
             ::astia::arch::cpu::request_local_reschedule();
     }
@@ -177,23 +215,34 @@ namespace astia::io::aio {
             for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot = g_slots[i];
+
                 if (slot == nullptr || !slot->used || !slot->detached_reclaim)
                     continue;
+
                 ring_guard ring_lock_guard(slot->lock);
+
                 pool_guard.release_lock();
+
                 if (slot->detached_ops.load(astia::memory_order::acquire) != 0)
                     continue;
+
                 slot->reclaiming.store(true, astia::memory_order::release);
+
                 parked_cleanup& cleanup = slot->cleanup;
+
                 reap_completed(*slot, cleanup);
                 unmap_ring_user(*slot, slot->owner.get());
                 clear_slot(*slot, cleanup);
                 ring_lock_guard.unlock();
                 cleanup.release();
+
                 {
                     ring_guard pool_flip(g_ring_pool_lock);
+
                     slot->used = false;
+
                     slot->reclaiming.store(false, astia::memory_order::release);
+
                     g_slots[i] = nullptr;
                 }
             }
@@ -203,30 +252,41 @@ namespace astia::io::aio {
     void io_process_deferred_ready() {
         reclaim_detached_slots();
         service_ready_files();
+
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             for (u32 p = 0; p < parked_operation_slots; ++p) {
                 ring_guard pool_guard(g_ring_pool_lock);
                 ring_slot* slot_ptr = g_slots[i];
+
                 if (slot_ptr == nullptr || !slot_ptr->used || !slot_ptr->owner)
                     continue;
+
                 ring_slot& slot = *slot_ptr;
+
                 ring_guard ring_lock_guard(slot.lock);
+
                 pool_guard.release_lock();
-                parked_op&     op    = slot.park[p];
+
+                parked_op& op = slot.park[p];
+
                 proc::process* owner = slot.owner.get();
+
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
                     (op.device_ready || op.sleep_ready ||
                      op.operation->request().timeout_expired() ||
                      op.operation->request().poll_wakeup())) {
                     op.device_ready = false;
+
                     if (op.sleep_ready) {
                         op.sleep_ready = false;
+
                         dispatch::complete_control(owner, rings_of(slot), op, 0);
                     }
                     else {
-                        dispatch::resume_parked(owner, rings_of(slot), op);
+                        dispatch::resume_parked(owner, rings_of(slot), op, &slot);
                     }
                 }
+
                 cq_retrigger(slot, rings_of(slot));
             }
         }
@@ -235,81 +295,144 @@ namespace astia::io::aio {
     void io_interrupt_process(proc::process* owner, i32 result) {
         if (owner == nullptr)
             return;
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+
+        u8        indices[kernel_ring_slot_count]{};
+        const u32 count =
+            ring::owner_ring_indices(owner, indices, kernel_ring_slot_count);
+
+        for (u32 j = 0; j < count; ++j) {
             ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
+            ring_slot* slot_ptr = g_slots[indices[j]];
+
             if (slot_ptr == nullptr || !slot_ptr->used || slot_ptr->owner.get() != owner)
                 continue;
+
             ring_slot& slot = *slot_ptr;
+
             ring_guard ring_lock_guard(slot.lock);
+
             pool_guard.release_lock();
+
             astia_rings* ring = rings_of(slot);
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
+
+            u64 signals = ring::signal_mask(slot);
+
+            while (signals != 0) {
+                const u32 p = static_cast<u32>(__builtin_ctzll(signals));
+
+                signals &= signals - 1;
+
                 parked_op& op = slot.park[p];
+
                 if (op.used && op.type == parked_op::kind::operation && !op.done &&
                     op.signal_interruptible)
                     dispatch::complete_control(owner, ring, op, result);
             }
+
             cq_retrigger(slot, ring);
         }
     }
 
     void io_poll_tick() {
-        if (::astia::arch::timer_hz() == 0)
+        if (::astia::arch::timer_hz() == 0 || !ring::any_armed())
             return;
-        const u64 now = dispatch::poll_now_ns();
-        for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
+
+        const u64 now   = dispatch::poll_now_ns();
+        u64       rings = ring::armed_ring_bitmap();
+
+        while (rings != 0) {
+            const u32 index = static_cast<u32>(__builtin_ctzll(rings));
+
+            rings &= rings - 1;
+
             ring_guard pool_guard(g_ring_pool_lock);
-            ring_slot* slot_ptr = g_slots[i];
+            ring_slot* slot_ptr = g_slots[index];
+
             if (slot_ptr == nullptr || !slot_ptr->used)
                 continue;
+
             ring_slot& slot = *slot_ptr;
+
+            u64 armed = ring::armed_mask(slot);
+
+            if (armed == 0)
+                continue;
+
             ring_guard ring_lock_guard(slot.lock);
+
             pool_guard.release_lock();
-            for (u32 p = 0; p < parked_operation_slots; ++p) {
+
+            while (armed != 0) {
+                const u32 p = static_cast<u32>(__builtin_ctzll(armed));
+
+                armed &= armed - 1;
+
                 parked_op& op = slot.park[p];
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.sleeping && now >= op.sleep_deadline) {
-                    op.sleep_ready = true;
+
+                if (!op.used || op.type != parked_op::kind::operation || op.done) {
+                    ring::clear_armed(slot, p);
+
+                    continue;
                 }
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.timed && now >= op.timeout_deadline) {
+
+                if (op.sleeping && now >= op.sleep_deadline)
+                    op.sleep_ready = true;
+
+                if (op.timed && now >= op.timeout_deadline) {
                     op.timed = false;
+
                     op.operation->request().timeout_expired(true);
                 }
-                if (op.used && op.type == parked_op::kind::operation && !op.done &&
-                    op.poll_timed && now >= op.poll_deadline) {
+
+                if (op.poll_timed && now >= op.poll_deadline) {
                     op.poll_timed = false;
+
                     op.operation->request().poll_wakeup(true);
                 }
+
+                if (!op.sleeping && !op.timed && !op.poll_timed)
+                    ring::clear_armed(slot, p);
             }
         }
+
         ::astia::arch::cpu::request_local_reschedule();
     }
 
     void io_exec_process(proc::process* owner) {
         if (owner == nullptr)
             return;
+
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
+
             if (slot == nullptr || !slot->used || slot->owner.get() != owner)
                 continue;
+
             ring_guard ring_lock_guard(slot->lock);
+
             pool_guard.release_lock();
+
             if (slot->detached_ops.load(astia::memory_order::acquire) != 0) {
                 slot->detached_reclaim = true;
+
                 continue;
             }
+
             slot->reclaiming.store(true, astia::memory_order::release);
+
             parked_cleanup& cleanup = slot->cleanup;
+
             reap_completed(*slot, cleanup);
             unmap_ring_user(*slot, owner);
             clear_slot(*slot, cleanup);
             ring_lock_guard.unlock();
             cleanup.release();
+
             ring_guard pool_flip(g_ring_pool_lock);
+
             slot->used = false;
+
             slot->reclaiming.store(false, astia::memory_order::release);
         }
     }
@@ -317,19 +440,28 @@ namespace astia::io::aio {
     void io_exit_process(proc::process* owner) {
         if (owner == nullptr)
             return;
+
         for (u32 i = 0; i < kernel_ring_slot_count; ++i) {
             ring_guard pool_guard(g_ring_pool_lock);
             ring_slot* slot = g_slots[i];
+
             if (slot == nullptr || !slot->used || slot->owner.get() != owner)
                 continue;
+
             ring_guard ring_lock_guard(slot->lock);
+
             pool_guard.release_lock();
+
             if (slot->detached_ops.load(astia::memory_order::acquire) != 0) {
                 slot->detached_reclaim = true;
+
                 continue;
             }
+
             slot->reclaiming.store(true, astia::memory_order::release);
+
             parked_cleanup& cleanup = slot->cleanup;
+
             reap_completed(*slot, cleanup);
             // No operation may outlive its process.  In particular, a parked
             // pipe read holds an open_file reference; leaving the ring slot
@@ -340,13 +472,16 @@ namespace astia::io::aio {
             clear_slot(*slot, cleanup);
             ring_lock_guard.unlock();
             cleanup.release();
+
             {
                 ring_guard pool_flip(g_ring_pool_lock);
+
                 slot->used = false;
+
                 slot->reclaiming.store(false, astia::memory_order::release);
+
                 g_slots[i] = nullptr;
             }
         }
     }
-
 } // namespace astia::io::aio

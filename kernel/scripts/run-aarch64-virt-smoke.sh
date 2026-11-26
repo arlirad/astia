@@ -328,6 +328,16 @@ far_hex="$(sed -nE 's/^exception: far=0x([0-9a-f]{16})$/\1/p' "$log" |
     die "FAR_EL1 was not captured from the seeded value"
 grep -Eq '^exception: spsr=0x[0-9a-f]{16}$' "$log" ||
     die "SPSR_EL1 diagnostic is missing or malformed"
+grep -Fq '[PANIC] process unavailable' "$log" ||
+    die "panic report did not mark process context unavailable"
+grep -Fq '[PANIC] fault vector-kind=4' "$log" ||
+    die "panic report did not include the exception vector kind"
+grep -Eq '^\[PANIC\]  x0:[[:space:]]+0x[0-9a-f]+' "$log" ||
+    die "panic report did not include x0"
+grep -Eq '^\[PANIC\]  sp:[[:space:]]+0x[0-9a-f]+' "$log" ||
+    die "panic report did not include the interrupted SP"
+grep -Fq '[PANIC] stack trace:' "$log" ||
+    die "panic report did not include a stack trace"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: EXCEPTION HALT' "$log" ||
     die "synchronous exception did not halt cleanly"
 

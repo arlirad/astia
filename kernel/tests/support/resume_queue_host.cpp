@@ -1,7 +1,6 @@
 #include <astia/arch/cpu.hpp>
 
 namespace astia::arch {
-
     static thread_local bool interrupts_enabled = true;
 
     u32 cpu::current_index() {
@@ -35,5 +34,4 @@ namespace astia::arch {
             return reschedule_pending;
         }
     }
-
 }

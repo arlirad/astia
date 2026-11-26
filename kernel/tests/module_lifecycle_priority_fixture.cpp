@@ -26,5 +26,6 @@ __attribute__((destructor)) void lifecycle_default_finalizer() {
 
 int module_main() {
     lifecycle_record(103);
+
     return 47;
 }

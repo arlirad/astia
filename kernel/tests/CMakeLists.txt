@@ -96,6 +96,15 @@ function(astia_add_host_test name)
 endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
+astia_add_host_test(acpi_host_test acpi_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
+target_include_directories(acpi_host_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
+target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(acpi_host_test "acpi;host;deterministic")
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
@@ -336,7 +345,9 @@ astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_pci_test
@@ -344,14 +355,28 @@ astia_add_host_test(astia_pci_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/mmio.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/mmio.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp)
 target_compile_definitions(astia_pci_test PRIVATE ASTIA_HOST_TEST=1)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
+astia_add_host_test(astia_panic_report_test
+        panic_report_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dbg/panic_report.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/panic_format.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64/panic_format.cpp)
+target_include_directories(astia_panic_report_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/aarch64)
 
 astia_add_host_test(astia_driver_manager_test
         driver_manager_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_net_test
@@ -872,6 +897,8 @@ endif ()
 
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
+astia_add_host_test(astia_terminal_name_test terminal_name_test.cpp)
+
 astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
 set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-builtin")
@@ -898,6 +925,7 @@ set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
 set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_exec_rollback_test
         astia_rcu_hashmap_test
+        astia_string_test
         astia_frame_allocator_test
         astia_page_map_test
         astia_address_space_test
@@ -959,6 +987,15 @@ astia_add_arena_test(astia_address_space_test
 # mm::heap: the free-list allocator over a window backed by arena frames.
 astia_add_arena_test(astia_heap_test
         heap_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
+)
+
+# astia::strings::string allocates from mm::heap, so it runs with the heap fixture.
+astia_add_arena_test(astia_string_test
+        string_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/string.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
         support/interrupts_host.cpp
@@ -1106,53 +1143,15 @@ if (ARCH STREQUAL "x86_64")
         # The libc in ring 3: the same sources the host tests link, but
         # freestanding and non-PIE, with the AIO ports as Astia's side of the
         # seams.  Userspace images link this against tests/crt0.S.
-        add_library(astia_userspace_libc STATIC
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/assert.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/backend_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/atfork.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ctype.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/dirent.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/errno.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/file.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/group.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pwd.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ioctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/locale.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/malloc.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/math.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/mman.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/path.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/poll.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/prctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pthread.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pty.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/printf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/rlimit.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/scanf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/setjmp.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/signal.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/semaphore.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/socket.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/snprintf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/select.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stdlib.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stat.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/string.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termcap.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termios.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_sleep_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/times.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/unistd.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/utsname.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/uio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/wchar.c
-        )
+        include(${ASTIA_KERNEL_SOURCE_DIR}/../libc/sources.cmake)
+        set(_astia_libc_abs_sources)
+        foreach(_astia_libc_source IN LISTS ASTIA_LIBC_ALL_SOURCES)
+            list(APPEND _astia_libc_abs_sources
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/${_astia_libc_source})
+        endforeach()
+        add_library(astia_userspace_libc STATIC ${_astia_libc_abs_sources})
         target_include_directories(astia_userspace_libc PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 ${ASTIA_KERNEL_SOURCE_DIR}/include
         )
@@ -1168,6 +1167,7 @@ if (ARCH STREQUAL "x86_64")
         get_target_property(_astia_libc_sources astia_userspace_libc SOURCES)
         add_library(astia_userspace_libc_shared SHARED ${_astia_libc_sources})
         target_include_directories(astia_userspace_libc_shared PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 ${ASTIA_KERNEL_SOURCE_DIR}/include
         )
@@ -1199,8 +1199,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Compiling userspace CRT0 fixture")
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
             set(_cross_dir ${_fix_dir}/clang)
-            file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
-                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
+            set(_cross_libc_sources ${_astia_libc_abs_sources})
             file(GLOB _cross_abi_headers CONFIGURE_DEPENDS
                     ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/*.h)
             add_custom_command(
@@ -1313,6 +1312,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/boot_stage/bin/
+                COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
+                ${_fix_dir}/interp_link ${_fix_dir}/interp_nophdr
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_nophdr ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1333,8 +1337,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
-                lib/libfixture_base.so bin/interp_link lib/libc.so bin/dyn_libc
-                etc/passwd etc/group
+                lib/libfixture_base.so bin/interp_link bin/interp_nophdr
+                lib/libc.so bin/dyn_libc etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1389,6 +1393,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
                 "astia: interp ok"
                 "astia: ld ok"
+                "astia: ld nophdr ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
@@ -1723,6 +1728,54 @@ if (ARCH STREQUAL "x86_64")
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
+        endif ()
+
+        if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
+            add_custom_target(astia_acpi_grub_iso
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            $<TARGET_FILE:astiakrn_acpi>
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/astiakrn
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            ${ASTIA_KERNEL_SOURCE_DIR}/grub.cfg
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub/grub.cfg
+                    COMMAND ${GRUB_FILE} --is-x86-multiboot2
+                            $<TARGET_FILE:astiakrn_acpi>
+                    COMMAND ${GRUB_MKRESCUE} -o ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                            ${CMAKE_BINARY_DIR}/acpi-grub
+                    BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                    DEPENDS astiakrn_acpi
+                    COMMENT "Building ACPI GRUB Multiboot2 ISO")
+
+            add_test(NAME acpi_q35_shutdown
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    shutdown ${ASTIA_QEMU} ${CMAKE_BINARY_DIR}/astia-acpi.iso)
+            set_tests_properties(acpi_q35_shutdown PROPERTIES
+                    TIMEOUT 60
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_rsdp
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-rsdp ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_rsdp PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_aml
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-aml ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_aml PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
         endif ()
     else ()
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")

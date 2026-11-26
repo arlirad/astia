@@ -1,11 +1,11 @@
 #pragma once
 
-#include "psf_font.hpp"
 #include <astia/boot/framebuffer.hpp>
 #include <astia/common.hpp>
 
-namespace astia::dev {
+#include "psf_font.hpp"
 
+namespace astia::dev {
     class framebuffer_renderer {
         public:
         bool attach(const boot::framebuffer_info& info, volatile void* pixels,
@@ -13,24 +13,31 @@ namespace astia::dev {
         void detach();
 
         bool write_byte(u8 byte);
+
         bool ready() const {
             return _pixels != nullptr;
         }
+
         u32 columns() const {
             return _columns;
         }
+
         u32 rows() const {
             return _rows;
         }
+
         u32 cursor_column() const {
             return _cursor_column;
         }
+
         u32 cursor_row() const {
             return _cursor_row;
         }
+
         u8 foreground() const {
             return _foreground;
         }
+
         u8 background() const {
             return _background;
         }
@@ -80,5 +87,4 @@ namespace astia::dev {
         bool                   _csi_have_value = false;
         cell                   _cells[max_columns * max_rows]{};
     };
-
 } // namespace astia::dev

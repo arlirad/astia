@@ -3,12 +3,18 @@
 #include <astia/fs.hpp>
 
 namespace astia::fs {
-
     /// A mounted filesystem instance.  The filesystem type is the
     /// factory; this object carries the mounted state and path lookup.
     class mount {
         public:
         virtual ~mount() = default;
+
+        /// True for an immutable mount: create/write namespace operations
+        /// must fail with -EROFS instead of silently looking absent.
+        virtual bool read_only() const {
+            return false;
+        }
+
         virtual mm::shptr<open_file> open(const char* path, u32 flags);
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
@@ -30,13 +36,16 @@ namespace astia::fs {
         void retain_open() {
             __atomic_fetch_add(&_open_count, 1u, __ATOMIC_ACQ_REL);
         }
+
         void release_open() {
             u32 count = __atomic_load_n(&_open_count, __ATOMIC_ACQUIRE);
+
             while (count != 0 &&
                    !__atomic_compare_exchange_n(&_open_count, &count, count - 1, false,
                                                 __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
             }
         }
+
         u32 open_count() const {
             return __atomic_load_n(&_open_count, __ATOMIC_ACQUIRE);
         }
@@ -44,5 +53,4 @@ namespace astia::fs {
         private:
         u32 _open_count = 0;
     };
-
 } // namespace astia::fs

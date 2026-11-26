@@ -24,7 +24,8 @@ namespace {
     }
 
     bool is_directory(const char* path) {
-        return same(path, "/") || same(path, "/tree") || same(path, "/tree/");
+        return same(path, "/") || same(path, "/tree") || same(path, "/tree/") ||
+               same(path, "/tree/sub");
     }
 
     bool is_file(const char* path) {
@@ -35,12 +36,16 @@ namespace {
     const char* symlink_target(const char* path) {
         if (same(path, "/tree/link"))
             return "file";
+
         if (same(path, "/absolute"))
             return "/target";
+
         if (same(path, "/loop1"))
             return "/loop2";
+
         if (same(path, "/loop2"))
             return "/loop1";
+
         return nullptr;
     }
 
@@ -54,14 +59,18 @@ namespace {
         static bool ready = false;
         if (ready)
             return;
+
         astia_test::map_arena();
+
         astia::mm::memory_map map;
+
         map.add(astia_test::arena_base, astia_test::arena_size,
                 astia::mm::memory_type::usable);
         astia::mm::kernel_frames().init(map);
         astia::mm::heap::configure(path_service_heap_storage,
                                    sizeof path_service_heap_storage, no_mapping);
         ASTIA_CHECK(astia::mm::heap::init());
+
         ready = true;
     }
 }
@@ -70,12 +79,16 @@ namespace astia::fs {
     file_type node_type(const char* path) {
         if (path == nullptr)
             return directory_unknown;
+
         if (is_directory(path))
             return directory_dir;
+
         if (is_file(path))
             return directory_reg;
+
         if (symlink_target(path) != nullptr)
             return directory_lnk;
+
         return directory_unknown;
     }
 
@@ -83,16 +96,21 @@ namespace astia::fs {
         const char* target = symlink_target(path);
         if (target == nullptr)
             return -ENOENT;
+
         const usize length = std::strlen(target);
+
         if (capacity <= length)
             return -ENAMETOOLONG;
+
         std::memcpy(buffer, target, length + 1);
+
         return static_cast<long>(length);
     }
 }
 
 ASTIA_TEST(path_service_composes_absolute_and_relative_paths) {
     char buffer[astia::fs::path_max]{};
+
     ASTIA_CHECK(astia::fs::path_service::compose(
                     "/work", "/absolute", astia::span<char>(buffer, sizeof buffer)) == 0);
     ASTIA_CHECK(std::strcmp(buffer, "/absolute") == 0);
@@ -104,6 +122,7 @@ ASTIA_TEST(path_service_composes_absolute_and_relative_paths) {
     ASTIA_CHECK(std::strcmp(buffer, "/work/child") == 0);
 
     char short_buffer[5]{};
+
     ASTIA_CHECK(astia::fs::path_service::compose(
                     "/work", ".", astia::span<char>(short_buffer, sizeof short_buffer)) ==
                 -ERANGE);
@@ -115,7 +134,25 @@ ASTIA_TEST(path_service_composes_absolute_and_relative_paths) {
 
 ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
     initialize_heap();
+
     char buffer[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/..", buffer, sizeof buffer,
+                                                 false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../file", buffer,
+                                                 sizeof buffer, false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree/file") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../..", buffer, sizeof buffer,
+                                                 false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../target", buffer,
+                                                 sizeof buffer, true) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree/target") == 0);
+
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/../target", buffer, sizeof buffer,
                                                  false) == 0);
     ASTIA_CHECK(std::strcmp(buffer, "/target") == 0);
@@ -134,40 +171,55 @@ ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
 
 ASTIA_TEST(path_service_preserves_loop_and_length_errors) {
     initialize_heap();
+
     char buffer[astia::fs::path_max]{};
+
     ASTIA_CHECK(astia::fs::path_service::resolve("/loop1", buffer, sizeof buffer) ==
                 -ELOOP);
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/file/", buffer, sizeof buffer) ==
                 -ENOTDIR);
 
     char long_path[astia::fs::path_max + 1]{};
+
     long_path[0] = '/';
-    for (astia::u32 i = 1; i < sizeof long_path - 1; ++i)
+
+    for (astia::u32 i = 1; i < sizeof long_path - 1; ++i) {
         long_path[i] = 'x';
+    }
+
     ASTIA_CHECK(astia::fs::path_service::resolve(long_path, buffer, sizeof buffer) ==
                 -ENAMETOOLONG);
 }
 
 ASTIA_TEST(path_service_resolves_at_path_max) {
     initialize_heap();
+
     char path[astia::fs::path_max]{};
     char buffer[astia::fs::path_max]{};
+
     path[0] = '/';
-    for (astia::u32 i = 1; i < sizeof path - 1; ++i)
+
+    for (astia::u32 i = 1; i < sizeof path - 1; ++i) {
         path[i] = 'x';
+    }
+
     ASTIA_CHECK(astia::fs::path_service::resolve(path, buffer, sizeof buffer) == 0);
     ASTIA_CHECK(std::strlen(buffer) == sizeof path - 1);
 }
 
 ASTIA_TEST(path_service_resolve_reports_enomem_when_scratch_allocation_fails) {
     initialize_heap();
+
     char buffer[astia::fs::path_max]{};
+
     {
         astia_test::heap_exhaustion exhaustion;
+
         ASTIA_CHECK(exhaustion.acquire());
         ASTIA_CHECK(astia::fs::path_service::resolve("/target", buffer, sizeof buffer) ==
                     -ENOMEM);
     }
+
     ASTIA_CHECK(astia::fs::path_service::resolve("/target", buffer, sizeof buffer) == 0);
     ASTIA_CHECK(same(buffer, "/target"));
 }

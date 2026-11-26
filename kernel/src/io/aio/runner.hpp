@@ -8,7 +8,6 @@
 #include "handler.hpp"
 
 namespace astia::io::aio::runner {
-
     /// One in-flight detached operation: its cancellation child, the inline
     /// "consumed" handshake, and the slot link used to find it from io_cancel.
     struct detached_state {
@@ -42,5 +41,4 @@ namespace astia::io::aio::runner {
     /// caller must hold the ring lock.
     bool launch(core::task<aio_result> operation, mm::shptr<detached_state> state,
                 ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
-
 } // namespace astia::io::aio::runner

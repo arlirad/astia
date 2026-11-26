@@ -10,8 +10,8 @@ namespace astia::proc::syscalls {
         : sys::syscall_handler<getgid, sys::syscall_id::getgid, sys::syscall_mode::sync> {
         static i64 invoke() {
             auto* p = current_process();
+
             return p ? p->gid() : -ESRCH;
         }
     };
-
 } // namespace astia::proc::syscalls

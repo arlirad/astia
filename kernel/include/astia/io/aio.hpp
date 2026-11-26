@@ -12,7 +12,5 @@ namespace astia::proc {
 }
 
 namespace astia::io::aio {
-
     using io_device = fs::file;
-
 } // namespace astia::io::aio

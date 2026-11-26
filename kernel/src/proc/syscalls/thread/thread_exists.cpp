@@ -12,9 +12,10 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
+
             auto target = owner->thread_by_tid(tid);
+
             return !target || target->state() == thread_state::dead ? -ESRCH : 0;
         }
     };
-
 } // namespace astia::proc::syscalls

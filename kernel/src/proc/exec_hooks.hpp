@@ -5,7 +5,6 @@
 #include <astia/optional.hpp>
 
 namespace astia::proc {
-
     class process;
 
     /// What the interpreter loader reports back to exec.
@@ -34,5 +33,4 @@ namespace astia::proc {
     core::task<interpreter_info> load_interpreter(process& target, const char* path);
     void                         release_exec_bindings(process& target);
     void                         adopt_exec_bindings(process& target, process& staging);
-
 } // namespace astia::proc

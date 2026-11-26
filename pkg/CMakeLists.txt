@@ -4,7 +4,7 @@
 if(ASTIA_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     enable_language(C)
-    add_library(pkg_getopt OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/../libc/src/getopt.c)
+    add_library(pkg_getopt OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/../libc/src/stdlib/getopt.c)
     target_include_directories(pkg_getopt PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/../libc/include
             ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include)

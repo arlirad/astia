@@ -1,7 +1,6 @@
 #include <astia/arch/cpu.hpp>
 
 namespace astia::arch {
-
     static thread_local bool interrupts_enabled = true;
 
     void cpu::interrupts() {
@@ -21,5 +20,4 @@ namespace astia::arch {
     }
 
     void cpu::request_local_reschedule() {}
-
 }

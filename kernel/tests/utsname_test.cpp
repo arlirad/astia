@@ -16,14 +16,18 @@ static_assert(offsetof(astia_utsname, machine) == 260);
 static bool field_is_terminated_and_zero_padded(const char* field, astia::usize size) {
     astia::usize i = 0;
 
-    while (i < size && field[i] != '\0')
+    while (i < size && field[i] != '\0') {
         ++i;
+    }
+
     if (i == size)
         return false;
+
     while (++i < size) {
         if (field[i] != '\0')
             return false;
     }
+
     return true;
 }
 
@@ -31,18 +35,22 @@ static bool field_equals(const char* field, astia::usize size, const char* value
     for (astia::usize i = 0; i < size; ++i) {
         if (field[i] != value[i])
             return false;
+
         if (value[i] == '\0')
             return true;
     }
+
     return false;
 }
 
 static bool text_equals(const char* left, const char* right) {
     if (left == nullptr || right == nullptr)
         return left == right;
+
     for (astia::usize i = 0;; ++i) {
         if (left[i] != right[i])
             return false;
+
         if (left[i] == '\0')
             return true;
     }
@@ -70,6 +78,7 @@ ASTIA_TEST(utsname_fill_rejects_missing_machine_identity) {
 
 ASTIA_TEST(utsname_fill_zeroes_padding_and_sets_identity) {
     astia_utsname name;
+
     __builtin_memset(&name, 0xA5, sizeof name);
 
     astia::proc::fill_utsname(name, "1.2.3", "Astia 1.2.3", "x86_64");
@@ -88,13 +97,15 @@ ASTIA_TEST(utsname_fill_zeroes_padding_and_sets_identity) {
 
 ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
     astia_utsname name;
-    char          long_release[100];
-    char          long_version[100];
+
+    char long_release[100];
+    char long_version[100];
 
     for (astia::usize i = 0; i < sizeof long_release; ++i) {
         long_release[i] = 'r';
         long_version[i] = 'v';
     }
+
     long_release[sizeof long_release - 1] = '\0';
     long_version[sizeof long_version - 1] = '\0';
 
@@ -102,6 +113,7 @@ ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
 
     ASTIA_CHECK(name.release[64] == '\0');
     ASTIA_CHECK(name.version[64] == '\0');
+
     for (astia::usize i = 0; i < 64; ++i) {
         ASTIA_CHECK(name.release[i] == 'r');
         ASTIA_CHECK(name.version[i] == 'v');

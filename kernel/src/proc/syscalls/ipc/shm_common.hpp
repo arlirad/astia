@@ -10,13 +10,18 @@ namespace astia::proc::syscalls::detail {
         if (!sys::copy_in_string(span<char>(name, fs::path_max), address)) {
             const auto validated =
                 sys::user_span<const char>(address.address(), fs::path_max).validate();
+
             return validated ? -ENAMETOOLONG : -EFAULT;
         }
+
         if (name[0] != '/' || name[1] == '\0')
             return -EINVAL;
-        for (u32 i = 1; name[i] != '\0'; ++i)
+
+        for (u32 i = 1; name[i] != '\0'; ++i) {
             if (name[i] == '/')
                 return -EINVAL;
+        }
+
         return 0;
     }
 }

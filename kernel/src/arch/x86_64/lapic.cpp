@@ -1,9 +1,10 @@
 #include "lapic.hpp"
 
-#include "io.hpp"
-#include "pit.hpp"
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+
+#include "io.hpp"
+#include "pit.hpp"
 
 // xAPIC MMIO bring-up. The frequency of the LAPIC timer is a platform
 // constant we don't assume (QEMU, KVM and real hardware all differ), so
@@ -12,9 +13,7 @@
 // the ratio, then program the periodic reload from the measured rate.
 
 namespace astia::arch::x86_64 {
-
     namespace {
-
         constexpr u64 msr_apic_base     = 0x1B;
         constexpr u64 apic_base_enabled = 1ull << 11; // global enable
         constexpr u64 apic_base_x2apic  = 1ull << 10; // MSR mode, not driven yet
@@ -59,6 +58,7 @@ namespace astia::arch::x86_64 {
         /// counter did not move (broken bring-up).
         u64 calibrate() {
             constexpr u32 pit_span = pit::input_hz / 20; // ~50 ms
+
             pit::start_one_shot(pit_span);
 
             reg_write(reg_timer_divide, timer_divide_by_16);
@@ -66,37 +66,42 @@ namespace astia::arch::x86_64 {
             reg_write(reg_timer_initial, 0xFFFFFFFF); // run down from full scale
 
             const u32 lapic_start = reg_read(reg_timer_current);
+
             while (pit::read_count() != 0) {
                 // poll the PIT one-shot to zero; no interrupts involved
             }
-            const u32 lapic_end = reg_read(reg_timer_current);
 
+            const u32 lapic_end = reg_read(reg_timer_current);
             if (lapic_end >= lapic_start) {
                 return 0; // the LAPIC counter did not advance
             }
+
             return (static_cast<u64>(lapic_start - lapic_end) * pit::input_hz) / pit_span;
         }
-
     } // namespace
 
     bool lapic::start(u32 hz) {
         const u64 base_msr = rdmsr(msr_apic_base);
-        if ((base_msr & apic_base_enabled) == 0 || (base_msr & apic_base_x2apic) != 0) {
+
+        if ((base_msr & apic_base_enabled) == 0 || (base_msr & apic_base_x2apic) != 0)
             return false;
-        }
+
         const u64 base = base_msr & 0xFFFFF000ull;
+
         // The LAPIC window is reserved MMIO, never covered by the direct
         // map, so map it ourselves — in the *shared kernel half*
         // (kernel_base + p), not at the raw physical address: the low
         // identity half is process-private in child address spaces, and
         // a timer EOI from ring-3 context would fault there.
-        auto*     map  = kernel_page_map();
+        auto* map = kernel_page_map();
+
         const u64 virt = kernel_base + base;
+
         if (map == nullptr || !map->map_4k(virt, base,
                                            page_flags::present | page_flags::writable |
-                                               page_flags::cache_disable)) {
+                                               page_flags::cache_disable))
             return false;
-        }
+
         lapic_regs = reinterpret_cast<volatile u32*>(virt);
 
         reg_write(reg_svr, 0x1FF); // software-enable + spurious vec 0xFF
@@ -104,6 +109,7 @@ namespace astia::arch::x86_64 {
         const u64 measured = calibrate();
         if (measured == 0) {
             lapic_regs = nullptr;
+
             return false;
         }
 
@@ -111,6 +117,7 @@ namespace astia::arch::x86_64 {
         reg_write(reg_timer_divide, timer_divide_by_16);
         reg_write(reg_timer_initial, static_cast<u32>(measured / hz));
         reg_write(reg_lvt_timer, lvt_periodic | timer_vector);
+
         return true;
     }
 
@@ -127,7 +134,9 @@ namespace astia::arch::x86_64 {
     bool lapic::enable() {
         if (lapic_regs == nullptr)
             return false;
+
         reg_write(reg_svr, 0x1FF);
+
         return true;
     }
 
@@ -138,56 +147,78 @@ namespace astia::arch::x86_64 {
     bool lapic::send_ipi(u32 apic_id, u8 vector) {
         if (lapic_regs == nullptr)
             return false;
+
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, static_cast<u32>(vector));
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }
 
     bool lapic::init_sipi(u32 apic_id, u8 vector) {
         if (lapic_regs == nullptr)
             return false;
+
         reg_write(reg_icr_high, apic_id << 24);
         reg_write(reg_icr_low, icr_init_assert); // INIT, asserted, edge
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         reg_write(reg_icr_low, icr_init_deassert); // INIT, deassert
-        for (u32 i = 0; i < 1000000; ++i)
+
+        for (u32 i = 0; i < 1000000; ++i) {
             asm volatile("" ::: "memory");
+        }
+
         reg_write(reg_icr_low, icr_startup | vector);
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         reg_write(reg_icr_low, icr_startup | vector); // the architectural second SIPI
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }
 
     bool lapic::init_sipi_all(u8 vector) {
         if (lapic_regs == nullptr)
             return false;
+
         reg_write(reg_icr_high, 0);
         reg_write(reg_icr_low, icr_all_init_assert);
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         reg_write(reg_icr_low, icr_all_init_deassert);
-        for (u32 i = 0; i < 1000000; ++i)
+
+        for (u32 i = 0; i < 1000000; ++i) {
             asm volatile("" ::: "memory");
+        }
+
         reg_write(reg_icr_low, icr_all_startup | vector);
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         reg_write(reg_icr_low, icr_all_startup | vector);
+
         for (u32 i = 0; i < 1000000 && (reg_read(reg_icr_low) & icr_delivery_status);
              ++i) {
         }
+
         return (reg_read(reg_icr_low) & icr_delivery_status) == 0;
     }
-
 } // namespace astia::arch::x86_64

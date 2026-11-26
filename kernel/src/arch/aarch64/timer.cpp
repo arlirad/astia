@@ -8,13 +8,17 @@ namespace astia::arch::aarch64::timer {
 
         [[nodiscard]] u32 read_frequency() {
             u64 value = 0;
+
             __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(value));
+
             return static_cast<u32>(value);
         }
 
         [[nodiscard]] u64 read_count() {
             u64 value = 0;
+
             __asm__ volatile("mrs %0, cntpct_el0" : "=r"(value));
+
             return value;
         }
 
@@ -38,35 +42,40 @@ namespace astia::arch::aarch64::timer {
         case error::interval_unrepresentable:
             return "interval-unrepresentable";
         }
+
         return "unknown";
     }
 
     error arm_interval(u32 ticks, u32& control) {
-        if (!valid_interval(ticks)) {
+        if (!valid_interval(ticks))
             return error::interval_unrepresentable;
-        }
 
         write_control(ctl_disabled_masked);
         write_tval(ticks);
         write_control(ctl_enable);
+
         control = read_control();
+
         return error::none;
     }
 
     error arm_one_shot(arm_result& result) {
         const u32 frequency = read_frequency();
         u32       ticks     = 0;
-        if (!one_shot_ticks(frequency, one_shot_interval_ms, ticks)) {
+
+        if (!one_shot_ticks(frequency, one_shot_interval_ms, ticks))
             return frequency == 0 ? error::frequency_zero
                                   : error::interval_unrepresentable;
-        }
 
-        u32         control   = 0;
+        u32 control = 0;
+
         const error arm_error = arm_interval(ticks, control);
-        if (arm_error != error::none) {
+
+        if (arm_error != error::none)
             return arm_error;
-        }
+
         result = arm_result{frequency, ticks, control};
+
         return error::none;
     }
 
@@ -77,16 +86,18 @@ namespace astia::arch::aarch64::timer {
 
     u32 read_control() {
         u64 value = 0;
+
         __asm__ volatile("mrs %0, cntp_ctl_el0" : "=r"(value));
+
         return static_cast<u32>(value);
     }
 
     u64 now_ms() {
         u64 ms = 0;
-        if (!count_to_ms(read_count(), read_frequency(), ms)) {
+
+        if (!count_to_ms(read_count(), read_frequency(), ms))
             return 0;
-        }
+
         return ms;
     }
-
 } // namespace astia::arch::aarch64::timer

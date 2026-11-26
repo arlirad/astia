@@ -153,10 +153,10 @@ describe('Runtime section-2 syscall docs', () => {
       new Set(SYSCALL_PAGES.map((page) => page.implementationPath)).size,
     ).toBe(44);
     expect(SYSCALL_PAGES.find((page) => page.syscallId === 24)?.implementationPath).toBe(
-      'libc/src/unistd.c',
+      'libc/src/sys/unistd.c',
     );
     expect(SYSCALL_PAGES.find((page) => page.syscallId === 25)?.implementationPath).toBe(
-      'libc/src/signal.c',
+      'libc/src/process/signal.c',
     );
     expect(SYSCALL_PAGES.find((page) => page.syscallId === 13)?.implementationPath).toBe(
       'kernel/include/astia/api/syscalls.h',

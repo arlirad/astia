@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// CPU primitives, provided by the selected arch
     /// (src/arch/<arch>/cpu.cpp): halt, interrupt gating, and later the
     /// identity/per-CPU state that SMP bringup needs.
@@ -81,15 +80,18 @@ namespace astia::arch {
         interrupt_guard() : _open(cpu::check_interrupts()) {
             cpu::nointerrupts();
         }
+
         ~interrupt_guard() {
             unlock();
         }
+
         interrupt_guard(const interrupt_guard&)            = delete;
         interrupt_guard& operator=(const interrupt_guard&) = delete;
 
         void unlock() {
             if (_open) {
                 cpu::interrupts();
+
                 _open = false;
             }
         }
@@ -105,5 +107,4 @@ namespace astia::arch {
         private:
         bool _open; // was the gate open when we masked it?
     };
-
 } // namespace astia::arch

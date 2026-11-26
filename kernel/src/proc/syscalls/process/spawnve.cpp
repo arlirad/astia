@@ -8,35 +8,41 @@
 #include "user_mem.hpp"
 
 namespace astia::proc::syscalls {
-
     struct spawnve : sys::syscall_handler<spawnve, sys::syscall_id::spawnve,
                                           sys::syscall_mode::async> {
         static core::task<i64> invoke(sys::user_ptr<char>      path_ptr,
                                       sys::user_ptr<const u64> argv_ptr,
                                       sys::user_ptr<const u64> envp_ptr) {
             auto* owner = current_process();
+
             if (owner == nullptr || current_thread() == nullptr)
                 co_return -ESRCH;
 
             char path[detail::path_cap];
+
             if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
                 co_return -EFAULT;
 
             detail::argument_staging staging;
+
             if (!staging.allocate())
                 co_return -ENOMEM;
+
             const i64 copied = staging.copy(argv_ptr.address(), envp_ptr.address());
             if (copied != 0)
                 co_return copied;
 
             const fs::file_mode image_mode = fs::node_mode(path);
+
             if (image_mode.exists() &&
                 !owner->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
                                    fs::permission_bits::execute))
                 co_return -EACCES;
+
             auto file = fs::open_path(path);
             if (!file)
                 co_return -ENOENT;
+
             const long image_size = file->size();
             if (image_size <= 0)
                 co_return -EINVAL;
@@ -46,8 +52,8 @@ namespace astia::proc::syscalls {
                 static_cast<usize>(image_size), staging.argv(), staging.envp());
             if (!child)
                 co_return -astia::errno_value(child.error);
+
             co_return static_cast<i64>(raw_id(child.value->pid()));
         }
     };
-
 } // namespace astia::proc::syscalls

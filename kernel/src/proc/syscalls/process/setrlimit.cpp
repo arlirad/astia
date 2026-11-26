@@ -13,12 +13,14 @@ namespace astia::proc::syscalls {
             auto* process = current_process();
             if (process == nullptr)
                 return -ESRCH;
+
             astia_rlimit value{};
             const auto   validated = input.validate();
+
             if (!validated || !sys::copy_in(&value, validated.value.bytes()))
                 return -EFAULT;
+
             return process->set_rlimit(resource, value);
         }
     };
-
 } // namespace astia::proc::syscalls

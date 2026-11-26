@@ -8,17 +8,19 @@
 #include <new>
 
 namespace astia::io::aio::runner {
-
     namespace {
         void unlink(ring::ring_slot& slot, detached_state* state) {
             if (slot.detached_head == state) {
                 slot.detached_head = state->next;
+
                 return;
             }
+
             for (detached_state* entry = slot.detached_head; entry != nullptr;
                  entry                 = entry->next) {
                 if (entry->next == state) {
                     entry->next = state->next;
+
                     return;
                 }
             }
@@ -30,9 +32,12 @@ namespace astia::io::aio::runner {
         // never-cancelled source as default-constructed tokens.
         auto state = mm::share<detached_state>(
             slot.owner ? slot.owner->cancellation_root() : core::unrestricted_source);
+
         if (!state || !state->cancel)
             return {};
+
         state->user_data = user_data;
+
         return state;
     }
 
@@ -44,9 +49,11 @@ namespace astia::io::aio::runner {
     mm::shptr<core::clsource> retain_source(ring::ring_slot&     slot,
                                             const core::cltoken& token) {
         for (detached_state* entry = slot.detached_head; entry != nullptr;
-             entry                 = entry->next)
+             entry                 = entry->next) {
             if (entry->cancel.get() == token.source())
                 return entry->cancel;
+        }
+
         return {};
     }
 
@@ -59,6 +66,7 @@ namespace astia::io::aio::runner {
         // against io_cancel and io_destroy.
         state->next        = slot.detached_head;
         slot.detached_head = state.get();
+
         slot.detached_ops.fetch_add(1, astia::memory_order::acq_rel);
 
         const core::det_task driver = core::det_task::then(
@@ -67,33 +75,42 @@ namespace astia::io::aio::runner {
                 aio_result result =
                     completed ? completed.value : aio_result(completed.error);
                 const core::cltoken token = state->cancel->token();
+
                 if (token.canceled())
                     result = aio_result(-ECANCELED);
+
                 bool consumed = true;
+
                 {
                     // The continuation resumes outside the submit batch, so
                     // the ring is re-locked only for publication.
                     ring::ring_guard guard(slot_ptr->lock);
+
                     unlink(*slot_ptr, state.get());
+
                     if (result.kind() == aio_result::state::complete)
                         consumed = ring::cq_post(ring, sqe.user_data, result.value());
-                    if (!consumed && result.kind() == aio_result::state::complete) {
+
+                    if (!consumed && result.kind() == aio_result::state::complete)
                         consumed = ring::park_detached_cqe(*slot_ptr, sqe.user_data,
                                                            result.value());
-                    }
+
                     slot_ptr->detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
                 }
+
                 state->consumed.store(consumed &&
                                           result.kind() != aio_result::state::retry,
                                       astia::memory_order::release);
             });
+
         if (!driver.started) {
             // launch runs under the ring lock, so the rollback needs no guard.
             unlink(slot, state.get());
             slot.detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
+
             return false;
         }
+
         return state->consumed.load(astia::memory_order::acquire);
     }
-
 } // namespace astia::io::aio::runner

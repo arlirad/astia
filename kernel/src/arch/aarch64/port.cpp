@@ -8,17 +8,14 @@
 #include <astia/arch/platform.hpp>
 
 namespace astia::arch {
-
     const char* machine_name() {
         return "aarch64";
     }
 
     namespace platform {
-
         u32 online_cpu_count() {
             return 1;
         }
-
     } // namespace platform
 
     bool init_scheduler() {
@@ -36,8 +33,10 @@ namespace astia::arch {
     bool context_prepare_kernel(context* value, u64 stack_top, u64 entry) {
         if (value == nullptr)
             return false;
+
         value->registers[14] = stack_top;
         value->registers[15] = entry;
+
         return true;
     }
 
@@ -69,7 +68,8 @@ namespace astia::arch {
         return false;
     }
 
-    void      pci_mmio_unmap(u64, u64) {}
+    void pci_mmio_unmap(u64, u64) {}
+
     const u64 image_base = 0xFFFFFF8000000000ull;
     // No recursive window yet (no page_map port); 0 = disabled.
     const u64 recursive_base = 0;
@@ -93,21 +93,30 @@ namespace astia::arch {
 
     bool cpu::check_interrupts() {
         u64 daif;
+
         asm volatile("mrs %0, daif" : "=r"(daif));
+
         return (daif & (1ull << 7)) == 0; // DAIF.I
     }
 
     void cpu::set_kernel_stack(u64) {}
+
     void cpu::interrupt_enter() {}
+
     void cpu::interrupt_exit() {}
+
     bool cpu::in_interrupt() {
         return false;
     }
+
     bool cpu::consume_should_yield() {
         return false;
     }
+
     void cpu::request_reschedule() {}
+
     void cpu::request_local_reschedule() {}
+
     bool cpu::consume_reschedule() {
         return false;
     }
@@ -141,7 +150,6 @@ namespace astia::arch {
     bool register_timer_hook(timer_hook) {
         return false;
     }
-
 } // namespace astia::arch
 
 namespace astia::arch::aarch64 {}

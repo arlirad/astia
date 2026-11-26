@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia {
-
     /// Kernel error codes in the POSIX errno tradition, lower-cased to match
     /// the project's snake_case naming rule. The numeric values are stable so
     /// they can later cross the syscall boundary.
@@ -90,6 +89,7 @@ namespace astia {
         case error_t::ecanceled:
             return -ECANCELED;
         }
+
         return -EIO;
     }
 
@@ -147,7 +147,7 @@ namespace astia {
         case error_t::ecanceled:
             return "operation cancelled";
         }
+
         return "unknown error";
     }
-
 } // namespace astia

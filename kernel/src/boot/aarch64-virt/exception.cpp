@@ -1,7 +1,9 @@
 #include <astia/arch/exception_frame.hpp>
+#include <astia/dbg/panic_report.hpp>
 
 #include "board.hpp"
 #include "gic.hpp"
+#include "panic_format.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
 
@@ -70,10 +72,27 @@ namespace {
         write_field(console, name, value, digits);
         console.write_line("");
     }
+
+    void panic_sink(void* context, const char* text, astia::u32 length) {
+        const auto* console = static_cast<const pl011_uart*>(context);
+
+        char line[512];
+
+        const astia::u32 count = length < sizeof line - 1 ? length : sizeof line - 1;
+
+        for (astia::u32 i = 0; i < count; ++i) {
+            line[i] = text[i];
+        }
+
+        line[count] = '\0';
+
+        console->write_line(line);
+    }
 } // namespace
 
 extern "C" void astia_aarch64_install_exception_vectors() {
     const astia::u64 base = reinterpret_cast<astia::u64>(__vector_table);
+
     __asm__ volatile("msr vbar_el1, %0" : : "r"(base) : "memory");
     __asm__ volatile("isb" : : : "memory");
 }
@@ -93,16 +112,22 @@ extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
         write_line_field(console, "irq: iar=", result.iar, 8);
         write_line_field(console, "irq: eoi=", result.intid, 8);
         write_line_field(console, "irq: dir=", result.intid, 8);
+
         if (result.timer) {
             write_line_field(console, "irq: timer=", result.intid, 8);
             console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER HANDLED");
+
             return;
         }
+
         console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ HANDLED");
+
         return;
     }
+
     if (result.action == gicv3::irq_action::spurious) {
         console.write_line("irq: spurious");
+
         return;
     }
 
@@ -125,12 +150,11 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
     const astia::u64 iss = esr & esr_iss_mask;
 
     console.write_line("");
-    if (vector_kind == astia::arch::aarch64::exception_vector_current_el_spx_sync) {
+
+    if (vector_kind == astia::arch::aarch64::exception_vector_current_el_spx_sync)
         console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC");
-    }
-    else {
+    else
         console.write_line("ASTIA AARCH64 VIRT BOOT: EXCEPTION FATAL");
-    }
 
     console.write("exception: vector=");
     console.write_line(vector_name(vector_kind));
@@ -145,6 +169,56 @@ extern "C" [[noreturn]] void astia_aarch64_exception_entry(const exception_frame
     write_line_field(console, "exception: elr=", frame->elr_el1, 16);
     write_line_field(console, "exception: far=", frame->far_el1, 16);
     write_line_field(console, "exception: spsr=", frame->spsr_el1, 16);
+
+    {
+        astia::u64 ttbr0 = 0;
+
+        asm volatile("mrs %0, ttbr0_el1" : "=r"(ttbr0));
+
+        const astia::u64 interrupted_sp = reinterpret_cast<astia::u64>(frame) +
+                                          astia::arch::aarch64::exception_frame_size;
+
+        astia::dbg::panic_process process{};
+
+        process.arch = "aarch64";
+        process.cpu  = 0;
+
+        astia::dbg::format_panic_context(process, panic_sink,
+                                         const_cast<pl011_uart*>(&console));
+        astia::arch::aarch64::format_panic_registers(*frame, interrupted_sp, ttbr0,
+                                                     vector_kind, panic_sink,
+                                                     const_cast<pl011_uart*>(&console));
+
+        console.write_line("[PANIC] stack trace:");
+
+        astia::u64 fp = frame->x[29];
+        astia::u64 pc = frame->x[30];
+
+        for (astia::u32 depth = 0; depth < 8; ++depth) {
+            if (fp < 0x40000000ull || fp >= 0x50000000ull || (fp & 7u) != 0)
+                break;
+
+            console.write("[PANIC]  #");
+            console.write_hex(depth, 1);
+            console.write("  ");
+            console.write("0x");
+            console.write_hex(pc, 16);
+            console.write("  rbp=");
+            console.write("0x");
+            console.write_hex(fp, 16);
+            console.write_line("");
+
+            const auto*      record = reinterpret_cast<const astia::u64*>(fp);
+            const astia::u64 next   = record[0];
+
+            pc = record[1];
+
+            if (next <= fp)
+                break;
+
+            fp = next;
+        }
+    }
 
     if (vector_kind == astia::arch::aarch64::exception_vector_current_el_spx_sync) {
         if (ec == ec_brk64) {

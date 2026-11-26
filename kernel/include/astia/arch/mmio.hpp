@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     struct mmio_window_bounds {
         vaddr_t base;
         vaddr_t limit;
@@ -34,12 +33,16 @@ namespace astia::arch {
                                                         bool aliased) {
         if (pci_owned)
             return mmio_borrow_status::pci_owned;
+
         if (generic_owned)
             return mmio_borrow_status::generic_owned;
+
         if (direct_mapped)
             return mmio_borrow_status::borrowable;
+
         if (aliased)
             return mmio_borrow_status::aliased;
+
         return mmio_borrow_status::absent;
     }
 
@@ -68,5 +71,4 @@ namespace astia::arch {
 
     /// Release an owning PCI BAR mapping returned by `pci_mmio_map`.
     void pci_mmio_unmap(u64 virtual_address, u64 size);
-
 } // namespace astia::arch

@@ -6,9 +6,9 @@ and build requests. It uses the deployed Ervan mediator setup exactly:
 
 The implementation is safe-by-default. It does not execute builds unless an operator
 explicitly enables an allowlisted build profile and runtime, does not start
-unconfined processes, does not publish unsigned artifacts, and does not claim real
-Irva authorization. All dangerous capabilities are ports with non-executing or
-denying adapters.
+unconfined processes, does not publish unsigned artifacts, and denies all package
+requests unless Irva bearer authentication and authorization are explicitly wired.
+All dangerous capabilities are ports with non-executing or denying adapters.
 
 ## Layers
 
@@ -16,8 +16,8 @@ denying adapters.
 | --- | --- | --- |
 | `src/Pkgsrv.Domain` | Package aggregate, value objects, manifest, build policy, domain events, invariants | BCL only |
 | `src/Pkgsrv.Application` | Commands/queries, handlers, ports, DTOs, validation, authorization intent, permission names | Domain, Ervi mediator contracts |
-| `src/Pkgsrv.Infrastructure` | In-memory and PostgreSQL package stores, source allowlist, safe build sandbox, artifact/signing adapters, pending Irva boundary | Application, Domain |
-| `src/Pkgsrv.Presentation` | Minimal HTTP API, JSON read cache, request/response DTOs, actor context propagation, error mapping, composition root | Application, Infrastructure, Domain |
+| `src/Pkgsrv.Infrastructure` | In-memory and PostgreSQL package stores, source allowlist, safe build sandbox, artifact/signing adapters, Irva.Client authorization boundary and optional real adapter | Application, Domain |
+| `src/Pkgsrv.Presentation` | Minimal bearer-authenticated HTTP API, Irva identity middleware, JSON read cache, request/response DTOs, error mapping, composition root | Application, Infrastructure, Domain |
 | `tests/*` | Layer tests; `test-support` holds shared valid fixtures | xUnit |
 
 `Pkgsrv.sln` is at the root of this directory. It targets `net10.0` to match the
@@ -68,12 +68,38 @@ error mapper unwraps that before mapping domain/application failures to HTTP.
 Replace the root marker type with the real composition type when hosting pkgsrv as
 a module inside Ervan.
 
-## Irva authorization boundary and permissions
+## Irva authentication and authorization
 
-`Application.Interfaces.Security.IIrvaAuthorization` expresses the read, build,
-and publish policy intent. Every application handler authorizes before doing work:
+Pkgsrv is a bearer-token resource server. It does **not** expose login,
+registration, session, refresh-token, token-proxy, or password endpoints. Irva owns
+identity, login, registration, sessions, and token issuance. Every pkgsrv package
+endpoint requires `Authorization: Bearer <Irva access token>`; only `GET /healthz`
+and `GET /readyz` are unauthenticated.
 
-| Handler | Action | Permission name |
+Request flow:
+
+1. The browser or client authenticates with Irva and stores the Irva access token.
+2. The client calls pkgsrv with that token in the `Authorization: Bearer` header.
+3. `IrvaAuthenticationMiddleware` sends the token to Irva through
+   `IrvaClient.VerifyAsync(accessToken, ct)`.
+4. The verified Irva `AccountId` and `Username` are stored in the request-scoped
+   `AuthorizationContext`. Client-supplied `X-Pkgsrv-Actor`, `X-Pkgsrv-Roles`, and
+   `X-Pkgsrv-Account` headers are ignored and never authorize anything.
+5. `IrvaClientAuthorizationBoundary` checks the verified account against the
+   required `read`, `build`, or `publish` permission through
+   `IrvaClient.HasPermission(accountId, fullName)`.
+6. Missing or invalid bearer tokens return `401`; a verified account without the
+   permission returns `403`; an unavailable or incomplete Irva integration fails
+   closed and does not silently allow the request.
+
+Raw bearer tokens are never logged, included in DTOs, or used in cache keys. The
+JSON read cache keys on the verified `AuthorizationContext`, not on client headers.
+
+### Permissions and `irva.yaml`
+
+Every application handler authorizes before doing work:
+
+| Handler | Action | Permission full name |
 | --- | --- | --- |
 | registration | `Publish` | `publish` |
 | listing | `Read` | `read` |
@@ -82,12 +108,9 @@ and publish policy intent. Every application handler authorizes before doing wor
 | publication | `Publish` | `publish` |
 | download | `Read` | `read` |
 
-The permission names are constants in
-`Pkgsrv.Application.Authorization.PackagePermissions` and match the flat,
-app-local permission style used by Ervan's `irva.yaml`. They map directly to
-`IrvaClient.HasPermission(accountId, fullName)`.
-
-An `irva.yaml` application entry for pkgsrv can declare:
+The names are constants in `Pkgsrv.Application.Authorization.PackagePermissions` and
+map directly to `IrvaClient.HasPermission(accountId, fullName)`. An `irva.yaml`
+application entry for pkgsrv declares the flat permission tree:
 
 ```yaml
 permissions:
@@ -96,21 +119,49 @@ permissions:
   publish:
 ```
 
-The real Irva.Client is not available in this repository. The infrastructure
-therefore supplies:
+Grant those full names to the users or roles that should use each operation. Pkgsrv
+does not maintain roles, accounts, or permissions itself.
 
-- `IIrvaClientAuthorizationBoundary` - the compile-time seam for a future
-  Irva.Client integration
-- `PendingIrvaClientAuthorizationBoundary` - reports the integration as unavailable
-- `PendingIrvaClientAuthorizationAdapter` - converts unavailable or denied boundary
-  results into a deny; it never fabricates claims or grants
+### Operator configuration
 
-With the default composition, every authorization decision is denied. Tests and
-future integrations can replace `IIrvaAuthorization` in DI.
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Irva__Enabled` | `false` | Enables the real Irva verification path |
+| `Pkgsrv__Irva__Required` | `false` | When true, startup fails if the integration is incomplete or unwired |
+| `Pkgsrv__Irva__BaseUrl` | unset | Irva API base URL |
+| `Pkgsrv__Irva__AppToken` | unset | Irva application token used by the app client; never logged |
+| `Pkgsrv__Irva__SocketAddress` | unset | Optional absolute Unix domain socket path |
 
-### Pending Irva.Client wiring
+```bash
+export Pkgsrv__Irva__Enabled=true
+export Pkgsrv__Irva__Required=true
+export Pkgsrv__Irva__BaseUrl=https://irva.example
+export Pkgsrv__Irva__AppToken=REDACTED
+# Optional:
+export Pkgsrv__Irva__SocketAddress=/run/irva/irva.sock
+```
 
-A future adapter should wrap the resolved Irva.Client API:
+Validation rules:
+
+- `Required=true` requires `Enabled=true`.
+- `BaseUrl` must be an absolute HTTP(S) URL with no credentials, query, or fragment.
+- Non-HTTPS is accepted only for loopback hosts or when an explicit Unix socket
+  address is configured, matching `IrvaClientOptions`.
+- `SocketAddress` must be an absolute filesystem path.
+- With `Enabled=false`, or with enabled-but-incomplete/unwired settings, all
+  authorization decisions fail closed. With `Required=true`, an incomplete or
+  unwired enabled integration fails startup instead of serving.
+
+### Real Irva.Client API and optional build wiring
+
+The deployed Irva.Client project is external to this repository:
+
+```text
+/home/tymk/Projects/_prg/servers/irva/src/Irva.Client/Irva.Client.csproj
+/home/tymk/Projects/_prg/servers/ervan/lib/irva/src/Irva.Client/Irva.Client.csproj
+```
+
+The API used by the adapter is:
 
 ```csharp
 new IrvaClient(new IrvaClientOptions
@@ -120,23 +171,108 @@ new IrvaClient(new IrvaClientOptions
     SocketAddress = socketAddress
 });
 
-VerifyTokenResponse verified = await appClient.VerifyAsync(accessToken, ct);
-bool allowed = appClient.HasPermission(verified.AccountId, permissionName);
+VerifyTokenResponse verified = await irvaClient.VerifyAsync(accessToken, ct);
+bool allowed = irvaClient.HasPermission(verified.AccountId, "read");
 ```
 
-The deployed Ervan `IrvaAuthService` follows this shape with an app client and a
-public client, catches `IrvaApiException`, and checks permissions after
-`VerifyAsync`. The pkgsrv boundary should do the same and return
-`IrvaClientAuthorizationResponse.Unavailable` or `Denied` on failure.
+`VerifyAsync` returns the verified `AccountId` and `Username` and populates the
+client permission cache; `HasPermission` is checked immediately afterwards against
+the verified account id. The adapter maps Irva 4xx verification failures to
+"invalid token" (`401` at the pkgsrv edge) and network, timeout, 5xx, or malformed
+responses to "authorization unavailable" (`503`, fail closed).
 
-`AuthorizationContext.AccountId` is the intended carrier for the verified Irva
-account id. The presentation layer reads `X-Pkgsrv-Actor`, `X-Pkgsrv-Roles`, and
-`X-Pkgsrv-Account` as transport context only. This is not authentication, there is
-no authentication middleware, and the headers must be replaced by real Irva
-identity propagation when wired into Ervan.
+The external project is not referenced by the default solution build. The real
+adapter is a conditional source file selected by the `IrvaClientProject` MSBuild
+property. Default builds compile the safe deny path and never depend on an external
+checkout. To compile and test the real adapter from an operator environment:
+
+```bash
+dotnet restore pkgsrv/Pkgsrv.sln \
+  -p:IrvaClientProject=/path/to/irva/src/Irva.Client/Irva.Client.csproj
+dotnet build pkgsrv/Pkgsrv.sln --no-restore \
+  -p:IrvaClientProject=/path/to/irva/src/Irva.Client/Irva.Client.csproj
+dotnet test pkgsrv/Pkgsrv.sln \
+  -p:IrvaClientProject=/path/to/irva/src/Irva.Client/Irva.Client.csproj
+```
+
+Without that property, `IrvaClientAdapterFactory.IsAvailable` is false. If
+`Enabled=true` and `Required=false`, the integration remains fail-closed and returns
+`authorization.unavailable`; if `Required=true`, composition fails clearly. It does
+not fall back to the pending adapter, in-memory claims, or header-derived identity.
+
+An opt-in live integration test runs only when the external adapter is built and
+these variables are set; otherwise it is skipped:
+
+```bash
+export PKGSRV_TEST_IRVA_BASE_URL=https://irva.example
+export PKGSRV_TEST_IRVA_APP_TOKEN=REDACTED
+export PKGSRV_TEST_IRVA_ACCESS_TOKEN=REDACTED
+# Optional:
+export PKGSRV_TEST_IRVA_SOCKET_ADDRESS=/run/irva/irva.sock
+```
+
+### Ervan hosting boundary
+
+Deployed Ervan resolves Irva through `Ervan.Infrastructure.Services.IrvaAuthService`:
+it constructs an app-token `IrvaClient` for `VerifyAsync`/`HasPermission` and a
+public `IrvaClient` for user login/attest flows, then catches `IrvaApiException`.
+Pkgsrv follows the same app-client pattern and does not create a second identity
+store.
+
+When hosting pkgsrv as a module beside Ervan:
+
+- share the same Irva application registration and permission tree (`read`,
+  `build`, `publish`), not Ervan's `send`/`view` names;
+- build pkgsrv with the same Irva.Client project reference path used by Ervan, or
+  register an `IIrvaClientAdapter` over the existing app-token `IrvaClient`;
+- keep the public user-login client in Irva/Ervan; pkgsrv never accepts passwords or
+  issues tokens;
+- do not place the app token in source control, logs, DTOs, or client bundles.
+
+No hard project reference to `/home/tymk/Projects/_prg/servers/ervan` is committed;
+a deployed composition must supply the external path explicitly.
+
+### Astia Web integration contract
+
+Astia Web's `nodivia.frontend` already owns Irva token storage and authentication.
+Its existing `IrvaTokenStorage` plus global bearer interceptor with single-flight
+refresh is the client contract:
+
+- Pkgsrv package requests must **not** call `skipAuthContext()`. Use the existing
+  Irva bearer interceptor so `Authorization: Bearer <token>` is attached.
+- Do not hardcode a pkgsrv host or token in the frontend. Use an injectable
+  `PKGSRV_BASE` or a relative same-origin path such as `/packages`.
+- Never send `X-Pkgsrv-Actor`, `X-Pkgsrv-Roles`, or `X-Pkgsrv-Account`; pkgsrv
+  ignores them for authorization.
+- Pkgsrv exposes only the resource API: `GET /healthz`, `GET /readyz`,
+  `GET /packages`, `GET /packages/{name}/{version}`, `POST /packages`,
+  `POST /packages/{name}/{version}/build`,
+  `POST /packages/{name}/{version}/publish`, and
+  `GET /packages/{name}/{version}/download`. There are no pkgsrv login, register,
+  refresh, or proxy-auth routes.
+- Same-origin reverse proxying to pkgsrv is preferred. For cross-origin use, CORS
+  must allow the exact origin, `Authorization`, and the required methods/headers,
+  including preflight `OPTIONS`; pkgsrv binds a local Unix socket or loopback TCP by
+  default, so the deployment proxy is the public boundary.
+- A `401` with code `authorization.unauthenticated` means missing or invalid bearer
+  identity: refresh once through Irva, retry, and otherwise send the user to Irva
+  login. A `403` with code `authorization.denied` means the account is authenticated
+  but lacks `read`, `build`, or `publish`; do not retry or prompt for login. A `503`
+  with code `authorization.unavailable` means Irva or pkgsrv authorization is
+  temporarily unavailable; fail closed and retry/back off rather than treating it
+  as success.
+- Error responses are stable RFC 7807 `application/problem+json` documents with
+  `type`, `title`, `status`, `detail`, and the pkgsrv `code` extension. Success
+  responses keep the existing package JSON/binary contracts.
+
+The server remains the authority for identity and permissions. Astia Web must not
+derive authorization from local token contents or client headers.
 
 ## Safety guarantees
 
+- Package endpoints require a verified Irva bearer identity and the matching
+  `read`/`build`/`publish` permission. Missing, invalid, or unavailable identity and
+  permission denials fail closed; client identity headers are ignored.
 - No request DTO or command has a shell, command, script, executable, output path,
   or arbitrary build-arguments field.
 - Build execution is disabled unless `Pkgsrv:Build:Enabled=true`, an allowlisted
@@ -237,6 +373,60 @@ acknowledgement persistence fails, the durable pending event remains.
 
 This is an **at-least-once durable pending-event/outbox boundary**. Publishers must
 be idempotent. Automatic outbox dispatch/retry is not implemented yet.
+
+## Health and readiness
+
+`GET /healthz` is process liveness only. It returns `200` with
+`{"status":"ok"}` and never opens a database connection. Use it to decide whether
+the process is running, not whether package storage is usable.
+
+`GET /readyz` reports storage readiness with an additive `application/json`
+payload:
+
+```json
+{
+  "status": "ready",
+  "storageProvider": "InMemory",
+  "storageDurable": false,
+  "schemaVersion": null,
+  "postgresAvailable": null
+}
+```
+
+- `status` is `ready` or `not_ready`.
+- `storageProvider` is `InMemory` or `Postgres`.
+- `storageDurable` is `false` for the process-local in-memory store and `true` for
+  PostgreSQL configuration.
+- `schemaVersion` is the number of applied EF Core migrations when migration state
+  was read successfully; it is `null` when PostgreSQL is unreachable or the
+  in-memory provider is selected.
+- `postgresAvailable` is `null` for the in-memory provider, `true` when the
+  PostgreSQL probe connected, and `false` when the probe timed out, failed, or
+  found the database unavailable.
+
+In-memory mode returns `200` and is explicitly non-durable. PostgreSQL mode returns
+`200` only when a bounded probe connects, reads `__EFMigrationsHistory`, finds no
+pending migrations, and the applied migration set exactly matches the migrations
+known to this build. Pending, unknown, unavailable, timed-out, or failed migration
+state returns `503` with the same safe payload. The response never contains a
+connection string, hostname, credential, filesystem path, mount source, or exception
+message. If PostgreSQL is selected but the readiness probe is not registered,
+cannot be resolved, or throws, `/readyz` returns `503` JSON instead of an HTML
+error or `500`.
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `Pkgsrv__Readiness__PostgresProbeTimeoutMs` | `2000` | Bounded PostgreSQL probe timeout in milliseconds, accepted range `1`–`10000` |
+
+Each probe creates and disposes a fresh `DbContext`, uses a linked timeout token,
+and holds no long-lived connection. Startup migration behavior is unchanged: with
+`InitializeSchema=true` startup applies migrations, and with `false` startup fails
+before listening when migrations are pending or migration state is unavailable.
+
+Monitoring should use `/readyz` for durable availability and `/healthz` only for
+process liveness. Both routes are unauthenticated and are reached through the same
+same-origin reverse proxy as the rest of the API, for example
+`https://pkgsrv.example/readyz`.
 
 ## Sandboxed build execution
 
@@ -582,6 +772,33 @@ old-v1 upgrade/data preservation through the EF migration chain.
   migration, source port/IP allowlist rules, and missing-egress-proxy failure.
 - Residuals are listed below; none are claimed as implemented.
 
+## Issue #180 acceptance evidence
+
+- Liveness: `GET /healthz` remains a `200` `{"status":"ok"}` process marker and does
+  not call the database.
+- Readiness contract: `GET /readyz` returns `application/json` with `status`,
+  `storageProvider`, `storageDurable`, `schemaVersion`, and `postgresAvailable`;
+  in-memory mode is ready but non-durable.
+- PostgreSQL readiness: a bounded probe opens a fresh `DbContext`, verifies
+  connectivity, reads pending/applied EF Core migrations, and requires the applied
+  migration set to match the migrations known to this build. Pending, unknown,
+  unavailable, timed-out, or failed state returns `503` with the same safe payload.
+- Bounded time: `Pkgsrv:Readiness:PostgresProbeTimeoutMs` defaults to `2000` and is
+  capped at `10000`; the probe uses a linked cancellation token and holds no
+  long-lived connection.
+- Failure semantics: a missing or throwing readiness probe returns `503` JSON, not
+  HTML or `500`. Startup migration behavior and in-memory fallback are unchanged.
+- Redaction: responses contain only the five contract fields; connection strings,
+  hostnames, credentials, filesystem paths, mount sources, and exception messages
+  are never serialized.
+- Tests: in-memory readiness, PostgreSQL success, pending/unknown migration state,
+  unavailable database, bounded timeout, external cancellation, missing probe,
+  throwing probe, payload redaction, and HTTP status/JSON for `/healthz` and
+  `/readyz`, all without a live database.
+- Residual: CI exercises the probe with fakes; live PostgreSQL connectivity and
+  migration-state probing remain covered by the opt-in integration tests tracked in
+  [#174](https://github.com/arlirad/astia/issues/174).
+
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
@@ -701,13 +918,18 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 
 | Method | Route | Result |
 | --- | --- | --- |
-| `GET` | `/healthz` | `200` health marker |
-| `POST` | `/packages` | `201` registered package, `400`/`403`/`409`/`422` on failure |
-| `GET` | `/packages` | `200` package summaries |
-| `GET` | `/packages/{name}/{version}` | `200` package details; location returned by registration |
-| `POST` | `/packages/{name}/{version}/build` | `202` with `NotExecuted`/build result, or `403`/`404`/`409` |
-| `POST` | `/packages/{name}/{version}/publish` | `200` published signature/hash, or `403`/`404`/`409` |
-| `GET` | `/packages/{name}/{version}/download` | `200` verified artifact bytes, or `403`/`404`/`409` |
+| `GET` | `/healthz` | `200` liveness marker; does not touch storage; no bearer token required |
+| `GET` | `/readyz` | `200` when storage is ready or `503` when not; safe JSON payload; no bearer token required |
+| `POST` | `/packages` | `201` registered package; `400`/`401`/`403`/`409`/`422`/`503` on failure |
+| `GET` | `/packages` | `200` package summaries; `401`/`403`/`503` on authorization failure |
+| `GET` | `/packages/{name}/{version}` | `200` package details; `401`/`403`/`404`/`503` |
+| `POST` | `/packages/{name}/{version}/build` | `202` with `NotExecuted`/build result; `401`/`403`/`404`/`409`/`503` |
+| `POST` | `/packages/{name}/{version}/publish` | `200` published signature/hash; `401`/`403`/`404`/`409`/`503` |
+| `GET` | `/packages/{name}/{version}/download` | `200` verified artifact bytes; `401`/`403`/`404`/`409`/`503` |
+
+Every route except `/healthz` and `/readyz` requires `Authorization: Bearer <Irva access token>`.
+There are no pkgsrv login/register/session/refresh/proxy-auth endpoints. Error
+responses use RFC 7807 problem details with a stable `code` extension.
 
 Registration request fields:
 
@@ -791,12 +1013,31 @@ listening endpoint section.
   when migrations are pending.
 - Full SemVer identifier precedence and version-aware search are not implemented;
   list ordering is the deterministic contract above.
-- Irva.Client authorization is pending and defaults to deny.
-- No project reference is made to `/home/tymk/Projects/_prg/servers/ervan`; the
-  permission and client adapter must be wired when hosting alongside Ervan.
+- The real Irva.Client project is optional and external. Default builds compile the
+  fail-closed deny adapter; operators must build with `IrvaClientProject` and set
+  `Pkgsrv:Irva:*` explicitly. Without both, package requests are denied.
+- No project reference is made to `/home/tymk/Projects/_prg/servers/ervan` or
+  `/home/tymk/Projects/_prg/servers/irva`; the hosting composition must supply the
+  external path and share Irva's application registration.
+- Pkgsrv is only a resource server. It does not provide login, registration,
+  session, refresh-token, password, or auth-proxy endpoints; Irva remains the
+  identity provider.
 - Build requests without an enabled runtime/allowlisted profile return
   `NotExecuted`; this is deliberate.
 - The application deliberately does not create the Unix socket runtime directory.
+
+### Residual #178 limitations
+
+- The default solution build does not compile the real Irva.Client adapter, so CI
+  verifies the boundary, fakes, and fail-closed composition rather than the external
+  client project.
+- The live Irva integration test is opt-in and requires an external checkout plus
+  `PKGSRV_TEST_IRVA_*` environment variables; it is skipped in normal CI.
+- Irva permissions are checked through `HasPermission` after `VerifyAsync`; pkgsrv
+  does not implement local permission caching, roles, account management, or a token
+  revocation feed beyond what Irva returns per verification.
+- Cross-origin browser deployment still needs a reverse proxy or explicit CORS
+  policy; pkgsrv itself binds a Unix socket or loopback TCP by default.
 
 ## Tracked residuals
 
@@ -817,10 +1058,13 @@ listening endpoint section.
   dispatch/retry for package domain events.
 - [#177](https://github.com/arlirad/astia/issues/177) - provenance contains-search
   index or restricted search fields.
-- [#178](https://github.com/arlirad/astia/issues/178) - real Irva authorization and
-  Ervan hosting boundary.
-- [#180](https://github.com/arlirad/astia/issues/180) - storage mode and PostgreSQL
-  availability in health/readiness.
+- [#178](https://github.com/arlirad/astia/issues/178) - external Irva.Client build
+  wiring and live integration test remain opt-in; residual limitations are listed
+  above.
+- [#180](https://github.com/arlirad/astia/issues/180) - readiness now reports
+  storage provider/schema version and bounded PostgreSQL availability; live
+  PostgreSQL readiness conformance remains part of the opt-in #174 integration
+  coverage.
 - [#197](https://github.com/arlirad/astia/issues/197) - full SemVer precedence and
   version-aware search.
 - Container/VM isolation adapters and cgroup CPU/memory resource limits.

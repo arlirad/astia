@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../../console.hpp"
-#include "../tty.hpp"
 #include <astia/fs.hpp>
 
-namespace astia::dev {
+#include "../../console.hpp"
+#include "../tty.hpp"
 
+namespace astia::dev {
     class virtual_tty final : public tty {
         public:
         constexpr explicit virtual_tty(const char* name) : tty(name, dv_char | dv_sync) {}
@@ -32,5 +32,4 @@ namespace astia::dev {
     bool virtual_tty_init();
     bool virtual_tty_forward_input(u8 byte);
     bool virtual_tty_usb_input(const void* buffer, u32 length);
-
 } // namespace astia::dev

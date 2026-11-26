@@ -7,7 +7,6 @@
 void* operator new(astia::usize size, void* where) noexcept;
 
 namespace astia::core {
-
     /// A bounded, non-blocking multiple-producer/multiple-consumer queue.
     ///
     /// Capacity must be a power of two. Each slot carries a monotonically
@@ -50,41 +49,45 @@ namespace astia::core {
         }
 
         bool claim_enqueue(u64& position, slot*& entry) {
-            for (;;) {
-                entry              = &slots_[position & mask];
+            while (true) {
+                entry = &slots_[position & mask];
+
                 const u64 sequence = __atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE);
                 const i64 difference = distance(sequence, position);
                 if (difference == 0) {
                     if (__atomic_compare_exchange_n(&enqueue_position_, &position,
                                                     position + 1, false, __ATOMIC_RELAXED,
-                                                    __ATOMIC_RELAXED)) {
+                                                    __ATOMIC_RELAXED))
                         return true;
-                    }
+
                     continue;
                 }
-                if (difference < 0) {
+
+                if (difference < 0)
                     return false;
-                }
+
                 position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
             }
         }
 
         bool claim_dequeue(u64& position, slot*& entry) {
-            for (;;) {
-                entry              = &slots_[position & mask];
+            while (true) {
+                entry = &slots_[position & mask];
+
                 const u64 sequence = __atomic_load_n(&entry->sequence, __ATOMIC_ACQUIRE);
                 const i64 difference = distance(sequence, position + 1);
                 if (difference == 0) {
                     if (__atomic_compare_exchange_n(&dequeue_position_, &position,
                                                     position + 1, false, __ATOMIC_RELAXED,
-                                                    __ATOMIC_RELAXED)) {
+                                                    __ATOMIC_RELAXED))
                         return true;
-                    }
+
                     continue;
                 }
-                if (difference < 0) {
+
+                if (difference < 0)
                     return false;
-                }
+
                 position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
             }
         }
@@ -100,11 +103,13 @@ namespace astia::core {
 
         bool try_discard_at(u64 position) {
             slot* entry = nullptr;
-            if (!claim_dequeue(position, entry)) {
+
+            if (!claim_dequeue(position, entry))
                 return false;
-            }
+
             value(*entry)->~T();
             publish_dequeue(*entry, position);
+
             return true;
         }
 
@@ -115,17 +120,23 @@ namespace astia::core {
 
         void initialize() {
             u8 expected = 0;
+
             if (!__atomic_compare_exchange_n(&initialized_, &expected, 1, false,
                                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                while (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 1)
+                while (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE) == 1) {
                     arch::cpu::relax();
+                }
+
                 return;
             }
+
             __atomic_store_n(&enqueue_position_, u64{0}, __ATOMIC_RELAXED);
             __atomic_store_n(&dequeue_position_, u64{0}, __ATOMIC_RELAXED);
+
             for (u64 i = 0; i < static_cast<u64>(Capacity); ++i) {
                 __atomic_store_n(&slots_[i].sequence, i, __ATOMIC_RELAXED);
             }
+
             __atomic_store_n(&initialized_, 2, __ATOMIC_RELEASE);
         }
 
@@ -136,6 +147,7 @@ namespace astia::core {
         ~mpmc_queue() {
             if (!initialized())
                 return;
+
             while (try_discard()) {
             }
         }
@@ -151,13 +163,17 @@ namespace astia::core {
         bool try_emplace(Args&&... args) {
             if (!initialized())
                 return false;
-            u64   position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
-            slot* entry    = nullptr;
-            if (!claim_enqueue(position, entry)) {
+
+            u64 position = __atomic_load_n(&enqueue_position_, __ATOMIC_RELAXED);
+
+            slot* entry = nullptr;
+
+            if (!claim_enqueue(position, entry))
                 return false;
-            }
+
             ::new (static_cast<void*>(entry->storage)) T(static_cast<Args&&>(args)...);
             publish_enqueue(*entry, position);
+
             return true;
         }
 
@@ -176,21 +192,28 @@ namespace astia::core {
         bool try_pop(T& output) {
             if (!initialized())
                 return false;
-            u64   position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
-            slot* entry    = nullptr;
-            if (!claim_dequeue(position, entry)) {
+
+            u64 position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
+
+            slot* entry = nullptr;
+
+            if (!claim_dequeue(position, entry))
                 return false;
-            }
+
             output = static_cast<T&&>(*value(*entry));
+
             value(*entry)->~T();
             publish_dequeue(*entry, position);
+
             return true;
         }
 
         bool try_discard() {
             if (!initialized())
                 return false;
+
             const u64 position = __atomic_load_n(&dequeue_position_, __ATOMIC_RELAXED);
+
             return try_discard_at(position);
         }
 
@@ -199,9 +222,11 @@ namespace astia::core {
         usize size_approx() const {
             if (!initialized())
                 return 0;
+
             const u64 tail = __atomic_load_n(&enqueue_position_, __ATOMIC_ACQUIRE);
             const u64 head = __atomic_load_n(&dequeue_position_, __ATOMIC_ACQUIRE);
             const u64 size = tail - head;
+
             return size > static_cast<u64>(Capacity) ? Capacity
                                                      : static_cast<usize>(size);
         }
@@ -214,5 +239,4 @@ namespace astia::core {
             return size_approx() == Capacity;
         }
     };
-
 } // namespace astia::core

@@ -18,5 +18,6 @@ __attribute__((destructor(102))) void lifecycle_finalizer_two() {
 
 int module_main() {
     lifecycle_record(103);
+
     return 37;
 }

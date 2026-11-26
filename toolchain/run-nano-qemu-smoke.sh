@@ -122,6 +122,9 @@ if b"Unbound key" in output:
 if not saw_wrote or b"Wrote " not in output:
     sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
     raise SystemExit("nano save regression: missing Wrote confirmation")
+if b"NANO_SMOKE_RO_OK" not in output:
+    sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
+    raise SystemExit("nano read-only /bin probe failed")
 if b"NANO_SMOKE_OK" not in output:
     sys.stderr.write(output.decode("utf-8", "replace")[-4000:])
     raise SystemExit("nano QEMU smoke failed")
