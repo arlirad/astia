@@ -31,6 +31,12 @@ namespace astia::dev {
         inline constexpr cc_t ctrl_z         = 0x1a;
     }
 
+    enum class tty_input_result : u8 {
+        consumed,
+        ready,
+        blocked,
+    };
+
     class tty : public chrdev {
         public:
         constexpr tty(const char* name, unsigned flags) : chrdev(name, flags | dv_tty) {
@@ -66,21 +72,22 @@ namespace astia::dev {
 
 #ifdef ASTIA_TTY_HOST_TEST
         bool inject_input_for_test(u8 byte) {
-            const bool ready = tty_receive(byte);
-            if (ready)
+            const tty_input_result result = tty_receive(byte);
+
+            if (result == tty_input_result::ready)
                 tty_input_ready();
 
-            return ready;
+            return result == tty_input_result::ready;
         }
 #endif
 
         protected:
-        bool         tty_receive(u8 byte);
-        void         tty_input_ready();
-        virtual long tty_discard_input();
-        void         tty_commit_line(bool eof);
-        void         tty_echo(u8 byte);
-        virtual void tty_signal(u8 byte);
+        tty_input_result tty_receive(u8 byte);
+        void             tty_input_ready();
+        virtual long     tty_discard_input();
+        void             tty_commit_line(bool eof);
+        void             tty_echo(u8 byte);
+        virtual void     tty_signal(u8 byte);
 
         long read_available(void* buf, u32 len, u64 off, bool allow_short);
 
