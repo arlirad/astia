@@ -67,38 +67,39 @@ namespace astia::io::aio::ring {
             oom_completion,
         };
 
-        bool                     used;
-        kind                     type                  = kind::operation;
-        bool                     done                  = false;
-        bool                     resuming              = false;
-        bool                     control               = false;
-        bool                     signal_interruptible  = false;
-        bool                     socket_accept         = false;
-        bool                     readiness             = false;
-        bool                     sleeping              = false;
-        bool                     timed                 = false;
-        bool                     poll_timed            = false;
-        bool                     sleep_absolute        = false;
-        bool                     sleep_ready           = false;
-        bool                     device_ready          = false;
-        u32                      poll_events           = 0;
-        u64                      sleep_deadline        = 0;
-        u64                      timeout_deadline      = 0;
-        u64                      poll_deadline         = 0;
-        u64                      sleep_remaining_user  = 0;
-        bool                     recvfrom_address      = false;
-        u64                      recvfrom_address_user = 0;
-        bool                     pending_cqe           = false;
-        u64                      pending_user_data     = 0;
-        i32                      pending_result        = 0;
-        i32                      fd;
-        mm::shptr<fs::open_file> handle;
-        mm::iovec                entries;
-        ::astia::io::operation*  operation = nullptr;
-        mm::uptr<core::clsource> cancel;
-        core::cltoken            token{};
-        u64                      generation = 0;
-        usize                    moved      = 0;
+        bool                      used;
+        kind                      type                  = kind::operation;
+        bool                      done                  = false;
+        bool                      resuming              = false;
+        bool                      control               = false;
+        bool                      signal_interruptible  = false;
+        bool                      socket_accept         = false;
+        bool                      readiness             = false;
+        bool                      sleeping              = false;
+        bool                      timed                 = false;
+        bool                      poll_timed            = false;
+        bool                      sleep_absolute        = false;
+        bool                      sleep_ready           = false;
+        bool                      device_ready          = false;
+        u32                       poll_events           = 0;
+        u64                       sleep_deadline        = 0;
+        u64                       timeout_deadline      = 0;
+        u64                       poll_deadline         = 0;
+        u64                       sleep_remaining_user  = 0;
+        bool                      recvfrom_address      = false;
+        u64                       recvfrom_address_user = 0;
+        bool                      pending_cqe           = false;
+        u64                       pending_user_data     = 0;
+        i32                       pending_result        = 0;
+        i32                       fd;
+        mm::shptr<fs::open_file>  handle;
+        mm::iovec                 entries;
+        ::astia::io::operation*   operation = nullptr;
+        mm::uptr<core::clsource>  cancel;
+        core::cltoken             token{};
+        mm::shptr<core::clsource> token_source;
+        u64                       generation = 0;
+        usize                     moved      = 0;
 
         void clear() {
             if (operation != nullptr)
@@ -132,6 +133,7 @@ namespace astia::io::aio::ring {
             fd                    = 0;
             handle                = {};
             token                 = {};
+            token_source          = {};
             generation            = 0;
             moved                 = 0;
         }

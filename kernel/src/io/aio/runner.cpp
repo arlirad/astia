@@ -28,16 +28,26 @@ namespace astia::io::aio::runner {
     mm::shptr<detached_state> make_state(ring::ring_slot& slot, u64 user_data) {
         // Owner-less rings exist only in host tests; they share the same
         // never-cancelled source as default-constructed tokens.
-        auto state = mm::shptr<detached_state>(new (std::nothrow) detached_state(
-            slot.owner ? slot.owner->cancellation_root() : core::unrestricted_source));
-        if (!state)
+        auto state = mm::share<detached_state>(
+            slot.owner ? slot.owner->cancellation_root() : core::unrestricted_source);
+        if (!state || !state->cancel)
             return {};
         state->user_data = user_data;
         return state;
     }
 
     core::cltoken token(const detached_state* state) {
-        return state == nullptr ? core::cltoken{} : state->cancel.token();
+        return state == nullptr || !state->cancel ? core::cltoken{}
+                                                  : state->cancel->token();
+    }
+
+    mm::shptr<core::clsource> retain_source(ring::ring_slot&     slot,
+                                            const core::cltoken& token) {
+        for (detached_state* entry = slot.detached_head; entry != nullptr;
+             entry                 = entry->next)
+            if (entry->cancel.get() == token.source())
+                return entry->cancel;
+        return {};
     }
 
     bool launch(core::task<aio_result> operation, mm::shptr<detached_state> state,
@@ -56,7 +66,7 @@ namespace astia::io::aio::runner {
             [state, slot_ptr = &slot, ring, sqe](optional<aio_result> completed) {
                 aio_result result =
                     completed ? completed.value : aio_result(completed.error);
-                const core::cltoken token = state->cancel.token();
+                const core::cltoken token = state->cancel->token();
                 if (token.canceled())
                     result = aio_result(-ECANCELED);
                 bool consumed = true;

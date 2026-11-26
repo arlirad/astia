@@ -50,13 +50,13 @@ namespace astia::io::aio::operations {
             }
             for (runner::detached_state* entry = slot.detached_head; entry != nullptr;
                  entry                         = entry->next) {
-                if (entry->user_data != target || &entry->cancel == token.source())
+                if (entry->user_data != target || entry->cancel.get() == token.source())
                     continue;
                 // The target publishes its own -ECANCELED when it finishes;
                 // this SQE only needs its own completion slot.
                 if (!has_capacity(1))
                     co_return aio_result::retry;
-                entry->cancel.cancel(astia::core::cancel_reason::request);
+                entry->cancel->cancel(astia::core::cancel_reason::request);
                 co_return cq_post(ring, sqe.user_data, 0) ? aio_result::pending
                                                           : aio_result::retry;
             }

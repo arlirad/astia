@@ -431,7 +431,7 @@ namespace astia::io::aio::ring {
         reap_completed(*slot, cleanup);
         for (runner::detached_state* entry = slot->detached_head; entry != nullptr;
              entry                         = entry->next) {
-            (void) entry->cancel.cancel(core::cancel_reason::request);
+            (void) entry->cancel->cancel(core::cancel_reason::request);
         }
         if (slot->waiters != 0 || slot->detached_ops.load(memory_order::acquire) != 0) {
             ring_lock_guard.unlock();
