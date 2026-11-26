@@ -1477,14 +1477,23 @@ if (ARCH STREQUAL "x86_64")
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
-        add_test(NAME astia_native_daemond_boot
-                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+        # The stock rc has no service records.  daemond must stay resident
+        # instead of exiting and taking PID 1 down, so the kernel never
+        # finishes its lifecycle; the bounded timeout is the expected
+        # outcome and the patterns pin the reason.
+        add_test(NAME astia_native_daemond_idle
+                COMMAND env
+                ASTIA_EXPECT_TIMEOUT=1
+                ASTIA_REQUIRE_SELFTEST=0
+                ASTIA_BOOT_QEMU_TIMEOUT=6
+                "ASTIA_FORBID_PATTERN=daemond: clean shutdown"
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_boot_initrd.cpio
                 "init: daemond started"
-                "daemond: clean shutdown"
-                "init: clean shutdown")
-        set_tests_properties(astia_native_daemond_boot PROPERTIES TIMEOUT 60)
+                "daemond: started"
+                "daemond: no services configured; idling")
+        set_tests_properties(astia_native_daemond_idle PROPERTIES TIMEOUT 60)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_service_boot_initrd.cpio
@@ -1519,6 +1528,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_service_boot_initrd.cpio
                 "init: daemond started"
                 "daemond: reaped service pid="
+                "daemond: restarting service: /bin/true attempt=1"
                 "daemond: clean shutdown"
                 "init: clean shutdown")
         set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 60)
@@ -1557,20 +1567,137 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND env
                 ASTIA_EXPECT_QEMU_STATUS=3
                 ASTIA_REQUIRE_SELFTEST=0
-                ASTIA_FORBID_PATTERN="core: selftest ok"
+                "ASTIA_FORBID_PATTERN=core: selftest ok"
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_failure_boot_initrd.cpio
                 "daemond: malformed service record"
+                "init: daemond exited status="
                 "init: daemond failed")
         set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 60)
         add_custom_target(astia_native_failure_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
 
+        # Visibility: configured services run ps and daemonctl, so the boot
+        # log proves the supervisor is one visible process with PPID 1 and
+        # that the control socket reaches it.
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_visibility_boot_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_visibility_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_visibility_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_visibility_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_visibility_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_visibility_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_visibility_stage/lib/ld.astia.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_visibility_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_visibility_stage/sbin/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_visibility_stage/bin/daemonctl
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_visibility_stage/bin/ps
+                COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_visibility_stage/bin/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/visibility.rc ${_fix_dir}/native_visibility_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_visibility_stage ${_fix_dir}/native_visibility_boot_initrd.cpio
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                lib/libc.so lib/ld.astia.so
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
+                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/visibility.rc
+                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_userspace_libc_shared
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing native daemond visibility initrd")
+        add_test(NAME astia_native_daemond_visibility
+                COMMAND env
+                "ASTIA_EXPECT_ONCE_PATTERN=daemond: started"
+                "ASTIA_EXPECT_ONCE_REGEX=^[0-9]+[[:space:]]+1[[:space:]]+.*[[:space:]]/sbin/daemond[[:space:]]*$"
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_visibility_boot_initrd.cpio
+                "PID    PPID   PGID   UID    GID    STAT CTTY       COMMAND"
+                "services=2"
+                "service=/bin/daemonctl state=running"
+                "daemond: reaped service pid="
+                "daemond: clean shutdown"
+                "init: clean shutdown")
+        set_tests_properties(astia_native_daemond_visibility PROPERTIES TIMEOUT 60)
+
+        # A missing rc must be reported with its errno and must not terminate
+        # the supervisor: PID 1 still has a live child.
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_missing_rc_boot_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_missing_rc_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_missing_rc_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_missing_rc_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_missing_rc_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_missing_rc_stage/lib/ld.astia.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_missing_rc_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_missing_rc_stage/sbin/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_missing_rc_stage/bin/daemonctl
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_missing_rc_stage ${_fix_dir}/native_missing_rc_boot_initrd.cpio
+                sbin/init sbin/daemond bin/daemonctl
+                lib/libc.so lib/ld.astia.so
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/boot_initrd.cpio
+                ${_libc_shared_so} astia_userspace_libc_shared
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing native daemond missing-rc initrd")
+        add_test(NAME astia_native_daemond_missing_rc
+                COMMAND env
+                ASTIA_EXPECT_TIMEOUT=1
+                ASTIA_REQUIRE_SELFTEST=0
+                ASTIA_BOOT_QEMU_TIMEOUT=6
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_missing_rc_boot_initrd.cpio
+                "init: daemond started"
+                "daemond: open /etc/rc failed: errno=2; starting with no services"
+                "daemond: no services configured; idling")
+        set_tests_properties(astia_native_daemond_missing_rc PROPERTIES TIMEOUT 60)
+
+        # Launch failure is diagnosed by init itself, before the kernel panics.
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_launch_failure_boot_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_launch_failure_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_launch_failure_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_launch_failure_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_launch_failure_stage/lib/ld.astia.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_launch_failure_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_launch_failure_stage ${_fix_dir}/native_launch_failure_boot_initrd.cpio
+                sbin/init
+                lib/libc.so lib/ld.astia.so
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/boot_initrd.cpio
+                ${_libc_shared_so} astia_userspace_libc_shared
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing native init launch-failure initrd")
+        add_test(NAME astia_native_daemond_launch_failure
+                COMMAND env
+                ASTIA_EXPECT_QEMU_STATUS=3
+                ASTIA_REQUIRE_SELFTEST=0
+                "ASTIA_FORBID_PATTERN=init: daemond started"
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_launch_failure_boot_initrd.cpio
+                "init: cannot start /sbin/daemond: errno=2")
+        set_tests_properties(astia_native_daemond_launch_failure PROPERTIES TIMEOUT 60)
+
         add_custom_target(astia_native_initrd_fixtures ALL
                 DEPENDS ${_fix_dir}/native_boot_initrd.cpio
                 ${_fix_dir}/native_service_boot_initrd.cpio
-                ${_fix_dir}/native_failure_boot_initrd.cpio)
+                ${_fix_dir}/native_failure_boot_initrd.cpio
+                ${_fix_dir}/native_visibility_boot_initrd.cpio
+                ${_fix_dir}/native_missing_rc_boot_initrd.cpio
+                ${_fix_dir}/native_launch_failure_boot_initrd.cpio)
 
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
@@ -1607,8 +1734,9 @@ foreach (_astia_boot_test IN ITEMS
         astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
         astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
         astia_production_init_exit
-        astia_native_daemond_boot astia_native_daemond_service
-        astia_native_daemond_failure)
+        astia_native_daemond_idle astia_native_daemond_service
+        astia_native_daemond_visibility astia_native_daemond_missing_rc
+        astia_native_daemond_launch_failure astia_native_daemond_failure)
     if(TEST ${_astia_boot_test})
         astia_add_test_label(${_astia_boot_test} "boot;qemu")
         set_tests_properties(${_astia_boot_test}

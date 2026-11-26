@@ -51,6 +51,8 @@ expected_qemu_status=${ASTIA_EXPECT_QEMU_STATUS:-1}
 require_selftest=${ASTIA_REQUIRE_SELFTEST:-1}
 forbidden_pattern=${ASTIA_FORBID_PATTERN:-}
 once_pattern=${ASTIA_EXPECT_ONCE_PATTERN:-}
+once_regex=${ASTIA_EXPECT_ONCE_REGEX:-}
+expected_timeout=${ASTIA_EXPECT_TIMEOUT:-0}
 shift 3    # everything left in "$@" is a required log pattern
 
 log=${TMPDIR:-/tmp}/astia_boot_$$.log
@@ -89,7 +91,10 @@ fi
 status=$?
 set -e
 
-if [ "$status" -eq 124 ]; then
+# A resident PID 1 never exits, so the kernel never reaches its selftest
+# marker.  ASTIA_EXPECT_TIMEOUT=1 turns the bounded QEMU timeout into the
+# expected outcome while the pattern checks below still have to hold.
+if [ "$status" -eq 124 ] && [ "$expected_timeout" -ne 1 ]; then
     echo "run_boot_test: qemu exceeded ${qemu_timeout_seconds}s internal timeout" >&2
     cat "$log"
     echo "run_boot_test: kernel boot test failed (qemu status $status)" >&2
@@ -98,9 +103,17 @@ fi
 
 cat "$log"
 
+accepted=0
 if [ "$status" -eq "$expected_qemu_status" ] && {
     [ "$require_selftest" -eq 0 ] || grep -q "core: selftest ok" "$log"
 }; then
+    accepted=1
+fi
+if [ "$status" -eq 124 ] && [ "$expected_timeout" -eq 1 ]; then
+    accepted=1
+fi
+
+if [ "$accepted" -eq 1 ]; then
     for pattern in "$@"; do
         if ! grep -qF "$pattern" "$log"; then
             echo "run_boot_test: expected output not found: $pattern" >&2
@@ -112,6 +125,14 @@ if [ "$status" -eq "$expected_qemu_status" ] && {
         count=$(grep -cF "$once_pattern" "$log" || true)
         if [ "$count" -ne 1 ]; then
             echo "run_boot_test: expected exactly one occurrence of: $once_pattern (found $count)" >&2
+            echo "run_boot_test: kernel boot test failed (qemu status $status)" >&2
+            exit 1
+        fi
+    fi
+    if [ -n "$once_regex" ]; then
+        count=$(grep -cE "$once_regex" "$log" || true)
+        if [ "$count" -ne 1 ]; then
+            echo "run_boot_test: expected exactly one match for: $once_regex (found $count)" >&2
             echo "run_boot_test: kernel boot test failed (qemu status $status)" >&2
             exit 1
         fi
