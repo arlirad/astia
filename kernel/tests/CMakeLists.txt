@@ -130,6 +130,8 @@ astia_add_test_label(astia_normalize_init_log "deterministic;init")
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
 astia_add_host_test(astia_completion_test completion_test.cpp)
+astia_add_host_test(astia_atomic_test atomic_test.cpp)
+astia_add_test_label(astia_atomic_test "deterministic;core")
 astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_dl_test dl_test.cpp)
 astia_add_host_test(astia_task_test
