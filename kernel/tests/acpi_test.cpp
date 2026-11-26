@@ -273,6 +273,10 @@ namespace {
         0x53, 0x43, 0x4F, 0x50, 0x53, 0x35, 0x50, 0x4B, 0x5F, 0x53, 0x35, 0x5F,
     };
 
+    constexpr u8 truncated_if_package_aml[] = {
+        0x14, 0x08, 0x5F, 0x53, 0x35, 0x5F, 0x00, 0xA0, 0x7F,
+    };
+
     constexpr u8 truncated_aml[] = {0x5B};
 
     constexpr u8 unsupported_aml[] = {0x5B, 0x2A};
@@ -602,6 +606,26 @@ ASTIA_TEST(acpi_aml_rejects_truncated_input) {
     };
 
     ASTIA_CHECK(!target.interpreter.build(target.tables));
+    ASTIA_CHECK(target.interpreter.error() == astia::acpi::detail::aml_error::truncated);
+}
+
+ASTIA_TEST(acpi_aml_rejects_truncated_if_package) {
+    table_image target;
+
+    build_standard_tables(target, false, true, truncated_if_package_aml,
+                          sizeof(truncated_if_package_aml));
+
+    target.tables.dsdt = {
+        astia::span<const u8>(target.data.bytes + dsdt_offset,
+                              sizeof(truncated_if_package_aml) + 36),
+        image_base + dsdt_offset,
+    };
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::value_id package = astia::acpi::detail::no_value;
+
+    ASTIA_CHECK(!target.interpreter.evaluate_s5(package));
     ASTIA_CHECK(target.interpreter.error() == astia::acpi::detail::aml_error::truncated);
 }
 

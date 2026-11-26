@@ -230,26 +230,33 @@ namespace astia::acpi::detail {
         return true;
     }
 
-    bool interpreter::open_package(cursor& c, const u8*& end) {
+    const u8* interpreter::open_package(cursor& c) {
         const u8* const start = c.position;
 
         u32 length = 0;
         u32 bytes  = 0;
 
         if (!read_package_length(c, length, bytes))
-            return false;
+            return nullptr;
 
-        if (static_cast<u64>(c.end - start) < length)
-            return fail(aml_error::truncated);
+        if (static_cast<u64>(c.end - start) < length) {
+            fail(aml_error::truncated);
 
-        if (_package_depth == max_aml_package_depth)
-            return fail(aml_error::package_length);
+            return nullptr;
+        }
 
-        end                             = start + length;
+        if (_package_depth == max_aml_package_depth) {
+            fail(aml_error::package_length);
+
+            return nullptr;
+        }
+
+        const u8* const end = start + length;
+
         _package_ends[_package_depth++] = c.end;
         c.end                           = end;
 
-        return true;
+        return end;
     }
 
     bool interpreter::close_package(cursor& c, const u8* end) {
@@ -645,6 +652,9 @@ namespace astia::acpi::detail {
 
     bool interpreter::parse_scope(const table_set& tables) {
         if (tables.dsdt.bytes.size() > sdt_header_size) {
+            if (tables.dsdt.bytes.data() == nullptr)
+                return fail(aml_error::truncated);
+
             cursor c{
                 tables.dsdt.bytes.data() + sdt_header_size,
                 tables.dsdt.bytes.data() + tables.dsdt.bytes.size(),
@@ -657,7 +667,7 @@ namespace astia::acpi::detail {
         for (usize i = 0; i < tables.ssdt_count; ++i) {
             const table& ssdt = tables.ssdt[i];
 
-            if (ssdt.bytes.size() <= sdt_header_size)
+            if (ssdt.bytes.size() <= sdt_header_size || ssdt.bytes.data() == nullptr)
                 return fail(aml_error::truncated);
 
             cursor c{
@@ -781,9 +791,8 @@ namespace astia::acpi::detail {
 
     bool interpreter::parse_scope_object(cursor& c, node_id scope, node_kind kind,
                                          u8 arg_count, u32 object_type) {
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         name_ref reference;
@@ -830,9 +839,8 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::parse_method(cursor& c, node_id scope) {
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         name_ref reference;
@@ -863,6 +871,9 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::parse_field_list(cursor& c, const u8* end, node_id scope) {
+        if (c.position == nullptr || end == nullptr)
+            return fail(aml_error::truncated);
+
         while (c.position < end) {
             const u8 tag = *c.position++;
             if (tag == 0x00) {
@@ -938,9 +949,8 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::parse_field(cursor& c, node_id scope) {
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         name_ref region;
@@ -957,9 +967,8 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::parse_index_field(cursor& c, node_id scope) {
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         name_ref index;
@@ -977,9 +986,8 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::parse_bank_field(cursor& c, node_id scope) {
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         name_ref region;
@@ -1296,9 +1304,8 @@ namespace astia::acpi::detail {
 
         ++c.position;
 
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         u32 count = 0;
@@ -1351,9 +1358,8 @@ namespace astia::acpi::detail {
 
         ++c.position;
 
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         u64 size = 0;
@@ -2049,9 +2055,8 @@ namespace astia::acpi::detail {
 
         ++c.position;
 
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         u32 count = 0;
@@ -2109,9 +2114,8 @@ namespace astia::acpi::detail {
 
         ++c.position;
 
-        const u8* package_end = nullptr;
-
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         value_id size_value = no_value;
@@ -2280,14 +2284,13 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::execute_if(cursor& c, execution& e) {
-        const u8* package_end = nullptr;
-
         if (c.position == nullptr || c.position >= c.end || *c.position != op_if)
             return fail(aml_error::truncated);
 
         ++c.position;
 
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         value_id predicate = no_value;
@@ -2316,9 +2319,8 @@ namespace astia::acpi::detail {
         if (c.position < c.end && *c.position == op_else) {
             ++c.position;
 
-            const u8* else_end = nullptr;
-
-            if (!open_package(c, else_end))
+            const u8* else_end = open_package(c);
+            if (else_end == nullptr)
                 return false;
 
             if (condition == 0) {
@@ -2339,14 +2341,13 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::execute_while(cursor& c, execution& e) {
-        const u8* package_end = nullptr;
-
         if (c.position == nullptr || c.position >= c.end || *c.position != op_while)
             return fail(aml_error::truncated);
 
         ++c.position;
 
-        if (!open_package(c, package_end))
+        const u8* package_end = open_package(c);
+        if (package_end == nullptr)
             return false;
 
         const u8* const body_start = c.position;

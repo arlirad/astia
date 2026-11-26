@@ -175,9 +175,9 @@ namespace astia::acpi::detail {
         bool read_u32(cursor& c, u32& value);
         bool read_u64(cursor& c, u64& value);
 
-        bool read_package_length(cursor& c, u32& value, u32& bytes);
-        bool open_package(cursor& c, const u8*& end);
-        bool close_package(cursor& c, const u8* end);
+        bool      read_package_length(cursor& c, u32& value, u32& bytes);
+        const u8* open_package(cursor& c);
+        bool      close_package(cursor& c, const u8* end);
 
         bool read_name_segment(cursor& c, u32& segment);
         bool read_name_ref(cursor& c, name_ref& reference);
