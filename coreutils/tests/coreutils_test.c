@@ -14,8 +14,20 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define UNAME_ALL_EXPECTED \
-    "Astia astia " ASTIA_VERSION_STRING " Astia " ASTIA_VERSION_STRING " x86_64\n"
+#define UNAME_FIELD_MAX 64
+
+static const char* uname_all_expected(void) {
+    static char expected[2 * UNAME_FIELD_MAX + 32];
+
+    char release[UNAME_FIELD_MAX + 1];
+    char version[UNAME_FIELD_MAX + 1];
+
+    snprintf(release, sizeof release, "%s", ASTIA_VERSION_STRING);
+    snprintf(version, sizeof version, "Astia %s", ASTIA_VERSION_STRING);
+    snprintf(expected, sizeof expected, "Astia astia %s %s x86_64\n", release, version);
+
+    return expected;
+}
 
 static int fail(const char* what) {
     printf("coreutils test failed: %s\n", what);
@@ -24,7 +36,7 @@ static int fail(const char* what) {
 }
 
 static int uname_expected_is_current(void) {
-    return strcmp(UNAME_ALL_EXPECTED, "Astia astia 0.1 Astia kernel x86_64\n") != 0;
+    return strcmp(uname_all_expected(), "Astia astia 0.1 Astia kernel x86_64\n") != 0;
 }
 
 static int put_file(const char* path, const char* text) {
@@ -552,11 +564,15 @@ int main(void) {
     char* uname[]             = {"uname", NULL};
     char* uname_all[]         = {"uname", "-a", NULL};
     char* uname_bad[]         = {"uname", "--bad", NULL};
-    char* true_args[]         = {"true", "ignored", NULL};
-    char* false_args[]        = {"false", "ignored", NULL};
-    char* mkdir_one[]         = {"mkdir", "/tmp/coreutils_dir", NULL};
-    char* mkdir_parents[]     = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
-    char* mkdir_existing[]    = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+
+    char* uname_all_machine[]     = {"uname", "-a", "-m", NULL};
+    char* uname_machine_all[]     = {"uname", "-m", "-a", NULL};
+    char* uname_machine_sysname[] = {"uname", "-m", "-s", NULL};
+    char* true_args[]             = {"true", "ignored", NULL};
+    char* false_args[]            = {"false", "ignored", NULL};
+    char* mkdir_one[]             = {"mkdir", "/tmp/coreutils_dir", NULL};
+    char* mkdir_parents[]         = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
+    char* mkdir_existing[]        = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
     char* mkdir_bad[]         = {"mkdir", "/tmp/coreutils_parent/missing/child", NULL};
     char* mkdir_file_parent[] = {"mkdir", "-p", "/tmp/coreutils_a/child", NULL};
     char* touch_create[]      = {"touch", "/tmp/coreutils_touch", NULL};
@@ -724,7 +740,10 @@ int main(void) {
         check("env command", env_exec, NULL, 0, NULL, 0) ||
         check("env invalid", env_bad, NULL, 2, NULL, 0) ||
         check("uname", uname, NULL, 0, "Astia\n", 1) ||
-        check("uname -a", uname_all, NULL, 0, UNAME_ALL_EXPECTED, 1) ||
+        check("uname -a", uname_all, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -a -m", uname_all_machine, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -m -a", uname_machine_all, NULL, 0, uname_all_expected(), 1) ||
+        check("uname -m -s", uname_machine_sysname, NULL, 0, "Astia x86_64\n", 1) ||
         check("uname invalid", uname_bad, NULL, 1, NULL, 0) ||
         check("true", true_args, NULL, 0, NULL, 0) ||
         check("false", false_args, NULL, 1, NULL, 0) ||
