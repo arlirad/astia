@@ -1501,6 +1501,22 @@ if (ARCH STREQUAL "x86_64")
         # part of the default build to guarantee they exist before ctest runs.
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
 
+        # Compile-only target: the dl boot fixtures are built by the custom
+        # commands above, which do not appear in compile_commands.json.  The
+        # object library supplies compilation-database entries for clang-tidy
+        # without linking the fixtures into any test binary.
+        add_library(astia_dl_boot_fixture_compile_db OBJECT
+                fixture_gnu.c
+                fixture_semihash.c
+                interp_gnu.c
+                interp_relro.c
+                interp_tpoff32.c)
+        target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/include)
+        target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
+                -ffreestanding -fno-builtin -fno-stack-protector
+                -fno-asynchronous-unwind-tables -mno-red-zone)
+
         add_custom_command(
                 OUTPUT ${_fix_dir}/boot_initrd.cpio.gz
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
