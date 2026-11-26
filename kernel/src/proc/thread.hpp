@@ -209,7 +209,7 @@ namespace astia::proc {
         core::task<long> join(void** result = nullptr);
         bool             arm_join(std::coroutine_handle<> continuation);
         void             arm_wait(std::coroutine_handle<> continuation);
-        bool             arm_wait_unless_cancelled(std::coroutine_handle<> continuation);
+        bool             arm_park_unless_cancelled(std::coroutine_handle<> continuation);
         bool             wake_wait();
         bool             park_unless_woken();
         void             request_resume(std::coroutine_handle<> continuation);
@@ -331,10 +331,11 @@ namespace astia::proc {
             astia::atomic_ref<u8>(_kill_pending).store(1, astia::memory_order::release);
         }
 
-        void request_cancellation() {
-            astia::atomic_ref<u8>(_cancellation_pending)
-                .store(1, astia::memory_order::release);
-        }
+        /// Publish a cancellation request.  The flag and the park transition
+        /// share the park lock, so a waiter either observes the request before
+        /// blocking or is reported as parked.  Returns true when the target was
+        /// already blocked, which makes the caller responsible for waking it.
+        bool request_cancellation();
 
         /// Consume the request after the thread handled it, so a thread that
         /// stays alive is not interrupted by every later wait.

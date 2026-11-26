@@ -935,6 +935,45 @@ static int libc_exit_parked_waiters(void) {
     return 0;
 }
 
+static volatile int libc_cancel_sigwait_started;
+
+static void* libc_cancel_sigwait_worker(void* opaque) {
+    (void) opaque;
+
+    sigset_t mask;
+
+    int signal_number = 0;
+
+    if (sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0)
+        return (void*) (unsigned long) 0x135a;
+
+    libc_cancel_sigwait_started = 1;
+
+    return (void*) (unsigned long) (sigwait(&mask, &signal_number) == EINTR ? 0x1358
+                                                                            : 0x135b);
+}
+
+static volatile int libc_cancel_sigtimedwait_started;
+
+static void* libc_cancel_sigtimedwait_worker(void* opaque) {
+    (void) opaque;
+
+    sigset_t        mask;
+    struct timespec timeout = {3600, 0};
+
+    int signal_number;
+
+    if (sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0)
+        return (void*) (unsigned long) 0x135c;
+
+    libc_cancel_sigtimedwait_started = 1;
+    errno                            = 0;
+    signal_number                    = sigtimedwait(&mask, NULL, &timeout);
+
+    return (void*) (unsigned long) (signal_number < 0 && errno == EINTR ? 0x1359
+                                                                        : 0x135d);
+}
+
 static void* libc_cancel_sem_worker(void* opaque) {
     void* result;
 
@@ -3739,6 +3778,53 @@ int main(int argc, char** argv) {
         if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
             result != (void*) (unsigned long) 0x1357)
             return 168;
+    }
+
+    /* Cancelling a sigwait waiter must resume it instead of leaving it
+       parked with the request pending. */
+    {
+        pthread_t worker;
+        void*     result = NULL;
+
+        libc_cancel_sigwait_started = 0;
+
+        if (pthread_create(&worker, NULL, libc_cancel_sigwait_worker, NULL) != 0)
+            return 231;
+
+        while (!libc_cancel_sigwait_started) {
+            sched_yield();
+        }
+
+        for (int i = 0; i < 4; ++i) {
+            sched_yield();
+        }
+
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x1358)
+            return 232;
+    }
+
+    /* The timed variant shares the park path but registers a deadline. */
+    {
+        pthread_t worker;
+        void*     result = NULL;
+
+        libc_cancel_sigtimedwait_started = 0;
+
+        if (pthread_create(&worker, NULL, libc_cancel_sigtimedwait_worker, NULL) != 0)
+            return 233;
+
+        while (!libc_cancel_sigtimedwait_started) {
+            sched_yield();
+        }
+
+        for (int i = 0; i < 4; ++i) {
+            sched_yield();
+        }
+
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x1359)
+            return 234;
     }
 
     {

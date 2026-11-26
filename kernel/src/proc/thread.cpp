@@ -326,15 +326,38 @@ namespace astia::proc {
         _async_wait_handle = continuation;
     }
 
-    bool thread::arm_wait_unless_cancelled(std::coroutine_handle<> continuation) {
-        arch::interrupt_spinlock_guard guard(_wait_lock);
+    bool thread::arm_park_unless_cancelled(std::coroutine_handle<> continuation) {
+        arch::interrupt_spinlock_guard wait_guard(_wait_lock);
 
         if (cancellation_pending())
             return false;
 
         _async_wait_handle = continuation;
 
+        // Re-check under the park lock: a cancellation that lands after the
+        // first check either sees this thread parked (and wakes it) or is seen
+        // here, in which case the continuation is withdrawn and no park
+        // happens.
+        arch::interrupt_spinlock_guard park_guard(_resume_lock);
+
+        if (cancellation_pending()) {
+            _async_wait_handle = {};
+
+            return false;
+        }
+
+        state(thread_state::blocked);
+
         return true;
+    }
+
+    bool thread::request_cancellation() {
+        arch::interrupt_spinlock_guard guard(_resume_lock);
+
+        astia::atomic_ref<u8>(_cancellation_pending)
+            .store(1, astia::memory_order::release);
+
+        return state() == thread_state::blocked;
     }
 
     bool thread::wake_wait() {
@@ -358,7 +381,7 @@ namespace astia::proc {
     bool thread::park_unless_woken() {
         arch::interrupt_spinlock_guard guard(_resume_lock);
 
-        if (_pending_resume_count != 0)
+        if (_pending_resume_count != 0 || cancellation_pending())
             return false;
 
         state(thread_state::blocked);
