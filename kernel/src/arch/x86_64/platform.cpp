@@ -53,6 +53,12 @@ namespace astia::arch::x86_64 {
         return register_irq_handler(1, handler);
     }
 
+    bool ps2_irq_claim_guarded(void*, dev::irq_handler handler,
+                               arch::irq_callback_enter enter,
+                               arch::irq_callback_leave leave, void* context) {
+        return register_irq_handler(1, handler, enter, leave, context);
+    }
+
     bool ps2_irq_unmask(void*) {
         pic::unmask(1);
 
@@ -72,7 +78,8 @@ namespace astia::dev {
     constinit irq_line uart16550_platform_irq{nullptr, arch::x86_64::uart_irq_claim,
                                               arch::x86_64::uart_irq_unmask};
     constinit irq_line ps2_platform_irq{nullptr, arch::x86_64::ps2_irq_claim,
-                                        arch::x86_64::ps2_irq_unmask};
+                                        arch::x86_64::ps2_irq_unmask,
+                                        arch::x86_64::ps2_irq_claim_guarded};
 }
 
 namespace astia::module {
@@ -84,8 +91,8 @@ namespace astia::module {
         if (!token.valid())
             return false;
 
-        return arch::register_irq_handler(1, handler, arch::x86_64::ps2_irq_enter,
-                                          arch::x86_64::ps2_irq_leave, &token);
+        return dev::ps2_platform_irq.claim_guarded(handler, arch::x86_64::ps2_irq_enter,
+                                                   arch::x86_64::ps2_irq_leave, &token);
     }
 
     bool ps2_unmask_irq() {
