@@ -14,6 +14,7 @@
 #include "../sys/user_mem.hpp"
 #include "events.hpp"
 #include "scheduler.hpp"
+#include "terminal_name.hpp"
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
@@ -321,6 +322,15 @@ namespace astia::proc {
             record.uid      = metadata.uid;
             record.gid      = metadata.gid;
             record.has_ctty = metadata.controlling_terminal ? 1u : 0u;
+
+            if (metadata.controlling_terminal &&
+                !terminal_name(*metadata.controlling_terminal, record.ctty,
+                               sizeof record.ctty)) {
+                // A terminal without a VFS path is reported as unknown
+                // rather than as an empty name.
+                record.ctty[0] = '?';
+                record.ctty[1] = '\0';
+            }
 
             const char* name = value->name();
 
