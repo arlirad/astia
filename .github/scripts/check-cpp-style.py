@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check blank lines around control statements and single-statement braces.
+"""Check the repository C/C++ statement, brace, and declaration layout.
 
 Two lexical rules are enforced.
 
