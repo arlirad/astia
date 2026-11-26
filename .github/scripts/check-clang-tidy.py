@@ -39,6 +39,10 @@ UNSUPPORTED_FILES = {
     "kernel/tests/interp_relro.c",
     "kernel/tests/fixture_dynamic_tls.c",
     "kernel/tests/interp_dyntls.c",
+    "kernel/tests/fixture_versions.c",
+    "kernel/tests/interp_ver.c",
+    "kernel/tests/fixture_badver.c",
+    "kernel/tests/interp_badver.c",
     "kernel/tests/fixture_exec.c",
     "kernel/tests/support/file_host.cpp",
 }

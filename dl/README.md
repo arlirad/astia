@@ -18,7 +18,8 @@ declared in `libc/include/dlfcn.h`.
    shares the image physically, and `dlmap` is identity-keyed, so a diamond
    dependency maps once.
 4. Resolves `RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64`, `TPOFF64`/`TPOFF32`
-   and `DTPMOD64`/`DTPOFF64` against the payload and its dependencies; weak
+   and `DTPMOD64`/`DTPOFF64` against the payload and its dependencies using
+   `(name, version)` matching from `DT_VERSYM`/`DT_VERNEED`/`DT_VERDEF`; weak
    undefined references resolve to zero.  GNU IFUNC symbols (`STT_GNU_IFUNC`)
    resolve in two phases: relocation queues the slot and the resolver's
    address, then every resolver runs after all relocations and before any
@@ -160,28 +161,18 @@ exits.
   additionally covers the lazy `.got.plt` slots; `dlopen` groups are hardened
   after their relocations and IFUNC resolution, before their constructors;
 - `DT_INIT`/`DT_INIT_ARRAY` and `DT_FINI`/`DT_FINI_ARRAY`;
-- static TLS only: build DSOs with `-ftls-model=initial-exec`;
-- `dlopen` of an image with `PT_TLS` is rejected with a `dlerror`; dynamic TLS
-  needs issue #166 and its DTV registry;
+- static TLS for initial-exec DSOs; global-dynamic TLS through per-thread
+  DTVs and `__tls_get_addr` (still laid out in the static reserve);
+- symbol versioning: a versioned reference binds only to a definition
+  exporting the same version name, a versioned reference never binds to an
+  unversioned definition, and an unversioned reference prefers the first
+  non-hidden default definition;
 - at most 32 loaded modules (`LD_MAX_MODULES`), 16 live handles
   (`LD_MAX_HANDLES`), and 64-byte paths (`LD_PATH_MAX`); the kernel's
   per-process `dlmap` binding table is smaller than 32 in practice;
 - one loader instance per process, single-threaded `dlopen`/`dlclose`; unload
   requires a quiescent single-threaded process;
-- no `RTLD_NEXT`, no symbol versioning, SysV hash only, direct dependencies
-  only.
-
-Known gaps are tracked in the issue tracker under the `dl` label
-(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
-global-dynamic TLS, and the eagerly allocated TLS reserve.  At most 64 IFUNC
-relocations per process (`LD_MAX_IFUNCS`) are supported.
-  additionally covers the lazy `.got.plt` slots;
-- `DT_INIT`/`DT_INIT_ARRAY` (dependencies first); `DT_FINI` is left to process
-  teardown;
-- static TLS for initial-exec DSOs; global-dynamic TLS through per-thread
-  DTVs and `__tls_get_addr` (still laid out in the static reserve);
-- at most 9 loaded modules (`LD_MAX_MODULES`: payload + 7 `DT_NEEDED` +
-  interpreter) and 7 `DT_NEEDED` per payload.
+- no `RTLD_NEXT`, SysV/GNU hash, direct dependencies only.
 
 Per-thread DTVs are bounded (`LD_MAX_THREADS`, 16) and never retired:
 thread-exit cleanup is not implemented, so the registry leaks one small entry
@@ -204,10 +195,9 @@ relocation) is not reentrant, so this signal-safety covers the TLS lookup
 path only.
 
 Known gaps are tracked in the issue tracker under the `dl` label
-(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
-`dlopen`/`dlclose` scopes and unload quiescence, and the eagerly allocated
-TLS reserve.  At most 64 IFUNC relocations per process
-(`LD_MAX_IFUNCS`) are supported.
+(`gh issue list --label dl`): lazy PLT binding and the eagerly allocated TLS
+reserve. At most 64 IFUNC relocations per process (`LD_MAX_IFUNCS`) are
+supported.
 
 A missing library or unresolved symbol exits with a non-zero status; the boot
 test turns that into a failure rather than a silent jump into a null pointer.

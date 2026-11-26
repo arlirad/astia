@@ -53,6 +53,37 @@ typedef struct {
     int64_t  r_addend;
 } Elf64_Rela;
 
+typedef struct {
+    uint16_t vn_version;
+    uint16_t vn_cnt;
+    uint32_t vn_file;
+    uint32_t vn_aux;
+    uint32_t vn_next;
+} Elf64_Verneed;
+
+typedef struct {
+    uint32_t vna_hash;
+    uint16_t vna_flags;
+    uint16_t vna_other;
+    uint32_t vna_name;
+    uint32_t vna_next;
+} Elf64_Vernaux;
+
+typedef struct {
+    uint16_t vd_version;
+    uint16_t vd_flags;
+    uint16_t vd_ndx;
+    uint16_t vd_cnt;
+    uint32_t vd_hash;
+    uint32_t vd_aux;
+    uint32_t vd_next;
+} Elf64_Verdef;
+
+typedef struct {
+    uint32_t vda_name;
+    uint32_t vda_next;
+} Elf64_Verdaux;
+
 enum {
     PT_LOAD      = 1,
     PT_DYNAMIC   = 2,
@@ -82,6 +113,11 @@ enum {
     DT_INIT_ARRAYSZ = 27,
     DT_FINI_ARRAYSZ = 28,
     DT_JMPREL       = 23,
+    DT_VERSYM       = 0x6ffffff0,
+    DT_VERDEF       = 0x6ffffffc,
+    DT_VERDEFNUM    = 0x6ffffffd,
+    DT_VERNEED      = 0x6ffffffe,
+    DT_VERNEEDNUM   = 0x6fffffff,
 };
 
 /* Symbol type from st_info & 0xf. */
@@ -114,27 +150,32 @@ enum {
 typedef struct {
     uint64_t base;
     /* Absolute executable PT_LOAD bounds; vaddr_end is bias-relative. */
-    const Elf64_Phdr* phdr;
-    uint32_t          phnum;
-    uint64_t          span;
-    const Elf64_Dyn*  dynamic_section;
-    const char*       strtab;
-    const Elf64_Sym*  symtab;
-    const uint32_t*   hash;     /* DT_HASH, when present */
-    const uint32_t*   gnu_hash; /* DT_GNU_HASH, when present */
-    const char*       soname;
-    const Elf64_Rela* rela;
-    uint64_t          rela_size;
-    const Elf64_Rela* jmprel;
-    uint64_t          pltrel_size;
-    uint64_t          init;
-    const uint64_t*   init_array;
-    uint64_t          init_array_size;
-    uint64_t          fini;
-    const uint64_t*   fini_array;
-    uint64_t          fini_array_size;
-    uint32_t          symbol_count;
-    uint32_t          id;
+    const Elf64_Phdr*    phdr;
+    uint32_t             phnum;
+    uint64_t             span;
+    const Elf64_Dyn*     dynamic_section;
+    const char*          strtab;
+    const Elf64_Sym*     symtab;
+    const uint32_t*      hash;     /* DT_HASH, when present */
+    const uint32_t*      gnu_hash; /* DT_GNU_HASH, when present */
+    const char*          soname;
+    const uint16_t*      versym;  /* DT_VERSYM, when present */
+    const Elf64_Verneed* verneed; /* DT_VERNEED, when present */
+    uint32_t             verneednum;
+    const Elf64_Verdef*  verdef; /* DT_VERDEF, when present */
+    uint32_t             verdefnum;
+    const Elf64_Rela*    rela;
+    uint64_t             rela_size;
+    const Elf64_Rela*    jmprel;
+    uint64_t             pltrel_size;
+    uint64_t             init;
+    const uint64_t*      init_array;
+    uint64_t             init_array_size;
+    uint64_t             fini;
+    const uint64_t*      fini_array;
+    uint64_t             fini_array_size;
+    uint32_t             symbol_count;
+    uint32_t             id;
     /* PT_TLS template and the static-TLS offset assigned to this module. */
     uint64_t tls_vaddr;
     uint64_t tls_filesz;
