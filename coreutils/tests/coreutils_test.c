@@ -526,6 +526,28 @@ static int check_pty(const char* name, char* const argv[], char* const envp[],
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
+static int check_output_excludes(const char* name, char* const argv[], int status,
+                                 const char* present, const char* absent) {
+    char buffer[1024] = {0};
+
+    FILE* output;
+
+    if (run(name, argv, NULL, status, present, 0) != 0)
+        return fail(name);
+
+    output = fopen("/tmp/coreutils_stdout", "r");
+    if (output == NULL)
+        return fail(name);
+
+    size_t length = fread(buffer, 1, sizeof buffer - 1, output);
+
+    fclose(output);
+
+    buffer[length] = '\0';
+
+    return strstr(buffer, absent) == NULL ? 0 : fail(name);
+}
+
 static int mv_directory_checks(void) {
     char* mv_into_directory[]           = {"mv", "/tmp/coreutils_mv_file",
                                            "/tmp/coreutils_mv_target", NULL};
@@ -599,6 +621,54 @@ static int rm_directory_checks(void) {
         return 1;
 
     return 0;
+}
+
+static int find_symlink_checks(void) {
+    char* find_tree[]     = {"find", "/tmp/coreutils_find", NULL};
+    char* find_follow[]   = {"find", "-L", "/tmp/coreutils_find", NULL};
+    char* find_top_link[] = {"find", "-H", "/tmp/coreutils_find/tree/link", NULL};
+
+    (void) unlink("/tmp/coreutils_find/tree/self");
+    (void) unlink("/tmp/coreutils_find/tree/link");
+    (void) unlink("/tmp/coreutils_find/tree/file");
+    (void) rmdir("/tmp/coreutils_find/tree");
+    (void) unlink("/tmp/coreutils_find/real/file");
+    (void) rmdir("/tmp/coreutils_find/real");
+    (void) rmdir("/tmp/coreutils_find");
+
+    if (mkdir("/tmp/coreutils_find", 0777) != 0 ||
+        mkdir("/tmp/coreutils_find/real", 0777) != 0 ||
+        put_file("/tmp/coreutils_find/real/file", "target\n") != 0 ||
+        mkdir("/tmp/coreutils_find/tree", 0777) != 0 ||
+        put_file("/tmp/coreutils_find/tree/file", "tree\n") != 0 ||
+        symlink("../real", "/tmp/coreutils_find/tree/link") != 0 ||
+        symlink(".", "/tmp/coreutils_find/tree/self") != 0)
+        return fail("find symlink fixture setup");
+
+    int status = 0;
+
+    if (check("find symlink not followed", find_tree, NULL, 0,
+              "/tmp/coreutils_find/tree/link\n", 0) != 0 ||
+        check_output_excludes("find symlink not descended", find_tree, 0,
+                              "/tmp/coreutils_find/real/file\n",
+                              "/tmp/coreutils_find/tree/link/file\n") != 0 ||
+        check("find self symlink printed", find_tree, NULL, 0,
+              "/tmp/coreutils_find/tree/self\n", 0) != 0 ||
+        check("find -L follows and breaks cycles", find_follow, NULL, 1,
+              "/tmp/coreutils_find/tree/link/file\n", 0) != 0 ||
+        check("find -H follows command-line symlink", find_top_link, NULL, 0,
+              "/tmp/coreutils_find/tree/link/file\n", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_find/tree/self");
+    (void) unlink("/tmp/coreutils_find/tree/link");
+    (void) unlink("/tmp/coreutils_find/tree/file");
+    (void) rmdir("/tmp/coreutils_find/tree");
+    (void) unlink("/tmp/coreutils_find/real/file");
+    (void) rmdir("/tmp/coreutils_find/real");
+    (void) rmdir("/tmp/coreutils_find");
+
+    return status;
 }
 
 static int id_checks(void) {
@@ -1019,6 +1089,9 @@ int main(void) {
         return 1;
 
     if (rm_directory_checks() != 0)
+        return 1;
+
+    if (find_symlink_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
