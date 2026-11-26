@@ -129,6 +129,7 @@ int module_main() {
     // The route now points into this image. Resident holds the lease forever
     // and makes request_exit return an explicit not-unloadable result.
     if (!lifetime.make_resident()) {
+        (void) astia::module::ps2_release_irq();
         lifetime.release();
         shutdown();
         logs::info("unavailable");
@@ -141,6 +142,8 @@ int module_main() {
 
     // Unmask last: the lease, route, and controller source are all in place.
     if (!astia::module::ps2_unmask_irq()) {
+        (void) astia::module::ps2_release_irq();
+        lifetime.release();
         shutdown();
         logs::info("unavailable");
         logs::info("irq unmask failed");

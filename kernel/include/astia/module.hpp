@@ -230,6 +230,12 @@ namespace astia::module {
     /// Unmask PIC IRQ1 after the guarded claim is in place.
     bool ps2_unmask_irq();
 
+    /// Mask IRQ1 and retry clearing the guarded claim, so a failed module
+    /// bring-up cannot leave a handler pointing into an image that is about to
+    /// be torn down. Returns false in interrupt context if a dispatch is still
+    /// in flight; normal-context callers retry to completion.
+    bool ps2_release_irq();
+
     /// Forward one layout-mapped byte to the ttv0 input path.
     bool tty_input_write(u8 byte);
 } // namespace astia::module
