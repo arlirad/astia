@@ -25,7 +25,6 @@ namespace astia::mod {
 } // namespace astia::mod
 
 namespace {
-
     using astia::mod::module_error;
     using astia::mod::module_id;
     using astia::mod::module_info;
@@ -38,11 +37,15 @@ namespace {
     module_load_options named(const char* name) {
         module_load_options options{};
         astia::usize        i = 0;
+
         while (i + 1 < sizeof options.name && name[i] != '\0') {
             options.name[i] = name[i];
+
             ++i;
         }
+
         options.name[i] = '\0';
+
         return options;
     }
 
@@ -50,22 +53,25 @@ namespace {
                     astia::u64 a2 = 0, astia::u64 a3 = 0, astia::u64 a4 = 0,
                     astia::u64 a5 = 0) {
         astia::arch::syscall_return image{};
+
         return astia::sys::dispatch(id, a0, a1, a2, a3, a4, a5, image);
     }
 
     astia::i64 call_with_id(astia::sys::syscall_id syscall, module_id handle) {
         astia_module_id public_id{};
-        if (!astia::mod::encode_public_id(handle, public_id)) {
+
+        if (!astia::mod::encode_public_id(handle, public_id))
             return -EINVAL;
-        }
+
         return call(syscall, reinterpret_cast<astia::u64>(&public_id));
     }
 
     astia::i64 call_modstat(module_id handle, astia_module_stat* out) {
         astia_module_id public_id{};
-        if (!astia::mod::encode_public_id(handle, public_id)) {
+
+        if (!astia::mod::encode_public_id(handle, public_id))
             return -EINVAL;
-        }
+
         return call(astia::sys::syscall_id::modstat,
                     reinterpret_cast<astia::u64>(&public_id),
                     reinterpret_cast<astia::u64>(out));
@@ -73,54 +79,61 @@ namespace {
 
     void reset_registry() {
         set_root(true);
-        for (;;) {
+
+        while (true) {
             module_info        infos[astia::mod::max_modules]{};
             astia::usize       total   = 0;
             const astia::usize visible = astia::mod::snapshot(
                 astia::span<module_info>(infos, astia::mod::max_modules), &total);
-            if (visible == 0) {
+            if (visible == 0)
                 return;
-            }
+
             bool progressed = false;
+
             for (astia::usize i = 0; i < visible; ++i) {
                 const module_id id = infos[i].id;
+
                 for (astia::usize d = 0; d < infos[i].dependency_count; ++d) {
                     module_id dependency{};
-                    if (astia::mod::dependency_at(id, 0, dependency) ==
-                        module_error::ok) {
+
+                    if (astia::mod::dependency_at(id, 0, dependency) == module_error::ok)
                         (void) astia::mod::remove_dependency(id, dependency);
-                    }
                 }
-                if (infos[i].running) {
+
+                if (infos[i].running)
                     (void) astia::mod::exit(id);
-                }
-                if (infos[i].resident) {
+
+                if (infos[i].resident)
                     (void) astia::mod::clear_resident_for_test(id);
-                }
+
                 if (astia::mod::unload(id) == module_error::ok) {
                     progressed = true;
+
                     continue;
                 }
+
                 auto closing = astia::mod::close(id);
+
                 closing.resume();
+
                 while (!closing.done() && astia::core::drain_resumes() != 0) {
                     closing.resume();
                 }
+
                 if (!closing.done() && astia::mod::cancel_close(id) == module_error::ok) {
                     while (!closing.done() && astia::core::drain_resumes() != 0) {
                         closing.resume();
                     }
                 }
-                if (closing.done()) {
+
+                if (closing.done())
                     progressed = true;
-                }
             }
-            if (!progressed) {
+
+            if (!progressed)
                 return;
-            }
         }
     }
-
 } // namespace
 
 ASTIA_TEST(module_syscall_ids_and_public_layout_are_canonical) {
@@ -148,19 +161,24 @@ ASTIA_TEST(module_syscall_ids_and_public_layout_are_canonical) {
 ASTIA_TEST(module_syscall_id_roundtrip_and_reserved_validation) {
     module_id       kernel_id{3, 42};
     astia_module_id public_id{};
+
     ASTIA_CHECK(astia::mod::encode_public_id(kernel_id, public_id));
     ASTIA_CHECK(public_id.slot == 3 && public_id.generation == 42 &&
                 public_id.reserved == 0);
 
     module_id decoded{};
+
     ASTIA_CHECK(astia::mod::decode_public_id(public_id, decoded) == module_error::ok);
     ASTIA_CHECK(decoded == kernel_id);
 
     public_id.reserved = 1;
+
     ASTIA_CHECK(astia::mod::decode_public_id(public_id, decoded) ==
                 module_error::invalid_argument);
+
     public_id.reserved = 0;
     public_id.slot     = ASTIA_MODULE_SLOT_NONE;
+
     ASTIA_CHECK(astia::mod::decode_public_id(public_id, decoded) ==
                 module_error::not_found);
 }
@@ -185,6 +203,7 @@ ASTIA_TEST(module_image_format_accepts_et_rel_and_rejects_executables) {
     ASTIA_CHECK(astia::mod::module_errno(module_error::load_failed) == -ENOEXEC);
 
     const astia::u8 invalid[] = {0x7f, 'E', 'L', 'F'};
+
     ASTIA_CHECK(astia::mod::validate_module_image_format(astia::span<const astia::u8>(
                     invalid, sizeof invalid)) == module_error::load_failed);
 }
@@ -192,11 +211,14 @@ ASTIA_TEST(module_image_format_accepts_et_rel_and_rejects_executables) {
 ASTIA_TEST(module_close_waiter_allocation_failure_reports_no_memory) {
     reset_registry();
     set_root(true);
+
     module_id id{};
+
     ASTIA_CHECK(load_test_module(id, named("waiter-allocation")) == module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(id) == module_error::ok);
 
     auto closing = astia::mod::close(id);
+
     astia_test::fail_next_allocation();
     closing.resume();
     ASTIA_CHECK(closing.done());
@@ -205,6 +227,7 @@ ASTIA_TEST(module_close_waiter_allocation_failure_reports_no_memory) {
     ASTIA_CHECK(astia::mod::module_errno(module_error::no_memory) == -ENOMEM);
 
     module_info info{};
+
     ASTIA_CHECK(astia::mod::lookup(id, info) == module_error::ok);
     ASTIA_CHECK(!info.quiescing);
     ASTIA_CHECK(astia::mod::release(id) == module_error::ok);
@@ -214,12 +237,19 @@ ASTIA_TEST(module_close_waiter_allocation_failure_reports_no_memory) {
 
 ASTIA_TEST(module_close_error_mapping_distinguishes_allocation_failure) {
     const astia::optional<module_error> allocation(astia::error_t::enomem);
+
     ASTIA_CHECK(astia::mod::module_close_errno(allocation) == -ENOMEM);
+
     const astia::optional<module_error> other(astia::error_t::eio);
+
     ASTIA_CHECK(astia::mod::module_close_errno(other) == -EIO);
+
     const astia::optional<module_error> resident(module_error::resident);
+
     ASTIA_CHECK(astia::mod::module_close_errno(resident) == -EPERM);
+
     const astia::optional<module_error> success(module_error::ok);
+
     ASTIA_CHECK(astia::mod::module_close_errno(success) == 0);
 }
 
@@ -240,13 +270,16 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
     astia::mod::set_open_path_error(module_error::ok);
 
     astia_module_id id{};
-    char            path[] = "/mods/sample";
+
+    char path[] = "/mods/sample";
+
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen, reinterpret_cast<astia::u64>(path),
                      0, reinterpret_cast<astia::u64>(&id)) == 0);
     ASTIA_CHECK(id.slot != ASTIA_MODULE_SLOT_NONE && id.reserved == 0);
     ASTIA_CHECK(std::strcmp(astia::mod::last_open_path(), path) == 0);
 
     astia_module_stat stat{};
+
     ASTIA_CHECK(call(astia::sys::syscall_id::modstat, reinterpret_cast<astia::u64>(&id),
                      reinterpret_cast<astia::u64>(&stat)) == 0);
     ASTIA_CHECK(std::strcmp(stat.name, "sample") == 0);
@@ -259,13 +292,16 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
                      0, 0) == -EFAULT);
 
     char unterminated[astia::mod::max_module_name * 2];
+
     std::memset(unterminated, 'a', sizeof unterminated);
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen,
                      reinterpret_cast<astia::u64>(unterminated), 0,
                      reinterpret_cast<astia::u64>(&id)) == -EFAULT);
 
     astia::mod::set_open_path_error(module_error::load_failed);
+
     const astia::usize before = astia::mod::count();
+
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen, reinterpret_cast<astia::u64>(path),
                      0, reinterpret_cast<astia::u64>(&id)) == -ENOEXEC);
     ASTIA_CHECK(astia::mod::count() == before);
@@ -280,17 +316,21 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
 ASTIA_TEST(module_syscall_modls_reports_bounded_capacity_and_total) {
     reset_registry();
     set_root(true);
+
     module_id first{};
     module_id second{};
+
     ASTIA_CHECK(load_test_module(first, named("first")) == module_error::ok);
     ASTIA_CHECK(load_test_module(second, named("second")) == module_error::ok);
 
     astia_module_list_info info{};
+
     ASTIA_CHECK(call(astia::sys::syscall_id::modls, 0, 0,
                      reinterpret_cast<astia::u64>(&info)) == 0);
     ASTIA_CHECK(info.count == 0 && info.total == 2 && info.capacity == 0);
 
     astia_module_record records[ASTIA_MODULE_LIST_MAX]{};
+
     std::memset(&info, 0, sizeof info);
     ASTIA_CHECK(call(astia::sys::syscall_id::modls, reinterpret_cast<astia::u64>(records),
                      1, reinterpret_cast<astia::u64>(&info)) == 0);
@@ -303,16 +343,18 @@ ASTIA_TEST(module_syscall_modls_reports_bounded_capacity_and_total) {
     ASTIA_CHECK(call(astia::sys::syscall_id::modls, reinterpret_cast<astia::u64>(records),
                      ASTIA_MODULE_LIST_MAX, reinterpret_cast<astia::u64>(&info)) == 0);
     ASTIA_CHECK(info.count == 2 && info.total == 2);
+
     bool saw_first  = false;
     bool saw_second = false;
+
     for (astia::u32 i = 0; i < info.count; ++i) {
-        if (std::strcmp(records[i].name, "first") == 0) {
+        if (std::strcmp(records[i].name, "first") == 0)
             saw_first = true;
-        }
-        if (std::strcmp(records[i].name, "second") == 0) {
+
+        if (std::strcmp(records[i].name, "second") == 0)
             saw_second = true;
-        }
     }
+
     ASTIA_CHECK(saw_first && saw_second);
 
     ASTIA_CHECK(call(astia::sys::syscall_id::modls, reinterpret_cast<astia::u64>(records),
@@ -328,13 +370,16 @@ ASTIA_TEST(module_syscall_modls_reports_bounded_capacity_and_total) {
 ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
     reset_registry();
     set_root(true);
+
     module_id dependent{};
     module_id provider{};
+
     ASTIA_CHECK(load_test_module(dependent, named("dependent")) == module_error::ok);
     ASTIA_CHECK(load_test_module(provider, named("provider")) == module_error::ok);
     ASTIA_CHECK(astia::mod::add_dependency(dependent, provider) == module_error::ok);
 
     astia_module_stat stat{};
+
     ASTIA_CHECK(call_modstat(dependent, &stat) == 0);
     ASTIA_CHECK(stat.dependency_count == 1 && stat.dependencies_written == 1);
     ASTIA_CHECK(stat.dependencies[0].id.slot == provider.slot);
@@ -345,6 +390,7 @@ ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_UNLOADABLE) == 0);
 
     int result = 0;
+
     ASTIA_CHECK(astia::mod::run(provider, result) == module_error::ok);
     ASTIA_CHECK(result == 17);
     ASTIA_CHECK(call_modstat(provider, &stat) == 0);
@@ -352,8 +398,11 @@ ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_RUNNING) != 0);
 
     module_load_options resident = named("resident");
-    resident.resident            = true;
+
+    resident.resident = true;
+
     module_id resident_id{};
+
     ASTIA_CHECK(load_test_module(resident_id, resident) == module_error::ok);
     ASTIA_CHECK(call_modstat(resident_id, &stat) == 0);
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_RESIDENT) != 0);
@@ -364,29 +413,40 @@ ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
 ASTIA_TEST(module_syscall_modclose_rejects_running_resident_and_waits_drain) {
     reset_registry();
     set_root(true);
+
     module_id running{};
+
     ASTIA_CHECK(load_test_module(running, named("running")) == module_error::ok);
+
     int result = 0;
+
     ASTIA_CHECK(astia::mod::run(running, result) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, running) == -EBUSY);
 
     module_load_options resident = named("resident-close");
-    resident.resident            = true;
+
+    resident.resident = true;
+
     module_id resident_id{};
+
     ASTIA_CHECK(load_test_module(resident_id, resident) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, resident_id) == -EPERM);
 
     module_id provider{};
+
     ASTIA_CHECK(load_test_module(provider, named("provider-close")) == module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(provider) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, provider) == -EAGAIN);
+
     module_info pending{};
+
     ASTIA_CHECK(astia::mod::lookup(provider, pending) == module_error::ok);
     ASTIA_CHECK(!pending.quiescing);
     ASTIA_CHECK(astia::mod::release(provider) == module_error::ok);
     ASTIA_CHECK(astia::mod::acquire(provider) == module_error::ok);
 
     auto closing = astia::mod::close(provider);
+
     closing.resume();
     ASTIA_CHECK(!closing.done());
     ASTIA_CHECK(astia::mod::lookup(provider, pending) == module_error::ok);
@@ -404,15 +464,19 @@ ASTIA_TEST(module_syscall_modclose_rejects_running_resident_and_waits_drain) {
 ASTIA_TEST(module_syscall_modclose_rejects_dependents_and_stale_ids) {
     reset_registry();
     set_root(true);
+
     module_id dependent{};
     module_id provider{};
+
     ASTIA_CHECK(load_test_module(dependent, named("dependent-close")) ==
                 module_error::ok);
     ASTIA_CHECK(load_test_module(provider, named("provider-blocked")) ==
                 module_error::ok);
     ASTIA_CHECK(astia::mod::add_dependency(dependent, provider) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, provider) == -EAGAIN);
+
     module_info pending{};
+
     ASTIA_CHECK(astia::mod::lookup(provider, pending) == module_error::ok);
     ASTIA_CHECK(pending.dependent_count == 1);
     reset_registry();
@@ -421,13 +485,18 @@ ASTIA_TEST(module_syscall_modclose_rejects_dependents_and_stale_ids) {
 ASTIA_TEST(module_syscall_slot_reuse_keeps_old_ids_stale) {
     reset_registry();
     set_root(true);
+
     module_id first{};
+
     ASTIA_CHECK(load_test_module(first, named("first-slot")) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, first) == 0);
+
     astia_module_stat stat{};
+
     ASTIA_CHECK(call_modstat(first, &stat) == -ENOENT);
 
     module_id second{};
+
     ASTIA_CHECK(load_test_module(second, named("second-slot")) == module_error::ok);
     ASTIA_CHECK(second.slot == first.slot);
     ASTIA_CHECK(second.generation != first.generation);

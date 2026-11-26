@@ -8,14 +8,18 @@
 
 void c_main(const long* frame) {
     (void) frame;
+
     if (astia_getpid() != 1 || astia_getppid() != 0)
         astia_exit(1);
+
     for (int i = 0; i < 256; ++i) {
         astia_timespec now;
+
         if (astia_clock_gettime(CLOCK_MONOTONIC, &now) != 0 || now.tv_nsec < 0 ||
             now.tv_nsec >= 1000000000LL)
             astia_exit(1);
     }
+
     astia_exit(0);
 }
 

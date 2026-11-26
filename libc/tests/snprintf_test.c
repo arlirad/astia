@@ -34,21 +34,29 @@ static void check_fmt(const char* got, int got_ret, const char* want, int want_r
 
 static int wrap_vsnprintf(char* buf, size_t n, const char* fmt, ...) {
     va_list ap;
-    int     r;
+
+    int r;
 
     va_start(ap, fmt);
+
     r = vsnprintf(buf, n, fmt, ap);
+
     va_end(ap);
+
     return r;
 }
 
 static int wrap_vsprintf(char* buf, const char* fmt, ...) {
     va_list ap;
-    int     r;
+
+    int r;
 
     va_start(ap, fmt);
+
     r = vsprintf(buf, fmt, ap);
+
     va_end(ap);
+
     return r;
 }
 
@@ -101,6 +109,7 @@ static void test_width_and_flags(void) {
         /* precision kills the 0 flag: spaces pad, digits do not */
         CHECK_FMT("     007", 8, f_prec_zero, 7);
     }
+
     CHECK_FMT("007   ", 6, "%-6.3d", 7);
 
     /* star width and precision */
@@ -121,8 +130,10 @@ static void test_chars_and_strings(void) {
     CHECK_FMT("", 0, "%.0s", "x");
     CHECK_FMT("abcdef  ", 8, "%-8s", "abcdef");
     CHECK_FMT("  abcdef", 8, "%8s", "abcdef");
+
     {
         const char* nil = NULL;
+
         CHECK_FMT("(null)", 6, "%s", nil);
     }
 }
@@ -150,19 +161,24 @@ static void test_truncation(void) {
     int             r;
 
     r = snprintf(small, cap_5, "%s", "hello");
+
     CHECK(r == 5);                     /* would-be length */
     CHECK(strcmp(small, "hell") == 0); /* truncated, terminated */
 
     r = snprintf(small, cap_1, "%s", "hi");
+
     CHECK(r == 2 && small[0] == '\0'); /* only the terminator fits */
 
     r = snprintf(small, cap_0, "%s", "hi");
+
     CHECK(r == 2); /* nothing may be written */
 
     r = snprintf(NULL, 0, "%d", 12345);
+
     CHECK(r == 5); /* pure length computation */
 
     r = snprintf(small, cap_5, "%.100d", 7);
+
     CHECK(r == 100);
     CHECK(strcmp(small, "0000") == 0); /* first bytes of the zeros */
 }
@@ -172,12 +188,15 @@ static void test_entry_points(void) {
     int  r;
 
     r = sprintf(b, "%03d/%s", 7, "x");
+
     CHECK(r == 5 && strcmp(b, "007/x") == 0);
 
     r = wrap_vsprintf(b, "%s!", "ok"); /* the va_list entry point */
+
     CHECK(r == 3 && strcmp(b, "ok!") == 0);
 
     r = wrap_vsnprintf(b, sizeof b, "%d-%s", 9, "z");
+
     CHECK(r == 3 && strcmp(b, "9-z") == 0);
 
     {
@@ -193,10 +212,12 @@ static void test_long(void) {
     int  r;
 
     r = snprintf(big, sizeof big, "%s-%d-%s", "tag", -7, "end");
+
     CHECK(r == 10 && strcmp(big, "tag--7-end") == 0);
 
     /* 400 digits-worth of padding must count toward the return */
     r = snprintf(big, sizeof big, "%400d", 1);
+
     CHECK(r == 400);
     CHECK(big[0] == ' ' && big[399] == '1' && big[400] == '\0');
 }
@@ -214,5 +235,6 @@ int main(void) {
 
     if (fails)
         printf("snprintf_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

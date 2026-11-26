@@ -19,11 +19,13 @@ static void test_mb_cur_max(void) {
 
 static void test_mbrlen(void) {
     mbstate_t state = {0};
-    char      ascii = 'A';
-    char      nul   = '\0';
-    char      high  = (char) 0x80;
+
+    char ascii = 'A';
+    char nul   = '\0';
+    char high  = (char) 0x80;
 
     state.pending = 1;
+
     CHECK(mbrlen(NULL, 0, &state) == 0);
     CHECK(state.pending == 0);
 
@@ -32,21 +34,24 @@ static void test_mbrlen(void) {
     CHECK(mbrlen(&ascii, 0, NULL) == (size_t) -2);
 
     errno = 0;
+
     CHECK(mbrlen(&high, 1, NULL) == (size_t) -1);
     CHECK(errno == EILSEQ);
 }
 
 static void test_ascii_conversion(void) {
-    mbstate_t state  = {0};
-    wchar_t   wc     = 0;
-    char      buf[2] = {0, 0};
-    char      high   = (char) 0x80;
+    mbstate_t state = {0};
+
+    wchar_t wc     = 0;
+    char    buf[2] = {0, 0};
+    char    high   = (char) 0x80;
 
     CHECK(mbrtowc(&wc, "A", 1, &state) == 1 && wc == L'A');
     CHECK(mbrtowc(&wc, "", 1, &state) == 0 && wc == L'\0');
     CHECK(mbrtowc(&wc, "A", 0, &state) == (size_t) -2);
 
     errno = 0;
+
     CHECK(mbrtowc(&wc, &high, 1, &state) == (size_t) -1);
     CHECK(errno == EILSEQ);
 
@@ -54,6 +59,7 @@ static void test_ascii_conversion(void) {
     CHECK(wcrtomb(NULL, L'A', &state) == 1);
 
     errno = 0;
+
     CHECK(wcrtomb(buf, (wchar_t) 0xe9, &state) == (size_t) -1);
     CHECK(errno == EILSEQ);
 }
@@ -63,11 +69,13 @@ static void test_wcwidth(void) {
 
     CHECK(wcwidth(L'\0') == 0);
 
-    for (c = 0x20; c <= 0x7e; c++)
+    for (c = 0x20; c <= 0x7e; c++) {
         CHECK(wcwidth((wchar_t) c) == 1);
+    }
 
-    for (c = 0x01; c <= 0x1f; c++)
+    for (c = 0x01; c <= 0x1f; c++) {
         CHECK(wcwidth((wchar_t) c) == -1);
+    }
 
     CHECK(wcwidth((wchar_t) 0x7f) == -1);
     CHECK(wcwidth((wchar_t) 0x80) == -1);
@@ -83,5 +91,6 @@ int main(void) {
 
     if (fails)
         printf("wchar_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

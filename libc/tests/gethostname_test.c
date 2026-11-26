@@ -27,21 +27,26 @@ static struct uname_fixture fixture;
 
 long __astia_process_uname(struct utsname* name) {
     ++fixture.calls;
+
     if (fixture.result < 0)
         return fixture.result;
+
     memset(name, 0, sizeof *name);
     strncpy(name->nodename, fixture.nodename, sizeof name->nodename - 1);
+
     return 0;
 }
 
 static int bytes_are(const void* object, size_t size, unsigned char value) {
     const unsigned char* bytes = (const unsigned char*) object;
-    size_t               i;
+
+    size_t i;
 
     for (i = 0; i < size; ++i) {
         if (bytes[i] != value)
             return 0;
     }
+
     return 1;
 }
 
@@ -54,7 +59,9 @@ static void test_success(void) {
 
     memset(buffer, 0xA5, sizeof buffer);
     set_fixture("astia-node", 0);
+
     errno = EDOM;
+
     CHECK(gethostname(buffer, sizeof buffer) == 0);
     CHECK(strcmp(buffer, "astia-node") == 0);
     CHECK(errno == EDOM);
@@ -119,14 +126,18 @@ static void test_invalid_arguments(void) {
     char buffer[16];
 
     set_fixture("astia-node", 0);
+
     errno = 0;
+
     CHECK(gethostname(NULL, sizeof buffer) == -1);
     CHECK(errno == EINVAL);
     CHECK(fixture.calls == 0);
 
     memset(buffer, 0x33, sizeof buffer);
     set_fixture("astia-node", 0);
+
     errno = 0;
+
     CHECK(gethostname(buffer, 0) == -1);
     CHECK(errno == EINVAL);
     CHECK(fixture.calls == 0);
@@ -138,7 +149,9 @@ static void test_uname_failure(void) {
 
     memset(buffer, 0x33, sizeof buffer);
     set_fixture(NULL, -ENOENT);
+
     errno = 0;
+
     CHECK(gethostname(buffer, sizeof buffer) == -1);
     CHECK(errno == ENOENT);
     CHECK(fixture.calls == 1);
@@ -152,5 +165,6 @@ int main(void) {
     test_one_byte_capacity();
     test_invalid_arguments();
     test_uname_failure();
+
     return failures != 0;
 }

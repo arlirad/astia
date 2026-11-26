@@ -1,9 +1,7 @@
+#include <astia/api/errno.h>
 #include <astia/dev/device.hpp>
 
-#include <astia/api/errno.h>
-
 namespace astia::dev {
-
     u32 device::poll(u32 events, u32) {
         return events & (POLLIN | POLLOUT);
     }
@@ -12,6 +10,7 @@ namespace astia::dev {
         (void) request;
         (void) argp;
         (void) size;
+
         return -ENOTTY;
     }
 
@@ -30,10 +29,9 @@ namespace astia::dev {
             request.direction() == io::direction::input
                 ? read(request.buffer(), request.length(), request.offset())
                 : write(request.buffer(), request.length(), request.offset());
-        if (result == 0) {
+        if (result == 0)
             request.complete(true);
-        }
+
         return result;
     }
-
 } // namespace astia::dev

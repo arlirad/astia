@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::core {
-
 #ifdef ASTIA_HOST_TEST
     namespace rcu_test {
         using reclaim_hook                                 = void (*)();
@@ -28,6 +27,7 @@ namespace astia::core {
         /// than freeing a snapshot that may still be observable.
         constexpr bool epoch_precedes(u64 epoch, u64 boundary) noexcept {
             const u64 distance = boundary - epoch;
+
             return distance != 0 && distance < epoch_half_range;
         }
     } // namespace rcu_detail
@@ -72,9 +72,11 @@ namespace astia::core {
         }
 
         void retire(Snapshot* value, retired_record* record) const {
-            record->value        = value;
-            record->epoch        = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+            record->value = value;
+            record->epoch = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+
             retired_record* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
+
             do {
                 record->next = head;
             } while (!__atomic_compare_exchange_n(&_retired, &head, record, false,
@@ -87,22 +89,27 @@ namespace astia::core {
             if (rcu_test::reclaim_pre_exchange_observer != nullptr)
                 rcu_test::reclaim_pre_exchange_observer();
 #endif
-            retired_record* list      = detach_retired();
-            const bool      quiescent = observe_readers();
+            retired_record* list = detach_retired();
+
+            const bool quiescent = observe_readers();
 #ifdef ASTIA_HOST_TEST
             if (rcu_test::reclaim_observer != nullptr)
                 rcu_test::reclaim_observer();
 #endif
             if (list == nullptr)
                 return;
+
             if (!quiescent) {
                 push(list);
+
                 return;
             }
 
             retired_record* keep = nullptr;
+
             while (list != nullptr) {
                 retired_record* next = list->next;
+
                 if (rcu_detail::epoch_precedes(list->epoch, grace)) {
                     delete list->value;
                     delete list;
@@ -111,20 +118,26 @@ namespace astia::core {
                     list->next = keep;
                     keep       = list;
                 }
+
                 list = next;
             }
+
             if (keep != nullptr)
                 push(keep);
         }
 
         void discard() const {
             __atomic_store_n(&_readers, 0, __ATOMIC_SEQ_CST);
+
             retired_record* list =
                 __atomic_exchange_n(&_retired, nullptr, __ATOMIC_SEQ_CST);
+
             while (list != nullptr) {
                 retired_record* next = list->next;
+
                 delete list->value;
                 delete list;
+
                 list = next;
             }
         }
@@ -163,10 +176,12 @@ namespace astia::core {
             while (list != nullptr) {
                 retired_record* next = list->next;
                 retired_record* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
+
                 do {
                     list->next = head;
                 } while (!__atomic_compare_exchange_n(
                     &_retired, &head, list, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+
                 list = next;
             }
         }
@@ -175,5 +190,4 @@ namespace astia::core {
         mutable u64             _epoch   = 1;
         mutable retired_record* _retired = nullptr;
     };
-
 } // namespace astia::core

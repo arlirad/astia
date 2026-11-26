@@ -8,7 +8,6 @@
 #include "chr/tty/virtual_tty.hpp"
 
 namespace astia::dev {
-
     // UART bring-up first: the console must be solid before paging,
     // heap or interrupts exist.  The ring/IRQ half is a separate step
     // because it needs the PIC remap and IDT that `interrupts` arms.
@@ -27,10 +26,14 @@ namespace astia::dev {
     static bool step_framebuffer(init::context& ctx) {
         if (ctx.info == nullptr || !ctx.info->framebuffer.valid()) {
             astia::log::info("framebuffer: unavailable");
+
             return true;
         }
+
         const bool ready = framebuffer_console_init(ctx.info);
+
         astia::log::info("framebuffer: %s", ready ? "ready" : "failed");
+
         return ready;
     }
 
@@ -40,10 +43,11 @@ namespace astia::dev {
 
     static bool step_pci(init::context&) {
         const u32 found = hw::pci_enumerate();
+
         astia::log::info("pci: enumerated %u function(s)", found);
+
         return true;
     }
-
 } // namespace astia::dev
 
 ASTIA_INIT_STEP(early, uart16550, astia::dev::step_uart16550)

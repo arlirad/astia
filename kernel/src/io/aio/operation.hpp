@@ -3,7 +3,6 @@
 #include <cstdint>
 
 namespace astia::io::aio {
-
     struct operation_id {
         std::uint32_t slot;
         std::uint64_t generation;
@@ -51,16 +50,20 @@ namespace astia::io::aio {
         constexpr bool request_cancel() {
             if (_state == operation_state::terminal)
                 return false;
+
             _cancellation_requested = true;
+
             return true;
         }
 
         constexpr bool complete(std::int32_t result) {
             if (_state == operation_state::terminal)
                 return false;
+
             _result    = result;
             _completed = true;
             _state     = operation_state::terminal;
+
             return true;
         }
 
@@ -71,21 +74,27 @@ namespace astia::io::aio {
         constexpr bool acknowledge_device() {
             if (_state != operation_state::terminal || _device_acknowledged)
                 return false;
+
             _device_acknowledged = true;
+
             return true;
         }
 
         constexpr bool mark_quiescent() {
             if (!_device_acknowledged || _quiescent)
                 return false;
+
             _quiescent = true;
+
             return true;
         }
 
         constexpr bool acknowledge() {
             if (!_quiescent || _acknowledged)
                 return false;
+
             _acknowledged = true;
+
             return true;
         }
 
@@ -99,5 +108,4 @@ namespace astia::io::aio {
         bool            _quiescent              = false;
         bool            _acknowledged           = false;
     };
-
 } // namespace astia::io::aio

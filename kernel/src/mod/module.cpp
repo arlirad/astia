@@ -27,7 +27,6 @@ namespace astia::proc {
 } // namespace astia::proc
 
 namespace astia::mod {
-
 #ifdef ASTIA_MODULE_HOST_TEST
     namespace host_test {
         int  invoke_entry(int (*entry)());
@@ -37,7 +36,6 @@ namespace astia::mod {
 #endif
 
     namespace {
-
         static_assert(max_modules <= 32, "dependency cycle bitmap covers max_modules");
 
         /// Refcounted close waiter. One reference belongs to the close
@@ -96,24 +94,24 @@ namespace astia::mod {
         }
 
         void release_waiter(close_waiter* waiter) {
-            if (waiter == nullptr) {
+            if (waiter == nullptr)
                 return;
-            }
-            if (__atomic_sub_fetch(&waiter->refs, 1, __ATOMIC_ACQ_REL) == 0) {
+
+            if (__atomic_sub_fetch(&waiter->refs, 1, __ATOMIC_ACQ_REL) == 0)
                 delete waiter;
-            }
         }
 
         void deliver_waiter(close_waiter* waiter, module_error result) {
-            if (waiter == nullptr) {
+            if (waiter == nullptr)
                 return;
-            }
+
             waiter->completion.complete_deferred(result);
             release_waiter(waiter);
         }
 
         bool begin_execution() {
             u32 expected = 0;
+
             return __atomic_compare_exchange_n(&execution_owner, &expected, 1, false,
                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
         }
@@ -131,9 +129,8 @@ namespace astia::mod {
             execution_guard() : _owned(begin_execution()) {}
 
             ~execution_guard() {
-                if (_owned) {
+                if (_owned)
                     end_execution();
-                }
             }
 
             execution_guard(const execution_guard&)            = delete;
@@ -157,16 +154,20 @@ namespace astia::mod {
                 ++left;
                 ++right;
             }
+
             return *left == *right;
         }
 
         void copy_module_name(char (&destination)[max_module_name],
                               const char (&source)[max_module_name]) {
             usize i = 0;
+
             while (i + 1 < max_module_name && source[i] != '\0') {
                 destination[i] = source[i];
+
                 ++i;
             }
+
             destination[i] = '\0';
         }
 
@@ -176,19 +177,26 @@ namespace astia::mod {
 
         registry_slot* find_slot_locked(module_id id, module_error& error) {
             error = module_error::not_found;
-            if (!id.valid() || id.slot >= max_modules) {
+
+            if (!id.valid() || id.slot >= max_modules)
                 return nullptr;
-            }
+
             registry_slot& slot = slots[id.slot];
+
             if (slot.generation != id.generation) {
                 error = module_error::stale_id;
+
                 return nullptr;
             }
+
             if (slot.state == module_state::free) {
                 error = module_error::stale_id;
+
                 return nullptr;
             }
+
             error = module_error::ok;
+
             return &slot;
         }
 
@@ -197,19 +205,24 @@ namespace astia::mod {
                 if (slot.state == module_state::free) {
                     slot.close_wait  = nullptr;
                     slot.close_owner = false;
+
                     return &slot;
                 }
             }
+
             return nullptr;
         }
 
         void abandon_slot(usize index, module_id id) {
             arch::interrupt_spinlock_guard guard(registry_lock);
-            registry_slot&                 slot = slots[index];
+
+            registry_slot& slot = slots[index];
+
             if (slot.module.id == id && slot.state == module_state::loading) {
                 slot.state       = module_state::free;
                 slot.close_wait  = nullptr;
                 slot.close_owner = false;
+
                 ++slot.generation;
                 reset_loaded_module(slot.module);
             }
@@ -219,44 +232,48 @@ namespace astia::mod {
             for (registry_slot& slot : slots) {
                 if (&slot.module == module && slot.state != module_state::free) {
                     id = slot.module.id;
+
                     return true;
                 }
             }
+
             return false;
         }
 
         module_error pin_dependencies_locked(module_id             self,
                                              span<const module_id> dependencies) {
-            if (dependencies.size() > max_module_dependencies) {
+            if (dependencies.size() > max_module_dependencies)
                 return module_error::limit;
-            }
+
             for (usize i = 0; i < dependencies.size(); ++i) {
-                if (dependencies[i] == self || !dependencies[i].valid()) {
+                if (dependencies[i] == self || !dependencies[i].valid())
                     return module_error::invalid_argument;
-                }
+
                 for (usize j = 0; j < i; ++j) {
-                    if (dependencies[i] == dependencies[j]) {
+                    if (dependencies[i] == dependencies[j])
                         return module_error::invalid_argument;
-                    }
                 }
+
                 module_error   error    = module_error::ok;
                 registry_slot* provider = find_slot_locked(dependencies[i], error);
-                if (provider == nullptr) {
+                if (provider == nullptr)
                     return error;
-                }
+
                 if (provider->state != module_state::loaded &&
-                    provider->state != module_state::running) {
+                    provider->state != module_state::running)
                     return module_error::stale_id;
-                }
-                if (provider->module.quiescing) {
+
+                if (provider->module.quiescing)
                     return module_error::would_block;
-                }
             }
+
             for (usize i = 0; i < dependencies.size(); ++i) {
                 module_error   error    = module_error::ok;
                 registry_slot* provider = find_slot_locked(dependencies[i], error);
+
                 ++provider->module.dependent_count;
             }
+
             return module_error::ok;
         }
 
@@ -264,31 +281,31 @@ namespace astia::mod {
         /// deliver (or otherwise release) the waiter after dropping the lock.
         close_waiter* take_ready_waiter_locked(registry_slot& slot) {
             if (!slot.module.quiescing || slot.module.active_refs != 0 ||
-                slot.module.dependent_count != 0 || slot.module.callback_inflight != 0) {
+                slot.module.dependent_count != 0 || slot.module.callback_inflight != 0)
                 return nullptr;
-            }
+
             close_waiter* waiter = slot.close_wait;
-            slot.close_wait      = nullptr;
+
+            slot.close_wait = nullptr;
+
             return waiter;
         }
 
         void collect_wake_locked(registry_slot& slot, unload_plan& plan) {
             close_waiter* waiter = take_ready_waiter_locked(slot);
-            if (waiter == nullptr) {
+            if (waiter == nullptr)
                 return;
-            }
-            if (plan.wake_count < max_modules) {
+
+            if (plan.wake_count < max_modules)
                 plan.wakes[plan.wake_count++] = waiter;
-            }
-            else {
+            else
                 slot.close_wait = waiter;
-            }
         }
 
         bool begin_unload_locked(registry_slot& slot, unload_plan& plan) {
-            if (slot.close_wait != nullptr) {
+            if (slot.close_wait != nullptr)
                 return false;
-            }
+
             plan.index            = static_cast<usize>(&slot - slots);
             plan.id               = slot.module.id;
             plan.base             = slot.module.base;
@@ -297,98 +314,108 @@ namespace astia::mod {
             plan.unmap            = slot.module.loader_unmap;
             slot.module.quiescing = true;
             slot.state            = module_state::unloading;
+
             for (usize i = 0; i < slot.module.dependency_count; ++i) {
                 module_error   error = module_error::ok;
                 registry_slot* provider =
                     find_slot_locked(slot.module.dependencies[i], error);
-                if (provider == nullptr) {
+                if (provider == nullptr)
                     continue;
-                }
-                if (provider->module.dependent_count > 0) {
+
+                if (provider->module.dependent_count > 0)
                     --provider->module.dependent_count;
-                }
+
                 collect_wake_locked(*provider, plan);
             }
+
             slot.module.dependency_count = 0;
+
             return true;
         }
 
         void perform_unload(unload_plan& plan) {
-            if (plan.unmap != nullptr && plan.base != nullptr) {
+            if (plan.unmap != nullptr && plan.base != nullptr)
                 plan.unmap(plan.context, plan.base, plan.size);
-            }
+
             {
                 arch::interrupt_spinlock_guard guard(registry_lock);
-                registry_slot&                 slot = slots[plan.index];
+
+                registry_slot& slot = slots[plan.index];
+
                 if (slot.module.id == plan.id && slot.state == module_state::unloading) {
                     slot.state       = module_state::free;
                     slot.close_wait  = nullptr;
                     slot.close_owner = false;
+
                     ++slot.generation;
                     reset_loaded_module(slot.module);
                 }
             }
+
             for (usize i = 0; i < plan.wake_count; ++i) {
                 deliver_waiter(plan.wakes[i], module_error::ok);
             }
         }
 
         module_error closable_error(const registry_slot& slot) {
-            if (slot.module.resident) {
+            if (slot.module.resident)
                 return module_error::resident;
-            }
+
             if (slot.state == module_state::running ||
-                slot.state == module_state::exiting) {
+                slot.state == module_state::exiting)
                 return module_error::running;
-            }
-            if (slot.state != module_state::loaded) {
+
+            if (slot.state != module_state::loaded)
                 return module_error::busy;
-            }
+
             return module_error::ok;
         }
 
         module_error strict_unloadable_error(const registry_slot& slot) {
-            if (slot.module.resident) {
+            if (slot.module.resident)
                 return module_error::resident;
-            }
+
             if (slot.state == module_state::running ||
-                slot.state == module_state::exiting) {
+                slot.state == module_state::exiting)
                 return module_error::running;
-            }
-            if (slot.state != module_state::loaded) {
+
+            if (slot.state != module_state::loaded)
                 return module_error::busy;
-            }
+
             if (slot.module.active_refs != 0 || slot.module.dependent_count != 0 ||
-                slot.module.callback_inflight != 0) {
+                slot.module.callback_inflight != 0)
                 return module_error::busy;
-            }
-            if (slot.close_owner || slot.close_wait != nullptr) {
+
+            if (slot.close_owner || slot.close_wait != nullptr)
                 return module_error::busy;
-            }
+
             return module_error::ok;
         }
 
         bool depends_on_locked(usize start, module_id target, u32& visited) {
-            if (start >= max_modules || (visited & (1u << start)) != 0) {
+            if (start >= max_modules || (visited & (1u << start)) != 0)
                 return false;
-            }
+
             visited |= 1u << start;
+
             const registry_slot& slot = slots[start];
+
             for (usize i = 0; i < slot.module.dependency_count; ++i) {
                 const module_id dependency = slot.module.dependencies[i];
-                if (dependency == target) {
+                if (dependency == target)
                     return true;
-                }
-                if (!dependency.valid() || dependency.slot >= max_modules) {
+
+                if (!dependency.valid() || dependency.slot >= max_modules)
                     continue;
-                }
+
                 const registry_slot& provider = slots[dependency.slot];
+
                 if (provider.generation == dependency.generation &&
                     provider.state != module_state::free &&
-                    depends_on_locked(dependency.slot, target, visited)) {
+                    depends_on_locked(dependency.slot, target, visited))
                     return true;
-                }
             }
+
             return false;
         }
 
@@ -403,23 +430,30 @@ namespace astia::mod {
         void* image_map(void* context, u64 /*hint*/, usize size, usize align,
                         bool fixed) {
             using fa = mm::frame_allocator;
+
             if (fixed || size == 0 || align > fa::frame_size) {
                 return nullptr; // the frame allocator cannot honor a fixed address
             }
+
             usize frames = (size + fa::frame_size - 1) / fa::frame_size;
             u64   phys   = mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
-            if (phys == fa::invalid_frame) {
+
+            if (phys == fa::invalid_frame)
                 return nullptr;
-            }
+
             void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;
+
             return image;
         }
 
         void image_unmap(void*, void* address, usize size) {
-            using fa     = mm::frame_allocator;
+            using fa = mm::frame_allocator;
+
             usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+
             mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
         }
 
@@ -429,15 +463,18 @@ namespace astia::mod {
             if (name != nullptr && name_equals(name, "__dso_handle") &&
                 context != nullptr)
                 return reinterpret_cast<u64>(static_cast<load_state*>(context)->dso);
+
             return resolve(name);
         }
 
         elf::loader::env production_environment(load_state& state) {
             elf::loader::env env{};
+
             env.ctx     = &state;
             env.map     = image_map;
             env.unmap   = image_unmap;
             env.resolve = image_resolve;
+
             return env;
         }
 
@@ -445,49 +482,62 @@ namespace astia::mod {
                                      void*                      persistent_context,
                                      const module_load_options& options, module_id& out) {
             out = {};
-            if (image.data() == nullptr || image.size() == 0) {
-                return module_error::invalid_argument;
-            }
-            if (options.dependencies.size() > max_module_dependencies) {
-                return module_error::limit;
-            }
 
-            usize     index = max_modules;
+            if (image.data() == nullptr || image.size() == 0)
+                return module_error::invalid_argument;
+
+            if (options.dependencies.size() > max_module_dependencies)
+                return module_error::limit;
+
+            usize index = max_modules;
+
             module_id id{};
+
             {
                 arch::interrupt_spinlock_guard guard(registry_lock);
                 registry_slot*                 slot = reserve_slot_locked();
-                if (slot == nullptr) {
+                if (slot == nullptr)
                     return module_error::no_space;
-                }
+
                 index       = static_cast<usize>(slot - slots);
                 slot->state = module_state::loading;
+
                 reset_loaded_module(slot->module);
+
                 slot->module.id = module_id{static_cast<u32>(index), slot->generation};
                 id              = slot->module.id;
             }
 
             elf::loader::image loaded{};
+
             if (!elf::loader::load(image, env, loaded)) {
                 abandon_slot(index, id);
+
                 return module_error::load_failed;
             }
 
             module_error dependency_error = module_error::ok;
-            bool         success          = false;
+
+            bool success = false;
+
             {
                 arch::interrupt_spinlock_guard guard(registry_lock);
-                registry_slot&                 slot = slots[index];
+
+                registry_slot& slot = slots[index];
+
                 if (slot.state == module_state::loading && slot.module.id == id) {
                     dependency_error = pin_dependencies_locked(id, options.dependencies);
+
                     if (dependency_error == module_error::ok) {
                         if (options.name[0] != '\0') {
                             copy_module_name(slot.module.name, options.name);
                         }
                         else {
                             const char fallback[max_module_name] = "module";
+
                             copy_module_name(slot.module.name, fallback);
                         }
+
                         slot.module.base    = loaded.base;
                         slot.module.size    = loaded.size;
                         slot.module.entry   = reinterpret_cast<int (*)()>(loaded.entry);
@@ -495,12 +545,15 @@ namespace astia::mod {
                         slot.module.initialized = false;
                         slot.module.init_count  = loaded.init_count;
                         slot.module.fini_count  = loaded.fini_count;
+
                         for (usize i = 0; i < loaded.init_count; ++i) {
                             slot.module.init_array[i] = loaded.init_array[i];
                         }
+
                         for (usize i = 0; i < loaded.fini_count; ++i) {
                             slot.module.fini_array[i] = loaded.fini_array[i];
                         }
+
                         slot.module.loader_context    = persistent_context;
                         slot.module.loader_unmap      = env.unmap;
                         slot.module.dso_identity      = loaded.base;
@@ -510,9 +563,11 @@ namespace astia::mod {
                         slot.module.quiescing         = false;
                         slot.module.callback_inflight = 0;
                         slot.module.dependency_count  = options.dependencies.size();
+
                         for (usize i = 0; i < options.dependencies.size(); ++i) {
                             slot.module.dependencies[i] = options.dependencies[i];
                         }
+
                         slot.state = module_state::loaded;
                         out        = id;
                         success    = true;
@@ -521,14 +576,16 @@ namespace astia::mod {
             }
 
             if (!success) {
-                if (env.unmap != nullptr && loaded.base != nullptr) {
+                if (env.unmap != nullptr && loaded.base != nullptr)
                     env.unmap(env.ctx, loaded.base, loaded.size);
-                }
+
                 abandon_slot(index, id);
+
                 return dependency_error == module_error::ok
                            ? module_error::invalid_argument
                            : dependency_error;
             }
+
             return module_error::ok;
         }
 
@@ -536,6 +593,7 @@ namespace astia::mod {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
+
             return slot == nullptr ? nullptr : &slot->module;
         }
 
@@ -571,6 +629,7 @@ namespace astia::mod {
             void finish_wait() {
                 if (_waiter != nullptr) {
                     release_waiter(_waiter);
+
                     _waiter = nullptr;
                 }
             }
@@ -578,6 +637,7 @@ namespace astia::mod {
             private:
             void release() {
                 close_waiter* registered = nullptr;
+
                 {
                     arch::interrupt_spinlock_guard guard(registry_lock);
                     module_error                   error = module_error::ok;
@@ -587,21 +647,25 @@ namespace astia::mod {
                             slot->close_wait = nullptr;
                             registered       = _waiter;
                         }
+
                         if (_owner) {
                             slot->close_owner = false;
-                            if (slot->state == module_state::loaded) {
+
+                            if (slot->state == module_state::loaded)
                                 slot->module.quiescing = false;
-                            }
                         }
                     }
                 }
-                if (registered != nullptr) {
+
+                if (registered != nullptr)
                     release_waiter(registered);
-                }
+
                 if (_waiter != nullptr) {
                     release_waiter(_waiter);
+
                     _waiter = nullptr;
                 }
+
                 _owner = false;
             }
 
@@ -612,7 +676,9 @@ namespace astia::mod {
 
         void fill_info(const registry_slot& slot, module_info& info) {
             info.id = slot.module.id;
+
             copy_module_name(info.name, slot.module.name);
+
             info.state            = slot.state;
             info.image_size       = slot.module.size;
             info.active_refs      = slot.module.active_refs;
@@ -643,25 +709,35 @@ namespace astia::mod {
 
         open_parameters capture_options(const module_load_options& options) {
             open_parameters captured{};
+
             captured.resident = options.resident;
+
             copy_module_name(captured.name, options.name);
+
             if (options.dependencies.size() > max_module_dependencies) {
                 captured.too_many = true;
+
                 return captured;
             }
+
             captured.dependency_count = options.dependencies.size();
+
             for (usize i = 0; i < options.dependencies.size(); ++i) {
                 captured.dependencies[i] = options.dependencies[i];
             }
+
             return captured;
         }
 
         module_load_options options_from(const open_parameters& captured) {
             module_load_options options{};
+
             options.resident = captured.resident;
             options.dependencies =
                 span<const module_id>(captured.dependencies, captured.dependency_count);
+
             copy_module_name(options.name, captured.name);
+
             return options;
         }
 
@@ -669,37 +745,48 @@ namespace astia::mod {
                                                  elf::loader::env env,
                                                  open_parameters  parameters) {
             module_open_result result{};
+
             if (parameters.too_many) {
                 result.error = module_error::limit;
+
                 co_return result;
             }
+
             const module_load_options options = options_from(parameters);
-            result.error                      = validate_module_image_format(image);
-            if (result.error != module_error::ok) {
+
+            result.error = validate_module_image_format(image);
+
+            if (result.error != module_error::ok)
                 co_return result;
-            }
+
             result.error = load_image(image, env, options, result.id);
+
             co_return result;
         }
 
         core::task<module_open_result> open_task(span<const u8>  image,
                                                  open_parameters parameters) {
             module_open_result result{};
+
             if (parameters.too_many) {
                 result.error = module_error::limit;
+
                 co_return result;
             }
+
             load_state                state{};
             const elf::loader::env    env     = production_environment(state);
             const module_load_options options = options_from(parameters);
-            result.error                      = validate_module_image_format(image);
-            if (result.error != module_error::ok) {
+
+            result.error = validate_module_image_format(image);
+
+            if (result.error != module_error::ok)
                 co_return result;
-            }
+
             result.error = load_image(image, env, options, result.id);
+
             co_return result;
         }
-
     } // namespace
 
     int module_errno(module_error error) noexcept {
@@ -735,6 +822,7 @@ namespace astia::mod {
         case module_error::canceled:
             return -ECANCELED;
         }
+
         return -EINVAL;
     }
 
@@ -757,34 +845,38 @@ namespace astia::mod {
                             module_id& out) {
         load_state       state{};
         elf::loader::env env = production_environment(state);
+
         return load_image_impl(image, env, nullptr, options, out);
     }
 
     module_error run(module_id id, int& result) {
         result = -1;
+
         execution_guard execution;
-        if (!execution.owned()) {
+
+        if (!execution.owned())
             return module_error::busy;
-        }
+
         loaded_module* target = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
-            if (slot == nullptr) {
+            if (slot == nullptr)
                 return error;
-            }
-            if (slot->state == module_state::running) {
+
+            if (slot->state == module_state::running)
                 return module_error::busy;
-            }
-            if (slot->state != module_state::loaded) {
+
+            if (slot->state != module_state::loaded)
                 return slot->state == module_state::loading
                            ? module_error::busy
                            : module_error::invalid_argument;
-            }
-            if (slot->module.quiescing) {
+
+            if (slot->module.quiescing)
                 return module_error::would_block;
-            }
+
             slot->state               = module_state::running;
             slot->module.running      = true;
             slot->module.entry_active = true;
@@ -793,13 +885,16 @@ namespace astia::mod {
 
         loaded_module* previous       = nullptr;
         void*          previous_owner = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(callback_lock);
+
             previous       = active;
             previous_owner = callback_owner;
             active         = target;
             callback_owner = callback_context_owner();
         }
+
         for (usize i = 0; i < target->init_count; ++i) {
             if (target->init_array[i] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -809,8 +904,10 @@ namespace astia::mod {
 #endif
             }
         }
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
+
             target->initialized = true;
         }
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -820,49 +917,59 @@ namespace astia::mod {
 #endif
         {
             arch::interrupt_spinlock_guard guard(callback_lock);
+
             active         = previous;
             callback_owner = previous_owner;
         }
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
+
             target->entry_active = false;
         }
+
         return module_error::ok;
     }
 
     module_error exit(module_id id) {
         execution_guard execution;
-        if (!execution.owned()) {
+
+        if (!execution.owned())
             return module_error::busy;
-        }
+
         loaded_module* target = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
-            if (slot == nullptr) {
+            if (slot == nullptr)
                 return error;
-            }
-            if (slot->state != module_state::running) {
+
+            if (slot->state != module_state::running)
                 return module_error::not_running;
-            }
-            if (slot->module.entry_active) {
+
+            if (slot->module.entry_active)
                 return module_error::busy;
-            }
+
             slot->state = module_state::exiting;
             target      = &slot->module;
         }
 
         loaded_module* previous       = nullptr;
         void*          previous_owner = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(callback_lock);
+
             previous       = active;
             previous_owner = callback_owner;
             active         = target;
             callback_owner = callback_context_owner();
         }
+
         finalize_exit_handlers(nullptr);
+
         for (usize i = target->fini_count; i != 0; --i) {
             if (target->fini_array[i - 1] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
@@ -872,134 +979,154 @@ namespace astia::mod {
 #endif
             }
         }
+
         finalize_exit_handlers(nullptr);
+
         {
             arch::interrupt_spinlock_guard guard(callback_lock);
+
             active         = previous;
             callback_owner = previous_owner;
         }
 
         arch::interrupt_spinlock_guard guard(registry_lock);
+
         target->initialized  = false;
         target->running      = false;
         target->entry_active = false;
+
         for (registry_slot& slot : slots) {
             if (&slot.module == target && slot.state == module_state::exiting) {
                 slot.state = module_state::loaded;
+
                 break;
             }
         }
+
         return module_error::ok;
     }
 
     module_error unload(module_id id) {
         unload_plan plan{};
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
-            if (slot == nullptr) {
+            if (slot == nullptr)
                 return error;
-            }
+
             error = strict_unloadable_error(*slot);
-            if (error != module_error::ok) {
+
+            if (error != module_error::ok)
                 return error;
-            }
-            if (!begin_unload_locked(*slot, plan)) {
+
+            if (!begin_unload_locked(*slot, plan))
                 return module_error::busy;
-            }
         }
+
         perform_unload(plan);
+
         return module_error::ok;
     }
 
     core::task<module_error> close(module_id id) {
         close_owner_guard ownership(id);
-        for (;;) {
+
+        while (true) {
             close_waiter* waiter = new (std::nothrow) close_waiter();
-            if (waiter == nullptr) {
+            if (waiter == nullptr)
                 co_return module_error::no_memory;
-            }
+
             ownership.adopt(waiter);
+
             unload_plan  plan{};
             module_error early = module_error::ok;
-            bool         wait  = false;
+
+            bool wait = false;
+
             {
                 arch::interrupt_spinlock_guard guard(registry_lock);
                 module_error                   error = module_error::ok;
                 registry_slot*                 slot  = find_slot_locked(id, error);
-                if (slot == nullptr) {
+                if (slot == nullptr)
                     early = error;
-                }
-                else if (slot->close_owner && !ownership.owner()) {
+                else if (slot->close_owner && !ownership.owner())
                     early = module_error::busy;
-                }
-                else {
+                else
                     early = closable_error(*slot);
-                }
+
                 if (early == module_error::ok) {
                     if (!ownership.owner()) {
                         slot->close_owner = true;
+
                         ownership.claim();
                     }
+
                     slot->module.quiescing = true;
+
                     if (slot->module.active_refs == 0 &&
                         slot->module.dependent_count == 0 &&
                         slot->module.callback_inflight == 0) {
-                        if (!begin_unload_locked(*slot, plan)) {
+                        if (!begin_unload_locked(*slot, plan))
                             early = module_error::busy;
-                        }
                     }
                     else if (slot->close_wait != nullptr) {
                         early = module_error::busy;
                     }
                     else {
                         retain_waiter(waiter);
+
                         slot->close_wait = waiter;
                         wait             = true;
                     }
                 }
             }
 
-            if (early != module_error::ok) {
+            if (early != module_error::ok)
                 co_return early;
-            }
+
             if (!wait) {
                 perform_unload(plan);
+
                 co_return module_error::ok;
             }
 
             auto result = co_await waiter->completion;
+
             ownership.finish_wait();
-            if (!result) {
+
+            if (!result)
                 co_return module_error::canceled;
-            }
-            if (result.value != module_error::ok) {
+
+            if (result.value != module_error::ok)
                 co_return result.value;
-            }
         }
     }
 
     module_error cancel_close(module_id id) {
         close_waiter* waiter = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
-            if (slot == nullptr) {
+            if (slot == nullptr)
                 return error;
-            }
-            if (!slot->close_owner) {
+
+            if (!slot->close_owner)
                 return module_error::ok;
-            }
-            if (slot->close_wait == nullptr) {
+
+            if (slot->close_wait == nullptr)
                 return module_error::busy;
-            }
+
             waiter                 = slot->close_wait;
             slot->close_wait       = nullptr;
             slot->module.quiescing = false;
         }
+
         deliver_waiter(waiter, module_error::canceled);
+
         return module_error::ok;
     }
 
@@ -1007,73 +1134,84 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
-        if (!published(slot->state)) {
+
+        if (!published(slot->state))
             return module_error::busy;
-        }
+
         fill_info(*slot, out);
+
         return module_error::ok;
     }
 
     usize snapshot(span<module_info> out, usize* total) {
         arch::interrupt_spinlock_guard guard(registry_lock);
-        usize                          written = 0;
-        usize                          visible = 0;
+
+        usize written = 0;
+        usize visible = 0;
+
         for (const registry_slot& slot : slots) {
-            if (!published(slot.state)) {
+            if (!published(slot.state))
                 continue;
-            }
+
             ++visible;
-            if (written < out.size()) {
+
+            if (written < out.size())
                 fill_info(slot, out[written++]);
-            }
         }
-        if (total != nullptr) {
+
+        if (total != nullptr)
             *total = visible;
-        }
+
         return written;
     }
 
     module_error snapshot_module(module_id id, module_info& out,
                                  span<module_id> dependencies, usize& dependency_total) {
         dependency_total = 0;
+
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
-        if (!published(slot->state)) {
+
+        if (!published(slot->state))
             return module_error::busy;
-        }
+
         fill_info(*slot, out);
-        dependency_total  = slot->module.dependency_count;
+
+        dependency_total = slot->module.dependency_count;
+
         const usize count = dependencies.size() < slot->module.dependency_count
                                 ? dependencies.size()
                                 : slot->module.dependency_count;
+
         for (usize i = 0; i < count; ++i) {
             dependencies[i] = slot->module.dependencies[i];
         }
+
         return module_error::ok;
     }
 
     module_error dependency_at(module_id id, usize index, module_id& out) {
         out = {};
+
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
-        if (!published(slot->state)) {
+
+        if (!published(slot->state))
             return module_error::busy;
-        }
-        if (index >= slot->module.dependency_count) {
+
+        if (index >= slot->module.dependency_count)
             return module_error::not_found;
-        }
+
         out = slot->module.dependencies[index];
+
         return module_error::ok;
     }
 
@@ -1081,75 +1219,85 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot* dependent_slot        = find_slot_locked(dependent, error);
-        if (dependent_slot == nullptr) {
+        if (dependent_slot == nullptr)
             return error;
-        }
+
         registry_slot* provider_slot = find_slot_locked(dependency, error);
-        if (provider_slot == nullptr) {
+        if (provider_slot == nullptr)
             return error;
-        }
-        if (dependent == dependency) {
+
+        if (dependent == dependency)
             return module_error::invalid_argument;
-        }
+
         if ((dependent_slot->state != module_state::loaded &&
              dependent_slot->state != module_state::running) ||
             (provider_slot->state != module_state::loaded &&
-             provider_slot->state != module_state::running)) {
+             provider_slot->state != module_state::running))
             return module_error::busy;
-        }
-        if (dependent_slot->module.quiescing || provider_slot->module.quiescing) {
+
+        if (dependent_slot->module.quiescing || provider_slot->module.quiescing)
             return module_error::would_block;
-        }
+
         for (usize i = 0; i < dependent_slot->module.dependency_count; ++i) {
-            if (dependent_slot->module.dependencies[i] == dependency) {
+            if (dependent_slot->module.dependencies[i] == dependency)
                 return module_error::ok;
-            }
         }
-        if (dependent_slot->module.dependency_count == max_module_dependencies) {
+
+        if (dependent_slot->module.dependency_count == max_module_dependencies)
             return module_error::limit;
-        }
+
         u32 visited = 0;
-        if (depends_on_locked(dependency.slot, dependent, visited)) {
+
+        if (depends_on_locked(dependency.slot, dependent, visited))
             return module_error::cycle;
-        }
+
         dependent_slot->module.dependencies[dependent_slot->module.dependency_count++] =
             dependency;
+
         ++provider_slot->module.dependent_count;
+
         return module_error::ok;
     }
 
     module_error remove_dependency(module_id dependent, module_id dependency) {
         close_waiter* waiter = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot* dependent_slot        = find_slot_locked(dependent, error);
-            if (dependent_slot == nullptr) {
+            if (dependent_slot == nullptr)
                 return error;
-            }
+
             bool found = false;
+
             for (usize i = 0; i < dependent_slot->module.dependency_count; ++i) {
-                if (dependent_slot->module.dependencies[i] != dependency) {
+                if (dependent_slot->module.dependencies[i] != dependency)
                     continue;
-                }
+
                 dependent_slot->module.dependencies[i] =
                     dependent_slot->module
                         .dependencies[--dependent_slot->module.dependency_count];
                 found = true;
+
                 break;
             }
-            if (!found) {
+
+            if (!found)
                 return module_error::not_found;
-            }
+
             registry_slot* provider_slot = find_slot_locked(dependency, error);
+
             if (provider_slot != nullptr && provider_slot->module.dependent_count > 0) {
                 --provider_slot->module.dependent_count;
+
                 waiter = take_ready_waiter_locked(*provider_slot);
             }
         }
-        if (waiter != nullptr) {
+
+        if (waiter != nullptr)
             deliver_waiter(waiter, module_error::ok);
-        }
+
         return module_error::ok;
     }
 
@@ -1157,40 +1305,44 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
-        if (slot->module.quiescing) {
+
+        if (slot->module.quiescing)
             return module_error::would_block;
-        }
-        if (slot->state != module_state::loaded && slot->state != module_state::running) {
+
+        if (slot->state != module_state::loaded && slot->state != module_state::running)
             return module_error::busy;
-        }
-        if (slot->module.active_refs == ~u32{0}) {
+
+        if (slot->module.active_refs == ~u32{0})
             return module_error::limit;
-        }
+
         ++slot->module.active_refs;
+
         return module_error::ok;
     }
 
     module_error release(module_id id) {
         close_waiter* waiter = nullptr;
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
-            if (slot == nullptr) {
+            if (slot == nullptr)
                 return error;
-            }
-            if (slot->module.active_refs == 0) {
+
+            if (slot->module.active_refs == 0)
                 return module_error::invalid_argument;
-            }
+
             --slot->module.active_refs;
+
             waiter = take_ready_waiter_locked(*slot);
         }
-        if (waiter != nullptr) {
+
+        if (waiter != nullptr)
             deliver_waiter(waiter, module_error::ok);
-        }
+
         return module_error::ok;
     }
 
@@ -1198,6 +1350,7 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
+
         return slot != nullptr && slot->state == module_state::loaded &&
                !slot->module.running && slot->module.active_refs == 0;
     }
@@ -1206,16 +1359,17 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
-        if (!published(slot->state)) {
+
+        if (!published(slot->state))
             return module_error::busy;
-        }
-        if (slot->module.quiescing) {
+
+        if (slot->module.quiescing)
             return module_error::would_block;
-        }
+
         slot->module.resident = true;
+
         return module_error::ok;
     }
 
@@ -1224,139 +1378,176 @@ namespace astia::mod {
         arch::interrupt_spinlock_guard guard(registry_lock);
         module_error                   error = module_error::ok;
         registry_slot*                 slot  = find_slot_locked(id, error);
-        if (slot == nullptr) {
+        if (slot == nullptr)
             return error;
-        }
+
         slot->module.resident = false;
+
         return module_error::ok;
     }
 #endif
 
     const loaded_module* load_module(span<const u8> image) {
         module_id id{};
-        if (load_image(image, module_load_options{}, id) != module_error::ok) {
+
+        if (load_image(image, module_load_options{}, id) != module_error::ok)
             return nullptr;
-        }
+
         return pointer_for_id(id);
     }
 
     const loaded_module* load_module(span<const u8> image, const elf::loader::env& env) {
         module_id id{};
-        if (load_image(image, env, module_load_options{}, id) != module_error::ok) {
+
+        if (load_image(image, env, module_load_options{}, id) != module_error::ok)
             return nullptr;
-        }
+
         return pointer_for_id(id);
     }
 
     bool unload_module(const loaded_module* mod) {
-        if (mod == nullptr) {
+        if (mod == nullptr)
             return false;
-        }
+
         module_id id{};
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
-            if (!id_from_pointer_locked(mod, id)) {
+
+            if (!id_from_pointer_locked(mod, id))
                 return false;
-            }
         }
+
         return unload(id) == module_error::ok;
     }
 
     int run_module(const loaded_module* mod) {
-        if (mod == nullptr) {
+        if (mod == nullptr)
             return -1;
-        }
+
         module_id id{};
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
-            if (!id_from_pointer_locked(mod, id)) {
+
+            if (!id_from_pointer_locked(mod, id))
                 return -1;
-            }
         }
+
         int result = -1;
-        if (run(id, result) != module_error::ok) {
+
+        if (run(id, result) != module_error::ok)
             return -1;
-        }
+
         return result;
     }
 
     bool exit_module(const loaded_module* mod) {
-        if (mod == nullptr) {
+        if (mod == nullptr)
             return false;
-        }
+
         module_id id{};
+
         {
             arch::interrupt_spinlock_guard guard(registry_lock);
-            if (!id_from_pointer_locked(mod, id)) {
+
+            if (!id_from_pointer_locked(mod, id))
                 return false;
-            }
         }
+
         return exit(id) == module_error::ok;
     }
 
     int register_exit_handler(void (*handler)(void)) {
         if (handler == nullptr)
             return -1;
+
         arch::interrupt_spinlock_guard guard(callback_lock);
+
         if (!owns_callback_context_locked())
             return -1;
+
         for (usize i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 continue;
+
             active->exit_handlers[i] = {handler, nullptr, nullptr, active->dso_identity,
                                         false};
+
             return 0;
         }
+
         if (active->exit_count == loaded_module::max_exit_handlers)
             return -1;
+
         active->exit_handlers[active->exit_count++] = {handler, nullptr, nullptr,
                                                        active->dso_identity, false};
+
         return 0;
     }
 
     int register_exit_handler(void (*handler)(void*), void* argument, void* dso) {
         if (handler == nullptr)
             return -1;
+
         arch::interrupt_spinlock_guard guard(callback_lock);
+
         if (!owns_callback_context_locked())
             return -1;
+
         void* identity = dso != nullptr ? dso : active->dso_identity;
+
         for (usize i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 continue;
+
             active->exit_handlers[i] = {nullptr, handler, argument, identity, false};
+
             return 0;
         }
+
         if (active->exit_count == loaded_module::max_exit_handlers)
             return -1;
+
         active->exit_handlers[active->exit_count++] = {nullptr, handler, argument,
                                                        identity, false};
+
         return 0;
     }
 
     void finalize_exit_handlers(void* dso) {
-        for (;;) {
+        while (true) {
             loaded_module::exit_handler handler{};
             loaded_module*              target = nullptr;
+
             {
                 arch::interrupt_spinlock_guard guard(callback_lock);
+
                 if (!owns_callback_context_locked())
                     return;
+
                 usize selected = active->exit_count;
+
                 for (usize i = active->exit_count; i != 0; --i) {
                     const loaded_module::exit_handler& candidate =
                         active->exit_handlers[i - 1];
+
                     if (!candidate.removed && (dso == nullptr || candidate.dso == dso)) {
                         selected = i - 1;
+
                         break;
                     }
                 }
+
                 if (selected == active->exit_count)
                     break;
+
                 active->exit_handlers[selected].removed = true;
                 handler                                 = active->exit_handlers[selected];
                 target                                  = active;
+
                 arch::interrupt_spinlock_guard registry_guard(registry_lock);
+
                 ++target->callback_inflight;
             }
 
@@ -1366,10 +1557,13 @@ namespace astia::mod {
                 handler.cxa(handler.argument);
 
             close_waiter* waiter = nullptr;
+
             {
                 arch::interrupt_spinlock_guard guard(registry_lock);
+
                 if (target->callback_inflight > 0)
                     --target->callback_inflight;
+
                 if (target->callback_inflight == 0) {
                     module_error   error = module_error::ok;
                     registry_slot* slot  = find_slot_locked(target->id, error);
@@ -1377,45 +1571,55 @@ namespace astia::mod {
                         waiter = take_ready_waiter_locked(*slot);
                 }
             }
+
             deliver_waiter(waiter, module_error::ok);
         }
 
         arch::interrupt_spinlock_guard guard(callback_lock);
+
         if (!owns_callback_context_locked())
             return;
+
         usize remaining = 0;
-        for (usize i = 0; i < active->exit_count; ++i)
+
+        for (usize i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 active->exit_handlers[remaining++] = active->exit_handlers[i];
+        }
+
         active->exit_count = remaining;
     }
 
     usize count() {
         arch::interrupt_spinlock_guard guard(registry_lock);
-        usize                          count = 0;
+
+        usize count = 0;
+
         for (const registry_slot& slot : slots) {
-            if (published(slot.state)) {
+            if (published(slot.state))
                 ++count;
-            }
         }
+
         return count;
     }
 
     const loaded_module* at(usize i) {
         arch::interrupt_spinlock_guard guard(registry_lock);
-        usize                          seen = 0;
+
+        usize seen = 0;
+
         for (registry_slot& slot : slots) {
-            if (!published(slot.state)) {
+            if (!published(slot.state))
                 continue;
-            }
-            if (seen == i) {
+
+            if (seen == i)
                 return &slot.module;
-            }
+
             ++seen;
         }
+
         return nullptr;
     }
-
 } // namespace astia::mod
 
 extern "C" int astia_module_register_atexit(void (*handler)(void)) {

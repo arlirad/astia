@@ -109,44 +109,60 @@ static size_t io_cap(size_t n) {
  * three primitives are the only places that discriminate. */
 static int mem_reserve(FILE* f, size_t need) {
     size_t cap;
-    char*  grown;
+
+    char* grown;
 
     if (need <= f->mem.capacity)
         return 0;
+
     cap = f->mem.capacity == 0 ? 1 : f->mem.capacity;
+
     while (cap < need) {
         if (cap > (size_t) -1 / 2) {
             cap = need;
+
             break;
         }
+
         cap *= 2;
     }
+
     grown = realloc(f->mem.data, cap);
     if (grown == NULL) {
         errno = ENOMEM;
         f->state |= ST_ERR;
+
         return -1;
     }
+
     f->mem.data     = grown;
     f->mem.capacity = cap;
     *f->mem.bufp    = grown; /* keep a published pointer current */
+
     return 0;
 }
 
 static long mem_write(FILE* f, size_t off, const void* src, size_t n) {
-    const unsigned char* s   = src;
-    size_t               end = off + n;
+    const unsigned char* s = src;
+
+    size_t end = off + n;
 
     if (end < off || end == (size_t) -1)
         return -ENOMEM;
+
     if (mem_reserve(f, end + 1) < 0)
         return -ENOMEM;
+
     if (off > f->mem.length)
         memset(f->mem.data + f->mem.length, 0, off - f->mem.length);
+
     memcpy(f->mem.data + off, s, n);
+
     if (end > f->mem.length)
         f->mem.length = end;
+
     f->mem.data[f->mem.length] = '\0';
+
     return (long) n;
 }
 
@@ -161,15 +177,21 @@ static int mem_publish(FILE* f, int terminate) {
     if (pos > f->mem.length) {
         if (mem_reserve(f, pos + 1) < 0)
             return -1;
+
         memset(f->mem.data + f->mem.length, 0, pos - f->mem.length);
+
         f->mem.length    = pos;
         f->mem.data[pos] = '\0';
     }
+
     size = pos < f->mem.length ? pos : f->mem.length;
+
     if (terminate)
         f->mem.data[size] = '\0';
+
     *f->mem.bufp  = f->mem.data;
     *f->mem.sizep = size;
+
     return 0;
 }
 
@@ -177,39 +199,49 @@ static long file_sink_write(FILE* f, uint64_t off, const void* buf, size_t n) {
     if (f->kind == AF_MEM) {
         if (off > (uint64_t) (size_t) -1)
             return -ENOMEM;
+
         return mem_write(f, (size_t) off, buf, n);
     }
+
     return __astia_fio_write(f->fd, off, buf, n);
 }
 
 static long file_sink_size(FILE* f, uint64_t* out) {
     if (f->kind == AF_MEM) {
         *out = (uint64_t) f->mem.length;
+
         return 0;
     }
+
     return __astia_fio_size(f->fd, out);
 }
 
 char* cuserid(char* buffer) {
     static char fallback[] = "astia";
+
     if (buffer == NULL)
         return fallback;
+
     buffer[0] = 'a';
     buffer[1] = 's';
     buffer[2] = 't';
     buffer[3] = 'i';
     buffer[4] = 'a';
     buffer[5] = '\0';
+
     return buffer;
 }
 
 FILE* popen(const char* command, const char* mode) {
     (void) command;
     (void) mode;
+
     return NULL;
 }
+
 int pclose(FILE* stream) {
     (void) stream;
+
     return -1;
 }
 
@@ -224,7 +256,8 @@ static int flush_pending(FILE* f) {
 
     while (done < f->len) {
         uint64_t off;
-        long     r;
+
+        long r;
 
         if (f->io_flags & FIO_APPEND)
             off = FIO_OFF_APPEND;
@@ -234,17 +267,24 @@ static int flush_pending(FILE* f) {
         r = file_sink_write(f, off, f->buf + done, io_cap(f->len - done));
         if (r <= 0) {
             int err = (r < 0) ? (int) -r : EIO;
+
             if (done > 0) {
                 memmove(f->buf, f->buf + done, f->len - done);
+
                 f->len -= done;
             }
+
             errno = err;
             f->state |= ST_ERR;
+
             return -1;
         }
+
         done += (size_t) r;
     }
+
     f->len = 0;
+
     return 0;
 }
 
@@ -258,34 +298,42 @@ static void drop_read(FILE* f) {
 }
 
 static size_t stream_read(FILE* f, void* dst, size_t n) {
-    unsigned char* d   = dst;
-    size_t         got = 0;
+    unsigned char* d = dst;
+
+    size_t got = 0;
 
     if (f->fd < 0 || !(f->io_flags & FIO_READ)) {
         errno = EBADF;
         f->state |= ST_ERR;
+
         return 0;
     }
+
     if (f->state & ST_ERR)
         return 0;
+
     if (!f->reading && f->len > 0) { /* direction switch: writes first */
         if (flush_pending(f) < 0)
             return 0;
     }
+
     f->reading = 1;
 
     while (got < n) {
         if (f->has_pushback) {
             d[got++]        = f->pushback;
             f->has_pushback = 0;
+
             f->pos++;
             continue;
         }
+
         if (f->cur == f->len) { /* buffer empty */
             long r;
 
             if (f->state & ST_EOF)
                 break;
+
             if (f->cap == 0 || n - got >= f->cap) {
                 /* big request (or unbuffered): read straight past the
                    buffer into the caller's memory */
@@ -293,52 +341,70 @@ static size_t stream_read(FILE* f, void* dst, size_t n) {
                 if (r < 0) {
                     errno = (int) -r;
                     f->state |= ST_ERR;
+
                     break;
                 }
+
                 if (r == 0) {
                     f->state |= ST_EOF;
+
                     break;
                 }
+
                 got += (size_t) r;
                 f->pos += (long) r;
+
                 continue;
             }
+
             r = __astia_fio_read(f->fd, (uint64_t) f->pos, f->buf, io_cap(f->cap));
             if (r < 0) {
                 errno = (int) -r;
                 f->state |= ST_ERR;
+
                 break;
             }
+
             if (r == 0) {
                 f->state |= ST_EOF;
+
                 break;
             }
+
             f->len = (size_t) r;
             f->cur = 0;
         }
+
         {
             size_t avail = f->len - f->cur;
             size_t take  = n - got < avail ? n - got : avail;
+
             memcpy(d + got, f->buf + f->cur, take);
+
             f->cur += take;
             f->pos += (long) take;
             got += take;
         }
     }
+
     return got;
 }
 
 static size_t stream_write(FILE* f, const void* src, size_t n) {
-    const unsigned char* s   = src;
-    size_t               put = 0;
+    const unsigned char* s = src;
+
+    size_t put = 0;
 
     if ((f->kind == AF_FD && f->fd < 0) || !(f->io_flags & FIO_WRITE)) {
         errno = EBADF;
         f->state |= ST_ERR;
+
         return 0;
     }
+
     if (f->state & ST_ERR)
         return 0;
+
     if (f->reading)
         drop_read(f); /* direction switch: read-ahead was unconsumed */
 
@@ -346,15 +412,19 @@ static size_t stream_write(FILE* f, const void* src, size_t n) {
         while (put < n) {
             uint64_t off = (f->io_flags & FIO_APPEND) ? FIO_OFF_APPEND
                                                       : (uint64_t) (f->pos + (long) put);
-            long     r   = file_sink_write(f, off, s + put, io_cap(n - put));
+
+            long r = file_sink_write(f, off, s + put, io_cap(n - put));
             if (r <= 0) {
                 errno = (r < 0) ? (int) -r : EIO;
                 f->state |= ST_ERR;
+
                 break;
             }
+
             put += (size_t) r;
             f->pos += (long) r;
         }
+
         return put;
     }
 
@@ -363,45 +433,56 @@ static size_t stream_write(FILE* f, const void* src, size_t n) {
 
         if (f->len == f->cap && flush_pending(f) < 0)
             break;
+
         take = n - put;
+
         if (take > f->cap - f->len)
             take = f->cap - f->len;
+
         memcpy(f->buf + f->len, s + put, take);
+
         f->len += take;
         f->pos += (long) take;
         put += take;
+
         if (f->buf_mode == _IOLBF && memchr(f->buf + f->len - take, '\n', take) != NULL &&
             flush_pending(f) < 0)
             break;
     }
+
     return put;
 }
 
 /* "r" | "w" | "a", then any order of optional 'b' (no-op), '+' and —
    for the creating modes — 'x' (C11 exclusive: fail on existing file). */
 static int parse_mode(const char* mode, int* out) {
-    int         plus = 0;
-    int         bin  = 0;
-    int         excl = 0;
-    int         flags;
+    int plus = 0;
+    int bin  = 0;
+    int excl = 0;
+    int flags;
+
     const char* p;
 
     if (mode == NULL || (mode[0] != 'r' && mode[0] != 'w' && mode[0] != 'a'))
         return -1;
+
     for (p = mode + 1; *p != '\0'; p++) {
         if (*p == 'b') {
             if (bin)
                 return -1;
+
             bin = 1;
         }
         else if (*p == '+') {
             if (plus)
                 return -1;
+
             plus = 1;
         }
         else if (*p == 'x') {
             if (excl)
                 return -1;
+
             excl = 1;
         }
         else {
@@ -412,27 +493,33 @@ static int parse_mode(const char* mode, int* out) {
     if (mode[0] == 'r') {
         if (excl) /* exclusive creation needs a creating mode */
             return -1;
+
         flags = plus ? (FIO_READ | FIO_WRITE) : FIO_READ;
     }
     else {
         flags = plus ? (FIO_READ | FIO_WRITE) : FIO_WRITE;
         flags |= FIO_CREAT;
         flags |= (mode[0] == 'a') ? FIO_APPEND : FIO_TRUNC;
+
         if (excl)
             flags |= FIO_EXCL;
     }
+
     *out = flags;
+
     return 0;
 }
 
 static FILE* alloc_stream(int fd, int flags, long init_pos) {
     FILE* f = malloc(sizeof *f);
-
     if (f != NULL)
         f->buf = malloc(BUFSIZ);
+
     if (f == NULL || f->buf == NULL) {
         free(f);
+
         errno = ENOMEM;
+
         return NULL;
     }
 
@@ -451,6 +538,7 @@ static FILE* alloc_stream(int fd, int flags, long init_pos) {
     f->kind         = AF_FD;
     f->next         = g_open;
     g_open          = f;
+
     return f;
 }
 
@@ -460,25 +548,35 @@ FILE* open_memstream(char** bufp, size_t* sizep) {
 
     if (bufp == NULL || sizep == NULL) {
         errno = EINVAL;
+
         return NULL;
     }
+
     data = malloc(1);
     if (data == NULL) {
         errno = ENOMEM;
+
         return NULL;
     }
+
     data[0] = '\0';
     f       = malloc(sizeof *f);
     if (f == NULL) {
         free(data);
+
         errno = ENOMEM;
+
         return NULL;
     }
+
     f->buf = malloc(BUFSIZ);
+
     if (f->buf == NULL) {
         free(data);
         free(f);
+
         errno = ENOMEM;
+
         return NULL;
     }
 
@@ -502,6 +600,7 @@ FILE* open_memstream(char** bufp, size_t* sizep) {
     f->mem.capacity = 1;
     f->next         = g_open;
     g_open          = f;
+
     return f;
 }
 
@@ -514,69 +613,91 @@ FILE* fdopen(int fd, const char* mode) {
 
     if (mode == NULL || parse_mode(mode, &flags) < 0 || (flags & FIO_EXCL) != 0) {
         errno = EINVAL;
+
         return NULL;
     }
+
     flags &= ~(FIO_CREAT | FIO_EXCL | FIO_TRUNC);
     status = __astia_fio_fcntl(fd, F_GETFL, 0);
     if (status < 0) {
         errno = (int) -status;
+
         return NULL;
     }
+
     access    = (int) status & O_ACCMODE;
     requested = flags & (FIO_READ | FIO_WRITE);
+
     if ((requested == FIO_READ && access == O_WRONLY) ||
         (requested == FIO_WRITE && access == O_RDONLY) ||
         (requested == (FIO_READ | FIO_WRITE) && access != O_RDWR)) {
         errno = EINVAL;
+
         return NULL;
     }
+
     if ((flags & FIO_APPEND) && !(status & O_APPEND) &&
         fcntl(fd, F_SETFL, (int) status | O_APPEND) < 0)
         return NULL;
+
     if (status & O_APPEND)
         flags |= FIO_APPEND;
+
     flags &= ~(FIO_CREAT | FIO_EXCL | FIO_TRUNC);
 
     position = __astia_fio_lseek(fd, 0, SEEK_CUR);
+
     if (position < 0 && position != -ESPIPE) {
         errno = (int) -position;
+
         return NULL;
     }
+
     if (position < 0)
         position = 0;
+
     return alloc_stream(fd, flags, position);
 }
 
 static void list_remove(FILE* f) {
     FILE** pp = &g_open;
+
     while (*pp != NULL) {
         if (*pp == f) {
             *pp = f->next;
+
             return;
         }
+
         pp = &(*pp)->next;
     }
 }
 
 FILE* fopen(const char* path, const char* mode) {
     FILE* f;
-    int   flags;
-    long  fd;
-    long  init_pos = 0;
+
+    int  flags;
+    long fd;
+    long init_pos = 0;
 
     if (path == NULL || parse_mode(mode, &flags) < 0) {
         errno = EINVAL;
+
         return NULL;
     }
 
     {
         char resolved[256];
+
         if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
             return NULL;
+
         fd = __astia_fio_open(resolved, flags, 0666);
     }
+
     if (fd < 0) {
         errno = (int) -fd;
+
         return NULL;
     }
 
@@ -585,21 +706,29 @@ FILE* fopen(const char* path, const char* mode) {
        because its reads start at the beginning. */
     if ((flags & FIO_APPEND) && !(flags & FIO_READ)) {
         uint64_t sz;
-        long     rc = __astia_fio_size((int) fd, &sz);
+
+        long rc = __astia_fio_size((int) fd, &sz);
+
         if (rc < 0 || sz > (uint64_t) LONG_MAX) {
             int err = rc < 0 ? (int) -rc : EOVERFLOW;
+
             (void) __astia_fio_close((int) fd);
+
             errno = err;
+
             return NULL;
         }
+
         init_pos = (long) sz;
     }
 
     f = alloc_stream((int) fd, flags, init_pos);
     if (f == NULL) {
         (void) __astia_fio_close((int) fd);
+
         return NULL;
     }
+
     return f;
 }
 
@@ -613,13 +742,16 @@ int fclose(FILE* f) {
     /* flush first (a failed flush still gets the fd closed: the caller
        learns about it through EOF, the descriptor must not leak) */
     rc = fflush(f);
+
     if (f->kind == AF_MEM) {
         if (rc == 0 && mem_publish(f, 1) < 0)
             rc = EOF;
+
         crc = 0;
     }
     else {
         crc = (int) __astia_fio_close(f->fd);
+
         if (crc < 0 && rc == 0)
             errno = (int) -crc; /* the close failed while the flush
                                    succeeded: it must name itself (a flush
@@ -627,37 +759,49 @@ int fclose(FILE* f) {
                                    number is lost either way — ISO
                                    deallocates the stream regardless. */
     }
+
     if (f->heap)
         list_remove(f);
+
     if (f->buf_owned)
         free(f->buf);
+
     f->fd  = -1;
     f->len = 0;
     f->cur = 0;
+
     if (f->heap)
         free(f); /* static streams survive with fd == -1 */
+
     return (rc != 0 || crc < 0) ? EOF : 0;
 }
 
 static int flush_fd_streams(int fd) {
     FILE* it;
-    int   rc = 0;
+
+    int rc = 0;
 
     if (file_stdin.fd == fd && fflush(&file_stdin) != 0)
         rc = EOF;
+
     if (file_stdout.fd == fd && fflush(&file_stdout) != 0)
         rc = EOF;
+
     if (file_stderr.fd == fd && fflush(&file_stderr) != 0)
         rc = EOF;
-    for (it = g_open; it != NULL; it = it->next)
+
+    for (it = g_open; it != NULL; it = it->next) {
         if (it->fd == fd && fflush(it) != 0)
             rc = EOF;
+    }
+
     return rc;
 }
 
 static void retarget_stream(FILE* f, int fd, int flags, long position) {
     if (f->fd != fd)
         return;
+
     f->fd           = fd;
     f->io_flags     = flags;
     f->state        = 0;
@@ -677,31 +821,41 @@ int __astia_stdio_dup2(int old_fd, int new_fd) {
 
     if (new_fd < 0) {
         errno = EBADF;
+
         return -1;
     }
+
     source_status = __astia_fio_fcntl(old_fd, F_GETFL, 0);
     if (source_status < 0) {
         errno = (int) -source_status;
+
         return -1;
     }
+
     if (old_fd == new_fd)
         return new_fd;
+
     if (flush_fd_streams(new_fd) != 0)
         return -1;
 
     result = __astia_fio_dup2(old_fd, new_fd);
     if (result < 0) {
         errno = (int) -result;
+
         return -1;
     }
+
     new_status = __astia_fio_fcntl(new_fd, F_GETFL, 0);
     if (new_status < 0)
         new_status = source_status;
+
     stream_flags = ((int) new_status & O_ACCMODE) == O_RDWR     ? FIO_READ | FIO_WRITE
                    : ((int) new_status & O_ACCMODE) == O_WRONLY ? FIO_WRITE
                                                                 : FIO_READ;
+
     if ((new_status & O_APPEND) != 0)
         stream_flags |= FIO_APPEND;
+
     position = __astia_fio_lseek(new_fd, 0, SEEK_CUR);
     if (position < 0)
         position = 0;
@@ -709,11 +863,15 @@ int __astia_stdio_dup2(int old_fd, int new_fd) {
     retarget_stream(&file_stdin, new_fd, stream_flags, position);
     retarget_stream(&file_stdout, new_fd, stream_flags, position);
     retarget_stream(&file_stderr, new_fd, stream_flags, position);
+
     {
         FILE* it;
-        for (it = g_open; it != NULL; it = it->next)
+
+        for (it = g_open; it != NULL; it = it->next) {
             retarget_stream(it, new_fd, stream_flags, position);
+        }
     }
+
     return new_fd;
 }
 
@@ -722,9 +880,12 @@ size_t fread(void* ptr, size_t size, size_t nmemb, FILE* f) {
 
     if (f == NULL || size == 0 || nmemb == 0)
         return 0;
+
     if (nmemb > (size_t) -1 / size)
         return 0;
+
     got = stream_read(f, ptr, size * nmemb);
+
     return got / size; /* a torn trailing element is consumed, not counted */
 }
 
@@ -733,24 +894,32 @@ size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* f) {
 
     if (f == NULL || size == 0 || nmemb == 0)
         return 0;
+
     if (nmemb > (size_t) -1 / size)
         return 0;
+
     put = stream_write(f, ptr, size * nmemb);
+
     return put / size;
 }
 
 int fseek(FILE* f, long offset, int whence) {
-    long     base;
+    long base;
+
     uint64_t target;
 
     if (f == NULL)
         return EOF;
+
     if (f->kind == AF_FD && f->fd < 0) {
         errno = EBADF;
+
         return EOF;
     }
+
     if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END) {
         errno = EINVAL;
+
         return EOF;
     }
 
@@ -761,27 +930,36 @@ int fseek(FILE* f, long offset, int whence) {
        moved nothing observable. */
     if (!f->reading && flush_pending(f) < 0)
         return EOF;
+
     drop_read(f);
 
     switch (whence) {
     case SEEK_SET:
         base = 0;
+
         break;
     case SEEK_CUR:
         base = f->pos;
+
         break;
     default: { /* SEEK_END */
         uint64_t sz;
-        long     rc = file_sink_size(f, &sz);
+
+        long rc = file_sink_size(f, &sz);
         if (rc < 0) {
             errno = (int) -rc;
+
             return EOF;
         }
+
         if (sz > (uint64_t) LONG_MAX) {
             errno = EOVERFLOW;
+
             return EOF;
         }
+
         base = (long) sz;
+
         break;
     }
     }
@@ -791,20 +969,26 @@ int fseek(FILE* f, long offset, int whence) {
        directions — the signed add would be UB past LONG_MAX.  Anything
        outside [0, LONG_MAX] is EINVAL. */
     target = (uint64_t) base + (uint64_t) offset;
+
     if (target > (uint64_t) LONG_MAX) {
         errno = EINVAL;
+
         return EOF;
     }
+
     f->pos = (long) target;
     f->state &= ~ST_EOF; /* seeking re-opens the question of EOF */
+
     return 0;
 }
 
 long ftell(FILE* f) {
     if (f == NULL || (f->kind == AF_FD && f->fd < 0)) {
         errno = EBADF;
+
         return -1;
     }
+
     return f->pos; /* includes pending writes: they are logically placed */
 }
 
@@ -819,6 +1003,7 @@ off_t ftello(FILE* f) {
 void rewind(FILE* f) {
     if (f == NULL)
         return;
+
     (void) fseek(f, 0, SEEK_SET);
     clearerr(f);
 }
@@ -826,10 +1011,13 @@ void rewind(FILE* f) {
 int fileno(FILE* f) {
     if (f == NULL)
         return -1;
+
     if (f->fd < 0) {
         errno = EBADF;
+
         return -1;
     }
+
     return f->fd;
 }
 
@@ -838,28 +1026,41 @@ int fflush(FILE* f) {
         /* ISO C: flush every open *output* stream; input buffers of
            other streams are none of this call's business (POSIX). */
         FILE* it;
-        int   rc = 0;
-        for (it = g_open; it != NULL; it = it->next)
+
+        int rc = 0;
+
+        for (it = g_open; it != NULL; it = it->next) {
             if ((it->io_flags & FIO_WRITE) && fflush(it) != 0)
                 rc = EOF;
+        }
+
         if (file_stdout.fd >= 0 && fflush(&file_stdout) != 0)
             rc = EOF;
+
         if (file_stderr.fd >= 0 && fflush(&file_stderr) != 0)
             rc = EOF;
+
         return rc;
     }
+
     if (f->kind == AF_FD && f->fd < 0) {
         errno = EBADF;
+
         return EOF;
     }
+
     if (f->reading) { /* POSIX: explicit fflush on input discards it */
         drop_read(f);
+
         return 0;
     }
+
     if (flush_pending(f) < 0)
         return EOF;
+
     if (f->kind == AF_MEM && mem_publish(f, 0) < 0)
         return EOF;
+
     return 0;
 }
 
@@ -881,6 +1082,7 @@ int fgetc(FILE* f) {
 
     if (f == NULL || stream_read(f, &c, 1) != 1)
         return EOF;
+
     return (int) c;
 }
 
@@ -889,6 +1091,7 @@ int fputc(int c, FILE* f) {
 
     if (f == NULL || stream_write(f, &b, 1) != 1)
         return EOF;
+
     return (int) b;
 }
 
@@ -909,38 +1112,52 @@ int ungetc(int c, FILE* f) {
         !(f->io_flags & FIO_READ)) {
         if (f != NULL && (f->kind == AF_MEM || f->fd >= 0) && !(f->io_flags & FIO_READ))
             errno = EBADF;
+
         return EOF;
     }
+
     if (f->has_pushback || f->pos <= 0)
         return EOF;
+
     if (!f->reading && f->len > 0 && flush_pending(f) < 0)
         return EOF;
+
     f->reading      = 1;
     f->pushback     = (unsigned char) c;
     f->has_pushback = 1;
+
     f->pos--;
+
     f->state &= ~ST_EOF;
+
     return (unsigned char) c;
 }
 
 int fgetpos(FILE* f, fpos_t* pos) {
     if (f == NULL || pos == NULL) {
         errno = EINVAL;
+
         return EOF;
     }
+
     if (f->kind == AF_FD && f->fd < 0) {
         errno = EBADF;
+
         return EOF;
     }
+
     *pos = f->pos;
+
     return 0;
 }
 
 int fsetpos(FILE* f, const fpos_t* pos) {
     if (pos == NULL) {
         errno = EINVAL;
+
         return EOF;
     }
+
     return fseek(f, *pos, SEEK_SET);
 }
 
@@ -949,24 +1166,33 @@ char* fgets(char* s, int n, FILE* f) {
 
     if (s == NULL || f == NULL || n <= 0)
         return NULL;
+
     while (i < n - 1) {
         unsigned char c;
+
         if (stream_read(f, &c, 1) != 1)
             break;
+
         s[i++] = (char) c;
+
         if (c == '\n')
             break;
     }
+
     if (i != 0) {
         s[i] = '\0';
+
         return s;
     }
+
     /* Zero characters: only a genuine EOF or read error may say so —
        with n == 1 there was nothing to ask for and the stream is fine
        (glibc hands back an empty string in that case). */
     if (f->state & (ST_EOF | ST_ERR))
         return NULL;
+
     s[0] = '\0';
+
     return s;
 }
 
@@ -975,11 +1201,14 @@ int fputs(const char* s, FILE* f) {
 
     if (s == NULL || f == NULL)
         return EOF;
+
     n = strlen(s);
+
     /* The state check carries the n == 0 case, where "wrote n bytes"
        and "failed outright" would otherwise look identical. */
     if (stream_write(f, s, n) != n || (f->state & ST_ERR) != 0)
         return EOF;
+
     return 0;
 }
 
@@ -988,12 +1217,16 @@ int setvbuf(FILE* f, char* buf, int mode, size_t size) {
 
     if (f == NULL || (mode != _IOFBF && mode != _IOLBF && mode != _IONBF)) {
         errno = EINVAL;
+
         return EOF;
     }
+
     if (f->kind == AF_FD && f->fd < 0) {
         errno = EBADF;
+
         return EOF;
     }
+
     /* current contents must not survive a buffering change */
     if (fflush(f) != 0)
         return EOF;
@@ -1001,22 +1234,28 @@ int setvbuf(FILE* f, char* buf, int mode, size_t size) {
     if (mode == _IONBF) {
         f->buf_mode = mode;
         f->cap      = 0; /* the allocation stays; fclose still owns it */
+
         return 0;
     }
+
     if (buf == NULL) {
         nb = malloc(size == 0 ? 1 : size);
         if (nb == NULL) {
             errno = ENOMEM;
+
             return EOF;
         }
     }
+
     if (f->buf_owned)
         free(f->buf);
+
     f->buf       = buf != NULL ? (unsigned char*) buf : nb;
     f->buf_owned = (buf == NULL);
     f->cap       = size;
     f->buf_mode  = mode;
     f->len       = 0;
     f->cur       = 0;
+
     return 0;
 }

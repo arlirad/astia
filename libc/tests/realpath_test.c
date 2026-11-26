@@ -53,31 +53,41 @@ static int create_fixtures(struct fixtures* fixtures) {
     make_path(fixtures->loop_b, sizeof fixtures->loop_b, fixtures->base, "loop_b");
 
     remove_fixtures(fixtures);
+
     if (mkdir(fixtures->base, 0755) != 0)
         return -1;
+
     if (mkdir(fixtures->sub, 0755) != 0)
         return -1;
 
     int fd = open(fixtures->file, O_CREAT | O_WRONLY | O_TRUNC, 0644);
     if (fd < 0)
         return -1;
+
     if (write(fd, "realpath\n", 9) != 9) {
         close(fd);
+
         return -1;
     }
+
     if (close(fd) != 0)
         return -1;
 
     if (symlink("file", fixtures->link) != 0)
         return -1;
+
     if (symlink("missing", fixtures->dangling) != 0)
         return -1;
+
     if (symlink("loop_b", fixtures->loop_a) != 0)
         return -1;
+
     if (symlink("loop_a", fixtures->loop_b) != 0)
         return -1;
+
     if (realpath(fixtures->base, fixtures->canonical) == NULL)
         return -1;
+
     return 0;
 }
 
@@ -105,10 +115,12 @@ static void test_symlinks(const struct fixtures* fixtures) {
     CHECK(strcmp(buffer, expected) == 0);
 
     errno = 0;
+
     CHECK(realpath(fixtures->dangling, buffer) == NULL);
     CHECK(errno == ENOENT);
 
     errno = 0;
+
     CHECK(realpath(fixtures->loop_a, buffer) == NULL);
     CHECK(errno == ELOOP);
 }
@@ -119,17 +131,23 @@ static void test_directory_traversal(const struct fixtures* fixtures) {
     char expected[160];
 
     snprintf(path, sizeof path, "%s/..", fixtures->file);
+
     errno = 0;
+
     CHECK(realpath(path, buffer) == NULL);
     CHECK(errno == ENOTDIR);
 
     snprintf(path, sizeof path, "%s/", fixtures->file);
+
     errno = 0;
+
     CHECK(realpath(path, buffer) == NULL);
     CHECK(errno == ENOTDIR);
 
     snprintf(path, sizeof path, "%s/..", fixtures->link);
+
     errno = 0;
+
     CHECK(realpath(path, buffer) == NULL);
     CHECK(errno == ENOTDIR);
 
@@ -145,28 +163,40 @@ static void test_directory_traversal(const struct fixtures* fixtures) {
 
 static void test_invalid_arguments(char* buffer, size_t size) {
     errno = 0;
+
     CHECK(realpath(NULL, buffer) == NULL);
     CHECK(errno == EINVAL);
 
     char long_path[PATH_MAX + 1];
+
     memset(long_path, 'a', PATH_MAX);
+
     long_path[0]        = '/';
     long_path[PATH_MAX] = '\0';
+
     memset(buffer, 'L', size);
+
     errno = 0;
+
     CHECK(realpath(long_path, buffer) == NULL);
     CHECK(errno == ENAMETOOLONG);
-    for (size_t i = 0; i < size; ++i)
+
+    for (size_t i = 0; i < size; ++i) {
         CHECK(buffer[i] == 'L');
+    }
 }
 
 static void test_allocation(const struct fixtures* fixtures) {
-    char  expected[128];
+    char expected[128];
+
     char* allocated;
 
     snprintf(expected, sizeof expected, "%s/file", fixtures->canonical);
+
     allocated = realpath(fixtures->link, NULL);
+
     CHECK(allocated != NULL);
+
     if (allocated != NULL) {
         CHECK(strcmp(allocated, expected) == 0);
         free(allocated);
@@ -182,19 +212,25 @@ static void test_caller_buffer(const struct fixtures* fixtures) {
     CHECK(guard[1 + strlen(fixtures->file) + 1] == 'Q');
 
     memset(guard, 'X', sizeof guard);
+
     errno = 0;
+
     CHECK(realpath(fixtures->dangling, guard) == NULL);
     CHECK(errno == ENOENT);
-    for (size_t i = 0; i < sizeof guard; ++i)
+
+    for (size_t i = 0; i < sizeof guard; ++i) {
         CHECK(guard[i] == 'X');
+    }
 }
 
 int main(void) {
     struct fixtures fixtures;
-    char            scratch[80];
+
+    char scratch[80];
 
     if (create_fixtures(&fixtures) != 0) {
         remove_fixtures(&fixtures);
+
         return 2;
     }
 
@@ -206,9 +242,12 @@ int main(void) {
     test_caller_buffer(&fixtures);
 
     remove_fixtures(&fixtures);
+
     if (fails != 0) {
         printf("%d realpath checks failed\n", fails);
+
         return 1;
     }
+
     return 0;
 }

@@ -5,7 +5,6 @@
 #include <astia/arch/user_layout.hpp>
 
 namespace astia::arch::x86_64 {
-
     /// The boot identity window [0, pci_identity_window_size) is mapped
     /// write-back and aliases the same physical pages as the direct map.
     inline constexpr u64 pci_identity_window_size = 1ull << 30;
@@ -38,10 +37,12 @@ namespace astia::arch::x86_64 {
     constexpr bool pci_mmio_va_span_is_canonical(u64 first, u64 last_end) {
         if (!pci_mmio_va_is_canonical(first) || !pci_mmio_va_is_canonical(last_end))
             return false;
+
         const bool low_half = first < pci_mmio_canonical_low_limit &&
                               last_end < pci_mmio_canonical_low_limit;
         const bool high_half = first >= pci_mmio_canonical_high_base &&
                                last_end >= pci_mmio_canonical_high_base;
+
         return low_half || high_half;
     }
 
@@ -54,12 +55,16 @@ namespace astia::arch::x86_64 {
         const u64 recursive_offset =
             recursive_base > kernel_base ? recursive_base - kernel_base : 0;
         const u64 image_offset = image_base > kernel_base ? image_base - kernel_base : 0;
+
         if (mmio_offset != 0 && mmio_offset < reserved_floor)
             reserved_floor = mmio_offset;
+
         if (recursive_offset != 0 && recursive_offset < reserved_floor)
             reserved_floor = recursive_offset;
+
         if (image_offset != 0 && image_offset < reserved_floor)
             reserved_floor = image_offset;
+
         return {kernel_base, direct_map_limit,
                 reserved_floor == ~u64{0} ? 0 : reserved_floor};
     }
@@ -73,17 +78,20 @@ namespace astia::arch::x86_64 {
         if (limits.kernel_base == 0 || limits.direct_map_limit == 0 ||
             limits.reserved_floor == 0)
             return false;
+
         if ((first & static_cast<u64>(mm::page_mask)) != 0 ||
             (last & static_cast<u64>(mm::page_mask)) != 0 || first > last)
             return false;
 
         const u64 last_end = last | static_cast<u64>(mm::page_mask);
+
         if (last_end >= limits.direct_map_limit || last_end >= limits.reserved_floor)
             return false;
 
         const u64 va_first    = limits.kernel_base + first;
         const u64 va_last     = limits.kernel_base + last;
         const u64 va_last_end = va_last | static_cast<u64>(mm::page_mask);
+
         return va_first >= limits.kernel_base && va_last >= va_first &&
                pci_mmio_va_span_is_canonical(va_first, va_last_end);
     }
@@ -101,8 +109,10 @@ namespace astia::arch::x86_64 {
                                                   u64 write_back_floor) {
         if (size == 0 || physical > ~u64{0} - (size - 1))
             return pci_mmio_range::invalid;
+
         if ((physical & ~static_cast<u64>(mm::page_mask)) < write_back_floor)
             return pci_mmio_range::write_back_alias;
+
         return pci_mmio_range::accepted;
     }
 
@@ -131,5 +141,4 @@ namespace astia::arch::x86_64 {
     constexpr page_flags pci_bar_page_flags(bool /*prefetchable*/) {
         return astia::arch::mmio_device_page_flags();
     }
-
 } // namespace astia::arch::x86_64

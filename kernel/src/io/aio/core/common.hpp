@@ -7,8 +7,6 @@
 #include "../handler.hpp"
 
 namespace astia::io::aio::operations {
-
     using namespace ::astia::io::aio::ring;
     using namespace ::astia::io::aio::dispatch;
-
 } // namespace astia::io::aio::operations

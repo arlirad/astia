@@ -8,7 +8,6 @@
 #include <vector>
 
 namespace astia_test {
-
     void fail_next_allocation();
 
     struct test_case {
@@ -18,11 +17,13 @@ namespace astia_test {
 
     inline std::vector<test_case>& cases() {
         static std::vector<test_case> list;
+
         return list;
     }
 
     inline int& failure_count() {
         static int count = 0;
+
         return count;
     }
 
@@ -42,19 +43,23 @@ namespace astia_test {
     inline int run_all() {
         for (const auto& test : cases()) {
             const int before = failure_count();
+
             std::printf("[ RUN  ] %s\n", test.name);
             test.body();
             std::printf("[ %s ] %s\n", failure_count() == before ? " OK " : "FAIL",
                         test.name);
         }
+
         if (failure_count() == 0) {
             std::printf("all %zu test(s) passed\n", cases().size());
+
             return 0;
         }
+
         std::printf("%d check(s) failed\n", failure_count());
+
         return 1;
     }
-
 } // namespace astia_test
 
 #define ASTIA_TEST(name)                                           \

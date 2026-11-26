@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::plat::aarch64_virt {
-
     class pl011_uart final {
         public:
         explicit constexpr pl011_uart(u64 base) : base_(base) {}
@@ -20,5 +19,4 @@ namespace astia::plat::aarch64_virt {
 
         u64 base_;
     };
-
 } // namespace astia::plat::aarch64_virt

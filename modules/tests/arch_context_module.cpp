@@ -12,6 +12,7 @@ astia_module_arch_context_probe(const astia::arch::user_context&    image,
                                 astia::arch::syscall_return&        result,
                                 const astia::arch::interrupt_frame* frame) {
     result.set_mode(astia::arch::return_mode::ordinary);
+
     return image.stack_pointer() + astia::arch::signal_context_bytes() +
            astia::arch::max_signal_context_bytes +
            astia::arch::interrupt_stack_pointer(frame);

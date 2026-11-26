@@ -5,7 +5,6 @@
 #include "process.hpp"
 
 namespace astia::proc {
-
     /// getsid's POSIX selector: zero means the caller, otherwise a positive
     /// process ID.  This is deliberately distinct from the generic pid
     /// mapper, whose zero value is invalid for other process syscalls.
@@ -89,6 +88,7 @@ namespace astia::proc {
     i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>& terminal);
     /// True when a live process in `group` belongs to `session`.
     bool process_group_exists(pgrp_t group, pid_t session);
+
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
     enum class terminal_access_result : u8 {
@@ -140,5 +140,4 @@ namespace astia::proc {
     /// spawnve/waitpid calls depend on the original seed thread's
     /// current_process()/current_thread().
     i64 run_boot(core::task<void> operation);
-
 } // namespace astia::proc

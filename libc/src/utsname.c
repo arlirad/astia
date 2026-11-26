@@ -22,7 +22,9 @@ int uname(struct utsname* name) {
     long rc = __astia_process_uname(name);
     if (rc < 0) {
         errno = (int) -rc;
+
         return -1;
     }
+
     return 0;
 }

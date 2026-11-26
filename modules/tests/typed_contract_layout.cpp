@@ -18,5 +18,6 @@ int main() {
     astia::core::clsource request_source;
     astia::io::request    request(request_source, nullptr, 0, 0, 0,
                                   astia::io::direction::input);
+
     return request.direction() == astia::io::direction::input ? 0 : 1;
 }

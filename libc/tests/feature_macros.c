@@ -112,8 +112,11 @@
 #endif
 
 int main(void) {
-    char* copy       = strdup("astia");
-    int   descriptor = fileno(stdin);
+    char* copy = strdup("astia");
+
+    int descriptor = fileno(stdin);
+
     free(copy);
+
     return descriptor < -1;
 }

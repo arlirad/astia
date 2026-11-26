@@ -9,5 +9,6 @@ clock_t times(struct tms* result) {
         result->tms_cutime = 0;
         result->tms_cstime = 0;
     }
+
     return 0;
 }

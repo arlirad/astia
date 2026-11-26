@@ -6,12 +6,10 @@
 #include <cstdlib>
 
 namespace astia_test {
-
     void* map_arena() {
         static void* mapped = nullptr;
-        if (mapped != nullptr) {
+        if (mapped != nullptr)
             return mapped;
-        }
 
         void* wanted = reinterpret_cast<void*>(arena_base);
         // NOREPLACE rather than MAP_FIXED: never clobber an existing mapping,
@@ -26,7 +24,7 @@ namespace astia_test {
         }
 
         mapped = got;
+
         return mapped;
     }
-
 } // namespace astia_test

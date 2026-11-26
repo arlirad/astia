@@ -3,7 +3,6 @@
 #include <astia/dev/chr/chrdev.hpp>
 
 namespace astia::dev {
-
     class null_device final : public chrdev {
         public:
         constexpr null_device() : chrdev("null", dv_char | dv_sync) {}
@@ -22,5 +21,4 @@ namespace astia::dev {
 
     /// Register the kernel-owned, host-independent pseudo devices in devfs.
     bool pseudo_devices_init();
-
 } // namespace astia::dev

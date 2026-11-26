@@ -4,7 +4,6 @@
 #include <astia/error.hpp>
 
 namespace astia {
-
     /// A value or an error: either an engaged `T` (`has_value == true`, with
     /// `error == error_t::enone`) or the `error_t` explaining why there is
     /// none.
@@ -51,6 +50,7 @@ namespace astia {
         optional() = default;
 
         optional(T& value) : has_value(true), pointer(&value) {}
+
         optional(error_t e) : error(e) {}
 
         explicit operator bool() const {
@@ -64,5 +64,4 @@ namespace astia {
             return pointer;
         }
     };
-
 } // namespace astia

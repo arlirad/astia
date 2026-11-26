@@ -7,7 +7,6 @@
 #include "types.hpp"
 
 namespace astia::fs {
-
     /// Reset the fixed VFS tables.  Called by the `fs` init step before
     /// any device node is registered.
     bool init();
@@ -62,5 +61,4 @@ namespace astia::fs {
                             gid_t gid, uid_t euid, gid_t egid, bool privileged,
                             mm::shptr<open_file>& result);
     long unlink_shared_memory(const char* path);
-
 } // namespace astia::fs

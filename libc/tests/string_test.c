@@ -15,9 +15,10 @@ static int fails;
     } while (0)
 
 static void test_mem(void) {
-    char        a[16];
-    char        b[16];
-    char        c[16];
+    char a[16];
+    char b[16];
+    char c[16];
+
     const char* h = "hello";
 
     memset(a, 0xAB, sizeof a);
@@ -48,7 +49,8 @@ static void test_mem(void) {
 }
 
 static void test_cstrings(void) {
-    char        d[16];
+    char d[16];
+
     const char* s = "abcabc";
     const char* hit;
 
@@ -82,11 +84,15 @@ static void test_cstrings(void) {
     CHECK(d[0] == 'a' && d[1] == 'b' && d[2] == 0 && d[3] == 0 && d[4] == 0);
 
     memset(d, '?', sizeof d);
+
     { /* variable length: the non-terminating copy is the point of the
          test, and gcc's -Wstringop-truncation would flag the constant */
+
         volatile size_t three = 3;
+
         strncpy(d, "abcdef", three);
     }
+
     CHECK(d[0] == 'a' && d[1] == 'b' && d[2] == 'c' && d[3] == '?');
 
     CHECK(strchr(s, 'b') == s + 1);
@@ -97,10 +103,13 @@ static void test_cstrings(void) {
     CHECK(strrchr(s, 'z') == NULL);
 
     hit = strstr("hello world", "wor");
+
     CHECK(hit != NULL && strcmp(hit, "world") == 0);
     CHECK(strstr("hello", "xyz") == NULL);
-    CHECK(strstr(s, "") == s);      /* empty needle: the haystack */
+    CHECK(strstr(s, "") == s); /* empty needle: the haystack */
+
     hit = strstr("hello", "hello"); /* full match at offset 0 */
+
     CHECK(hit != NULL && strcmp(hit, "hello") == 0);
     CHECK(strstr("hello", "lo") != NULL);
     CHECK(strstr("ababab", "bab") != NULL);
@@ -112,7 +121,9 @@ static void test_cstrings(void) {
     CHECK(strcspn("abc", "xyz") == 3);
     CHECK(strcspn("ab cd", " ") == 2);
     CHECK(strcspn("abc", "") == 3);
+
     hit = strpbrk("abc", "cx");
+
     CHECK(hit != NULL && *hit == 'c');
     CHECK(strpbrk("abc", "xyz") == NULL);
 }
@@ -129,8 +140,10 @@ static void test_strtok(void) {
 }
 
 static void test_strings_aliases(void) {
-    char        buffer[8] = "abc";
-    const char* value     = "abc";
+    char buffer[8] = "abc";
+
+    const char* value = "abc";
+
     CHECK(bcmp(buffer, "abc", 3) == 0);
     bcopy("xyz", buffer, 4);
     CHECK(strcmp(buffer, "xyz") == 0);
@@ -176,6 +189,7 @@ static void test_strerror_r(void) {
 
     saved_errno = errno;
     errno       = 424242;
+
     CHECK(strerror_r(ENOENT, NULL, 0) == ERANGE);
     CHECK(strerror_r(ENOENT, canary, 0) == ERANGE);
     CHECK(strcmp(canary, "0123456789abcde") == 0);
@@ -189,6 +203,7 @@ static void test_strerror_r(void) {
     CHECK(canary[15] == '\0');
 
     errno = 424242;
+
     CHECK(strerror_r(ENOENT, buffer, sizeof buffer) == 0);
     CHECK(errno == 424242);
     CHECK(strerror_r(ENOENT, buffer, 1) == ERANGE);
@@ -197,6 +212,7 @@ static void test_strerror_r(void) {
     CHECK(errno == 424242);
     CHECK(strerror_r(123456, buffer, sizeof buffer) == 0);
     CHECK(errno == 424242);
+
     errno = saved_errno;
 }
 
@@ -212,5 +228,6 @@ int main(void) {
 
     if (fails)
         printf("string_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

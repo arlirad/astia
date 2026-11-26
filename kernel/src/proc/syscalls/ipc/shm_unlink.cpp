@@ -13,10 +13,11 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 co_return -ESRCH;
+
             char      name[fs::path_max]{};
             const i64 rc = detail::copy_shared_memory_name(address, name);
+
             co_return rc < 0 ? rc : fs::unlink_shared_memory(name);
         }
     };
-
 } // namespace astia::proc::syscalls

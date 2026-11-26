@@ -43,16 +43,22 @@
 
 void* memset(void* destination, int value, unsigned long length) {
     unsigned char* bytes = destination;
-    for (unsigned long i = 0; i < length; ++i)
+
+    for (unsigned long i = 0; i < length; ++i) {
         bytes[i] = (unsigned char) value;
+    }
+
     return destination;
 }
 
 void* memcpy(void* destination, const void* source, unsigned long length) {
     unsigned char*       output = destination;
     const unsigned char* input  = source;
-    for (unsigned long i = 0; i < length; ++i)
+
+    for (unsigned long i = 0; i < length; ++i) {
         output[i] = input[i];
+    }
+
     return destination;
 }
 
@@ -61,6 +67,7 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
     astia_sqe* s = astia_sqe_slot(ring);
     if (s == NULL)
         return NULL;
+
     *s           = (astia_sqe){0};
     s->op        = op;
     s->fd        = fd;
@@ -68,6 +75,7 @@ static astia_sqe* fill(astia_rings* ring, uint32_t op, int32_t fd, uint64_t addr
     s->offset    = offset;
     s->length    = length;
     s->user_data = tag;
+
     return s;
 }
 
@@ -76,16 +84,24 @@ static long kick(astia_rings* ring, uint64_t tag, long* rc_out) {
     astia_cqe* c;
 
     astia_sq_publish(ring, 1);
+
     *rc_out = astia_io_submit(ring, 1);
+
     if (*rc_out < 0)
         return *rc_out;
+
     c = astia_cq_peek(ring);
+
     if (c == NULL || c->user_data != tag) {
         *rc_out = -1; /* kick ran but no completion for us */
+
         return -1;
     }
+
     astia_cq_consume(ring, 1); /* reap it: advance head past this one */
+
     *rc_out = 0;
+
     return c->result;
 }
 
@@ -95,21 +111,31 @@ static long kick_sleep(astia_rings* ring, uint64_t tag, long* rc_out) {
     int32_t    signal;
 
     astia_sq_publish(ring, 1);
+
     *rc_out = astia_io_submit(ring, 1);
+
     if (*rc_out < 0)
         return *rc_out;
+
     for (;;) {
         c = astia_cq_peek(ring);
+
         if (c != NULL && c->user_data == tag) {
             long result = c->result;
+
             astia_cq_consume(ring, 1);
+
             *rc_out = 0;
+
             return result;
         }
+
         if (astia_sigwait(&signal_set, &signal) < 0 || signal != ASTIA_SIGAIO)
             break;
     }
+
     *rc_out = -1;
+
     return -1;
 }
 
@@ -118,6 +144,7 @@ static int streq(const char* a, const char* b) {
         ++a;
         ++b;
     }
+
     return *a == *b;
 }
 
@@ -126,19 +153,23 @@ static int prefix(const char* text, const char* stem) {
         ++text;
         ++stem;
     }
+
     return *stem == '\0';
 }
 
 void c_main(const long* frame) {
-    const long   argc = frame[0];
+    const long argc = frame[0];
+
     const char** argv = (const char**) &frame[1];
     const char** envp = &argv[argc + 1];
 
     /* --- the startup frame the kernel built ------------------------- */
     if (argc != 2 || argv[0] == NULL || argv[1] == NULL || argv[2] != NULL)
         astia_exit(19);
+
     if (!streq(argv[0], "/sbin/init") || !streq(argv[1], "--flag"))
         astia_exit(19);
+
     if (envp[0] == NULL || envp[1] != NULL || !prefix(envp[0], "HOME="))
         astia_exit(19);
 
@@ -150,12 +181,15 @@ void c_main(const long* frame) {
     astia_timespec wall;
     astia_timespec budget;
     astia_timespec slept;
-    long           rc;
-    long           fd;
-    uint64_t       tag = 1;
+
+    long rc;
+    long fd;
+
+    uint64_t tag = 1;
 
     if (astia_getpid() < 0)
         astia_exit(1);
+
     if (astia_getpid() == 1) {
         if (astia_getppid() != 0)
             astia_exit(1);
@@ -164,12 +198,16 @@ void c_main(const long* frame) {
     /* --- direct calls: the clock ------------------------------------ */
     if (astia_clock_gettime(CLOCK_MONOTONIC, &first) != 0)
         astia_exit(2);
+
     if (first.tv_nsec < 0 || first.tv_nsec >= 1000000000LL)
         astia_exit(3);
+
     if (astia_clock_gettime(CLOCK_REALTIME, &wall) != 0 || wall.tv_sec < 1000000000LL)
         astia_exit(4);
+
     if (astia_clock_gettime(CLOCK_MONOTONIC, &second) != 0)
         astia_exit(5);
+
     if (second.tv_sec < first.tv_sec ||
         (second.tv_sec == first.tv_sec && second.tv_nsec < first.tv_nsec))
         astia_exit(5);
@@ -177,32 +215,40 @@ void c_main(const long* frame) {
     /* --- the ring must be *our* memory ------------------------------ */
     if (astia_io_setup(8, 0, &ring) != 0 || ring == NULL)
         astia_exit(6);
+
     if (ring->magic != RINGS_MAGIC)
         astia_exit(7);
 
     if (fill(ring, OP_SLEEP, -1, 0, 0, 0, tag) == NULL)
         astia_exit(8);
+
     if (kick(ring, tag++, &rc) != 0 || rc != 0)
         astia_exit(8);
 
     /* --- OP_SLEEP completes from the timer hook --------------------- */
     if (fill(ring, OP_SLEEP, -1, 0, 20000000, 0, tag) == NULL)
         astia_exit(8);
+
     if (kick_sleep(ring, tag++, &rc) != 0 || rc != 0)
         astia_exit(8);
+
     if (astia_clock_gettime(CLOCK_MONOTONIC, &slept) != 0 ||
         slept.tv_sec < second.tv_sec ||
         (slept.tv_sec == second.tv_sec && slept.tv_nsec <= second.tv_nsec))
         astia_exit(8);
+
     {
         const uint64_t deadline = (uint64_t) slept.tv_sec * 1000000000ull +
                                   (uint64_t) slept.tv_nsec + 20000000ull;
         astia_sqe* absolute = fill(ring, OP_SLEEP, -1, 0, deadline, 0, tag);
         if (absolute == NULL)
             astia_exit(8);
+
         absolute->op_flags = SLEEP_ABSOLUTE;
+
         if (kick_sleep(ring, tag++, &rc) != 0 || rc != 0)
             astia_exit(8);
+
         if (astia_clock_gettime(CLOCK_MONOTONIC, &slept) != 0 ||
             (uint64_t) slept.tv_sec * 1000000000ull + (uint64_t) slept.tv_nsec < deadline)
             astia_exit(8);
@@ -211,18 +257,24 @@ void c_main(const long* frame) {
     /* --- OPENAT /sbin/init ------------------------------------------ */
     if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/sbin/init", 0, 0, tag) == NULL)
         astia_exit(8);
+
     fd = kick(ring, (uint64_t) tag++, &rc);
+
     if (rc < 0)
         astia_exit(9);
+
     if (fd < 0)
         astia_exit(10);
 
     /* --- STATX, fstat form: address NULL, fd is the target ---------- */
     st.size = 0;
+
     if (fill(ring, OP_STATX, (int32_t) fd, 0, (uint64_t) (uintptr_t) &st,
              (uint32_t) sizeof st, tag) == NULL)
         astia_exit(11);
+
     rc = kick(ring, (uint64_t) tag++, &(long){0});
+
     if (rc != 0 || st.size == 0)
         astia_exit(12);
 
@@ -230,7 +282,9 @@ void c_main(const long* frame) {
     if (fill(ring, OP_STATX, -1, (uint64_t) (uintptr_t) "/sbin/init",
              (uint64_t) (uintptr_t) &st_path, (uint32_t) sizeof st_path, tag) == NULL)
         astia_exit(13);
+
     rc = kick(ring, (uint64_t) tag++, &(long){0});
+
     if (rc != 0 || st_path.size != st.size)
         astia_exit(14);
 
@@ -241,16 +295,19 @@ void c_main(const long* frame) {
        entry" into content in the wrong place.  A zero-length entry is
        legal and must be dropped, not stopped on. */
     {
-        char        expect[64];
-        char        part0[8];
-        char        part1[32];
-        char        part2[24];
+        char expect[64];
+        char part0[8];
+        char part1[32];
+        char part2[24];
+
         astia_iovec iov[4];
-        int         i;
+
+        int i;
 
         if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) expect, 0,
                  (uint32_t) sizeof expect, tag) == NULL)
             astia_exit(22);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof expect)
             astia_exit(22);
 
@@ -262,62 +319,80 @@ void c_main(const long* frame) {
         iov[2].len  = sizeof part1;
         iov[3].base = part2;
         iov[3].len  = sizeof part2;
+
         if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) iov, 0, 4, tag) ==
             NULL)
             astia_exit(22);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof expect)
             astia_exit(22);
 
-        for (i = 0; i < (int) sizeof part0; ++i)
+        for (i = 0; i < (int) sizeof part0; ++i) {
             if (part0[i] != expect[i])
                 astia_exit(22);
-        for (i = 0; i < (int) sizeof part1; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof part1; ++i) {
             if (part1[i] != expect[sizeof part0 + i])
                 astia_exit(22);
-        for (i = 0; i < (int) sizeof part2; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof part2; ++i) {
             if (part2[i] != expect[sizeof part0 + sizeof part1 + i])
                 astia_exit(22);
+        }
     }
 
     /* --- past the entry cap the list is refused whole ----------------- */
     {
         astia_iovec many[32];
-        int         i;
+
+        int i;
 
         for (i = 0; i < 32; ++i) {
             many[i].base = &many[i];
             many[i].len  = 1;
         }
+
         if (fill(ring, OP_READV, (int32_t) fd, (uint64_t) (uintptr_t) many, 0, 32, tag) ==
             NULL)
             astia_exit(23);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != -EINVAL)
             astia_exit(23);
     }
 
     /* --- WRITEV, then read it back: content, not just count ----------- */
     {
-        char        w0[5];
-        char        w1[7];
-        char        w2[11];
-        char        back[23];
+        char w0[5];
+        char w1[7];
+        char w2[11];
+        char back[23];
+
         astia_iovec iov[3];
         astia_sqe*  osqe;
         int32_t     wfd;
         int32_t     rfd;
-        int         i;
 
-        for (i = 0; i < (int) sizeof w0; ++i)
+        int i;
+
+        for (i = 0; i < (int) sizeof w0; ++i) {
             w0[i] = (char) ('a' + i);
-        for (i = 0; i < (int) sizeof w1; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof w1; ++i) {
             w1[i] = (char) ('0' + i);
-        for (i = 0; i < (int) sizeof w2; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof w2; ++i) {
             w2[i] = (char) ('A' + i);
+        }
 
         osqe =
             fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/tmp/readv.bin", 0, 0, tag);
         if (osqe == NULL)
             astia_exit(24);
+
         osqe->op_flags = O_CREAT | O_RDWR | O_TRUNC;
         wfd            = (int32_t) kick(ring, (uint64_t) tag++, &(long){0});
         if (wfd < 0)
@@ -329,61 +404,81 @@ void c_main(const long* frame) {
         iov[1].len  = sizeof w1;
         iov[2].base = w2;
         iov[2].len  = sizeof w2;
+
         if (fill(ring, OP_WRITEV, wfd, (uint64_t) (uintptr_t) iov, 0, 3, tag) == NULL)
             astia_exit(24);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof back)
             astia_exit(24);
+
         if (fill(ring, OP_CLOSE, wfd, 0, 0, 0, tag) == NULL)
             astia_exit(24);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
             astia_exit(24);
 
         if (fill(ring, OP_OPENAT, -1, (uint64_t) (uintptr_t) "/tmp/readv.bin", 0, 0,
                  tag) == NULL)
             astia_exit(24);
+
         rfd = (int32_t) kick(ring, (uint64_t) tag++, &(long){0});
         if (rfd < 0)
             astia_exit(24);
+
         if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) back, 0,
                  (uint32_t) sizeof back, tag) == NULL)
             astia_exit(24);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != (long) sizeof back)
             astia_exit(24);
+
         /* At the end of the file a read is a completed nothing — 0 bytes,
            not an operation the engine parks and waits on a resume for that
            will never come.  This is the one outcome the submit() protocol's
            return value cannot carry, so it is asserted here rather than
            left to whatever the next reader of this file happens to ask. */
         {
-            char     eof_byte = 'x';
-            uint64_t at       = (uint64_t) sizeof back;
+            char eof_byte = 'x';
+
+            uint64_t at = (uint64_t) sizeof back;
+
             if (fill(ring, OP_READ, rfd, (uint64_t) (uintptr_t) &eof_byte, at, 1, tag) ==
                 NULL)
                 astia_exit(25);
+
             if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
                 astia_exit(25);
+
             if (eof_byte != 'x')
                 astia_exit(25);
         }
+
         if (fill(ring, OP_CLOSE, rfd, 0, 0, 0, tag) == NULL)
             astia_exit(24);
+
         if (kick(ring, (uint64_t) tag++, &(long){0}) != 0)
             astia_exit(24);
 
-        for (i = 0; i < (int) sizeof w0; ++i)
+        for (i = 0; i < (int) sizeof w0; ++i) {
             if (back[i] != w0[i])
                 astia_exit(24);
-        for (i = 0; i < (int) sizeof w1; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof w1; ++i) {
             if (back[sizeof w0 + i] != w1[i])
                 astia_exit(24);
-        for (i = 0; i < (int) sizeof w2; ++i)
+        }
+
+        for (i = 0; i < (int) sizeof w2; ++i) {
             if (back[sizeof w0 + sizeof w1 + i] != w2[i])
                 astia_exit(24);
+        }
     }
 
     /* --- CLOSE ------------------------------------------------------- */
     if (fill(ring, OP_CLOSE, (int32_t) fd, 0, 0, 0, tag) == NULL)
         astia_exit(15);
+
     rc = kick(ring, (uint64_t) tag++, &(long){0});
     if (rc != 0)
         astia_exit(15);
@@ -391,6 +486,7 @@ void c_main(const long* frame) {
     /* --- submit does not wait for a completion ----------------------- */
     if (astia_cq_peek(ring) != NULL)
         astia_exit(16);
+
     if (astia_io_submit(ring, 0) != 0)
         astia_exit(17);
 
@@ -403,60 +499,81 @@ void c_main(const long* frame) {
        memory.  An unmapped user page: rejected the same way. */
     if (astia_waitpid(-1, (int32_t*) 0xFFFFFFFF80000000ull) != -EFAULT)
         astia_exit(20);
+
     if (astia_clock_gettime(CLOCK_MONOTONIC, (astia_timespec*) 0x1234) != -EFAULT)
         astia_exit(20);
 
     /* --- spawnve: the three arguments are validated user pointers --- */
     if (astia_spawnve("/sbin/no-such-image", NULL, NULL) != -ENOENT)
         astia_exit(21);
+
     if (astia_spawnve("/sbin/truncated-elf", NULL, NULL) != -EINVAL)
         astia_exit(21);
+
     if (astia_spawnve((const char*) 0xFFFFFFFF80000000ull, NULL, NULL) != -EFAULT)
         astia_exit(21);
+
     if (astia_spawnve("/sbin/init", (char* const*) 0xFFFFFFFF80000000ull, NULL) !=
         -EFAULT)
         astia_exit(21);
+
     if (astia_spawnve("/sbin/init", (char* const*) 0x1234ull, NULL) != -EFAULT)
         astia_exit(21);
+
     {
         char* bad_element[] = {(char*) 0xFFFFFFFF80000000ull, NULL};
+
         if (astia_spawnve("/sbin/init", bad_element, NULL) != -EFAULT)
             astia_exit(21);
     }
+
     /* an unterminated vector is cut off with -E2BIG, never walked */
     {
         char* oversized[33];
-        for (int i = 0; i < 33; ++i)
+
+        for (int i = 0; i < 33; ++i) {
             oversized[i] = (char*) "/sbin/init";
+        }
+
         if (astia_spawnve("/sbin/init", oversized, NULL) != -E2BIG)
             astia_exit(21);
     }
+
     /* One real child — but only from the fixture's own process: every
        boot's first spawn is pid 1, and the child re-runs every step
        including this one, so without the guard each child would spawn
        itself forever.  argv/envp are exactly what step 19 demands. */
     if (astia_getpid() == 1) {
-        char*   child_argv[] = {(char*) "/sbin/init", (char*) "--flag", NULL};
-        char*   child_envp[] = {(char*) "HOME=/", NULL};
-        long    child        = astia_spawnve("/sbin/init", child_argv, child_envp);
+        char* child_argv[] = {(char*) "/sbin/init", (char*) "--flag", NULL};
+        char* child_envp[] = {(char*) "HOME=/", NULL};
+
+        long child = astia_spawnve("/sbin/init", child_argv, child_envp);
+
         int32_t child_status = -1;
+
         if (child <= 0)
             astia_exit(21);
+
         if (astia_waitpid((int32_t) child, &child_status) != child || child_status != 0)
             astia_exit(21);
 
         /* The first program linked against libc.so instead of the archive. */
-        char*   dyn_argv[] = {(char*) "/bin/dyn_libc", NULL};
-        long    dyn_child  = astia_spawnve("/bin/dyn_libc", dyn_argv, NULL);
+        char* dyn_argv[] = {(char*) "/bin/dyn_libc", NULL};
+
+        long dyn_child = astia_spawnve("/bin/dyn_libc", dyn_argv, NULL);
+
         int32_t dyn_status = -1;
+
         if (dyn_child <= 0)
             astia_exit(26); /* spawn itself failed */
+
         if (astia_waitpid((int32_t) dyn_child, &dyn_status) != dyn_child ||
             dyn_status != 0)
             astia_exit(25);
     }
 
     astia_exit(0);
+
     for (;;) {
         __asm__ volatile("hlt");
     }

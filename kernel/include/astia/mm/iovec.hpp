@@ -45,7 +45,6 @@
 // truncated.
 
 namespace astia::mm {
-
     /// One entry: the frames behind a user range, where that range's bytes
     /// begin inside them, and how many there are.  `frames` stays empty for an
     /// entry that is plain kernel memory, which is what `base` is for.
@@ -128,5 +127,4 @@ namespace astia::mm {
         usize          _offset    = 0;
         usize          _remaining = 0;
     };
-
 } // namespace astia::mm

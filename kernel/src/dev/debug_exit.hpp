@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::dev {
-
     /// Terminate the emulator through QEMU's isa-debug-exit device.
     ///
     /// The device maps a written byte v to process exit status (v << 1) | 1, so
@@ -11,5 +10,4 @@ namespace astia::dev {
     /// Writing the port is a no-op when the device is not attached, which keeps
     /// ordinary boots working.
     void debug_exit(u32 status);
-
 } // namespace astia::dev

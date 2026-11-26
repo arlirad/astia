@@ -104,6 +104,7 @@ namespace {
 
         static astia::i64 invoke(astia::sys::syscall_trap trap) {
             trap.image.set_mode(astia::arch::return_mode::signal);
+
             return trap.arguments[1];
         }
     };
@@ -140,6 +141,7 @@ namespace {
             const auto result = co_await *pending_source;
             if (result)
                 co_return result.value + value;
+
             co_return -EINTR;
         }
     };
@@ -183,17 +185,22 @@ namespace {
 namespace {
     astia::i64 resume_task(astia::core::task<astia::i64> operation) {
         operation.resume();
+
         if (!operation.done())
             return -EAGAIN;
+
         return operation.failed() ? -1 : *operation.value();
     }
 
     astia::i64 complete_pending_task(astia::core::task<astia::i64> operation) {
         if (pending_source != nullptr)
             pending_source->complete(2);
+
         operation.resume();
+
         if (!operation.done())
             return -EAGAIN;
+
         return operation.failed() ? -1 : *operation.value();
     }
 } // namespace
@@ -201,6 +208,7 @@ namespace {
 ASTIA_TEST(syscall_mode_specializations_dispatch_sync_and_async_handlers) {
     astia::arch::syscall_return image{};
     astia::i64                  result = 0;
+
     ASTIA_CHECK(astia::sys::dispatch_async<sync_probe>(
         static_cast<astia::sys::syscall_id>(126), 6, 0, 0, 0, 0, 0, image, result,
         resume_task));
@@ -227,6 +235,7 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
 
     astia::arch::syscall_return image{};
     astia::i64                  result = 0;
+
     ASTIA_CHECK(astia::sys::dispatch_async<zero_probe>(
         static_cast<astia::sys::syscall_id>(120), 1, 2, 3, 4, 5, 6, image, result,
         resume_task));
@@ -253,6 +262,7 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
     ASTIA_CHECK(result == 0x8000000000001234ull);
 
     astia::arch::syscall_return trait_image{};
+
     ASTIA_CHECK(astia::sys::dispatch_async<trap_probe>(
         static_cast<astia::sys::syscall_id>(124), 0, 99, 0, 0, 0, 0, trait_image, result,
         resume_task));
@@ -263,18 +273,23 @@ ASTIA_TEST(typed_sync_handlers_accept_direct_arguments_and_dispatch_decodes_abi)
 ASTIA_TEST(async_task_runner_receives_the_pending_handler) {
     astia::arch::syscall_return         image{};
     astia::core::completion<astia::i64> source;
-    pending_source    = &source;
+
+    pending_source = &source;
+
     astia::i64 result = 0;
+
     ASTIA_CHECK(astia::sys::dispatch_async<pending_async_probe>(
         static_cast<astia::sys::syscall_id>(125), 0, 0, 0, 0, 0, 0, image, result,
         complete_pending_task));
     ASTIA_CHECK(result == 2);
+
     pending_source = nullptr;
 }
 
 ASTIA_TEST(generic_syscall_dispatch_returns_enosys_for_unhandled_id) {
     astia::arch::syscall_return image{};
     astia::i64                  result = 0;
+
     ASTIA_CHECK(!astia::sys::dispatch_async<sync_probe>(
         static_cast<astia::sys::syscall_id>(128), 0, 0, 0, 0, 0, 0, image, result,
         resume_task));

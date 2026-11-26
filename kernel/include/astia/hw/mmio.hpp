@@ -4,7 +4,6 @@
 #include <astia/optional.hpp>
 
 namespace astia::hw {
-
     class mmio_mapping {
         public:
         mmio_mapping() = default;
@@ -21,15 +20,19 @@ namespace astia::hw {
         bool valid() const {
             return mapped_base_ != 0;
         }
+
         volatile void* base() const {
             return reinterpret_cast<volatile void*>(virtual_base_ + offset_);
         }
+
         u64 physical() const {
             return physical_;
         }
+
         usize length() const {
             return length_;
         }
+
         void release();
 
         private:
@@ -48,5 +51,4 @@ namespace astia::hw {
         usize        length_       = 0;
         mapping_kind kind_         = mapping_kind::none;
     };
-
 } // namespace astia::hw

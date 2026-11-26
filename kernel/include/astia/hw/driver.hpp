@@ -9,7 +9,6 @@ namespace astia::dev {
 }
 
 namespace astia::hw {
-
     enum class bus_kind : u8 { unknown, pci };
 
     class product {
@@ -21,9 +20,10 @@ namespace astia::hw {
 
     class device_info {
         public:
-        virtual ~device_info()                                     = default;
-        virtual bus_kind    bus() const                            = 0;
-        virtual bool        equals(const device_info& other) const = 0;
+        virtual ~device_info()                                  = default;
+        virtual bus_kind bus() const                            = 0;
+        virtual bool     equals(const device_info& other) const = 0;
+
         virtual const void* type_tag() const {
             return nullptr;
         }
@@ -140,11 +140,13 @@ namespace astia::hw {
     driver_descriptor make_driver_descriptor(T& value, const char* name, owner_id owner,
                                              u32 resources) {
         driver_descriptor descriptor{};
+
         descriptor.name       = name;
         descriptor.owner      = owner;
         descriptor.context    = &value;
         descriptor.resources  = resources;
         descriptor.operations = driver_operations_for<T>();
+
         return descriptor;
     }
 
@@ -196,6 +198,7 @@ namespace astia::hw {
         u32 driver_count() const {
             return _driver_count;
         }
+
         u32 device_count() const {
             return _device_count;
         }
@@ -230,5 +233,4 @@ namespace astia::hw {
     };
 
     driver_registry& drivers();
-
 } // namespace astia::hw

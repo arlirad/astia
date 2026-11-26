@@ -14,7 +14,9 @@ int module_main() {
         __cxa_atexit(handler, &dso_b, &dso_b) != 0 ||
         __cxa_atexit(handler, nullptr, nullptr) != 0)
         return -1;
+
     __cxa_finalize(&dso_a);
     lifecycle_record(410);
+
     return 0;
 }

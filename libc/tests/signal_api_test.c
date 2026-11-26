@@ -22,23 +22,29 @@ static sigset_t         suspend_mask;
 long __astia_process_sigaction(int signal, const astia_sigaction_t* action,
                                astia_sigaction_t* old_action) {
     observed_signal = signal;
+
     if (action != NULL)
         observed_action = *(const struct sigaction*) action;
+
     if (old_action != NULL)
         *(struct sigaction*) old_action = (struct sigaction){SIG_DFL, 0, 0, 0};
+
     return 0;
 }
 
 long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_set) {
     observed_how = how;
     observed_set = set;
+
     if (old_set != NULL)
         *old_set = (1u << SIGUSR1) | (1u << SIGTERM);
+
     return 0;
 }
 
 long __astia_process_sigsuspend(const unsigned int* mask) {
     suspend_mask = *mask;
+
     return -EINTR;
 }
 
@@ -52,11 +58,13 @@ int main(void) {
 
     restart_action.sa_handler = SIG_DFL;
     restart_action.sa_flags   = SA_RESTART;
+
     CHECK(sigemptyset(&restart_action.sa_mask) == 0);
     CHECK(sigaction(SIGUSR1, &restart_action, NULL) == 0);
     CHECK(observed_action.sa_flags == SA_RESTART);
 
     restart_action.sa_flags = SA_NODEFER | SA_RESETHAND;
+
     CHECK(sigaction(SIGUSR1, &restart_action, NULL) == 0);
     CHECK(observed_action.sa_flags == (SA_NODEFER | SA_RESETHAND));
 
@@ -73,8 +81,11 @@ int main(void) {
     CHECK(observed_set == (1u << SIGUSR1));
 
     errno = 0;
+
     CHECK(sighold(0) == -1 && errno == EINVAL);
+
     errno = 0;
+
     CHECK(sigrelse(NSIG) == -1 && errno == EINVAL);
 
     CHECK(SIGAIO == 16);
@@ -92,8 +103,10 @@ int main(void) {
     CHECK(observed_set == (1u << SIGAIO));
 
     errno = 0;
+
     CHECK(sigpause(SIGUSR1) == -1 && errno == EINTR);
     CHECK((suspend_mask & (1u << SIGUSR1)) == 0);
     CHECK((suspend_mask & (1u << SIGTERM)) != 0);
+
     return fails != 0;
 }

@@ -4,7 +4,6 @@
 #include <astia/mm/memory_map.hpp>
 
 namespace astia::boot::aarch64::virt {
-
     inline constexpr usize console_path_capacity = 256;
 
     enum class console_source : u8 {
@@ -40,5 +39,4 @@ namespace astia::boot::aarch64::virt {
         console_info console; ///< Boot console selected from /chosen or platform default.
         gic_info     gic;     ///< Validated GICv3 distributor/redistributor windows.
     };
-
 } // namespace astia::boot::aarch64::virt

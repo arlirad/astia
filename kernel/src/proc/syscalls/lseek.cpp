@@ -11,15 +11,18 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
+
             if (raw_fd < 0 || raw_fd >= static_cast<i64>(max_process_fds))
                 return -EBADF;
+
             if (raw_whence < 0 || raw_whence > 2)
                 return -EINVAL;
+
             auto handle = owner->descriptor(fd_t{static_cast<i32>(raw_fd)});
             if (!handle)
                 return -EBADF;
+
             return handle->seek(offset, static_cast<i32>(raw_whence));
         }
     };
-
 } // namespace astia::proc::syscalls

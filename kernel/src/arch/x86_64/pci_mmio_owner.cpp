@@ -7,9 +7,7 @@
 #include <astia/memory.hpp>
 
 namespace astia::arch::x86_64 {
-
     namespace {
-
         using logs = astia::log::context<"arch">;
 
         u64                pci_mmio_alias_floor = pci_identity_window_size;
@@ -38,6 +36,7 @@ namespace astia::arch::x86_64 {
                     item.size == size)
                     return &item;
             }
+
             return nullptr;
         }
 
@@ -46,15 +45,18 @@ namespace astia::arch::x86_64 {
                 if (!item.used)
                     return &item;
             }
+
             return nullptr;
         }
-
     } // namespace
 
     void pci_mmio_owner_configure(u64 alias_floor, pci_mmio_va_limits limits) {
         core::spinlock_guard guard(mmio_reservation_lock);
-        for (auto& item : mmio_reservations)
+
+        for (auto& item : mmio_reservations) {
             item = {};
+        }
+
         pci_mmio_alias_floor = alias_floor;
         pci_mmio_limits      = limits;
     }
@@ -65,24 +67,30 @@ namespace astia::arch::x86_64 {
 
         const pci_mmio_range range =
             pci_mmio_range_check(physical, size, pci_mmio_alias_floor);
+
         if (range == pci_mmio_range::invalid) {
             logs::error("PCI BAR refused: invalid range phys=%llx size=%llx", physical,
                         size);
+
             return false;
         }
+
         if (range == pci_mmio_range::write_back_alias) {
             logs::error("PCI BAR refused: phys=%llx size=%llx page=%llx "
                         "overlaps write-back alias below %llx",
                         physical, size, physical & ~static_cast<u64>(mm::page_mask),
                         pci_mmio_alias_floor);
+
             return false;
         }
 
         const pci_mmio_page_span span = pci_mmio_page_span_of(physical, size);
+
         if (!pci_mmio_range_fits_direct_map(span.first, span.last, pci_mmio_limits)) {
             logs::error("PCI BAR refused: phys=%llx size=%llx "
                         "page=%llx-%llx outside direct-map segment",
                         physical, size, span.first, span.last);
+
             return false;
         }
 
@@ -93,12 +101,14 @@ namespace astia::arch::x86_64 {
         for (const auto& item : mmio_reservations) {
             if (!item.used)
                 continue;
+
             if (pci_mmio_spans_overlap(span, {item.first, item.last})) {
                 logs::error("PCI BAR refused: phys=%llx size=%llx "
                             "page=%llx-%llx overlaps active MMIO reservation "
                             "va=%llx size=%llx",
                             physical, size, span.first, span.last, item.virtual_address,
                             item.size);
+
                 return false;
             }
         }
@@ -107,6 +117,7 @@ namespace astia::arch::x86_64 {
         if (slot == nullptr) {
             logs::error("PCI BAR refused: mapping table full phys=%llx size=%llx",
                         physical, size);
+
             return false;
         }
 
@@ -115,8 +126,10 @@ namespace astia::arch::x86_64 {
                 logs::error("PCI BAR refused: phys=%llx size=%llx "
                             "target=%llx already mapped",
                             physical, size, kernel_base + page);
+
                 return false;
             }
+
             if (page == span.last)
                 break;
         }
@@ -126,17 +139,22 @@ namespace astia::arch::x86_64 {
         for (u64 page = span.first;; page += mm::page_size) {
             if (!map->map_4k(kernel_base + page, page, flags)) {
                 for (u64 rollback = span.first; rollback < page;
-                     rollback += mm::page_size)
+                     rollback += mm::page_size) {
                     map->unmap(kernel_base + rollback);
+                }
+
                 return false;
             }
+
             if (page == span.last)
                 break;
         }
 
         const u64 mapped = kernel_base + physical;
+
         *slot = {span.first, span.last, mapped, size, mmio_reservation_owner::pci, true};
         virtual_address = mapped;
+
         return true;
     }
 
@@ -144,9 +162,11 @@ namespace astia::arch::x86_64 {
         core::spinlock_guard guard(mmio_reservation_lock);
 
         mmio_reservation* mapping = find_mmio_reservation(virtual_address, size);
+
         if (mapping == nullptr || mapping->owner != mmio_reservation_owner::pci) {
             logs::error("PCI unmap refused: no mapping va=%llx size=%llx",
                         virtual_address, size);
+
             return;
         }
 
@@ -154,14 +174,17 @@ namespace astia::arch::x86_64 {
         if (map == nullptr) {
             logs::error("PCI unmap refused: no page map va=%llx size=%llx",
                         virtual_address, size);
+
             return;
         }
 
         for (u64 page = mapping->first;; page += mm::page_size) {
             map->unmap(kernel_base + page);
+
             if (page == mapping->last)
                 break;
         }
+
         *mapping = {};
     }
 
@@ -173,12 +196,14 @@ namespace astia::arch::x86_64 {
             return mmio_borrow_status::out_of_range;
 
         const pci_mmio_page_span span = pci_mmio_page_span_of(base, mapped_bytes);
+
         if (!pci_mmio_range_fits_direct_map(span.first, span.last, pci_mmio_limits))
             return mmio_borrow_status::out_of_range;
 
         for (const auto& item : mmio_reservations) {
             if (!item.used || !pci_mmio_spans_overlap(span, {item.first, item.last}))
                 continue;
+
             return item.owner == mmio_reservation_owner::pci
                        ? mmio_borrow_status::pci_owned
                        : mmio_borrow_status::generic_owned;
@@ -190,17 +215,16 @@ namespace astia::arch::x86_64 {
 
         bool all_direct = true;
         bool aliased    = false;
+
         for (u64 page = span.first;; page += mm::page_size) {
             const bool identity = map->translate(page) == page;
             if (identity)
                 aliased = true;
 
-            if (map->translate(kernel_base + page) == page) {
+            if (map->translate(kernel_base + page) == page)
                 aliased = true;
-            }
-            else {
+            else
                 all_direct = false;
-            }
 
             if (page == span.last)
                 break;
@@ -208,6 +232,7 @@ namespace astia::arch::x86_64 {
 
         if (all_direct)
             return mmio_borrow_status::borrowable;
+
         return mmio_borrow_status_for(false, false, false, aliased);
     }
 
@@ -220,6 +245,7 @@ namespace astia::arch::x86_64 {
             return mmio_reserve_result::invalid;
 
         const pci_mmio_page_span span = pci_mmio_page_span_of(base, mapped_bytes);
+
         for (const auto& item : mmio_reservations) {
             if (item.used && pci_mmio_spans_overlap(span, {item.first, item.last}))
                 return mmio_reserve_result::busy;
@@ -235,6 +261,7 @@ namespace astia::arch::x86_64 {
                  mapped_bytes,
                  mmio_reservation_owner::generic,
                  true};
+
         return mmio_reserve_result::ok;
     }
 
@@ -242,12 +269,14 @@ namespace astia::arch::x86_64 {
         core::spinlock_guard guard(mmio_reservation_lock);
 
         mmio_reservation* mapping = find_mmio_reservation(virtual_address, mapped_bytes);
+
         if (mapping == nullptr || mapping->owner != mmio_reservation_owner::generic) {
             logs::error("generic MMIO release refused: no reservation va=%llx size=%llx",
                         virtual_address, mapped_bytes);
+
             return;
         }
+
         *mapping = {};
     }
-
 } // namespace astia::arch::x86_64

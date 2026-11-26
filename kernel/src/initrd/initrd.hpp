@@ -16,7 +16,6 @@
 // (links, devices, ...) are skipped rather than surfaced.
 
 namespace astia::initrd {
-
     enum class archive_format : u8 {
         cpio_newc,
         cpio_crc,
@@ -52,14 +51,16 @@ namespace astia::initrd {
     using visit_fn = bool (*)(void* ctx, const file& f);
 
     /// Identify an outer container without attempting decompression.
-    archive_container        detect_container(span<const u8> image);
+    archive_container detect_container(span<const u8> image);
+
     inline archive_container detect_container(const void* image, usize length) {
         return detect_container(span<const u8>(static_cast<const u8*>(image), length));
     }
 
     /// Open a newc or crc image. Gzip and zstd images are rejected; detection
     /// is diagnostic only and does not provide decompression.
-    bool        open(span<const u8> image, archive& out);
+    bool open(span<const u8> image, archive& out);
+
     inline bool open(const void* image, usize length, archive& out) {
         return open(span<const u8>(static_cast<const u8*>(image), length), out);
     }
@@ -74,5 +75,4 @@ namespace astia::initrd {
 
     /// Number of regular (non-empty) files in the archive.
     usize count(const archive& a);
-
 } // namespace astia::initrd

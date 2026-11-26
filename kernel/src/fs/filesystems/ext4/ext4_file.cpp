@@ -3,7 +3,6 @@
 #include "ext4.hpp"
 
 namespace astia::fs::filesystems {
-
     core::task<i64> ext4_file::readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token) {
         return submit_readv(buffers, offset, token);
@@ -17,12 +16,15 @@ namespace astia::fs::filesystems {
     long ext4_file::read_ready(void* buffer, u32 length, u64 offset) {
         if (_node.type() != ext4::node_type::regular)
             return -EISDIR;
+
         if (offset >= _node.size)
             return 0;
+
         const u64 available = _node.size - offset;
         const u32 count     = available < length ? static_cast<u32>(available) : length;
         if (count == 0)
             return 0;
+
         return _owner->read_file(_node, buffer, count, offset) ? count : -EIO;
     }
 
@@ -35,5 +37,4 @@ namespace astia::fs::filesystems {
     file_mode ext4_file::mode() const {
         return ext4_mount::vfs_mode(_node);
     }
-
 } // namespace astia::fs::filesystems

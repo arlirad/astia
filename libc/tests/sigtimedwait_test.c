@@ -5,18 +5,20 @@
 #include <stdio.h>
 #include <time.h>
 
-static int                calls;
-static const sigset_t*    observed_set;
-static siginfo_t*         observed_info;
+static int                    calls;
+static const sigset_t*        observed_set;
+static siginfo_t*             observed_info;
 static const struct timespec* observed_timeout;
-static long               result;
+static long                   result;
 
 long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info,
                                   const void* timeout) {
     ++calls;
+
     observed_set     = (const sigset_t*) set;
     observed_info    = (siginfo_t*) info;
     observed_timeout = (const struct timespec*) timeout;
+
     if (info != NULL) {
         info->signo       = SIGUSR1;
         info->errno_value = 7;
@@ -25,27 +27,30 @@ long __astia_process_sigtimedwait(const unsigned int* set, astia_siginfo_t* info
         info->uid         = 10;
         info->status      = 11;
     }
+
     return result;
 }
 
 static int fails;
 
-#define CHECK(condition)                                                   \
-    do {                                                                    \
-        if (!(condition)) {                                                 \
-            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition);    \
-            ++fails;                                                        \
-        }                                                                   \
+#define CHECK(condition)                                                \
+    do {                                                                \
+        if (!(condition)) {                                             \
+            printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #condition); \
+            ++fails;                                                    \
+        }                                                               \
     } while (0)
 
 int main(void) {
-    sigset_t         set;
-    siginfo_t        info = {0};
-    struct timespec  timeout = {2, 3};
+    sigset_t        set;
+    siginfo_t       info    = {0};
+    struct timespec timeout = {2, 3};
 
     CHECK(sigemptyset(&set) == 0);
     CHECK(sigaddset(&set, SIGUSR1) == 0);
+
     result = SIGUSR1;
+
     CHECK(sigtimedwait(&set, &info, &timeout) == SIGUSR1);
     CHECK(calls == 1);
     CHECK(observed_set == &set);
@@ -57,6 +62,7 @@ int main(void) {
           info.si_pid == 9 && info.si_uid == 10 && info.si_status == 11);
 
     result = SIGUSR1;
+
     CHECK(sigwaitinfo(&set, &info) == SIGUSR1);
     CHECK(calls == 2);
     CHECK(observed_set == &set);
@@ -67,6 +73,7 @@ int main(void) {
 
     result = -EAGAIN;
     errno  = 0;
+
     CHECK(sigwaitinfo(&set, NULL) == -1);
     CHECK(errno == EAGAIN);
     CHECK(calls == 3);
@@ -74,10 +81,12 @@ int main(void) {
     CHECK(observed_timeout == NULL);
 
     errno = 0;
+
     CHECK(sigtimedwait(&set, NULL, NULL) == -1);
     CHECK(errno == EAGAIN);
     CHECK(calls == 4);
     CHECK(observed_info == NULL);
     CHECK(observed_timeout == NULL);
+
     return fails != 0;
 }

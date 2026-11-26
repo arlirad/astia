@@ -4,7 +4,6 @@
 #include <astia/optional.hpp>
 
 namespace astia::dev {
-
     struct pio_reader {
         using read8_callback  = u8 (*)(void*, u16);
         using read16_callback = u16 (*)(void*, u16);
@@ -52,21 +51,27 @@ namespace astia::dev {
         bool write8(u16 port, u8 value) const {
             if (write8_fn == nullptr)
                 return false;
+
             write8_fn(context, port, value);
+
             return true;
         }
 
         bool write16(u16 port, u16 value) const {
             if (write16_fn == nullptr)
                 return false;
+
             write16_fn(context, port, value);
+
             return true;
         }
 
         bool write32(u16 port, u32 value) const {
             if (write32_fn == nullptr)
                 return false;
+
             write32_fn(context, port, value);
+
             return true;
         }
     };
@@ -96,6 +101,7 @@ namespace astia::dev {
         constexpr bool readable() const {
             return reader.valid();
         }
+
         constexpr bool writable() const {
             return writer.valid();
         }
@@ -103,18 +109,23 @@ namespace astia::dev {
         optional<u8> read8(u16 port) const {
             return reader.read8(port);
         }
+
         optional<u16> read16(u16 port) const {
             return reader.read16(port);
         }
+
         optional<u32> read32(u16 port) const {
             return reader.read32(port);
         }
+
         bool write8(u16 port, u8 value) const {
             return writer.write8(port, value);
         }
+
         bool write16(u16 port, u16 value) const {
             return writer.write16(port, value);
         }
+
         bool write32(u16 port, u32 value) const {
             return writer.write32(port, value);
         }
@@ -123,6 +134,7 @@ namespace astia::dev {
     class io_port {
         public:
         constexpr io_port() = default;
+
         constexpr io_port(const pio_bus& bus, u16 base) : _bus(&bus), _base(base) {}
 
         optional<u8> read8(u32 offset) const {
@@ -179,6 +191,7 @@ namespace astia::dev {
 
         constexpr u32 port(u32 offset) const {
             const u32 result = static_cast<u32>(_base) + offset;
+
             return result <= 0xffff ? result : none;
         }
 
@@ -238,15 +251,17 @@ namespace astia::dev {
         constexpr bool claimable_valid() const {
             return claimable.valid();
         }
+
         constexpr bool unmaskable_valid() const {
             return unmaskable.valid();
         }
+
         bool claim(irq_handler handler) const {
             return claimable.claim(handler);
         }
+
         bool unmask() const {
             return unmaskable.unmask();
         }
     };
-
 } // namespace astia::dev

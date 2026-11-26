@@ -20,9 +20,11 @@ namespace astia::fs {
             optional<readable&> as_readable() override {
                 return *this;
             }
+
             optional<writable&> as_writable() override {
                 return *this;
             }
+
             optional<pollable&> as_pollable() override {
                 return *this;
             }
@@ -35,6 +37,7 @@ namespace astia::fs {
                                   core::cltoken token) override {
                 return submit_readv(buffers, offset, token);
             }
+
             core::task<i64> writev(span<const buffer> buffers, u64 offset,
                                    core::cltoken token) override {
                 return submit_writev(buffers, offset, token);
@@ -46,15 +49,21 @@ namespace astia::fs {
                 u32 count = 0;
                 {
                     core::spinlock_guard guard(_lock);
-                    const u32            tail      = _tail;
-                    const u32            head      = _head;
-                    const u32            available = head - tail;
+
+                    const u32 tail      = _tail;
+                    const u32 head      = _head;
+                    const u32 available = head - tail;
                     if (available == 0)
                         return 0;
-                    count     = available < length ? available : length;
+
+                    count = available < length ? available : length;
+
                     auto* out = static_cast<u8*>(buffer);
-                    for (u32 i = 0; i < count; ++i)
+
+                    for (u32 i = 0; i < count; ++i) {
                         out[i] = _data[(tail + i) & (pipe_capacity_bytes - 1)];
+                    }
+
                     _tail = tail + count;
                 }
                 // A reader creates space for a parked writer.  Wake by
@@ -72,15 +81,21 @@ namespace astia::fs {
                 u32 count = 0;
                 {
                     core::spinlock_guard guard(_lock);
-                    const u32            head = _head;
-                    const u32            tail = _tail;
-                    const u32            free = pipe_capacity_bytes - (head - tail);
+
+                    const u32 head = _head;
+                    const u32 tail = _tail;
+                    const u32 free = pipe_capacity_bytes - (head - tail);
                     if (free == 0)
                         return 0;
-                    count          = free < length ? free : length;
+
+                    count = free < length ? free : length;
+
                     const auto* in = static_cast<const u8*>(buffer);
-                    for (u32 i = 0; i < count; ++i)
+
+                    for (u32 i = 0; i < count; ++i) {
                         _data[(head + i) & (pipe_capacity_bytes - 1)] = in[i];
+                    }
+
                     _head = head + count;
                 }
                 // A writer makes data available to parked readers.  The
@@ -96,6 +111,7 @@ namespace astia::fs {
                 if ((flags & pipe_read_endpoint_flag) != 0) {
                     if (_head != _tail)
                         result |= POLLIN;
+
                     if (__atomic_load_n(&_writers, __ATOMIC_ACQUIRE) == 0)
                         result |= POLLIN | POLLHUP;
                 }
@@ -144,18 +160,21 @@ namespace astia::fs {
             u32            _readers;
             u32            _writers;
         };
-
     }
 
     optional<pipe_endpoints> create_pipe() {
         mm::shptr<pipe_file> file(new pipe_file{});
+
         if (!file)
             return error_t::enomem;
+
         auto read_end  = mm::share<open_file>(file, pipe_read_endpoint_flag);
         auto write_end = mm::share<open_file>(file, pipe_write_endpoint_flag);
+
         if (read_end && write_end)
             return pipe_endpoints{static_cast<mm::shptr<open_file>&&>(read_end),
                                   static_cast<mm::shptr<open_file>&&>(write_end)};
+
         return error_t::enomem;
     }
 }

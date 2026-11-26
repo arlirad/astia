@@ -19,7 +19,6 @@
 // implements, while the getters report the stored termios values.
 
 namespace astia::dev {
-
     namespace tty_defaults {
         inline constexpr cc_t ctrl_c         = 0x03;
         inline constexpr cc_t ctrl_backslash = 0x1c;
@@ -40,9 +39,11 @@ namespace astia::dev {
             _termios.c_cflag = CS8 | CREAD | CLOCAL;
             _termios.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK;
             _termios.c_line  = 0;
+
             for (u32 i = 0; i < NCCS; ++i) {
                 _termios.c_cc[i] = 0;
             }
+
             _termios.c_cc[VINTR]  = tty_defaults::ctrl_c;
             _termios.c_cc[VQUIT]  = tty_defaults::ctrl_backslash;
             _termios.c_cc[VERASE] = tty_defaults::del;
@@ -68,6 +69,7 @@ namespace astia::dev {
             const bool ready = tty_receive(byte);
             if (ready)
                 tty_input_ready();
+
             return ready;
         }
 #endif
@@ -121,5 +123,4 @@ namespace astia::dev {
         alignas(cache_line_bytes) u32 _rx_head = 0;
         alignas(cache_line_bytes) u32 _rx_tail = 0;
     };
-
 } // namespace astia::dev

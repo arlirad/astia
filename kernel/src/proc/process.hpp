@@ -23,7 +23,6 @@
 #include "thread.hpp"
 
 namespace astia::proc {
-
     struct exec_result {
         u64 entry = 0;
         u64 stack = 0;
@@ -66,43 +65,63 @@ namespace astia::proc {
         pid_t pid() const {
             return _pid;
         }
+
         pid_t parent_pid() const {
             return _parent_pid;
         }
+
         pgrp_t process_group() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _process_group;
         }
+
         pid_t session() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _session;
         }
+
         u32 uid() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _uid;
         }
+
         u32 euid() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _euid;
         }
+
         u32 gid() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _gid;
         }
+
         u32 egid() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _egid;
         }
+
         u32 umask() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _umask;
         }
+
         u32 set_umask(u32 value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
-            const u32                      old = _umask;
-            _umask                             = value & 0777u;
+
+            const u32 old = _umask;
+
+            _umask = value & 0777u;
+
             return old;
         }
+
         i64  setuid(u32);
         i64  seteuid(u32);
         i64  setgid(u32);
@@ -112,43 +131,58 @@ namespace astia::proc {
         i64  getgroups(i32 count, u32* out) const;
         i64  setgroups(i32 count, const u32* values);
         bool in_group(gid_t group) const;
+
         bool can_access(fs::file_mode mode, uid_t owner, gid_t group,
                         fs::permission_bits want) const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             if (_euid == 0)
                 return want != fs::permission_bits::execute ||
                        mode.owner_allows(fs::permission_bits::execute) ||
                        mode.group_allows(fs::permission_bits::execute) ||
                        mode.other_allows(fs::permission_bits::execute);
+
             return _euid == static_cast<u32>(owner) ? mode.owner_allows(want) : ([&] {
                 if (_egid == static_cast<u32>(group))
                     return mode.group_allows(want);
-                for (u32 i = 0; i < _group_count; ++i)
+
+                for (u32 i = 0; i < _group_count; ++i) {
                     if (_groups[i] == group)
                         return mode.group_allows(want);
+                }
+
                 return mode.other_allows(want);
             }());
         }
+
         i64 change_directory(const char* path);
         i64 copy_cwd(span<char> buffer) const;
+
         i64 copy_cwd(char* buffer, usize length) const {
             return copy_cwd(span<char>(buffer, length));
         }
+
         // Process helpers compose cwd/dirfd-relative paths; fs::resolve_path()
         // performs canonical VFS resolution as the second layer.
         i64 compose_path(const char* path, span<char> buffer) const;
+
         i64 compose_path(const char* path, char* buffer, usize length) const {
             return compose_path(path, span<char>(buffer, length));
         }
+
         i64 compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const;
+
         i64 compose_path_at(fd_t dirfd, const char* path, char* buffer,
                             usize length) const {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
+
         void inherit_groups(const process& parent) {
             _cwd.inherit_from(parent._cwd);
+
             arch::interrupt_spinlock_guard parent_guard(parent._metadata_lock);
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             if (parent._pid == pid_t{}) {
                 _process_group = pgrp_from_raw(raw_id(_pid));
                 _session       = _pid;
@@ -157,80 +191,109 @@ namespace astia::proc {
                 _process_group = parent._process_group;
                 _session       = parent._session;
             }
+
             _controlling_terminal = parent._controlling_terminal;
             _uid                  = parent._uid;
             _euid                 = parent._euid;
             _gid                  = parent._gid;
             _egid                 = parent._egid;
             _group_count          = parent._group_count;
-            for (u32 i = 0; i < _group_count; ++i)
+
+            for (u32 i = 0; i < _group_count; ++i) {
                 _groups[i] = parent._groups[i];
+            }
+
             _rlimit_nofile = parent._rlimit_nofile;
             _rlimit_as     = parent._rlimit_as;
             _umask         = parent._umask;
         }
+
         void process_group(pgrp_t value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             _process_group = value;
         }
+
         void session(pid_t value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             _session = value;
         }
+
         mm::shptr<fs::open_file> controlling_terminal() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             return _controlling_terminal;
         }
+
         void controlling_terminal(const mm::shptr<fs::open_file>& value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             _controlling_terminal = value;
         }
+
         bool claim_controlling_terminal(const mm::shptr<fs::open_file>& value) {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             if (!value || _pid != _session || _controlling_terminal)
                 return false;
+
             _controlling_terminal = value;
+
             return true;
         }
+
         const char* name() const {
             return _name;
         }
+
         process_state state() const {
             return static_cast<process_state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
         }
+
         void state(process_state value) {
             __atomic_store_n(&_state, static_cast<u8>(value), __ATOMIC_RELEASE);
         }
+
         i32 exit_status() const {
             return _exit_status;
         }
+
         i32 wait_status() const {
             return _termination_signal != 0 ? wait_status_from_signal(_termination_signal)
                                             : wait_status_from_exit(_exit_status);
         }
+
         i32 stop_status() const {
             return wait_status_from_stop(_stop_signal);
         }
+
         bool stop_event_pending() const {
             return __atomic_load_n(&_stop_event, __ATOMIC_ACQUIRE) != 0;
         }
+
         bool continued_event_pending() const {
             return __atomic_load_n(&_continued_event, __ATOMIC_ACQUIRE) != 0;
         }
+
         void clear_stop_event() {
             __atomic_store_n(&_stop_event, 0, __ATOMIC_RELEASE);
         }
+
         void clear_continued_event() {
             __atomic_store_n(&_continued_event, 0, __ATOMIC_RELEASE);
         }
+
         void signal_state_change(signal_number signal);
         void interrupt_signal_io(signal_number signal);
         void request_kill();
         i64  alarm(u32 seconds, u64 now, u32 hz);
         void expire_alarm(u64 now);
+
         void signal_termination(signal_number signal) {
             _termination_signal = static_cast<i32>(signal);
         }
+
         signal_number termination_signal() const {
             return static_cast<signal_number>(_termination_signal);
         }
@@ -240,6 +303,7 @@ namespace astia::proc {
         core::clsource& cancellation_root() {
             return _cancellation_root;
         }
+
         const core::clsource& cancellation_root() const {
             return _cancellation_root;
         }
@@ -247,6 +311,7 @@ namespace astia::proc {
         signal_state& signals() {
             return _signals;
         }
+
         const signal_state& signals() const {
             return _signals;
         }
@@ -256,9 +321,11 @@ namespace astia::proc {
         /// until its parent reaps it with proc::waitpid().
         bool thread_exited(thread* value, i32 status);
         void request_exit(thread* caller, i32 status);
+
         bool process_exit_requested() const {
             return __atomic_load_n(&_exit_requested, __ATOMIC_ACQUIRE) != 0;
         }
+
         i32 requested_exit_status() const {
             return __atomic_load_n(&_requested_exit_status, __ATOMIC_ACQUIRE);
         }
@@ -290,7 +357,8 @@ namespace astia::proc {
 
         bool              add_thread(const mm::shptr<thread>& value);
         mm::shptr<thread> thread_at(u32 index) const;
-        u32               thread_count() const {
+
+        u32 thread_count() const {
             return _thread_count;
         }
 
@@ -310,15 +378,18 @@ namespace astia::proc {
         /// this process address space.  This prepares the image only;
         /// user entry/TSS return is an architecture step after this.
         bool load_user_image(span<const u8> bytes, u64* entry_out);
+
         bool load_user_image(const void* bytes, usize length, u64* entry_out) {
             return load_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    entry_out);
         }
+
         /// x86_64 thread pointer (%fs base) for this process's static
         /// TLS block; 0 when the image declares no PT_TLS.
         u64 tls_tp() const {
             return _tls_tp;
         }
+
         /// Startup-vector facts about the image this process will enter.
         struct exec_image_info {
             u64 base   = 0; ///< payload load bias (AT_ASTIA_PAYLOAD_BASE)
@@ -333,14 +404,17 @@ namespace astia::proc {
             u64 tls_tp    = 0;
             u64 tls_limit = 0;
         };
+
         const exec_image_info& exec_image() const {
             return _exec_image;
         }
+
         /// Cancellation token for I/O this process starts (dlmap image
         /// reads, file mappings).  Execve retires it with the old image.
         core::cltoken io_token() {
             return _cancellation_root.token();
         }
+
         /// Map an already-backed physical range at an exact address.  The
         /// caller owns a `share_range` reference on `region` covering
         /// `region_page..+pages`; this mapping adopts it.  `cow` installs the
@@ -362,16 +436,19 @@ namespace astia::proc {
                                         u64 argument1 = 0, bool owns_user_stack = false,
                                         u64   user_stack_base = 0,
                                         usize user_stack_size = 0);
+
         struct thread_stack_snapshot {
             u64   stack_base = 0;
             usize stack_size = 0;
             bool  detached   = false;
             bool  supported  = false;
         };
+
         mm::shptr<thread> thread_stack_info(tid_t id, thread_stack_snapshot& snapshot);
         /// Find a thread by its process-local tid, retaining it while a
         /// blocking join syscall operates on it.
-        mm::shptr<thread>        thread_by_tid(tid_t id);
+        mm::shptr<thread> thread_by_tid(tid_t id);
+
         const mm::address_space* address_space() const {
             return _address_space.attached() ? &_address_space : nullptr;
         }
@@ -458,8 +535,10 @@ namespace astia::proc {
             u32                      uid, gid;
             mm::shptr<fs::open_file> controlling_terminal;
         };
+
         void snapshot_metadata(metadata_snapshot& out) const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
+
             out.process_group        = _process_group;
             out.session              = _session;
             out.uid                  = _uid;
@@ -469,11 +548,13 @@ namespace astia::proc {
 
         bool exec_user_image(span<const u8> bytes, char* const argv[], char* const envp[],
                              u64* entry_out, u64* stack_out);
+
         bool exec_user_image(const void* bytes, usize length, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out) {
             return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    argv, envp, entry_out, stack_out);
         }
+
         core::task<exec_result> exec_user_file_async(mm::shptr<fs::open_file> file,
                                                      usize length, char* const argv[],
                                                      char* const envp[]);
@@ -578,5 +659,4 @@ namespace astia::proc {
     void reap_dead_threads();
     bool defer_dead_process(const mm::shptr<process>& value);
     void reap_dead_processes();
-
 } // namespace astia::proc

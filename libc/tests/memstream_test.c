@@ -25,13 +25,17 @@ static int fails;
     } while (0)
 
 static void test_basic(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(ftell(f) == 0);
     CHECK(fwrite("hello", 1, 5, f) == 5);
     CHECK(ftell(f) == 5);
@@ -50,13 +54,17 @@ static void test_basic(void) {
 }
 
 static void test_close_without_flush(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fwrite("implicit", 1, 8, f) == 8);
     CHECK(ftell(f) == 8);
     CHECK(fclose(f) == 0);
@@ -68,17 +76,26 @@ static void test_close_without_flush(void) {
 
 static void test_growth(void) {
     static unsigned char pattern[20000];
-    char*                buf  = NULL;
-    size_t               size = 0;
-    FILE*                f;
-    size_t               i;
 
-    for (i = 0; i < sizeof pattern; i++)
-        pattern[i] = (unsigned char) (i * 37 + 11); /* NULs included */
+    char* buf = NULL;
+
+    size_t size = 0;
+
+    FILE* f;
+
+    size_t i;
+
+    for (i = 0; i < sizeof pattern; i++) {
+        pattern[i] = (unsigned char) (i * 37 + 11);
+    } /* NULs included */
+
     f = open_memstream(&buf, &size);
+
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fwrite(pattern, 1, sizeof pattern, f) == sizeof pattern);
     CHECK(ftell(f) == (long) sizeof pattern);
     CHECK(fflush(f) == 0);
@@ -93,13 +110,17 @@ static void test_growth(void) {
 }
 
 static void test_formatted_output(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fprintf(f, "%s=%d", "answer", 42) == 9);
     CHECK(fflush(f) == 0);
     CHECK(size == 9);
@@ -110,13 +131,18 @@ static void test_formatted_output(void) {
 
 static void test_embedded_nul(void) {
     static const char data[] = {'a', '\0', 'b', '\0', 'c'};
-    char*             buf    = NULL;
-    size_t            size   = 0;
-    FILE*             f      = open_memstream(&buf, &size);
+
+    char* buf = NULL;
+
+    size_t size = 0;
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fwrite(data, 1, sizeof data, f) == sizeof data);
     CHECK(fflush(f) == 0);
     CHECK(size == sizeof data);
@@ -129,24 +155,31 @@ static void test_embedded_nul(void) {
 }
 
 static void test_flush_all(void) {
-    char*  one   = NULL;
-    char*  two   = NULL;
+    char* one = NULL;
+    char* two = NULL;
+
     size_t n_one = 0;
     size_t n_two = 0;
-    FILE*  f_one = open_memstream(&one, &n_one);
-    FILE*  f_two = open_memstream(&two, &n_two);
+
+    FILE* f_one = open_memstream(&one, &n_one);
+    FILE* f_two = open_memstream(&two, &n_two);
 
     CHECK(f_one != NULL);
     CHECK(f_two != NULL);
+
     if (f_one == NULL || f_two == NULL) {
         if (f_one != NULL)
             (void) fclose(f_one);
+
         if (f_two != NULL)
             (void) fclose(f_two);
+
         free(one);
         free(two);
+
         return;
     }
+
     CHECK(fwrite("one", 1, 3, f_one) == 3);
     CHECK(fwrite("two", 1, 3, f_two) == 3);
     CHECK(fflush(NULL) == 0);
@@ -159,14 +192,19 @@ static void test_flush_all(void) {
 }
 
 static void test_seek_and_tell(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
-    int    i;
+
+    FILE* f = open_memstream(&buf, &size);
+
+    int i;
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fwrite("0123456789", 1, 10, f) == 10);
     CHECK(fflush(f) == 0);
     CHECK(size == 10);
@@ -191,8 +229,11 @@ static void test_seek_and_tell(void) {
     CHECK(fflush(f) == 0);
     CHECK(size == 16);
     CHECK(memcmp(buf, "012XY56789", 10) == 0);
-    for (i = 10; i < 15; i++)
+
+    for (i = 10; i < 15; i++) {
         CHECK(buf[i] == '\0');
+    }
+
     CHECK(buf[15] == 'Z');
     CHECK(buf[16] == '\0');
     CHECK(fseek(f, 0, SEEK_END) == 0);
@@ -217,13 +258,17 @@ static void test_seek_and_tell(void) {
  * length and the current position; fclose additionally terminates the
  * caller-visible string at that size. */
 static void test_seek_back_flush(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fwrite("abcdefghij", 1, 10, f) == 10);
     CHECK(fflush(f) == 0);
     CHECK(size == 10);
@@ -238,14 +283,18 @@ static void test_seek_back_flush(void) {
 }
 
 static void test_read_rejected(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
     char   byte;
-    FILE*  f = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(fread(&byte, 1, 1, f) == 0);
     CHECK(ferror(f) != 0);
     CHECK(errno == EBADF);
@@ -262,26 +311,35 @@ static void test_read_rejected(void) {
 }
 
 static void test_open_errors(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
 
     errno = 0;
+
     CHECK(open_memstream(NULL, &size) == NULL);
     CHECK(errno == EINVAL);
+
     errno = 0;
+
     CHECK(open_memstream(&buf, NULL) == NULL);
     CHECK(errno == EINVAL);
 }
 
 static void test_ownership_and_fileno(void) {
-    char*  buf  = NULL;
+    char* buf = NULL;
+
     size_t size = 0;
-    FILE*  f    = open_memstream(&buf, &size);
+
+    FILE* f = open_memstream(&buf, &size);
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     errno = 0;
+
     CHECK(fileno(f) == -1);
     CHECK(errno == EBADF);
     CHECK(fwrite("owned", 1, 5, f) == 5);
@@ -308,5 +366,6 @@ int main(void) {
 
     if (fails != 0)
         printf("memstream_test: %d failure(s)\n", fails);
+
     return fails != 0;
 }

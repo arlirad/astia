@@ -4,7 +4,6 @@
 #include <astia/optional.hpp>
 
 namespace astia::mm::heap {
-
     /// How the arch makes a heap page reachable: a plain function pointer
     /// (the project convention — no interface to implement), so mm never
     /// sees the page map itself. Returns false if the mapping failed.
@@ -46,5 +45,4 @@ namespace astia::mm::heap {
 
     /// Payload bytes the region can ever hand out (excludes one header).
     usize capacity();
-
 } // namespace astia::mm::heap

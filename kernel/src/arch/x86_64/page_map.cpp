@@ -30,9 +30,7 @@ extern "C" char boot_stack_top[];
 //     tests, where `phys` is a real pointer — does access fall back to the
 //     identity window.
 namespace astia::arch {
-
     namespace {
-
         constexpr u64 entry_present       = 1ull << 0;
         constexpr u64 entry_writable      = 1ull << 1;
         constexpr u64 entry_user          = 1ull << 2;
@@ -60,18 +58,20 @@ namespace astia::arch {
         // higher-half tables may be shared with the kernel map.
         void release_table(paddr_t frame, u32 level) {
             auto* table = static_cast<u64*>(mm::kernel_frames().to_virt(frame));
-            if (table == nullptr) {
+            if (table == nullptr)
                 return;
-            }
+
             if (level > 1) {
                 for (usize i = 0; i < 512; ++i) {
                     const u64 entry = table[i];
-                    if ((entry & entry_present) == 0 || (entry & entry_huge) != 0) {
+
+                    if ((entry & entry_present) == 0 || (entry & entry_huge) != 0)
                         continue;
-                    }
+
                     release_table(entry & address_mask, level - 1);
                 }
             }
+
             mm::kernel_frames().release(frame);
         }
 
@@ -91,12 +91,15 @@ namespace astia::arch {
         constexpr usize pml4_index(vaddr_t virt) {
             return (virt >> 39) & 0x1ff;
         }
+
         constexpr usize pdpt_index(vaddr_t virt) {
             return (virt >> 30) & 0x1ff;
         }
+
         constexpr usize pd_index(vaddr_t virt) {
             return (virt >> 21) & 0x1ff;
         }
+
         constexpr usize pt_index(vaddr_t virt) {
             return (virt >> 12) & 0x1ff;
         }
@@ -111,24 +114,25 @@ namespace astia::arch {
         /// has no x86_64 encoding and is intentionally a no-op here.
         u64 to_leaf(page_flags flags) {
             u64 bits = entry_present;
-            if (has_flag(flags, page_flags::writable)) {
+
+            if (has_flag(flags, page_flags::writable))
                 bits |= entry_writable;
-            }
-            if (has_flag(flags, page_flags::user)) {
+
+            if (has_flag(flags, page_flags::user))
                 bits |= entry_user;
-            }
-            if (has_flag(flags, page_flags::write_through)) {
+
+            if (has_flag(flags, page_flags::write_through))
                 bits |= entry_write_through;
-            }
-            if (has_flag(flags, page_flags::cache_disable)) {
+
+            if (has_flag(flags, page_flags::cache_disable))
                 bits |= entry_cache_disable;
-            }
-            if (has_flag(flags, page_flags::global)) {
+
+            if (has_flag(flags, page_flags::global))
                 bits |= entry_global;
-            }
-            if (has_flag(flags, page_flags::no_execute)) {
+
+            if (has_flag(flags, page_flags::no_execute))
                 bits |= entry_no_execute;
-            }
+
             return bits;
         }
 
@@ -145,6 +149,7 @@ namespace astia::arch {
             u64       a2  = rec;
             u64       a3  = rec;
             u64       a4  = rec;
+
             switch (level) {
             case table_level::root:
                 break;
@@ -161,6 +166,7 @@ namespace astia::arch {
                 a4 = pd_index(virt);
                 break;
             }
+
             return recursive_base | (a2 << 30) | (a3 << 21) | (a4 << 12);
         }
 
@@ -169,17 +175,17 @@ namespace astia::arch {
         /// shared into every active map), through the identity window before
         /// that and in host tests.
         u64* phys_ptr(paddr_t phys) {
-            if (active_map != nullptr) {
+            if (active_map != nullptr)
                 return reinterpret_cast<u64*>(kernel_base + phys);
-            }
+
             return reinterpret_cast<u64*>(phys);
         }
 
         /// `owner`'s root-table page.
         u64* root_table(const page_map& owner) {
-            if (active_map == &owner) {
+            if (active_map == &owner)
                 return reinterpret_cast<u64*>(alias(table_level::root, 0));
-            }
+
             return phys_ptr(owner.root());
         }
 
@@ -187,23 +193,25 @@ namespace astia::arch {
 #ifdef ASTIA_HOST_TEST
             (void) map;
             (void) parent;
+
             return true;
 #else
-            if (parent == nullptr || !parent->valid()) {
+            if (parent == nullptr || !parent->valid())
                 return true;
-            }
+
             const vaddr_t first = reinterpret_cast<vaddr_t>(boot_stack) & ~mm::page_mask;
             const vaddr_t last =
                 (reinterpret_cast<vaddr_t>(boot_stack_top) - 1) & ~mm::page_mask;
+
             for (vaddr_t virt = first;; virt += mm::page_size) {
                 const paddr_t phys = parent->translate(virt);
+
                 if (phys == page_map::invalid ||
-                    !map.map_4k(virt, phys, page_flags::present | page_flags::writable)) {
+                    !map.map_4k(virt, phys, page_flags::present | page_flags::writable))
                     return false;
-                }
-                if (virt == last) {
+
+                if (virt == last)
                     return true;
-                }
             }
 #endif
         }
@@ -219,6 +227,7 @@ namespace astia::arch {
             (void) owner;
             (void) virt;
             (void) level;
+
             return phys_ptr(entry & address_mask);
         }
 
@@ -228,21 +237,23 @@ namespace astia::arch {
         u64* ensure_table(const page_map& owner, vaddr_t virt, table_level level,
                           u64& entry, page_flags flags) {
             if ((entry & entry_present) != 0) {
-                if ((entry & entry_huge) != 0) {
+                if ((entry & entry_huge) != 0)
                     return nullptr;
-                }
-                if (has_flag(flags, page_flags::user)) {
+
+                if (has_flag(flags, page_flags::user))
                     entry |= entry_user;
-                }
+
                 return next_table(owner, virt, level, entry);
             }
 
             const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
-            if (frame == mm::frame_allocator::invalid_frame) {
+
+            if (frame == mm::frame_allocator::invalid_frame)
                 return nullptr;
-            }
+
             entry = (frame & address_mask) | entry_present | entry_writable |
                     (has_flag(flags, page_flags::user) ? entry_user : 0);
+
             return next_table(owner, virt, level, entry);
         }
 
@@ -254,21 +265,23 @@ namespace astia::arch {
                        entry_cache_disable | entry_global | entry_no_execute);
 
             const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
-            if (frame == mm::frame_allocator::invalid_frame) {
+
+            if (frame == mm::frame_allocator::invalid_frame)
                 return false;
-            }
 
             // Publish the entry first so the new table is reachable through
             // the recursive window too, then fill it.
-            pde        = (frame & address_mask) | inherited | entry_present;
+            pde = (frame & address_mask) | inherited | entry_present;
+
             u64* table = next_table(owner, virt, table_level::pt, pde);
+
             for (usize i = 0; i < 512; ++i) {
                 table[i] = (base + static_cast<u64>(i) * mm::page_size) | inherited |
                            entry_present;
             }
+
             return true;
         }
-
     } // namespace
 
     page_map::page_map(page_map&& other) noexcept
@@ -278,20 +291,22 @@ namespace astia::arch {
     }
 
     page_map::~page_map() {
-        if (!valid()) {
+        if (!valid())
             return;
-        }
 #ifndef ASTIA_HOST_TEST
         interrupt_guard gate;
 #endif
         u64* root = root_table(*this);
+
         for (usize i = 0; i < kernel_slot; ++i) {
             const u64 entry = root[i];
-            if ((entry & entry_present) != 0 && (entry & entry_huge) == 0) {
+
+            if ((entry & entry_present) != 0 && (entry & entry_huge) == 0)
                 release_table(entry & address_mask, 3);
-            }
         }
+
         mm::kernel_frames().release(_root);
+
         _root   = 0;
         _parent = nullptr;
     }
@@ -299,28 +314,32 @@ namespace astia::arch {
     page_map& page_map::operator=(page_map&& other) noexcept {
         if (this != &other) {
             page_map old(static_cast<page_map&&>(*this));
+
             _root         = other._root;
             _parent       = other._parent;
             other._root   = 0;
             other._parent = nullptr;
         }
+
         return *this;
     }
 
     page_map page_map::create(const page_map* parent) {
         const u64 frame = mm::kernel_frames().alloc(1, mm::frame_flags::zeroed);
-        if (frame == mm::frame_allocator::invalid_frame) {
+
+        if (frame == mm::frame_allocator::invalid_frame)
             return page_map{};
-        }
 
         page_map map(frame, parent);
         u64*     dst = phys_ptr(frame);
+
         if (parent != nullptr && parent->valid()) {
             // Share the parent's kernel-half top-level entries: the same
             // table frames, so the hardware walk from a child address space
             // sees every kernel mapping — including ones the kernel adds
             // after this child was created (they land in the shared tables).
             const u64* src = root_table(*parent);
+
             for (usize i = kernel_slot; i < 512; ++i) {
                 dst[i] = src[i];
             }
@@ -330,19 +349,20 @@ namespace astia::arch {
         // *own* root (overwriting anything inherited above), so walking the
         // recursive window through this map addresses this map's tables.
         dst[recursive_slot] = (frame & address_mask) | entry_present | entry_writable;
-        if (!map_boot_stack(map, parent)) {
+
+        if (!map_boot_stack(map, parent))
             return page_map{};
-        }
+
         return map;
     }
 
     bool page_map::map_4k(vaddr_t virt, paddr_t phys, page_flags flags) {
-        if (!valid() || !is_canonical(virt)) {
+        if (!valid() || !is_canonical(virt))
             return false;
-        }
-        if ((virt & 0xfff) != 0 || (phys & 0xfff) != 0) {
+
+        if ((virt & 0xfff) != 0 || (phys & 0xfff) != 0)
             return false;
-        }
+
         if (pml4_index(virt) == recursive_slot) {
             return false; // reserved for the map's self-reference
         }
@@ -350,38 +370,39 @@ namespace astia::arch {
         u64* pml4 = root_table(*this);
         u64* pdpt =
             ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
-        if (pdpt == nullptr) {
+        if (pdpt == nullptr)
             return false;
-        }
+
         u64* pd =
             ensure_table(*this, virt, table_level::pd, pdpt[pdpt_index(virt)], flags);
-        if (pd == nullptr) {
+        if (pd == nullptr)
             return false;
-        }
 
         u64& pde = pd[pd_index(virt)];
+
         if ((pde & (entry_present | entry_huge)) == (entry_present | entry_huge)) {
-            if (!split_2m(*this, virt, pde)) {
+            if (!split_2m(*this, virt, pde))
                 return false;
-            }
-        }
-        u64* pt = ensure_table(*this, virt, table_level::pt, pde, flags);
-        if (pt == nullptr) {
-            return false;
         }
 
+        u64* pt = ensure_table(*this, virt, table_level::pt, pde, flags);
+        if (pt == nullptr)
+            return false;
+
         pt[pt_index(virt)] = (phys & address_mask) | to_leaf(flags);
+
         invalidate(virt);
+
         return true;
     }
 
     bool page_map::map_2m(vaddr_t virt, paddr_t phys, page_flags flags) {
-        if (!valid() || !is_canonical(virt)) {
+        if (!valid() || !is_canonical(virt))
             return false;
-        }
-        if ((virt & 0x1fffff) != 0 || (phys & 0x1fffff) != 0) {
+
+        if ((virt & 0x1fffff) != 0 || (phys & 0x1fffff) != 0)
             return false;
-        }
+
         if (pml4_index(virt) == recursive_slot) {
             return false; // reserved for the map's self-reference
         }
@@ -389,141 +410,169 @@ namespace astia::arch {
         u64* pml4 = root_table(*this);
         u64* pdpt =
             ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
-        if (pdpt == nullptr) {
+        if (pdpt == nullptr)
             return false;
-        }
 
         u64& pdpe = pdpt[pdpt_index(virt)];
+
         if ((pdpe & (entry_present | entry_huge)) == (entry_present | entry_huge)) {
             return false; // 1 GiB page in the way; not supported.
         }
+
         u64* pd = ensure_table(*this, virt, table_level::pd, pdpe, flags);
-        if (pd == nullptr) {
+        if (pd == nullptr)
             return false;
-        }
 
         u64& pde = pd[pd_index(virt)];
+
         if ((pde & entry_present) != 0 && (pde & entry_huge) == 0) {
             return false; // a 4 KiB table already covers this 2 MiB slot.
         }
+
         pde = (phys & (~0ull << 21)) | to_leaf(flags) | entry_huge;
+
         invalidate(virt);
+
         return true;
     }
 
     bool page_map::unmap(vaddr_t virt) {
-        if (!valid() || !is_canonical(virt)) {
+        if (!valid() || !is_canonical(virt))
             return false;
-        }
+
         if (pml4_index(virt) == recursive_slot) {
             return false; // reserved for the map's self-reference
         }
 
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
-        if ((pml4e & entry_present) == 0) {
+
+        if ((pml4e & entry_present) == 0)
             return false;
-        }
+
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
-        if ((pdpe & (entry_present | entry_huge)) != entry_present) {
+
+        if ((pdpe & (entry_present | entry_huge)) != entry_present)
             return false;
-        }
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
-        if ((pde & (entry_present | entry_huge)) != entry_present) {
+
+        if ((pde & (entry_present | entry_huge)) != entry_present)
             return false;
-        }
 
         u64& pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
-        if ((pte & entry_present) == 0) {
+
+        if ((pte & entry_present) == 0)
             return false;
-        }
+
         pte = 0;
+
         invalidate(virt);
+
         return true;
     }
 
     bool page_map::protect_4k(vaddr_t virt, page_flags flags) {
-        if (!valid() || !is_canonical(virt) || (virt & 0xfff) != 0) {
+        if (!valid() || !is_canonical(virt) || (virt & 0xfff) != 0)
             return false;
-        }
-        if (pml4_index(virt) == recursive_slot) {
+
+        if (pml4_index(virt) == recursive_slot)
             return false;
-        }
 
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
-        if ((pml4e & entry_present) == 0) {
+
+        if ((pml4e & entry_present) == 0)
             return false;
-        }
+
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
-        if ((pdpe & (entry_present | entry_huge)) != entry_present) {
+
+        if ((pdpe & (entry_present | entry_huge)) != entry_present)
             return false;
-        }
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
-        if ((pde & (entry_present | entry_huge)) != entry_present) {
+
+        if ((pde & (entry_present | entry_huge)) != entry_present)
             return false;
-        }
+
         u64& pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
-        if ((pte & entry_present) == 0) {
+
+        if ((pte & entry_present) == 0)
             return false;
-        }
+
         pte = (pte & address_mask) | to_leaf(flags);
+
         invalidate(virt);
+
         return true;
     }
 
     paddr_t page_map::translate(vaddr_t virt) const {
-        if (!valid() || !is_canonical(virt)) {
+        if (!valid() || !is_canonical(virt))
             return invalid;
-        }
 
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
+
         if ((pml4e & entry_present) == 0) {
             // Nothing of our own here; a parent (normally the kernel map)
             // may own the address — e.g. a kernel mapping that appeared
             // after this map was created.
             return _parent != nullptr ? _parent->translate(virt) : invalid;
         }
+
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
-        if ((pdpe & entry_present) == 0) {
+
+        if ((pdpe & entry_present) == 0)
             return invalid;
-        }
-        if ((pdpe & entry_huge) != 0) {
+
+        if ((pdpe & entry_huge) != 0)
             return (pdpe & (~0ull << 30)) | (virt & 0x3fffffff);
-        }
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
-        if ((pde & entry_present) == 0) {
+
+        if ((pde & entry_present) == 0)
             return invalid;
-        }
-        if ((pde & entry_huge) != 0) {
+
+        if ((pde & entry_huge) != 0)
             return (pde & (~0ull << 21)) | (virt & 0x1fffff);
-        }
+
         const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
-        if ((pte & entry_present) == 0) {
+
+        if ((pte & entry_present) == 0)
             return invalid;
-        }
+
         return (pte & address_mask) | (virt & 0xfff);
     }
 
     bool page_map::writable(vaddr_t virt) const {
         if (!valid() || !is_canonical(virt))
             return false;
+
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
+
         if ((pml4e & entry_present) == 0)
             return _parent != nullptr && _parent->writable(virt);
+
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+
         if ((pdpe & entry_present) == 0)
             return false;
+
         if ((pdpe & entry_huge) != 0)
             return (pdpe & entry_writable) != 0;
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+
         if ((pde & entry_present) == 0)
             return false;
+
         if ((pde & entry_huge) != 0)
             return (pde & entry_writable) != 0;
+
         const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+
         return (pte & (entry_present | entry_writable)) ==
                (entry_present | entry_writable);
     }
@@ -531,36 +580,52 @@ namespace astia::arch {
     bool page_map::user_accessible(vaddr_t virt) const {
         if (!valid() || !is_canonical(virt))
             return false;
+
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
+
         if ((pml4e & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
+
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+
         if ((pdpe & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
+
         if ((pdpe & entry_huge) != 0)
             return true;
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+
         if ((pde & (entry_present | entry_user)) != (entry_present | entry_user))
             return false;
+
         if ((pde & entry_huge) != 0)
             return true;
+
         const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+
         return (pte & (entry_present | entry_user)) == (entry_present | entry_user);
     }
 
     bool page_map::executable(vaddr_t virt) const {
         if (!user_accessible(virt))
             return false;
+
         const u64 pml4e = root_table(*this)[pml4_index(virt)];
         const u64 pdpe =
             next_table(*this, virt, table_level::pdpt, pml4e)[pdpt_index(virt)];
+
         if ((pdpe & entry_huge) != 0)
             return (pdpe & entry_no_execute) == 0;
+
         const u64 pde = next_table(*this, virt, table_level::pd, pdpe)[pd_index(virt)];
+
         if ((pde & entry_huge) != 0)
             return (pde & entry_no_execute) == 0;
+
         const u64 pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
+
         return (pte & entry_no_execute) == 0;
     }
 
@@ -571,6 +636,7 @@ namespace astia::arch {
     void page_map::activate() const {
 #ifndef ASTIA_HOST_TEST
         active_map = this;
+
         asm volatile("mov %0, %%cr3" : : "r"(_root) : "memory");
 #endif
     }
@@ -582,5 +648,4 @@ namespace astia::arch {
         (void) virt;
 #endif
     }
-
 } // namespace astia::arch

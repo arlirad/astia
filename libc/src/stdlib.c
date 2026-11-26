@@ -15,13 +15,19 @@ static int environment_name_matches(const char* entry, const char* name, size_t 
 
 char* getenv(const char* name) {
     size_t length;
+
     char** item;
+
     if (name == NULL || *name == '\0' || strchr(name, '=') != NULL)
         return NULL;
+
     length = strlen(name);
-    for (item = environ; item != NULL && *item != NULL; ++item)
+
+    for (item = environ; item != NULL && *item != NULL; ++item) {
         if (environment_name_matches(*item, name, length))
             return *item + length + 1;
+    }
+
     return NULL;
 }
 
@@ -30,8 +36,10 @@ static int environment_update(const char* name, const char* value, int remove,
     size_t length = strlen(name);
     size_t count  = 0;
     size_t match  = (size_t) -1;
+
     char** item;
     char** next;
+
     size_t i;
     size_t matches               = 0;
     int    allocated_replacement = 0;
@@ -40,76 +48,107 @@ static int environment_update(const char* name, const char* value, int remove,
         if (environment_name_matches(*item, name, length)) {
             if (match == (size_t) -1)
                 match = count;
+
             ++matches;
         }
     }
+
     if (match != (size_t) -1 && !remove && !overwrite)
         return 0;
+
     if (!remove && (replacement == NULL)) {
         size_t value_length = strlen(value);
-        replacement         = (char*) malloc(length + value_length + 2);
+
+        replacement = (char*) malloc(length + value_length + 2);
         if (replacement == NULL) {
             errno = ENOMEM;
+
             return -1;
         }
+
         memcpy(replacement, name, length);
+
         replacement[length] = '=';
+
         memcpy(replacement + length + 1, value, value_length + 1);
+
         allocated_replacement = 1;
     }
+
     next = (char**) malloc((count - matches + (remove ? 0 : 1) + 1) * sizeof(*next));
     if (next == NULL) {
         if (allocated_replacement)
             free(replacement);
+
         errno = ENOMEM;
+
         return -1;
     }
+
     size_t out_count = 0;
+
     for (i = 0; i < count; ++i) {
         if (environment_name_matches(environ[i], name, length))
             continue;
+
         next[out_count++] = environ[i];
     }
+
     if (!remove)
         next[out_count++] = replacement;
+
     next[out_count] = NULL;
     environ         = next;
+
     return 0;
 }
 
 int setenv(const char* name, const char* value, int overwrite) {
     if (name == NULL || *name == '\0' || strchr(name, '=') != NULL || value == NULL) {
         errno = EINVAL;
+
         return -1;
     }
+
     return environment_update(name, value, 0, overwrite != 0, NULL);
 }
 
 int unsetenv(const char* name) {
     if (name == NULL || *name == '\0' || strchr(name, '=') != NULL) {
         errno = EINVAL;
+
         return -1;
     }
+
     return environment_update(name, "", 1, 1, NULL);
 }
 
 int putenv(char* string) {
     char* equals;
     char* name;
-    int   result;
+
+    int result;
+
     if (string == NULL || (equals = strchr(string, '=')) == NULL || equals == string) {
         errno = EINVAL;
+
         return -1;
     }
+
     name = (char*) malloc((size_t) (equals - string) + 1);
     if (name == NULL) {
         errno = ENOMEM;
+
         return -1;
     }
+
     memcpy(name, string, (size_t) (equals - string));
+
     name[equals - string] = '\0';
     result                = environment_update(name, equals + 1, 0, 1, string);
+
     free(name);
+
     return result;
 }
 
@@ -128,19 +167,24 @@ int putenv(char* string) {
  */
 static void strto_impl(const char* nptr, char** endptr, int base, unsigned long* out,
                        int* negative, int* overflow) {
-    const char*   s   = nptr;
+    const char* s = nptr;
+
     unsigned long acc = 0;
     int           any = 0;
 
     *negative = 0;
     *overflow = 0;
 
-    while (isspace((unsigned char) *s))
-        s++;
-    if (*s == '+' || *s == '-') {
-        *negative = (*s == '-');
+    while (isspace((unsigned char) *s)) {
         s++;
     }
+
+    if (*s == '+' || *s == '-') {
+        *negative = (*s == '-');
+
+        s++;
+    }
+
     if ((base == 0 || base == 16) && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') &&
         isxdigit((unsigned char) s[2])) {
         s += 2;
@@ -160,9 +204,12 @@ static void strto_impl(const char* nptr, char** endptr, int base, unsigned long*
             digit = tolower(c) - 'a' + 10;
         else
             break;
+
         if (digit >= base)
             break;
+
         any = 1;
+
         if (!*overflow) {
             if (acc > (ULONG_MAX - (unsigned long) digit) / (unsigned long) base)
                 *overflow = 1;
@@ -172,6 +219,7 @@ static void strto_impl(const char* nptr, char** endptr, int base, unsigned long*
     }
 
     *out = acc;
+
     if (endptr)
         *endptr = (char*) (any ? s : nptr);
 }
@@ -183,6 +231,7 @@ long strtol(const char* nptr, char** endptr, int base) {
     if (base != 0 && (base < 2 || base > 36)) { /* undefined; be predictable */
         if (endptr)
             *endptr = (char*) nptr;
+
         return 0;
     }
 
@@ -190,12 +239,14 @@ long strtol(const char* nptr, char** endptr, int base) {
 
     if (!overflow) {
         unsigned long limit = (unsigned long) LONG_MAX + (negative ? 1UL : 0UL);
+
         if (acc > limit) {
             overflow = 1;
         }
         else if (negative) {
             if (acc == (unsigned long) LONG_MAX + 1UL)
                 return LONG_MIN; /* magnitude of LONG_MIN */
+
             return -(long) acc;
         }
         else {
@@ -204,6 +255,7 @@ long strtol(const char* nptr, char** endptr, int base) {
     }
 
     errno = ERANGE; /* thread-local slot */
+
     return negative ? LONG_MIN : LONG_MAX;
 }
 
@@ -214,6 +266,7 @@ unsigned long strtoul(const char* nptr, char** endptr, int base) {
     if (base != 0 && (base < 2 || base > 36)) {
         if (endptr)
             *endptr = (char*) nptr;
+
         return 0;
     }
 
@@ -221,25 +274,33 @@ unsigned long strtoul(const char* nptr, char** endptr, int base) {
 
     if (overflow) {
         errno = ERANGE;
+
         return ULONG_MAX;
     }
+
     return negative ? 0UL - acc : acc;
 }
 
 static void strtoull_impl(const char* nptr, char** endptr, int base,
                           unsigned long long* out, int* negative, int* overflow) {
-    const char*        s   = nptr;
+    const char* s = nptr;
+
     unsigned long long acc = 0;
     int                any = 0;
 
     *negative = 0;
     *overflow = 0;
-    while (isspace((unsigned char) *s))
-        s++;
-    if (*s == '+' || *s == '-') {
-        *negative = (*s == '-');
+
+    while (isspace((unsigned char) *s)) {
         s++;
     }
+
+    if (*s == '+' || *s == '-') {
+        *negative = (*s == '-');
+
+        s++;
+    }
+
     if ((base == 0 || base == 16) && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') &&
         isxdigit((unsigned char) s[2])) {
         s += 2;
@@ -248,6 +309,7 @@ static void strtoull_impl(const char* nptr, char** endptr, int base,
     else if (base == 0) {
         base = (s[0] == '0') ? 8 : 10;
     }
+
     for (;; s++) {
         unsigned char c = (unsigned char) *s;
         int           digit;
@@ -258,9 +320,12 @@ static void strtoull_impl(const char* nptr, char** endptr, int base,
             digit = tolower(c) - 'a' + 10;
         else
             break;
+
         if (digit >= base)
             break;
+
         any = 1;
+
         if (!*overflow) {
             if (acc >
                 (ULLONG_MAX - (unsigned long long) digit) / (unsigned long long) base)
@@ -269,7 +334,9 @@ static void strtoull_impl(const char* nptr, char** endptr, int base,
                 acc = acc * (unsigned long long) base + (unsigned long long) digit;
         }
     }
+
     *out = acc;
+
     if (endptr)
         *endptr = (char*) (any ? s : nptr);
 }
@@ -281,22 +348,30 @@ long long strtoll(const char* nptr, char** endptr, int base) {
     if (base != 0 && (base < 2 || base > 36)) {
         if (endptr)
             *endptr = (char*) nptr;
+
         return 0;
     }
+
     strtoull_impl(nptr, endptr, base, &acc, &negative, &overflow);
+
     if (!overflow) {
         unsigned long long limit =
             (unsigned long long) LLONG_MAX + (negative ? 1ULL : 0ULL);
+
         if (acc <= limit) {
             if (negative) {
                 if (acc == (unsigned long long) LLONG_MAX + 1ULL)
                     return LLONG_MIN;
+
                 return -(long long) acc;
             }
+
             return (long long) acc;
         }
     }
+
     errno = ERANGE;
+
     return negative ? LLONG_MIN : LLONG_MAX;
 }
 
@@ -307,13 +382,18 @@ unsigned long long strtoull(const char* nptr, char** endptr, int base) {
     if (base != 0 && (base < 2 || base > 36)) {
         if (endptr)
             *endptr = (char*) nptr;
+
         return 0;
     }
+
     strtoull_impl(nptr, endptr, base, &acc, &negative, &overflow);
+
     if (overflow) {
         errno = ERANGE;
+
         return ULLONG_MAX;
     }
+
     return negative ? 0ULL - acc : acc;
 }
 
@@ -323,6 +403,7 @@ intmax_t imaxabs(intmax_t value) {
 
 imaxdiv_t imaxdiv(intmax_t numerator, intmax_t denominator) {
     imaxdiv_t result = {numerator / denominator, numerator % denominator};
+
     return result;
 }
 
@@ -337,9 +418,11 @@ uintmax_t strtoumax(const char* string, char** end, int base) {
 static int ascii_equal_ci(const char* a, const char* b, size_t n) {
     size_t i;
 
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
         if (tolower((unsigned char) a[i]) != tolower((unsigned char) b[i]))
             return 0;
+    }
+
     return 1;
 }
 
@@ -351,19 +434,24 @@ static long double scale_decimal(long double value, int exponent) {
     while (n != 0) {
         if (n & 1U)
             value = negative ? value / factor : value * factor;
+
         factor *= factor;
         n >>= 1;
     }
+
     return value;
 }
 
 static int hex_digit_value(int c) {
     if (c >= '0' && c <= '9')
         return c - '0';
+
     if (c >= 'a' && c <= 'f')
         return c - 'a' + 10;
+
     if (c >= 'A' && c <= 'F')
         return c - 'A' + 10;
+
     return -1;
 }
 
@@ -375,14 +463,17 @@ static long double scale_binary(long double value, int exponent) {
     while (n != 0) {
         if (n & 1U)
             value = negative ? value / factor : value * factor;
+
         factor *= factor;
         n >>= 1;
     }
+
     return value;
 }
 
 double strtod(const char* nptr, char** endptr) {
-    const char* s                 = nptr;
+    const char* s = nptr;
+
     long double value             = 0.0L;
     int         negative          = 0;
     int         exponent          = 0;
@@ -390,129 +481,190 @@ double strtod(const char* nptr, char** endptr) {
     int         any               = 0;
     int         frac_digits       = 0;
 
-    while (isspace((unsigned char) *s))
+    while (isspace((unsigned char) *s)) {
         s++;
+    }
+
     if (*s == '+' || *s == '-') {
         negative = (*s == '-');
+
         s++;
     }
+
     if (ascii_equal_ci(s, "infinity", 8)) {
         uint64_t bits = UINT64_C(0x7ff0000000000000);
-        double   result;
+
+        double result;
+
         memcpy(&result, &bits, sizeof result);
+
         if (negative)
             result = -result;
+
         if (endptr)
             *endptr = (char*) (s + 8);
+
         return result;
     }
+
     if (ascii_equal_ci(s, "inf", 3)) {
         uint64_t bits = UINT64_C(0x7ff0000000000000);
-        double   result;
+
+        double result;
+
         memcpy(&result, &bits, sizeof result);
+
         if (negative)
             result = -result;
+
         if (endptr)
             *endptr = (char*) (s + 3);
+
         return result;
     }
+
     if (ascii_equal_ci(s, "nan", 3)) {
         uint64_t bits = UINT64_C(0x7ff8000000000000);
-        double   result;
+
+        double result;
+
         memcpy(&result, &bits, sizeof result);
+
         if (endptr)
             *endptr = (char*) (s + 3);
+
         return result;
     }
+
     if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-        const char* hex_start       = s;
-        int         hex_fraction    = 0;
-        int         binary_exponent = 0;
-        int         binary_negative = 0;
-        int         have_exponent   = 0;
-        int         digit;
+        const char* hex_start = s;
+
+        int hex_fraction    = 0;
+        int binary_exponent = 0;
+        int binary_negative = 0;
+        int have_exponent   = 0;
+        int digit;
 
         s += 2;
+
         while ((digit = hex_digit_value((unsigned char) *s)) >= 0) {
             value = value * 16.0L + (long double) digit;
+
             s++;
+
             any = 1;
         }
+
         if (*s == '.') {
             s++;
+
             while ((digit = hex_digit_value((unsigned char) *s)) >= 0) {
                 value = value * 16.0L + (long double) digit;
+
                 hex_fraction++;
                 s++;
+
                 any = 1;
             }
         }
+
         if (!any || (*s != 'p' && *s != 'P')) {
             if (endptr)
                 *endptr = (char*) nptr;
+
             return 0.0;
         }
+
         s++;
+
         if (*s == '+' || *s == '-') {
             binary_negative = (*s == '-');
+
             s++;
         }
+
         while (isdigit((unsigned char) *s)) {
             if (binary_exponent < 10000)
                 binary_exponent = binary_exponent * 10 + (*s - '0');
+
             s++;
+
             have_exponent = 1;
         }
+
         if (!have_exponent) {
             if (endptr)
                 *endptr = (char*) hex_start;
+
             return 0.0;
         }
+
         binary_exponent =
             (binary_negative ? -binary_exponent : binary_exponent) - 4 * hex_fraction;
         value = scale_binary(value, binary_exponent);
+
         if (value > (long double) DBL_MAX) {
             errno = ERANGE;
             value = (long double) DBL_MAX;
         }
+
         if (endptr)
             *endptr = (char*) s;
+
         return negative ? -(double) value : (double) value;
     }
+
     while (isdigit((unsigned char) *s)) {
         value = value * 10.0L + (long double) (*s - '0');
+
         s++;
+
         any = 1;
     }
+
     if (*s == '.') {
         s++;
+
         while (isdigit((unsigned char) *s)) {
             value = value * 10.0L + (long double) (*s - '0');
+
             frac_digits++;
             s++;
+
             any = 1;
         }
     }
+
     if (!any) {
         if (endptr)
             *endptr = (char*) nptr;
+
         return 0.0;
     }
+
     exponent -= frac_digits;
+
     if (*s == 'e' || *s == 'E') {
-        const char* ep       = s++;
-        int         e        = 0;
-        int         have_exp = 0;
+        const char* ep = s++;
+
+        int e        = 0;
+        int have_exp = 0;
+
         if (*s == '+' || *s == '-') {
             exponent_negative = (*s == '-');
+
             s++;
         }
+
         while (isdigit((unsigned char) *s)) {
             if (e < 10000)
                 e = e * 10 + (*s - '0');
+
             s++;
+
             have_exp = 1;
         }
+
         if (!have_exp) {
             s                 = ep;
             exponent_negative = 0;
@@ -521,7 +673,9 @@ double strtod(const char* nptr, char** endptr) {
             exponent += exponent_negative ? -e : e;
         }
     }
+
     value = scale_decimal(value, exponent);
+
     if (value > (long double) DBL_MAX) {
         errno = ERANGE;
         value = (long double) DBL_MAX;
@@ -530,8 +684,10 @@ double strtod(const char* nptr, char** endptr) {
         errno = ERANGE;
         value = 0.0L;
     }
+
     if (endptr)
         *endptr = (char*) s;
+
     return negative ? -(double) value : (double) value;
 }
 
@@ -568,8 +724,9 @@ long labs(long j) {
 static void swap_bytes(char* a, char* b, size_t w) {
     while (w--) {
         char t = *a;
-        *a++   = *b;
-        *b++   = t;
+
+        *a++ = *b;
+        *b++ = t;
     }
 }
 
@@ -577,9 +734,11 @@ static void insertion_sort(char* base, size_t n, size_t w,
                            int (*cmp)(const void*, const void*)) {
     size_t i, j;
 
-    for (i = 1; i < n; i++)
-        for (j = i; j > 0 && cmp(base + j * w, base + (j - 1) * w) < 0; j--)
+    for (i = 1; i < n; i++) {
+        for (j = i; j > 0 && cmp(base + j * w, base + (j - 1) * w) < 0; j--) {
             swap_bytes(base + j * w, base + (j - 1) * w, w);
+        }
+    }
 }
 
 /*
@@ -592,39 +751,48 @@ static void insertion_sort(char* base, size_t n, size_t w,
 static void quicksort(char* base, size_t n, size_t w,
                       int (*cmp)(const void*, const void*)) {
     while (n > 8) {
-        char*  lo    = base;
-        char*  hi    = base + (n - 1) * w;
-        char*  mid   = base + (n / 2) * w;
+        char* lo  = base;
+        char* hi  = base + (n - 1) * w;
+        char* mid = base + (n / 2) * w;
+
         size_t store = 0;
         size_t j;
 
         /* order lo <= mid <= hi, then park the median (mid) at hi */
         if (cmp(lo, mid) > 0)
             swap_bytes(lo, mid, w);
+
         if (cmp(lo, hi) > 0)
             swap_bytes(lo, hi, w);
+
         if (cmp(mid, hi) > 0)
             swap_bytes(mid, hi, w);
+
         swap_bytes(mid, hi, w);
 
         /* Lomuto partition around the pivot at hi */
-        for (j = 0; j < n - 1; j++)
+        for (j = 0; j < n - 1; j++) {
             if (cmp(base + j * w, hi) < 0) {
                 swap_bytes(base + store * w, base + j * w, w);
                 store++;
             }
+        }
+
         swap_bytes(base + store * w, hi, w);
 
         if (store < n - 1 - store) {
             quicksort(base, store, w, cmp);
+
             base += (store + 1) * w;
             n -= store + 1;
         }
         else {
             quicksort(base + (store + 1) * w, n - store - 1, w, cmp);
+
             n = store;
         }
     }
+
     insertion_sort(base, n, w, cmp);
 }
 
@@ -641,10 +809,13 @@ void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
 
     if (size == 0)
         return NULL;
+
     while (lo < hi) {
-        size_t      mid  = lo + (hi - lo) / 2;
+        size_t mid = lo + (hi - lo) / 2;
+
         const char* elem = (const char*) base + mid * size;
-        int         c    = compar(elem, key);
+
+        int c = compar(elem, key);
         if (c < 0)
             lo = mid + 1;
         else if (c > 0)
@@ -652,6 +823,7 @@ void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
         else
             return (void*) elem; /* explicit cast from const char* */
     }
+
     return NULL;
 }
 
@@ -668,6 +840,7 @@ static unsigned long rand_state = 1;
 
 int rand(void) {
     rand_state = rand_state * 1103515245UL + 12345UL;
+
     return (int) ((rand_state / 65536UL) % (RAND_MAX + 1UL));
 }
 

@@ -1,10 +1,12 @@
-#include "support/test.hpp"
 #include <astia/core/rcu_domain.hpp>
 #include <astia/resource_limits.hpp>
 
+#include "support/test.hpp"
+
 namespace {
     astia::u32 destroyed = 0;
-    void       destroy_int(void* value) {
+
+    void destroy_int(void* value) {
         delete static_cast<int*>(value);
         ++destroyed;
     }
@@ -13,13 +15,16 @@ namespace {
 ASTIA_TEST(rcu_domain_waits_for_reader_grace_period) {
     astia::core::rcu_domain<4, 8> domain;
     int*                          value = new int(42);
+
     ASTIA_CHECK(domain.retire(value, destroy_int));
+
     {
         astia::core::rcu_domain<4, 8>::read_guard reader(domain, 1);
         ASTIA_CHECK(reader.active());
         ASTIA_CHECK(domain.poll() == 0);
         ASTIA_CHECK(domain.pending() == 1);
     }
+
     ASTIA_CHECK(domain.poll() == 1);
     ASTIA_CHECK(domain.pending() == 0);
 }
@@ -27,20 +32,26 @@ ASTIA_TEST(rcu_domain_waits_for_reader_grace_period) {
 ASTIA_TEST(rcu_domain_supports_nested_readers) {
     astia::core::rcu_domain<2, 4> domain;
     int*                          value = new int(7);
+
     {
         astia::core::rcu_domain<2, 4>::read_guard outer(domain, 0);
         astia::core::rcu_domain<2, 4>::read_guard inner(domain, 0);
         ASTIA_CHECK(domain.retire(value, destroy_int));
         ASTIA_CHECK(domain.poll() == 0);
     }
+
     ASTIA_CHECK(domain.poll() == 1);
 }
 
 ASTIA_TEST(rcu_domain_rejects_only_after_exact_capacity) {
     astia::core::rcu_domain<1, astia::resource_limits::queue::rcu_retired> domain;
+
     int values[astia::resource_limits::queue::rcu_retired + 1]{};
-    for (astia::u32 i = 0; i < astia::resource_limits::queue::rcu_retired; ++i)
+
+    for (astia::u32 i = 0; i < astia::resource_limits::queue::rcu_retired; ++i) {
         ASTIA_CHECK(domain.retire(&values[i], [](void*) {}));
+    }
+
     ASTIA_CHECK(!domain.retire(&values[astia::resource_limits::queue::rcu_retired],
                                [](void*) {}));
 }

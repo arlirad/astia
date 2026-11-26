@@ -8,10 +8,8 @@
 // and the base of the terminal classes.
 
 namespace astia::dev {
-
     class chrdev : public device {
         public:
         using device::device;
     };
-
 } // namespace astia::dev

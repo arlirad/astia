@@ -10,8 +10,8 @@ namespace astia::proc::syscalls {
         : sys::syscall_handler<getsid, sys::syscall_id::getsid, sys::syscall_mode::sync> {
         static i64 invoke(i64 raw_target) {
             const auto target = mapper<proc::getsid_target>::from(raw_target);
+
             return target ? proc::getsid(target.value.pid) : -ESRCH;
         }
     };
-
 } // namespace astia::proc::syscalls

@@ -14,7 +14,6 @@ namespace astia::proc {
 }
 
 namespace astia::dl {
-
     /// ELF64 `p_flags` bits (PF_X/PF_W/PF_R), kept typed so the ABI's
     /// PROT_* order is never confused with it.
     enum class elf_segment_flag : u32 {
@@ -22,9 +21,11 @@ namespace astia::dl {
         write   = 1u << 1,
         read    = 1u << 2,
     };
+
     constexpr elf_segment_flag operator|(elf_segment_flag a, elf_segment_flag b) {
         return static_cast<elf_segment_flag>(static_cast<u32>(a) | static_cast<u32>(b));
     }
+
     constexpr bool has(elf_segment_flag value, elf_segment_flag bit) {
         return (static_cast<u32>(value) & static_cast<u32>(bit)) != 0;
     }
@@ -83,11 +84,9 @@ namespace astia::dl {
     /// process that replaces it.  The target must have released its own.
     void adopt(proc::process& target, proc::process& staging);
     bool clone(proc::process& child, proc::process& parent);
-
 } // namespace astia::dl
 
 namespace astia {
-
     /// Syscall/library boundary mapping for ELF `p_flags`.  All three bits
     /// are meaningful; anything else is a malformed image.
     template <>
@@ -95,9 +94,9 @@ namespace astia {
         static optional<dl::elf_segment_flag> from(i64 raw) {
             if (raw < 0 || raw > 7)
                 return optional<dl::elf_segment_flag>(error_t::einval);
+
             return optional<dl::elf_segment_flag>(
                 static_cast<dl::elf_segment_flag>(static_cast<u32>(raw)));
         }
     };
-
 } // namespace astia

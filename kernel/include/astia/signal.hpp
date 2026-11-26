@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia {
-
     /// POSIX signal numbers shared by the kernel and userspace ABI.
     enum class signal_number : u8 {
         hup    = 1,
@@ -66,6 +65,7 @@ namespace astia {
         case signal_mask_operation::setmask:
             return true;
         }
+
         return false;
     }
 
@@ -99,6 +99,7 @@ namespace astia {
 
     constexpr bool valid_signal(signal_number signal) {
         const u8 value = static_cast<u8>(signal);
+
         return value > 0 && value < signal_count;
     }
 
@@ -148,7 +149,7 @@ namespace astia {
         case signal_number::pwr:
             return signal_default::terminate;
         }
+
         return signal_default::terminate;
     }
-
 } // namespace astia

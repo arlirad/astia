@@ -29,39 +29,42 @@ namespace {
         astia::log::info("kmain seed start_info=%p", start_info);
 
         astia::init::context ctx{};
+
         ctx.start_info = start_info;
 
         const bool ok = astia::init::run(ctx);
+
         astia::log::info("init result=%s", ok ? "ok" : "fail");
 
-        if (!ok || !astia::sys::validate_registry()) {
+        if (!ok || !astia::sys::validate_registry())
             astia::core::kpanic("syscall registry invalid");
-        }
 
         const astia::boot::init_selection selected =
             astia::boot::select_init(ctx.info == nullptr ? nullptr : ctx.info->cmdline);
+
         if (selected.error != astia::boot::init_option_error::none)
             astia::core::kpanic("invalid --init command-line option");
 
-        if (ok && !astia::arch::init_scheduler()) {
+        if (ok && !astia::arch::init_scheduler())
             astia::core::kpanic("SMP scheduler initialization failed");
-        }
 
-        if (!ok) {
+        if (!ok)
             astia::core::kpanic("init failed");
-        }
 
         const char* path = selected.path;
         auto        file = astia::fs::open_path(path);
         if (!file)
             launch_failed(path);
+
         const long size = file->size();
         if (size <= 0)
             launch_failed(path);
+
         char* argv[] = {const_cast<char*>(path), nullptr};
         char* envp[] = {const_cast<char*>("HOME=/"), nullptr};
 
         astia::arch::cpu::interrupts();
+
         auto result =
             co_await astia::proc::spawnve(astia::proc::kernel_process(), file,
                                           static_cast<astia::usize>(size), argv, envp);
@@ -72,6 +75,7 @@ namespace {
             static_cast<astia::mm::shptr<astia::proc::process>&&>(result.value);
         const astia::i32 init_pid =
             static_cast<astia::i32>(static_cast<astia::u32>(init_process->pid()));
+
         astia::log::info("init launched pid=%d", init_pid);
 
         astia::i32       exit_status = -1;
@@ -81,8 +85,11 @@ namespace {
         astia::arch::cpu::nointerrupts();
         astia::log::error("init exited pid=%d status=%d wait=%ld", init_pid, exit_status,
                           static_cast<long>(reaped));
+
         init_process = {};
+
         astia::core::kpanic("init terminated");
+
         co_return astia::error_t::enone;
     }
 } // namespace

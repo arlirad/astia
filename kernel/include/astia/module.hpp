@@ -10,7 +10,6 @@
 #include <astia/net.hpp>
 
 namespace astia::module {
-
     using net_device     = net::netdev;
     using netdev         = net::netdev;
     using net_tx_request = net::tx_request;
@@ -31,12 +30,15 @@ namespace astia::module {
         bool unmask();
         bool disable();
         bool release();
+
         bool active() const {
             return _vector.valid();
         }
+
         u32 table_index() const {
             return _table_index;
         }
+
         bool registered() const {
             return _registered;
         }
@@ -55,50 +57,72 @@ namespace astia::module {
         bool                   _enabled         = false;
     };
 
-    bool        pci_enable_bus_master(hw::pci_device& device);
+    bool pci_enable_bus_master(hw::pci_device& device);
+
     inline bool pci_enable_bus_master(hw::pci_device* device) {
         return device != nullptr && module::pci_enable_bus_master(*device);
     }
-    bool        pci_disable_bus_master(hw::pci_device& device);
+
+    bool pci_disable_bus_master(hw::pci_device& device);
+
     inline bool pci_disable_bus_master(hw::pci_device* device) {
         return device != nullptr && module::pci_disable_bus_master(*device);
     }
-    bool        pci_disable_msix(hw::pci_device& device);
+
+    bool pci_disable_msix(hw::pci_device& device);
+
     inline bool pci_disable_msix(hw::pci_device* device) {
         return device != nullptr && pci_disable_msix(*device);
     }
-    bool        pci_restore_msix(hw::pci_device& device, u16 original_control);
+
+    bool pci_restore_msix(hw::pci_device& device, u16 original_control);
+
     inline bool pci_restore_msix(hw::pci_device* device, u16 original_control) {
         return device != nullptr && pci_restore_msix(*device, original_control);
     }
-    bool        pci_map_bar(hw::pci_device& device, u8 index);
+
+    bool pci_map_bar(hw::pci_device& device, u8 index);
+
     inline bool pci_map_bar(hw::pci_device* device, u8 index) {
         return device != nullptr && module::pci_map_bar(*device, index);
     }
-    bool        pci_unmap_bar(hw::pci_device& device, u8 index);
+
+    bool pci_unmap_bar(hw::pci_device& device, u8 index);
+
     inline bool pci_unmap_bar(hw::pci_device* device, u8 index) {
         return device != nullptr && module::pci_unmap_bar(*device, index);
     }
-    u64        pci_bar_mapped(const hw::pci_device& device, u8 index);
+
+    u64 pci_bar_mapped(const hw::pci_device& device, u8 index);
+
     inline u64 pci_bar_mapped(const hw::pci_device* device, u8 index) {
         return device == nullptr ? 0 : pci_bar_mapped(*device, index);
     }
-    u64        pci_bar_size(const hw::pci_device& device, u8 index);
+
+    u64 pci_bar_size(const hw::pci_device& device, u8 index);
+
     inline u64 pci_bar_size(const hw::pci_device* device, u8 index) {
         return device == nullptr ? 0 : pci_bar_size(*device, index);
     }
-    u32        pci_read32(const hw::pci_device& device, u16 offset);
+
+    u32 pci_read32(const hw::pci_device& device, u16 offset);
+
     inline u32 pci_read32(const hw::pci_device* device, u16 offset) {
         return device == nullptr ? ~u32{0} : module::pci_read32(*device, offset);
     }
-    u16        pci_read16(const hw::pci_device& device, u16 offset);
+
+    u16 pci_read16(const hw::pci_device& device, u16 offset);
+
     inline u16 pci_read16(const hw::pci_device* device, u16 offset) {
         return device == nullptr ? ~u16{0} : module::pci_read16(*device, offset);
     }
-    bool        pci_write16(const hw::pci_device& device, u16 offset, u16 value);
+
+    bool pci_write16(const hw::pci_device& device, u16 offset, u16 value);
+
     inline bool pci_write16(const hw::pci_device* device, u16 offset, u16 value) {
         return device != nullptr && module::pci_write16(*device, offset, value);
     }
+
     bool pci_msix_request(hw::pci_device* device, arch::interrupt_vector_handler handler,
                           void* context, msix_route* route);
     bool pci_msix_program(msix_route* route);
@@ -118,9 +142,11 @@ namespace astia::module {
 
         bool acquire(void* address, u32 length, io::direction direction);
         void release();
+
         bool valid() const {
             return static_cast<bool>(_value);
         }
+
         u64 physical() const {
             return _value ? _value->physical() : 0;
         }
@@ -141,5 +167,4 @@ namespace astia::module {
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);
     int  callback_context();
-
 } // namespace astia::module

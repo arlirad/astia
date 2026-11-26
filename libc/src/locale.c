@@ -28,10 +28,12 @@ static struct lconv c_locale = {.decimal_point      = ".",
 char* setlocale(int category, const char* locale) {
     if (category != LC_ALL && (category < LC_COLLATE || category > LC_TIME))
         return NULL;
+
     if (locale == NULL || locale[0] == '\0' || (locale[0] == 'C' && locale[1] == '\0') ||
         (locale[0] == 'P' && locale[1] == 'O' && locale[2] == 'S' && locale[3] == 'I' &&
          locale[4] == 'X' && locale[5] == '\0'))
         return "C";
+
     return NULL;
 }
 

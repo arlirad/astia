@@ -20,11 +20,14 @@ _Static_assert(sizeof(astia_module_list_info) == 24, "astia_module_list_info ABI
 
 void astia_syscalls_header_alone(void) {
     astia_stack_t stack = {0};
+
     (void) astia_sigaltstack(&stack, 0);
+
     astia_module_id        id     = {0};
     astia_module_record    record = {0};
     astia_module_list_info list   = {0};
     astia_module_stat      stat   = {0};
+
     (void) astia_modopen("/mods/test", ASTIA_MODULE_OPEN_NONE, &id);
     (void) astia_modls(&record, 1, &list);
     (void) astia_modstat(&id, &stat);

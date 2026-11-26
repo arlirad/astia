@@ -19,6 +19,7 @@ namespace astia::arch {
 ASTIA_TEST(realtime_now_rejects_unavailable_timer) {
     timer_frequency = 0;
     timer_count     = 1234;
+
     astia::u64 sec  = 7;
     astia::u64 nsec = 11;
 
@@ -30,6 +31,7 @@ ASTIA_TEST(realtime_now_rejects_unavailable_timer) {
 ASTIA_TEST(realtime_now_converts_ticks) {
     timer_frequency = 100;
     timer_count     = 1234;
+
     astia::u64 sec  = 0;
     astia::u64 nsec = 0;
 

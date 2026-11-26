@@ -8,10 +8,12 @@ ASTIA_TEST(boot_init_selection) {
     using astia::boot::select_init;
 
     auto selection = select_init(nullptr);
+
     ASTIA_CHECK(selection.error == init_option_error::none);
     ASTIA_CHECK(astia::string_equal(selection.path, "/sbin/init"));
 
     selection = select_init("quiet --init /bin/zsh console=ttyS0");
+
     ASTIA_CHECK(selection.error == init_option_error::none);
     ASTIA_CHECK(astia::string_equal(selection.path, "/bin/zsh"));
 
@@ -26,10 +28,15 @@ ASTIA_TEST(boot_init_selection) {
 
     char       long_command[300]{};
     const char prefix[] = "--init /";
-    for (unsigned long index = 0; index < sizeof(prefix) - 1; ++index)
+
+    for (unsigned long index = 0; index < sizeof(prefix) - 1; ++index) {
         long_command[index] = prefix[index];
+    }
+
     for (unsigned long index = sizeof(prefix) - 1; index < sizeof(long_command) - 1;
-         ++index)
+         ++index) {
         long_command[index] = 'a';
+    }
+
     ASTIA_CHECK(select_init(long_command).error == init_option_error::path_too_long);
 }

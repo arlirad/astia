@@ -14,7 +14,6 @@
 // and calls sys::io_device_ready() when it may have more.
 
 namespace astia::dev {
-
     /// Device kind and behavior, bit for bit as aretev's dflags: the
     /// class bits compose — a tty is a char device with terminal
     /// semantics, a net device a char device with packet semantics.
@@ -35,12 +34,16 @@ namespace astia::dev {
         public:
         constexpr device(const char* name, unsigned flags) : _flags(flags) {
             u32 i = 0;
+
             while (i < sizeof(_name) - 1 && name != nullptr && name[i] != '\0') {
                 _name[i] = name[i];
+
                 ++i;
             }
+
             _name[i] = '\0';
         }
+
         virtual ~device() = default;
 
         const char* name() const {
@@ -79,13 +82,17 @@ namespace astia::dev {
         long read(astia::span<u8> buffer, u64 off) {
             if (buffer.size() > static_cast<usize>(~u32{0}))
                 return -EINVAL;
+
             return read(buffer.data(), static_cast<u32>(buffer.size()), off);
         }
+
         long write(astia::span<const u8> buffer, u64 off) {
             if (buffer.size() > static_cast<usize>(~u32{0}))
                 return -EINVAL;
+
             return write(buffer.data(), static_cast<u32>(buffer.size()), off);
         }
+
         long ioctl(u64 request, astia::span<u8> argument) {
             return ioctl(request, argument.data(), argument.size());
         }
@@ -96,5 +103,4 @@ namespace astia::dev {
                           // initialization rejects writes into it)
         unsigned _flags;
     };
-
 } // namespace astia::dev

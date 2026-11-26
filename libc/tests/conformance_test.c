@@ -1,15 +1,16 @@
+#include <errno.h>
 #include <limits.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 #include <unistd.h>
 /* <unistd.h> is ours now (getpid/gettid); the one host call this test
  * needs is declared by hand, like every other host port here. */
 extern int unlink(const char* path);
-#include <time.h>
 #include <sys/time.h>
+
+#include <time.h>
 #include <wchar.h>
 #include <wctype.h>
 
@@ -27,18 +28,22 @@ static int exit_order;
 static void exit_first(void) {
     exit_order = exit_order * 10 + 1;
 }
+
 static void exit_second(void) {
     exit_order = exit_order * 10 + 2;
 }
 
 static void test_stream_helpers(void) {
-    char   buf[8];
+    char buf[8];
+
     FILE*  f = fopen("/tmp/astia_conformance_test.dat", "w+");
     fpos_t pos;
 
     CHECK(f != NULL);
+
     if (f == NULL)
         return;
+
     CHECK(putc('a', f) == 'a');
     CHECK(putc('b', f) == 'b');
     CHECK(fflush(f) == 0);
@@ -58,20 +63,28 @@ static void test_stream_helpers(void) {
 }
 
 static void test_conversions_and_strings(void) {
-    char*              end;
-    char*              copy;
+    char* end;
+    char* copy;
+
     char               transformed[8];
     long long          signed_value;
     unsigned long long unsigned_value;
 
     signed_value = strtoll("-9223372036854775808x", &end, 10);
+
     CHECK(signed_value == LLONG_MIN && *end == 'x');
+
     unsigned_value = strtoull("18446744073709551615x", &end, 10);
+
     CHECK(unsigned_value == ULLONG_MAX && *end == 'x');
+
     copy = strdup("Hello");
+
     CHECK(copy != NULL && strcmp(copy, "Hello") == 0);
     free(copy);
+
     copy = strndup("abcdef", 3);
+
     CHECK(copy != NULL && strcmp(copy, "abc") == 0);
     free(copy);
     CHECK(strcasecmp("AbC", "aBc") == 0);
@@ -82,8 +95,10 @@ static void test_conversions_and_strings(void) {
 }
 
 static void test_printf_family(void) {
-    char   buf[32];
-    char*  end;
+    char buf[32];
+
+    char* end;
+
     double value;
 
     CHECK(snprintf(buf, sizeof buf, "%s %d", "ok", 42) == 5);
@@ -99,7 +114,9 @@ static void test_printf_family(void) {
     CHECK(snprintf(buf, sizeof buf, "%a", 1.5) == 8);
     CHECK(strcmp(buf, "0x1.8p+0") == 0);
     CHECK(strtod("0x1.8p+1", &end) == 3.0 && *end == '\0');
+
     value = strtod("-3.125e2x", &end);
+
     CHECK(value == -312.5 && *end == 'x');
 }
 
@@ -133,6 +150,7 @@ static void test_c_locale(void) {
 
 static void test_process_hooks(void) {
     exit_order = 0;
+
     CHECK(atexit(exit_first) == 0);
     CHECK(atexit(exit_second) == 0);
     /* Registration is observable without terminating this test process. */
@@ -140,8 +158,9 @@ static void test_process_hooks(void) {
 }
 
 static void test_wide_c_locale(void) {
-    wchar_t        wide[16];
-    wchar_t        back[16];
+    wchar_t wide[16];
+    wchar_t back[16];
+
     const wchar_t* source = L"alpha beta";
     const char*    text   = "alpha beta";
 
@@ -159,9 +178,11 @@ static void test_wide_c_locale(void) {
 }
 
 static void test_utc_time(void) {
-    time_t          epoch = 0;
-    struct tm       value;
-    char            text[32];
+    time_t    epoch = 0;
+    struct tm value;
+
+    char text[32];
+
     struct timespec now;
 
     CHECK(gmtime_r(&epoch, &value) == &value);
@@ -171,21 +192,27 @@ static void test_utc_time(void) {
     CHECK(strcmp(text, "1970-01-01 00:00:00") == 0);
     CHECK(mktime(&value) == 0);
     CHECK(clock_gettime(CLOCK_REALTIME, &now) == 0 && now.tv_sec > 0);
-    CHECK(clock_getres(CLOCK_REALTIME, &now) == 0 && now.tv_sec == 0 &&
-          now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
+    CHECK(clock_getres(CLOCK_REALTIME, &now) == 0 && now.tv_sec == 0 && now.tv_nsec > 0 &&
+          now.tv_nsec < 1000000000L);
     CHECK(clock_getres(CLOCK_MONOTONIC, &now) == 0 && now.tv_sec == 0 &&
           now.tv_nsec > 0 && now.tv_nsec < 1000000000L);
+
     errno = 0;
+
     CHECK(clock_getres(CLOCK_BOOTTIME, &now) == -1 && errno == EINVAL);
     CHECK(clock_getres(CLOCK_REALTIME, NULL) == 0);
     CHECK(timespec_get(&now, TIME_UTC) == TIME_UTC);
 
     struct timeval timeval;
+
     __astia_time_host_clock_id = -1;
+
     CHECK(gettimeofday(&timeval, NULL) == 0 && timeval.tv_sec > 0 &&
           timeval.tv_usec >= 0 && timeval.tv_usec < 1000000);
     CHECK(__astia_time_host_clock_id == CLOCK_REALTIME);
+
     errno = 0;
+
     CHECK(gettimeofday(NULL, NULL) == -1 && errno == EINVAL);
 }
 
@@ -204,5 +231,6 @@ int main(void) {
     test_wide_c_locale();
     test_utc_time();
     test_signal_surface();
+
     return fails != 0;
 }

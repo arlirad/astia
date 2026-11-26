@@ -11,6 +11,7 @@ typedef int          sig_atomic_t;
 typedef unsigned int sigset_t;
 struct timespec;
 typedef void (*sighandler_t)(int);
+
 typedef struct siginfo {
     int          si_signo;
     int          si_errno;
@@ -20,7 +21,9 @@ typedef struct siginfo {
     int          si_status;
     void*        si_addr;
 } siginfo_t;
+
 typedef void (*sigaction_handler_t)(int, siginfo_t*, void*);
+
 typedef struct {
     void*         ss_sp;
     unsigned long ss_size;
@@ -32,6 +35,7 @@ struct sigaction {
         sighandler_t        sa_handler;
         sigaction_handler_t sa_sigaction;
     };
+
     sigset_t  sa_mask;
     int       sa_flags;
     uintptr_t sa_restorer;
