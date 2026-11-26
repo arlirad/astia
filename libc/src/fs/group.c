@@ -1,3 +1,5 @@
+#include "internal/account_fields.h"
+
 #include <errno.h>
 #include <grp.h>
 #include <stdio.h>
@@ -29,45 +31,44 @@ static int group_list_contains(const gid_t* groups, int count, gid_t gid) {
 }
 
 static struct group* parse_group(char* line) {
-    char* field;
+    char* fields[4];
     char* end;
 
+    size_t count;
+    size_t members = 0;
+
     unsigned long id;
-    size_t        members = 0;
 
     if (line[0] == '#' || line[0] == '\n' || line[0] == '\0')
         return NULL;
 
-    field = strtok(line, ":");
-    if (field == NULL)
+    count = __astia_account_field_split(line, ':', fields, 4);
+
+    if (count < 3 || count > 4)
         return NULL;
 
-    strncpy(group_name, field, sizeof group_name - 1);
+    if (fields[0][0] == '\0' || fields[2][0] == '\0')
+        return NULL;
+
+    id = strtoul(fields[2], &end, 10);
+
+    if (*end != '\0')
+        return NULL;
+
+    strncpy(group_name, fields[0], sizeof group_name - 1);
 
     group_name[sizeof group_name - 1] = '\0';
-    field                             = strtok(NULL, ":");
-    if (field == NULL)
-        return NULL;
 
-    strncpy(group_passwd, field, sizeof group_passwd - 1);
+    strncpy(group_passwd, fields[1], sizeof group_passwd - 1);
 
     group_passwd[sizeof group_passwd - 1] = '\0';
-    field                                 = strtok(NULL, ":");
-    if (field == NULL)
-        return NULL;
-
-    id = strtoul(field, &end, 10);
-
-    if (*end != '\0' && *end != '\n')
-        return NULL;
 
     group_result.gr_name   = group_name;
     group_result.gr_passwd = group_passwd;
     group_result.gr_gid    = (gid_t) id;
-    field                  = strtok(NULL, "\n");
 
-    if (field != NULL && *field != '\0') {
-        char* member = strtok(field, ",");
+    if (count == 4 && fields[3][0] != '\0') {
+        char* member = strtok(fields[3], ",");
 
         while (member != NULL &&
                members + 1 < sizeof group_members / sizeof group_members[0]) {
