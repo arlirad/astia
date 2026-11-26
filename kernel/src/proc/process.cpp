@@ -1251,6 +1251,19 @@ namespace astia::proc {
         return _descriptors.set(fd, value, flags);
     }
 
+    optional<fd_t> process::allocate_descriptor(const mm::shptr<fs::open_file>& value,
+                                                u32                             flags) {
+        astia_rlimit limit{};
+
+        (void) get_rlimit(RLIMIT_NOFILE, &limit);
+
+        u32 maximum = static_cast<u32>(limit.current);
+        if (maximum > max_process_fds)
+            maximum = max_process_fds;
+
+        return _descriptors.allocate(value, flags, maximum);
+    }
+
     void process::close_on_exec_descriptors() {
         _descriptors.close_on_exec();
     }

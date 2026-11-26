@@ -295,16 +295,13 @@ namespace astia::fs {
                     if (!current)
                         return -ESRCH;
 
-                    for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
-                        if (!current->descriptor(fd_t{fd}) &&
-                            current->set_descriptor(fd_t{fd}, accepted)) {
-                            r.complete(true);
+                    const auto installed = current->allocate_descriptor(accepted);
+                    if (!installed)
+                        return -EMFILE;
 
-                            return fd;
-                        }
-                    }
+                    r.complete(true);
 
-                    return -EMFILE;
+                    return installed.value.value;
                 }
                 long n           = r.direction() == io::direction::input
                                        ? read_ready(r.buffer(), r.length(), 0)

@@ -109,6 +109,21 @@ ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
     ASTIA_CHECK(descriptor_present(3));
 }
 
+ASTIA_TEST(aio_filesystem_openat_reuses_lowest_free_descriptor) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    clear_descriptor(0);
+    set_node_mode(astia::fs::file_mode(astia::fs::file_type::regular));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/aio";
+
+    ASTIA_CHECK(submit_openat(path, 0) == 0);
+    ASTIA_CHECK(descriptor_present(0));
+}
+
 ASTIA_TEST(aio_filesystem_openat_create_requires_writable_parent) {
     using namespace aio::test_support;
 

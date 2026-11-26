@@ -376,8 +376,10 @@ namespace astia::proc {
         mm::shptr<fs::open_file> descriptor(fd_t fd) const;
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value);
         bool set_descriptor(fd_t fd, const mm::shptr<fs::open_file>& value, u32 flags);
-        bool clear_descriptor(fd_t fd);
-        void close_on_exec_descriptors();
+        optional<fd_t> allocate_descriptor(const mm::shptr<fs::open_file>& value,
+                                           u32                             flags = 0);
+        bool           clear_descriptor(fd_t fd);
+        void           close_on_exec_descriptors();
         optional<fd_t> duplicate_descriptor(fd_t old_fd);
         optional<fd_t> duplicate_descriptor(fd_t old_fd, fd_t minimum, u32 flags);
         u32            descriptor_flags(fd_t fd) const;
