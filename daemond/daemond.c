@@ -1,4 +1,5 @@
 #include "daemond.h"
+
 #include <daemon_protocol.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -6,6 +7,8 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,16 +42,11 @@ struct command {
     int kind;
 };
 
-static volatile sig_atomic_t work_pending;
-static volatile sig_atomic_t command_pending;
 static volatile sig_atomic_t shutdown_pending;
 
-static void work_signal(int signal_number) {
-    if (signal_number == SIGTERM || signal_number == SIGINT)
-        shutdown_pending = 1;
-    if (signal_number == SIGUSR1)
-        command_pending = 1;
-    work_pending = 1;
+static void terminate_signal(int signal_number) {
+    (void) signal_number;
+    shutdown_pending = 1;
 }
 
 static int decimal(const char* text, int* result) {
@@ -184,12 +182,15 @@ static void stop_service(struct service* service) {
         service->last_error = errno;
 }
 
-static void reap_child(struct service* services, int count, int pid, int status,
-                       int* helper) {
-    if (pid == *helper) {
-        *helper = -1;
-        return;
-    }
+static void report(const char* what, const struct service* service, int error) {
+    const char* name = service->argc ? service->argv[0] : "?";
+    if (error)
+        fprintf(stderr, "daemond: %s: %s: errno=%d\n", what, name, error);
+    else
+        fprintf(stderr, "daemond: %s: %s\n", what, name);
+}
+
+static void reap_child(struct service* services, int count, int pid, int status) {
     for (int i = 0; i < count; ++i) {
         if (services[i].pid != pid)
             continue;
@@ -201,16 +202,16 @@ static void reap_child(struct service* services, int count, int pid, int status,
                                       WEXITSTATUS(status) != 0))) &&
             services[i].restarts < services[i].max_restarts) {
             ++services[i].restarts;
-            if (start_service(&services[i]) < 0)
+            fprintf(stderr, "daemond: restarting service: %s attempt=%d\n",
+                    services[i].argc ? services[i].argv[0] : "?", services[i].restarts);
+            if (start_service(&services[i]) < 0) {
                 services[i].last_error = errno;
+                report("cannot restart service", &services[i], services[i].last_error);
+            }
         }
         services[i].start_on_exit = 0;
         return;
     }
-}
-
-static void report(const char* what, const struct service* service) {
-    fprintf(stderr, "daemond: %s: %s\n", what, service->argc ? service->argv[0] : "?");
 }
 
 static int open_control(void) {
@@ -220,6 +221,10 @@ static int open_control(void) {
         int                fd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (fd < 0)
             continue;
+        if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+            close(fd);
+            continue;
+        }
         unlink(paths[i]);
         memset(&address, 0, sizeof address);
         address.sun_family = AF_UNIX;
@@ -266,75 +271,151 @@ static void append_text(char* buffer, size_t* used, const char* text) {
     buffer[*used] = '\0';
 }
 
-/* The helper owns no service state.  It serializes one complete request and
- * lets the supervisor perform all policy and process-group operations. */
-static int control_helper(int listen_fd, int input, int output) {
-    for (;;) {
-        int            client = accept(listen_fd, 0, 0);
-        char           request[DAEMON_PROTOCOL_MAX];
-        struct command command;
-        long           length;
-        if (client < 0) {
-            if (errno == EINTR)
-                continue;
-            return 1;
-        }
-        do {
-            length = recv(client, request, sizeof request - 1, 0);
-        } while (length < 0 && errno == EINTR);
-        if (length <= 0 || length >= (long) sizeof request ||
-            (request[length - 1] != '\n' && request[length - 1] != '\0')) {
-            write_all(client, "ERR malformed request\n", 23);
-            close(client);
-            continue;
-        }
-        request[length] = '\0';
-        if (length && request[length - 1] == '\n')
-            request[--length] = '\0';
-        command.kind = -1;
-        if (!strcmp(request, "STATUS"))
-            command.kind = CMD_STATUS;
-        else if (!strcmp(request, "START"))
-            command.kind = CMD_START;
-        else if (!strcmp(request, "STOP"))
-            command.kind = CMD_STOP;
-        else if (!strcmp(request, "RESTART"))
-            command.kind = CMD_RESTART;
-        else if (!strcmp(request, "CONFIG VALIDATE"))
-            command.kind = CMD_VALIDATE;
-        else if (!strcmp(request, "CONFIG LIST"))
-            command.kind = CMD_LIST;
-        if (write_all(input, &command, sizeof command) < 0 ||
-            kill(getppid(), SIGUSR1) < 0) {
-            close(client);
-            return 1;
-        }
-        length = read(output, request, sizeof request - 1);
-        if (length > 0)
-            write_all(client, request, (size_t) length);
-        else
-            write_all(client, "ERR daemon stopped\n", 19);
-        close(client);
+/* Requests arrive on the control socket, which the supervisor polls itself.
+ * Handling them in the main loop keeps one process per supervisor: the old
+ * helper fork inherited the daemond name and showed up as a second daemond in
+ * `ps`. */
+static void handle_client(int client, struct service* services, int count) {
+    char           request[DAEMON_PROTOCOL_MAX];
+    char           reply[DAEMON_RESPONSE_MAX];
+    struct command command;
+    long           length;
+
+    /* Bound a client that connects but never sends: the supervisor owns the
+     * loop now, so it cannot park here forever. */
+    struct pollfd ready;
+    ready.fd           = client;
+    ready.events       = POLLIN;
+    ready.revents      = 0;
+    const int readable = poll(&ready, 1, 5000);
+    if (readable < 0) {
+        fprintf(stderr, "daemond: control request wait failed: errno=%d\n", errno);
+        return;
     }
+    if (readable == 0) {
+        fprintf(stderr, "daemond: control request timed out\n");
+        return;
+    }
+    if (!(ready.revents & POLLIN)) {
+        fprintf(stderr, "daemond: control request wait failed: revents=0x%x\n",
+                ready.revents);
+        return;
+    }
+
+    do {
+        length = recv(client, request, sizeof request - 1, 0);
+    } while (length < 0 && errno == EINTR);
+    if (length <= 0) {
+        fprintf(stderr, "daemond: control request failed: errno=%d length=%ld\n", errno,
+                length);
+        return;
+    }
+    if (length >= (long) sizeof request ||
+        (request[length - 1] != '\n' && request[length - 1] != '\0')) {
+        (void) write_all(client, "ERR malformed request\n", 23);
+        return;
+    }
+    request[length] = '\0';
+    if (length && request[length - 1] == '\n')
+        request[--length] = '\0';
+    command.kind = -1;
+    if (!strcmp(request, "STATUS"))
+        command.kind = CMD_STATUS;
+    else if (!strcmp(request, "START"))
+        command.kind = CMD_START;
+    else if (!strcmp(request, "STOP"))
+        command.kind = CMD_STOP;
+    else if (!strcmp(request, "RESTART"))
+        command.kind = CMD_RESTART;
+    else if (!strcmp(request, "CONFIG VALIDATE"))
+        command.kind = CMD_VALIDATE;
+    else if (!strcmp(request, "CONFIG LIST"))
+        command.kind = CMD_LIST;
+
+    reply[0] = '\0';
+    if (command.kind == CMD_STATUS) {
+        size_t used = 0;
+        char   status_line[128];
+        snprintf(status_line, sizeof status_line, "OK services=%d\n", count);
+        append_text(reply, &used, status_line);
+        for (int i = 0; i < count; ++i) {
+            snprintf(status_line, sizeof status_line,
+                     "service=%s state=%s restart=%d pid=%d pgid=%d error=%d\n",
+                     services[i].argv[0],
+                     services[i].pid >= 0 && services[i].enabled ? "running" : "stopped",
+                     services[i].restarts, services[i].pid, services[i].pgid,
+                     services[i].last_error);
+            append_text(reply, &used, status_line);
+        }
+    }
+    else if (command.kind == CMD_LIST) {
+        size_t used = 0;
+        append_text(reply, &used, "OK ");
+        for (int i = 0; i < count; ++i) {
+            append_text(reply, &used, services[i].argv[0]);
+            append_text(reply, &used, "\n");
+        }
+    }
+    else if (command.kind == CMD_VALIDATE)
+        strcpy(reply, "OK valid\n");
+    else if (command.kind == CMD_STOP || command.kind == CMD_RESTART) {
+        for (int i = 0; i < count; ++i) {
+            services[i].enabled       = command.kind == CMD_RESTART;
+            services[i].start_on_exit = command.kind == CMD_RESTART;
+            stop_service(&services[i]);
+        }
+        /* With no configured services there is no child to wait for; STOP
+         * is the explicit shutdown request for a resident idle supervisor. */
+        if (command.kind == CMD_STOP && count == 0)
+            shutdown_pending = 1;
+        strcpy(reply, command.kind == CMD_STOP ? "OK stopped\n" : "OK restarting\n");
+    }
+    else if (command.kind == CMD_START) {
+        int ok = 1;
+        for (int i = 0; i < count; ++i) {
+            services[i].enabled       = 1;
+            services[i].start_on_exit = services[i].pid >= 0;
+            if (services[i].pid < 0 && start_service(&services[i]) < 0) {
+                report("cannot start service", &services[i], services[i].last_error);
+                ok = 0;
+            }
+        }
+        strcpy(reply, ok ? "OK started\n" : "ERR start failed\n");
+    }
+    else
+        strcpy(reply, "ERR malformed request\n");
+    if (write_all(client, reply, strlen(reply)) < 0)
+        fprintf(stderr, "daemond: control reply failed: errno=%d\n", errno);
 }
 
 int astia_daemon_run(const char* rc_path) {
-    FILE*          file = fopen(rc_path ? rc_path : "/etc/rc", "r");
+    const char*    path = rc_path ? rc_path : "/etc/rc";
+    FILE*          file = fopen(path, "r");
     struct service services[SERVICE_MAX];
-    char           line[SERVICE_LINE], reply[DAEMON_RESPONSE_MAX];
-    int            count = 0, failures = 0, control = -1, commands[2] = {-1, -1};
-    int            replies[2] = {-1, -1}, helper = -1;
-    if (!file)
-        return errno == ENOENT ? 0 : -1;
+    char           line[SERVICE_LINE];
+    int            count = 0, failures = 0, control = -1, line_number = 0;
 
-    while (fgets(line, sizeof line, file)) {
+    if (!file) {
+        const int error = errno;
+        if (error != ENOENT) {
+            fprintf(stderr, "daemond: open %s failed: errno=%d\n", path, error);
+            return -1;
+        }
+        /* A missing rc is an empty configuration, not a reason to exit and
+         * take PID 1 down; stay resident so the control socket is usable. */
+        fprintf(stderr, "daemond: open %s failed: errno=%d; starting with no services\n",
+                path, error);
+    }
+    while (file && fgets(line, sizeof line, file)) {
         size_t n = strlen(line);
         int    parsed;
+        ++line_number;
         if (n == sizeof line - 1 && line[n - 1] != '\n' && !feof(file)) {
             int c;
             while ((c = fgetc(file)) != '\n' && c != EOF) {
             }
             ++failures;
+            fprintf(stderr, "daemond: service record too long line=%d\n", line_number);
             continue;
         }
         if (n && line[n - 1] == '\n')
@@ -343,6 +424,7 @@ int astia_daemon_run(const char* rc_path) {
             line[--n] = '\0';
         if (count == SERVICE_MAX) {
             ++failures;
+            fprintf(stderr, "daemond: too many service records line=%d\n", line_number);
             continue;
         }
         memset(&services[count], 0, sizeof services[count]);
@@ -350,196 +432,97 @@ int astia_daemon_run(const char* rc_path) {
         parsed = parse_line(&services[count]);
         if (parsed < 0) {
             ++failures;
-            report("malformed service record", &services[count]);
+            fprintf(stderr, "daemond: malformed service record line=%d: %s\n",
+                    line_number, services[count].line);
         }
         else if (parsed > 0)
             ++count;
     }
-    fclose(file);
-    if (failures || !count) {
-        if (!failures)
-            fprintf(stderr, "daemond: clean shutdown\n");
-        return failures ? -1 : 0;
-    }
+    if (file)
+        fclose(file);
+    if (failures)
+        return -1;
+    if (!count)
+        fprintf(stderr, "daemond: no services configured; idling\n");
 
     control = open_control();
-    if (control < 0)
-        return -1;
-    if (pipe(commands) < 0 || pipe(replies) < 0) {
-        close(control);
-        if (commands[0] >= 0) {
-            close(commands[0]);
-            close(commands[1]);
-        }
-        if (replies[0] >= 0) {
-            close(replies[0]);
-            close(replies[1]);
-        }
+    if (control < 0) {
+        fprintf(stderr, "daemond: control socket failed: errno=%d\n", errno);
         return -1;
     }
-    signal(SIGUSR1, work_signal);
-    signal(SIGCHLD, work_signal);
-    signal(SIGTERM, work_signal);
-    signal(SIGINT, work_signal);
-    helper = fork();
-    if (helper == 0) {
-        close(commands[0]);
-        close(replies[1]);
-        signal(SIGUSR1, SIG_DFL);
-        signal(SIGCHLD, SIG_DFL);
-        signal(SIGTERM, SIG_DFL);
-        signal(SIGINT, SIG_DFL);
-        return control_helper(control, commands[1], replies[0]);
-    }
-    if (helper < 0) {
-        close(control);
-        close(commands[0]);
-        close(commands[1]);
-        close(replies[0]);
-        close(replies[1]);
-        return -1;
-    }
-    close(commands[1]);
-    close(replies[0]);
+    signal(SIGTERM, terminate_signal);
+    signal(SIGINT, terminate_signal);
     fprintf(stderr, "daemond: started\n");
 
     for (int i = 0; i < count; ++i)
         if (start_service(&services[i]) < 0) {
-            report("cannot start service", &services[i]);
+            report("cannot start service", &services[i], services[i].last_error);
             ++failures;
         }
 
-    {
-        int            waited_pid   = 0;
-        int            have_command = 0;
-        struct command pending_command;
-        for (;;) {
-            int status, pid;
-            int running = 0;
-            for (int i = 0; i < count; ++i)
-                if (services[i].pid >= 0)
-                    ++running;
-            if (shutdown_pending) {
-                for (int i = 0; i < count; ++i) {
-                    services[i].enabled       = 0;
-                    services[i].start_on_exit = 0;
-                    stop_service(&services[i]);
-                }
+    for (;;) {
+        int status, pid;
+        while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+            reap_child(services, count, pid, status);
+
+        int running = 0;
+        for (int i = 0; i < count; ++i)
+            if (services[i].pid >= 0)
+                ++running;
+        if (shutdown_pending) {
+            for (int i = 0; i < count; ++i) {
+                services[i].enabled       = 0;
+                services[i].start_on_exit = 0;
+                stop_service(&services[i]);
             }
-            if (have_command || command_pending) {
-                struct command command;
-                if (have_command) {
-                    command      = pending_command;
-                    have_command = 0;
-                }
-                else if (read(commands[0], &command, sizeof command) != sizeof command) {
-                    shutdown_pending = 1;
-                    continue;
-                }
-                command_pending = 0;
-                {
-                    int ok   = 1;
-                    reply[0] = '\0';
-                    if (command.kind == CMD_STATUS) {
-                        size_t used = 0;
-                        char   status_line[128];
-                        snprintf(status_line, sizeof status_line, "OK services=%d\n",
-                                 count);
-                        append_text(reply, &used, status_line);
-                        for (int i = 0; i < count; ++i) {
-                            snprintf(status_line, sizeof status_line,
-                                     "service=%s state=%s restart=%d pid=%d pgid=%d "
-                                     "error=%d\n",
-                                     services[i].argv[0],
-                                     services[i].pid >= 0 && services[i].enabled
-                                         ? "running"
-                                         : "stopped",
-                                     services[i].restarts, services[i].pid,
-                                     services[i].pgid, services[i].last_error);
-                            append_text(reply, &used, status_line);
-                        }
-                    }
-                    else if (command.kind == CMD_LIST) {
-                        size_t used = 0;
-                        append_text(reply, &used, "OK ");
-                        for (int i = 0; i < count; ++i) {
-                            append_text(reply, &used, services[i].argv[0]);
-                            append_text(reply, &used, "\n");
-                        }
-                    }
-                    else if (command.kind == CMD_VALIDATE)
-                        strcpy(reply, "OK valid\n");
-                    else if (command.kind == CMD_STOP || command.kind == CMD_RESTART) {
-                        for (int i = 0; i < count; ++i) {
-                            services[i].enabled       = command.kind == CMD_RESTART;
-                            services[i].start_on_exit = command.kind == CMD_RESTART;
-                            stop_service(&services[i]);
-                        }
-                        strcpy(reply, command.kind == CMD_STOP ? "OK stopped\n"
-                                                               : "OK restarting\n");
-                    }
-                    else if (command.kind == CMD_START) {
-                        for (int i = 0; i < count; ++i) {
-                            services[i].enabled       = 1;
-                            services[i].start_on_exit = services[i].pid >= 0;
-                            if (services[i].pid < 0 && start_service(&services[i]) < 0)
-                                ok = 0;
-                        }
-                        strcpy(reply, ok ? "OK started\n" : "ERR start failed\n");
-                    }
-                    else
-                        strcpy(reply, "ERR malformed request\n");
-                    if (write_all(replies[1], reply, strlen(reply)) < 0)
-                        shutdown_pending = 1;
-                }
-            }
-            if (waited_pid > 0) {
-                reap_child(services, count, waited_pid, status, &helper);
-                waited_pid = 0;
-            }
-            while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-                reap_child(services, count, pid, status, &helper);
-            running = 0;
-            for (int i = 0; i < count; ++i)
-                if (services[i].pid >= 0)
-                    ++running;
-            if (shutdown_pending && running == 0)
+            if (running == 0)
                 break;
-            if (!shutdown_pending && running == 0) {
-                int desired = 0;
-                for (int i = 0; i < count; ++i)
-                    desired |= services[i].enabled;
-                if (!desired)
-                    continue;
-                break;
-            }
-            work_pending = 0;
-            if (!work_pending) {
-                if (running == 0 && !shutdown_pending) {
-                    if (read(commands[0], &pending_command, sizeof pending_command) ==
-                        sizeof pending_command)
-                        have_command = 1;
-                    else
-                        shutdown_pending = 1;
-                }
-                else if (running > 0) {
-                    waited_pid = waitpid(-1, &status, 0);
-                    if (waited_pid < 0 && errno != EINTR)
-                        shutdown_pending = 1;
-                }
-            }
         }
+        else if (count > 0 && running == 0) {
+            /* Every configured service has exited and none was restarted.
+             * A configuration with no services stays resident instead. */
+            break;
+        }
+
+        struct pollfd watch;
+        watch.fd        = control;
+        watch.events    = POLLIN;
+        watch.revents   = 0;
+        const int ready = poll(&watch, 1, 200);
+        if (ready < 0) {
+            if (errno == EINTR)
+                continue;
+            fprintf(stderr, "daemond: control poll failed: errno=%d\n", errno);
+            shutdown_pending = 1;
+            continue;
+        }
+        if (ready == 0)
+            continue;
+        if (watch.revents & (POLLERR | POLLHUP)) {
+            fprintf(stderr, "daemond: control socket error revents=0x%x\n",
+                    watch.revents);
+            shutdown_pending = 1;
+            continue;
+        }
+        if (!(watch.revents & POLLIN))
+            continue;
+        const int client = accept(control, 0, 0);
+        if (client < 0) {
+            if (errno != EINTR)
+                fprintf(stderr, "daemond: control accept failed: errno=%d\n", errno);
+            continue;
+        }
+        handle_client(client, services, count);
+        close(client);
     }
-    if (helper > 0) {
-        kill(helper, SIGTERM);
-        waitpid(helper, 0, 0);
-    }
-    close(commands[0]);
-    close(replies[1]);
+
     close(control);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
-    fprintf(stderr, "daemond: clean shutdown\n");
+    if (failures)
+        fprintf(stderr, "daemond: shutdown with failures\n");
+    else
+        fprintf(stderr, "daemond: clean shutdown\n");
     return failures ? -1 : 0;
 }
 
