@@ -572,6 +572,11 @@ namespace astia::proc {
         if (target->session() != caller->session())
             return -EPERM;
 
+        // POSIX keeps the parent out of a child's process-group state once
+        // that child has exec'd: the new image may manage its own job control.
+        if (target != caller && target->execed())
+            return -EACCES;
+
         // POSIX rejects setpgid() for a session leader, including a
         // redundant request for its current process group.
         if (is_process_group_leader(target) && target->session() == target->pid())

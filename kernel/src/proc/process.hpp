@@ -84,6 +84,18 @@ namespace astia::proc {
             return _session;
         }
 
+        bool execed() const {
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+
+            return _execed;
+        }
+
+        void mark_execed() {
+            arch::interrupt_spinlock_guard guard(_metadata_lock);
+
+            _execed = true;
+        }
+
         u32 uid() const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);
 
@@ -653,6 +665,7 @@ namespace astia::proc {
         pid_t  _parent_pid;
         pgrp_t _process_group;
         pid_t  _session;
+        bool   _execed = false;
         mm::shptr<fs::open_file> _controlling_terminal;
         u32                      _uid = 0, _euid = 0, _gid = 0, _egid = 0;
         u32                      _umask = 0;
