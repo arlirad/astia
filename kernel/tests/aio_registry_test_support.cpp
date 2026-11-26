@@ -703,6 +703,23 @@ namespace astia::proc {
         return true;
     }
 
+    optional<fd_t> process::allocate_descriptor(const mm::shptr<fs::open_file>& value,
+                                                u32                             flags) {
+        if (!value)
+            return error_t::emfile;
+
+        for (i32 fd = 0; fd < static_cast<i32>(max_process_fds); ++fd) {
+            if (!::astia::io::aio::test_support::detail::descriptors[fd].file) {
+                ::astia::io::aio::test_support::detail::descriptors[fd].file  = value;
+                ::astia::io::aio::test_support::detail::descriptors[fd].flags = flags;
+
+                return fd_t{fd};
+            }
+        }
+
+        return error_t::emfile;
+    }
+
     optional<fd_t> process::duplicate_descriptor(fd_t old_fd) {
         return duplicate_descriptor(old_fd, fd_t{0}, 0);
     }
