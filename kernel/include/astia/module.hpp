@@ -3,6 +3,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>
+#include <astia/dev/input_platform.hpp>
 #include <astia/hw/pci.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
@@ -169,4 +170,66 @@ namespace astia::module {
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);
     int  callback_context();
+
+    /// Move-only lease on the calling module's image. While a token (or a
+    /// guarded callback entered through it) is live, `mod::close()` waits and
+    /// a resident module's close returns `resident` without running fini or
+    /// unmapping. Releasing the last lease callback ref can complete a pending
+    /// close.
+    ///
+    /// Acquisition is only valid while the module is executing entrypoint or
+    /// finalizer context; outside that context it returns an invalid token.
+    class lifetime_token final {
+        public:
+        lifetime_token() = default;
+        ~lifetime_token();
+        lifetime_token(const lifetime_token&)            = delete;
+        lifetime_token& operator=(const lifetime_token&) = delete;
+        lifetime_token(lifetime_token&& other) noexcept;
+        lifetime_token& operator=(lifetime_token&& other) noexcept;
+
+        /// Acquire a lease on the module currently executing module_main().
+        static lifetime_token acquire();
+
+        bool valid() const;
+
+        /// Idempotent; also runs from the destructor and move-assignment.
+        void release();
+
+        /// Mark the leased module permanently non-unloadable. Its close then
+        /// returns `resident` with the image still mapped.
+        bool make_resident() const;
+
+        /// Guarded callback entry for an IRQ route: acquire an active
+        /// reference, refusing once teardown started. Interrupt-safe.
+        bool try_enter() const;
+
+        /// Release the reference acquired by try_enter(). Always called after
+        /// a successful try_enter(), including after release().
+        void leave() const;
+
+        private:
+        static constexpr u32 no_slot = ~u32{0};
+
+        constexpr lifetime_token(u32 slot, u64 generation)
+            : _slot(slot), _generation(generation) {}
+
+        u32          _slot       = no_slot;
+        u64          _generation = 0;
+        mutable bool _released   = false;
+    };
+
+    /// The narrow PS/2 port window the platform exposes to the keyboard
+    /// module; only ports 0x60/0x64 are addressable.
+    const dev::ps2_port_window& ps2_platform_ports();
+
+    /// Claim IRQ1 with `token` as the guarded callback context. The token must
+    /// outlive the claim and must not move while it is registered.
+    bool ps2_claim_irq(arch::irq_handler handler, lifetime_token& token);
+
+    /// Unmask PIC IRQ1 after the guarded claim is in place.
+    bool ps2_unmask_irq();
+
+    /// Forward one layout-mapped byte to the ttv0 input path.
+    bool tty_input_write(u8 byte);
 } // namespace astia::module

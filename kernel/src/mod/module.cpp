@@ -486,6 +486,10 @@ namespace astia::mod {
             if (image.data() == nullptr || image.size() == 0)
                 return module_error::invalid_argument;
 
+            if (elf::loader::audit_relocatable(image) !=
+                elf::loader::relocatable_problem::none)
+                return module_error::load_failed;
+
             if (options.dependencies.size() > max_module_dependencies)
                 return module_error::limit;
 
@@ -1344,6 +1348,12 @@ namespace astia::mod {
             deliver_waiter(waiter, module_error::ok);
 
         return module_error::ok;
+    }
+
+    module_id active_module_id() {
+        arch::interrupt_spinlock_guard guard(callback_lock);
+
+        return active == nullptr ? module_id{} : active->id;
     }
 
     bool quiesced(module_id id) {

@@ -319,6 +319,11 @@ namespace astia::mod {
     module_error acquire(module_id id);
     module_error release(module_id id);
 
+    /// The module currently executing entrypoint or finalizer callbacks, or an
+    /// invalid id outside that context. Used to resolve the calling module for
+    /// lifetime_token.
+    module_id active_module_id();
+
     /// True when the module is loaded, not running, and has no active refs.
     bool quiesced(module_id id);
 
