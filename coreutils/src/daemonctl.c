@@ -4,7 +4,14 @@
 #include <sys/un.h>
 
 #include <errno.h>
+#include <stdio.h>
 #include <unistd.h>
+
+static int command_errno(const char* name, const char* detail) {
+    char message[96];
+    snprintf(message, sizeof message, "%s (errno=%d)", detail, errno);
+    return cu_error(name, message);
+}
 
 static int connect_daemon(int fd, const char* path) {
     struct sockaddr_un address;
@@ -21,11 +28,11 @@ static int command(const char* name, const char* request) {
     long   n;
     size_t length = __builtin_strlen(request);
     if (fd < 0)
-        return cu_error(name, "daemon unavailable");
+        return command_errno(name, "daemon unavailable");
     if (connect_daemon(fd, DAEMON_SOCKET_PATH) < 0 &&
         connect_daemon(fd, DAEMON_SOCKET_FALLBACK) < 0) {
         close(fd);
-        return cu_error(name, "daemon unavailable");
+        return command_errno(name, "daemon unavailable");
     }
     {
         const char* cursor    = request;
@@ -34,7 +41,7 @@ static int command(const char* name, const char* request) {
             long written = send(fd, cursor, (unsigned long) remaining, 0);
             if (written <= 0) {
                 close(fd);
-                return cu_error(name, "daemon request failed");
+                return command_errno(name, "daemon request failed");
             }
             cursor += written;
             remaining -= (size_t) written;
@@ -46,7 +53,7 @@ static int command(const char* name, const char* request) {
             recv(fd, response + n, sizeof response - 1 - (unsigned long) n, 0);
         if (received < 0) {
             close(fd);
-            return cu_error(name, "daemon response failed");
+            return command_errno(name, "daemon response failed");
         }
         if (received == 0)
             break;
@@ -54,7 +61,7 @@ static int command(const char* name, const char* request) {
     }
     close(fd);
     if (n <= 0)
-        return cu_error(name, "daemon response failed");
+        return command_errno(name, "daemon response failed");
     response[n] = '\0';
     if (__builtin_strncmp(response, "OK ", 3) != 0 &&
         __builtin_strncmp(response, "OK\n", 3) != 0) {
