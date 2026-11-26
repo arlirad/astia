@@ -15,6 +15,12 @@ namespace astia::fs {
     };
 
     constexpr u32 open_file_access_mask = 0x0003;
+
+    /// A descriptor's access mode permits reading unless it is write-only.
+    constexpr bool open_file_readable(u32 flags) {
+        return (flags & open_file_access_mask) != ASTIA_AIO_O_WRONLY;
+    }
+
     // Pipe endpoints use private high bits in open_file::_flags so that the
     // backing pipe can account readers and writers independently.  They are
     // not part of either the AIO OPENAT word or userspace fcntl status.

@@ -800,7 +800,7 @@ namespace astia::io::aio::dispatch {
                  (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
                  handle->mode().is_regular()) ||
                 (direction == ::astia::io::direction::input &&
-                 access == ASTIA_AIO_O_WRONLY))
+                 !fs::open_file_readable(handle->flags())))
                 return context.complete(-EBADF);
 
             // READ/WRITE name one range, READV/WRITEV up to max_segments of
@@ -890,7 +890,7 @@ namespace astia::io::aio::dispatch {
                  (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
                  handle->mode().is_regular()) ||
                 (direction == ::astia::io::direction::input &&
-                 access == ASTIA_AIO_O_WRONLY))
+                 !fs::open_file_readable(handle->flags())))
                 return error_t::ebadf;
 
             span<u8> ranges[mm::iovec::max_segments];
