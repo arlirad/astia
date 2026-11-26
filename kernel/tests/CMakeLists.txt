@@ -298,6 +298,7 @@ set_tests_properties(astia_aio_handler_ownership
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
 astia_add_host_test(astia_fd_table_test
         fd_table_test.cpp
+        support/file_host.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/fd_table.cpp)
 target_link_libraries(astia_fd_table_test PRIVATE Threads::Threads)
 astia_add_test_label(astia_fd_table_test "deterministic;proc")
