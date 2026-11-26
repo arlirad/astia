@@ -78,8 +78,8 @@ namespace astia::fs {
             }
 
             core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                                   core::cltoken token) override {
-                return submit_writev(buffers, offset, token);
+                                   core::cltoken token, bool nonblock) override {
+                return submit_writev(buffers, offset, token, nonblock);
             }
 
             long read_ready(void* b, u32 n, u64) override {

@@ -121,7 +121,7 @@ namespace astia::fs {
         core::task<i64> submit_readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token);
         core::task<i64> submit_writev(span<const buffer> buffers, u64 offset,
-                                      core::cltoken token);
+                                      core::cltoken token, bool nonblock);
 
         private:
         io::request_queue _pending{*this};

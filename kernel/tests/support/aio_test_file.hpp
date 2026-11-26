@@ -48,8 +48,8 @@ namespace aio_test {
         }
 
         core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
-                               core::cltoken token) override {
-            return submit_writev(buffers, offset, token);
+                               core::cltoken token, bool nonblock) override {
+            return submit_writev(buffers, offset, token, nonblock);
         }
 
         long submit(::astia::io::request& request) override {

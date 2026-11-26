@@ -1504,6 +1504,9 @@ namespace astia::fs {
         if (!_parent)
             return -EBADF;
 
+        request.nonblock((_flags & static_cast<u32>(open_file_status_flags::nonblock)) !=
+                         0);
+
         // Resolve the offset once, at submission, and write it back into
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
