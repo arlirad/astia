@@ -4257,7 +4257,8 @@ int main(int argc, char** argv) {
     if (geteuid() == 0) {
         const char* target = "/tmp/chown-sentinel";
         struct stat value;
-        int         target_fd;
+
+        int target_fd;
 
         (void) unlink(target);
 
