@@ -87,17 +87,23 @@ int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
     for (int i = 0; i < n; ++i) {
         short re = pfds[i].revents;
 
-        if (read_set && (re & (POLLIN | POLLHUP | POLLERR | POLLNVAL)))
+        if (read_set && (re & (POLLIN | POLLHUP | POLLERR | POLLNVAL))) {
             FD_SET(pfds[i].fd, read_set);
 
-        if (write_set && (re & (POLLOUT | POLLERR | POLLNVAL)))
+            ++rc;
+        }
+
+        if (write_set && (re & (POLLOUT | POLLERR | POLLNVAL))) {
             FD_SET(pfds[i].fd, write_set);
 
-        if (except_set && (re & (POLLPRI | POLLERR | POLLNVAL)))
+            ++rc;
+        }
+
+        if (except_set && (re & (POLLPRI | POLLERR | POLLNVAL))) {
             FD_SET(pfds[i].fd, except_set);
 
-        if (re)
             ++rc;
+        }
     }
 
     free(pfds);
