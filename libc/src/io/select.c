@@ -73,6 +73,16 @@ int select(int count, fd_set* read_set, fd_set* write_set, fd_set* except_set,
         return -1;
     }
 
+    for (int i = 0; i < n; ++i) {
+        if (pfds[i].revents & POLLNVAL) {
+            free(pfds);
+
+            errno = EBADF;
+
+            return -1;
+        }
+    }
+
     if (read_set)
         FD_ZERO(read_set);
 
