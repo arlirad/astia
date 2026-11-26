@@ -401,6 +401,14 @@ add_test(NAME astia_architecture_boundaries
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
 
+add_test(NAME astia_atomic_builtin_boundary
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/atomic_builtin_boundary.py
+                --root ${ASTIA_KERNEL_SOURCE_DIR}/..
+                --self-test)
+set_tests_properties(astia_atomic_builtin_boundary
+        PROPERTIES LABELS "kernel;atomic;deterministic;core")
+
 add_test(NAME astia_experimental_core_removal
         COMMAND ${CMAKE_COMMAND}
         -DASTIA_REPO_ROOT=${ASTIA_KERNEL_SOURCE_DIR}/..
