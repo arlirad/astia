@@ -988,8 +988,7 @@ astia_add_host_test(astia_module_lifecycle_test
          ${_lifecycle_module_api_fixture_cpp}
          ${_lifecycle_reloc32_fixture_cpp}
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
-         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module_ps2.cpp
-         support/ps2_irq_host.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/irq_route.cpp
          module_cxxabi_host_test.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
          support/resume_queue_host.cpp

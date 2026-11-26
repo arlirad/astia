@@ -12,4 +12,7 @@ namespace astia::arch::host_test {
 
     /// Whether a handler (guarded or plain) is currently bound to `irq`.
     bool irq_registered(u8 irq);
+
+    /// Whether `irq` was last masked/unmasked (survives unregistration).
+    bool irq_masked(u8 irq);
 } // namespace astia::arch::host_test
