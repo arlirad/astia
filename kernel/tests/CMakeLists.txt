@@ -1097,6 +1097,23 @@ target_include_directories(astia_ext4_vfs_test PRIVATE
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
 
+astia_add_arena_test(astia_tmpfs_readdir_test
+        tmpfs_readdir_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_tmpfs_readdir_test PRIVATE fs)
+target_compile_options(astia_tmpfs_readdir_test PRIVATE -fno-rtti)
+target_include_directories(astia_tmpfs_readdir_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_tmpfs_readdir_test "sanitizer-host")
+astia_add_test_label(astia_tmpfs_readdir_test "sanitizer-host-partial")
+
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
 # TLB, real physical memory, the boot path itself).
