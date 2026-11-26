@@ -383,7 +383,16 @@ static int list_directory(const char* path, int headers, const ls_options* optio
 static int list_one(const char* path, int headers, const ls_options* options) {
     struct stat single;
 
-    if (lstat(path, &single) == 0 && !S_ISDIR(single.st_mode)) {
+    int have_info = lstat(path, &single) == 0;
+
+    if (!options->detailed && have_info && S_ISLNK(single.st_mode)) {
+        struct stat target;
+
+        if (stat(path, &target) == 0 && S_ISDIR(target.st_mode))
+            return list_directory(path, headers, options);
+    }
+
+    if (have_info && !S_ISDIR(single.st_mode)) {
         const char* slash = strrchr(path, '/');
         const char* name  = slash ? slash + 1 : path;
 
