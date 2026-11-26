@@ -1530,16 +1530,17 @@ if (ARCH STREQUAL "x86_64")
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/resolve.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
-                -Wl,--hash-style=sysv
+                -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libfixture_base.so -o ${_fix_dir}/libfixture_base.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
-                -Wl,--hash-style=sysv
+                -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libfixture.so -o ${_fix_dir}/libfixture.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${_fix_dir}/libfixture_base.so
@@ -1585,7 +1586,7 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/interp_badver
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c ${_fix_dir}/libverstub_v1.so
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
-                -fno-stack-protector -Wl,--hash-style=sysv
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,lazy
                 -Wl,-rpath-link,${_fix_dir}
                 -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/interp_link
@@ -1641,6 +1642,12 @@ if (ARCH STREQUAL "x86_64")
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 -o ${_fix_dir}/interp_dlopen
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now -DEXPECT_EAGER
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_now
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c ${_fix_dir}/libfixture.so
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
@@ -1654,7 +1661,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
-                ${_fix_dir}/interp_dlopen
+                ${_fix_dir}/interp_dlopen ${_fix_dir}/interp_now
                 ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/libfixture_versions.so ${_fix_dir}/libverstub.so
@@ -1780,7 +1787,7 @@ if (ARCH STREQUAL "x86_64")
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
-                bin/interp_link bin/interp_nophdr bin/interp_ifunc
+                bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
                 bin/interp_relro bin/interp_relro_ok
                 lib/libdlfixture.so lib/libdlglobal.so lib/libdlnd.so
                 lib/libdlfixture_dep.so lib/libdlfixture_user.so
@@ -1806,6 +1813,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/dlfcn.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/resolve.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
@@ -1970,6 +1978,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: ver reject ok"
                 "astia: ld ok"
                 "astia: dyntls ok"
+                "astia: ld eager ok"
                 "astia: ld nophdr ok"
                 "astia: gnu-hash ok"
                 "astia: tpoff32 ok"
