@@ -45,6 +45,113 @@ namespace astia::io::aio::ring {
         u32 waiter_index_number(u32 slot, u32 park_index) {
             return slot * parked_slot_count + park_index;
         }
+
+        struct owner_ring_entry {
+            proc::process* owner = nullptr;
+            u8             count = 0;
+            u8             indices[slot_count]{};
+        };
+
+        core::spinlock   g_owner_lock;
+        owner_ring_entry g_owner_rings[slot_count];
+
+        void add_owner_ring(ring_slot& slot) {
+            if (!slot.owner)
+                return;
+
+            arch::interrupt_spinlock_guard guard(g_owner_lock);
+            owner_ring_entry*              target = nullptr;
+
+            for (u32 i = 0; i < slot_count; ++i) {
+                owner_ring_entry& entry = g_owner_rings[i];
+
+                if (entry.owner == slot.owner.get()) {
+                    target = &entry;
+
+                    break;
+                }
+
+                if (entry.owner == nullptr && target == nullptr)
+                    target = &entry;
+            }
+
+            if (target == nullptr)
+                return;
+
+            target->owner = slot.owner.get();
+
+            for (u32 i = 0; i < target->count; ++i) {
+                if (target->indices[i] == slot.pool_index)
+                    return;
+            }
+
+            if (target->count < slot_count)
+                target->indices[target->count++] = slot.pool_index;
+        }
+
+        void remove_owner_ring(ring_slot& slot) {
+            if (!slot.owner)
+                return;
+
+            arch::interrupt_spinlock_guard guard(g_owner_lock);
+
+            for (u32 i = 0; i < slot_count; ++i) {
+                owner_ring_entry& entry = g_owner_rings[i];
+
+                if (entry.owner != slot.owner.get())
+                    continue;
+
+                for (u32 j = 0; j < entry.count; ++j) {
+                    if (entry.indices[j] != slot.pool_index)
+                        continue;
+
+                    for (u32 k = j + 1; k < entry.count; ++k) {
+                        entry.indices[k - 1] = entry.indices[k];
+                    }
+
+                    --entry.count;
+
+                    if (entry.count == 0)
+                        entry.owner = nullptr;
+
+                    return;
+                }
+
+                return;
+            }
+        }
+    }
+
+    void clear_all_armed(ring_slot& slot) {
+        const u64 previous = slot.armed_mask.exchange(0, memory_order::acq_rel);
+
+        if (previous != 0)
+            g_armed_ring_bitmap.fetch_and(~(u64{1} << slot.pool_index),
+                                          memory_order::acq_rel);
+    }
+
+    u32 owner_ring_indices(proc::process* owner, u8* out, u32 capacity) {
+        if (owner == nullptr || out == nullptr || capacity == 0)
+            return 0;
+
+        arch::interrupt_spinlock_guard guard(g_owner_lock);
+
+        for (u32 i = 0; i < slot_count; ++i) {
+            const owner_ring_entry& entry = g_owner_rings[i];
+
+            if (entry.owner != owner)
+                continue;
+
+            const u32 count = entry.count < capacity ? entry.count : capacity;
+
+            for (u32 j = 0; j < count; ++j) {
+                out[j] = entry.indices[j];
+            }
+
+            return count;
+        }
+
+        return 0;
     }
 
     void ring_lock::acquire() {
@@ -213,6 +320,8 @@ namespace astia::io::aio::ring {
                 continue;
 
             clear_waiter_hint(slot, i);
+            clear_armed(slot, i);
+            clear_signalable(slot, i);
 
             cleanup.entries[i] = static_cast<mm::iovec&&>(op.entries);
             cleanup.handles[i] = static_cast<mm::shptr<fs::open_file>&&>(op.handle);
@@ -233,6 +342,9 @@ namespace astia::io::aio::ring {
         }
 
         detach_parked(slot, cleanup);
+        clear_all_armed(slot);
+        clear_all_signalable(slot);
+        remove_owner_ring(slot);
         __builtin_memset(slot.map, 0, sizeof slot.map);
 
         slot.user_base  = 0;
@@ -473,6 +585,8 @@ namespace astia::io::aio::ring {
 
                 continue;
             }
+
+            add_owner_ring(slot);
 
             astia_rings* r = rings_of(slot);
 

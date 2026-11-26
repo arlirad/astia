@@ -275,6 +275,8 @@ namespace astia::io::aio::test_support {
                 op.operation->request().acknowledge();
             }
 
+            ring::clear_armed(slot, i);
+            ring::clear_signalable(slot, i);
             op.clear();
         }
     }
