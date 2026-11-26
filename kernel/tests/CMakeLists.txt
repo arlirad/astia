@@ -436,6 +436,30 @@ add_test(NAME astia_architecture_boundaries
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
 
+if (DEFINED ASTIA_AARCH64_VIRT_CXX_COMPILER AND
+        ASTIA_AARCH64_VIRT_CXX_COMPILER)
+    set(ASTIA_ARCH_MATRIX_AARCH64_CXX
+            "${ASTIA_AARCH64_VIRT_CXX_COMPILER}")
+else ()
+    find_program(ASTIA_ARCH_MATRIX_AARCH64_CXX
+            NAMES aarch64-linux-gnu-g++ aarch64-none-elf-g++)
+endif ()
+if (NOT ASTIA_ARCH_MATRIX_AARCH64_CXX)
+    set(ASTIA_ARCH_MATRIX_AARCH64_CXX "")
+endif ()
+add_test(NAME astia_arch_include_boundaries
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -DASTIA_ARCH_INCLUDE_BOUNDARIES_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/arch_include_boundaries.py
+        -DASTIA_PYTHON=${Python3_EXECUTABLE}
+        -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DASTIA_AARCH64_CXX_COMPILER=${ASTIA_ARCH_MATRIX_AARCH64_CXX}
+        -DASTIA_ARCH_INCLUDE_BOUNDARIES_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/arch-include-boundaries
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/arch_include_boundaries_test.cmake)
+set_tests_properties(astia_arch_include_boundaries
+        PROPERTIES LABELS "kernel;architecture;headers;deterministic"
+        TIMEOUT 120)
+
 add_test(NAME astia_atomic_builtin_boundary
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/atomic_builtin_boundary.py
