@@ -1,4 +1,6 @@
 #include <astia/acpi.hpp>
+
+#include <cstdlib>
 #include <astia/log.hpp>
 #include <astia/shutdown.hpp>
 
@@ -14,6 +16,20 @@ namespace astia::log::detail {
 } // namespace astia::log::detail
 
 namespace {
+    void* host_allocate(void*, astia::usize bytes) {
+        return std::malloc(bytes);
+    }
+
+    void host_release(void*, void* pointer) {
+        std::free(pointer);
+    }
+
+    const astia::acpi::detail::table_allocator host_allocator{
+        nullptr,
+        host_allocate,
+        host_release,
+    };
+
     using astia::u16;
     using astia::u32;
     using astia::u64;
@@ -268,6 +284,40 @@ namespace {
 
         checksum_table(fadt, length);
     }
+    void build_duplicate_signature_tables(table_image& target) {
+        const u64 root_address = image_base + root_offset;
+        const u64 fadt_address = image_base + fadt_offset;
+        const u64 dsdt_address = image_base + dsdt_offset;
+        const u64 ssdt1_address = image_base + 0x300;
+        const u64 ssdt2_address = image_base + 0x400;
+
+        add_table(target.data, dsdt_offset, "DSDT", 2, name_s5_package,
+                  sizeof(name_s5_package));
+
+        u8 fadt_body[80]{};
+
+        store_u32(fadt_body + 4, static_cast<u32>(dsdt_address));
+        store_u32(fadt_body + 28, 0x604);
+        fadt_body[53] = 2;
+
+        add_table(target.data, fadt_offset, "FACP", 3, fadt_body, sizeof(fadt_body));
+
+        const u8 ssdt_body[] = {0x08, 0x58, 0x58, 0x58, 0x58, 0x00};
+
+        add_table(target.data, 0x300, "SSDT", 2, ssdt_body, sizeof(ssdt_body));
+        add_table(target.data, 0x400, "SSDT", 2, ssdt_body, sizeof(ssdt_body));
+
+        u8 root_body[16]{};
+
+        store_u32(root_body + 0, static_cast<u32>(fadt_address));
+        store_u32(root_body + 4, static_cast<u32>(dsdt_address));
+        store_u32(root_body + 8, static_cast<u32>(ssdt1_address));
+        store_u32(root_body + 12, static_cast<u32>(ssdt2_address));
+
+        add_table(target.data, root_offset, "RSDT", 1, root_body, sizeof(root_body));
+
+        write_rsdp(target.data.bytes + rsdp_offset, root_address, 0, false);
+    }
 } // namespace
 
 ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
@@ -278,7 +328,7 @@ ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
 
     ASTIA_CHECK(astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
-        astia::span<u8>(target.data.bytes + 0x4000, 0x4000), target.tables));
+        host_allocator, target.tables));
     ASTIA_CHECK(target.tables.valid_rsdp);
     ASTIA_CHECK(target.tables.dsdt.bytes.size() == sizeof(name_s5_package) + 36);
     ASTIA_CHECK(target.tables.fadt.bytes.size() == 116);
@@ -292,7 +342,7 @@ ASTIA_TEST(acpi_rsdp_v2_and_xsdt_validate) {
 
     ASTIA_CHECK(astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
-        astia::span<u8>(target.data.bytes + 0x4000, 0x4000), target.tables));
+        host_allocator, target.tables));
     ASTIA_CHECK(target.tables.valid_rsdp);
     ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::xsdt_signature);
 }
@@ -307,7 +357,7 @@ ASTIA_TEST(acpi_rsdp_bad_checksum_rejects) {
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
-        astia::span<u8>(target.data.bytes + 0x4000, 0x4000), target.tables));
+        host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error ==
                 astia::acpi::detail::table_error::bad_rsdp_checksum);
     ASTIA_CHECK(!target.tables.valid_rsdp);
@@ -323,7 +373,7 @@ ASTIA_TEST(acpi_table_bad_checksum_rejects) {
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
-        astia::span<u8>(target.data.bytes + 0x4000, 0x4000), target.tables));
+        host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error ==
                 astia::acpi::detail::table_error::bad_table_checksum);
 }
@@ -340,8 +390,153 @@ ASTIA_TEST(acpi_table_duplicate_rejects) {
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
-        astia::span<u8>(target.data.bytes + 0x4000, 0x4000), target.tables));
+        host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error == astia::acpi::detail::table_error::duplicate_table);
+}
+
+ASTIA_TEST(acpi_table_store_finds_duplicate_signatures_in_order) {
+    table_image target;
+    build_duplicate_signature_tables(target);
+
+    raw_reader context = context_for(target.data);
+
+    ASTIA_CHECK(astia::acpi::detail::discover(reader_for(context),
+                                              image_base + rsdp_offset,
+                                              host_allocator, target.tables));
+    ASTIA_CHECK(target.tables.count == 5);
+
+    astia::acpi::detail::table first{};
+    astia::acpi::detail::table second{};
+    astia::acpi::detail::table missing{};
+
+    ASTIA_CHECK(target.tables.find(astia::acpi::detail::ssdt_signature, 0, first));
+    ASTIA_CHECK(target.tables.find(astia::acpi::detail::ssdt_signature, 1, second));
+    ASTIA_CHECK(!target.tables.find(astia::acpi::detail::ssdt_signature, 2, missing));
+    ASTIA_CHECK(first.address == image_base + 0x300);
+    ASTIA_CHECK(second.address == image_base + 0x400);
+    ASTIA_CHECK(first.bytes.size() == 42);
+    ASTIA_CHECK(second.bytes.size() == 42);
+}
+
+ASTIA_TEST(acpi_table_store_owns_bytes_after_source_changes) {
+    table_image target;
+    build_standard_tables(target, false, true, name_s5_package,
+                          sizeof(name_s5_package));
+
+    raw_reader context = context_for(target.data);
+
+    ASTIA_CHECK(astia::acpi::detail::discover(reader_for(context),
+                                              image_base + rsdp_offset,
+                                              host_allocator, target.tables));
+
+    astia::acpi::detail::table stored{};
+
+    ASTIA_CHECK(target.tables.find(astia::acpi::detail::dsdt_signature, 0, stored));
+
+    const u8 first_byte = stored.bytes[0];
+
+    target.data.bytes[dsdt_offset] = static_cast<u8>(first_byte ^ 0xFF);
+
+    astia::acpi::detail::table again{};
+
+    ASTIA_CHECK(target.tables.find(astia::acpi::detail::dsdt_signature, 0, again));
+    ASTIA_CHECK(again.bytes[0] == first_byte);
+}
+
+namespace {
+    struct failing_allocator {
+        usize calls    = 0;
+        usize fail_at  = 0;
+    };
+
+    void* fail_allocate(void* context, usize bytes) {
+        auto* state = static_cast<failing_allocator*>(context);
+
+        ++state->calls;
+
+        if (state->calls == state->fail_at)
+            return nullptr;
+
+        return std::malloc(bytes);
+    }
+} // namespace
+
+namespace {
+    struct mutating_reader {
+        image* target        = nullptr;
+        bool   mutate_signature = false;
+        int    header_reads  = 0;
+    };
+
+    bool read_mutating(void* context, u64 address, u8* destination, usize length) {
+        auto* reader = static_cast<mutating_reader*>(context);
+
+        if (reader == nullptr || reader->target == nullptr || address < image_base)
+            return false;
+
+        const u64 offset = address - image_base;
+
+        if (offset > image_size || length > image_size - offset)
+            return false;
+
+        __builtin_memcpy(destination, reader->target->bytes + offset, length);
+
+        if (address == image_base + root_offset && length == 36 &&
+            reader->header_reads++ == 0) {
+            if (reader->mutate_signature) {
+                reader->target->bytes[root_offset] = 'X';
+            }
+            else {
+                store_u32(reader->target->bytes + root_offset + 4, 32);
+            }
+        }
+
+        return true;
+    }
+} // namespace
+
+ASTIA_TEST(acpi_table_store_rejects_source_header_changes) {
+    for (int mutation = 0; mutation < 2; ++mutation) {
+        table_image target;
+        build_standard_tables(target, false, true, name_s5_package,
+                              sizeof(name_s5_package));
+
+        mutating_reader source{
+            &target.data,
+            mutation != 0,
+            0,
+        };
+
+        ASTIA_CHECK(!astia::acpi::detail::discover(
+            {&source, read_mutating}, image_base + rsdp_offset,
+            host_allocator, target.tables));
+        ASTIA_CHECK(target.tables.error ==
+                    astia::acpi::detail::table_error::source_changed);
+        ASTIA_CHECK(target.tables.count == 0);
+        ASTIA_CHECK(target.tables.total_bytes == 0);
+    }
+}
+
+ASTIA_TEST(acpi_table_store_allocation_failure_cleans_up) {
+    table_image target;
+    build_standard_tables(target, false, true, name_s5_package,
+                          sizeof(name_s5_package));
+
+    raw_reader context = context_for(target.data);
+    failing_allocator state{0, 2};
+
+    ASTIA_CHECK(!astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset,
+        {&state, fail_allocate, host_release}, target.tables));
+    ASTIA_CHECK(target.tables.error ==
+                astia::acpi::detail::table_error::out_of_memory);
+    ASTIA_CHECK(target.tables.count == 0);
+    ASTIA_CHECK(target.tables.total_bytes == 0);
+
+    astia::acpi::detail::table missing{};
+
+    ASTIA_CHECK(!target.tables.find(astia::acpi::detail::dsdt_signature, 0,
+                                    missing));
 }
 
 ASTIA_TEST(acpi_aml_finds_s5_name_package) {

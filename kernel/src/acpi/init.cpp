@@ -6,6 +6,7 @@
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
+#include <astia/mm/heap.hpp>
 #include <astia/shutdown.hpp>
 
 #include "aml.hpp"
@@ -22,7 +23,7 @@ namespace astia::acpi {
 
         constexpr u64 identity_window = 1ull << 30;
 
-        u8                  table_storage[detail::max_aml_bytes]{};
+        detail::table_set   tables{};
         detail::interpreter interpreter{};
         detail::s5_plan     s5{};
         u64                 validated_rsdp = 0;
@@ -58,6 +59,16 @@ namespace astia::acpi {
             }
 
             return false;
+        }
+
+        void* heap_allocate(void*, usize bytes) {
+            auto allocation = astia::mm::heap::alloc(bytes);
+
+            return allocation ? static_cast<void*>(allocation.value) : nullptr;
+        }
+
+        void heap_release(void*, void* pointer) {
+            astia::mm::heap::free(pointer);
         }
 
         u64 usable_top(const mm::memory_map& map) {
@@ -134,11 +145,8 @@ namespace astia::acpi {
                 return true;
             }
 
-            detail::table_set tables;
-
             if (!detail::discover(access, rsdp_address,
-                                  astia::span<u8>(table_storage, sizeof(table_storage)),
-                                  tables)) {
+                                  {nullptr, heap_allocate, heap_release}, tables)) {
                 if (tables.valid_rsdp)
                     validated_rsdp = rsdp_address;
 
@@ -208,4 +216,4 @@ namespace astia::acpi {
 extern "C" bool astia_acpi_test_override(const char*, astia::acpi::detail::memory_reader&,
                                          astia::u64&) __attribute__((weak));
 
-ASTIA_INIT_STEP(memory, acpi, astia::acpi::step_acpi, "boot_info", "paging")
+ASTIA_INIT_STEP(memory, acpi, astia::acpi::step_acpi, "boot_info", "paging", "heap")

@@ -4,10 +4,10 @@
 #include <astia/span.hpp>
 
 namespace astia::acpi::detail {
-    constexpr usize max_tables      = 64;
-    constexpr usize max_ssdts       = 32;
-    constexpr usize max_table_bytes = 128 * 1024;
-    constexpr usize max_aml_bytes   = 512 * 1024;
+    constexpr usize max_tables            = 64;
+    constexpr usize max_ssdts             = max_tables;
+    constexpr usize max_table_bytes       = 128 * 1024;
+    constexpr usize max_total_table_bytes = 512 * 1024;
 
     constexpr u32 rsdp_v1_size    = 20;
     constexpr u32 rsdp_v2_size    = 36;
@@ -43,6 +43,8 @@ namespace astia::acpi::detail {
         too_many_tables,
         too_large,
         storage_exhausted,
+        out_of_memory,
+        source_changed,
         no_fadt,
         no_dsdt,
     };
@@ -59,6 +61,24 @@ namespace astia::acpi::detail {
         u64            address = 0;
     };
 
+    /// One allocation per record: the record header plus its validated table
+    /// bytes. `table.value.bytes` points into the same allocation.
+    struct table_record {
+        table_record* next       = nullptr;
+        void*         allocation = nullptr;
+        u32           signature  = 0;
+        u32           length     = 0;
+        u8            revision   = 0;
+        bool          aml        = false;
+        table         value{};
+    };
+
+    struct table_allocator {
+        void* context = nullptr;
+        void* (*allocate)(void* context, usize bytes) = nullptr;
+        void (*release)(void* context, void* pointer) = nullptr;
+    };
+
     struct inventory_entry {
         u32  signature = 0;
         u32  length    = 0;
@@ -66,11 +86,26 @@ namespace astia::acpi::detail {
         bool aml       = false;
     };
 
+    /// Owns validated copies of every discovered SDT. Records are kept in
+    /// discovery order, so find(signature, occurrence) follows the same order
+    /// as RSDT/XSDT enumeration and any FADT-referenced DSDT appended later.
     struct table_set {
+        table_set() = default;
+        ~table_set();
+
+        table_set(const table_set&)            = delete;
+        table_set& operator=(const table_set&) = delete;
+
+        table_allocator allocator{};
+        table_record*   head        = nullptr;
+        table_record*   tail        = nullptr;
+        usize           count       = 0;
+        usize           total_bytes = 0;
+
         table           fadt{};
         table           dsdt{};
         table           ssdt[max_ssdts]{};
-        usize           ssdt_count = 0;
+        usize           ssdt_count      = 0;
         inventory_entry inventory[max_tables]{};
         usize           inventory_count = 0;
         table_error     error           = table_error::none;
@@ -79,13 +114,23 @@ namespace astia::acpi::detail {
 
         u8  root_address_space = 0;
         u32 root_signature     = 0;
+
+        /// First record with `signature` at `occurrence` in discovery order.
+        bool find(u32 signature, usize occurrence, table& out) const;
+        bool find(u32 signature, usize occurrence, table_record*& out) const;
+
+        /// Release every retained table and reset all discovery metadata.
+        void clear();
+
+        private:
+        void release_records();
     };
 
-    /// Validate the RSDP and every table reachable from its RSDT/XSDT.  Table
-    /// bytes are copied into `storage`; every view in `out` points there and
-    /// therefore stays valid for as long as `storage` does.
-    bool discover(const memory_reader& reader, u64 rsdp_address, span<u8> storage,
-                  table_set& out);
+    /// Validate the RSDP and every table reachable from its RSDT/XSDT. Table
+    /// bytes are copied through `allocator`; every view in `out` points into
+    /// those owned copies and stays valid until clear()/destruction.
+    bool discover(const memory_reader& reader, u64 rsdp_address,
+                  const table_allocator& allocator, table_set& out);
 
     u16 load_u16(const u8* bytes);
     u32 load_u32(const u8* bytes);

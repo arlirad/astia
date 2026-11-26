@@ -57,6 +57,12 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 - RSDP v1/v2 signatures, both checksums, declared length, and range checks.
 - RSDT/XSDT signature, checksum, length, entry alignment, duplicate/cyclic table
   addresses, table count, and maximum sizes.
+- A heap-backed owning table store retains a validated copy of every discovered
+  SDT (root table, RSDT/XSDT entries, FADT-referenced DSDT). One allocation per
+  record holds the record header and table bytes, so no firmware pointers or
+  shared BSS slab are retained. Bounded count, per-table length, aggregate bytes,
+  and allocation failure all clean up partial records; `find(signature, index)`
+  preserves discovery order across duplicate signatures.
 - FADT signature/length/checksum; DSDT from RSDT/XSDT or `Xdsdt`/`DSDT`;
   SSDTs validated and loaded in order.
 - AML fixed limits: total AML bytes, namespace nodes, values, name references,

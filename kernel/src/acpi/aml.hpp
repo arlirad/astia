@@ -242,7 +242,6 @@ namespace astia::acpi::detail {
 
         bool step();
 
-        table_set _tables{};
         node      _nodes[max_aml_nodes]{};
         usize     _node_count = 0;
         value     _values[max_aml_values]{};

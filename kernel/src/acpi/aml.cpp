@@ -618,7 +618,6 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::build(const table_set& tables) {
-        _tables          = tables;
         _node_count      = 0;
         _value_count     = 0;
         _reference_count = 0;

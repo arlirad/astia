@@ -1,5 +1,8 @@
 #include "tables.hpp"
 
+#include <new>
+#include <type_traits>
+
 namespace astia::acpi::detail {
     namespace {
         constexpr u64 signature_rsdp = 0x2052545020445352ull; // "RSD PTR "
@@ -96,6 +99,150 @@ namespace astia::acpi::detail {
 
             return true;
         }
+
+        bool append_table(const memory_reader& reader, u64 address, table_set& out,
+                          table_error& error) {
+            if (out.count == max_tables) {
+                error = table_error::too_many_tables;
+
+                return false;
+            }
+
+            u8 header[sdt_header_size]{};
+
+            if (!read_bytes(reader, address, header, sdt_header_size)) {
+                error = table_error::truncated;
+
+                return false;
+            }
+
+            const u32 length = load_u32(header + 4);
+
+            if (length < sdt_header_size || length > max_table_bytes) {
+                error = table_error::bad_table_length;
+
+                return false;
+            }
+
+            if (out.total_bytes > max_total_table_bytes - length ||
+                out.total_bytes + length > max_total_table_bytes) {
+                error = table_error::too_large;
+
+                return false;
+            }
+
+            if (out.inventory_count == max_tables) {
+                error = table_error::too_many_tables;
+
+                return false;
+            }
+
+            if (out.allocator.allocate == nullptr || out.allocator.release == nullptr) {
+                error = table_error::out_of_memory;
+
+                return false;
+            }
+
+            void* allocation = out.allocator.allocate(
+                out.allocator.context, sizeof(table_record) + length);
+
+            if (allocation == nullptr) {
+                error = table_error::out_of_memory;
+
+                return false;
+            }
+
+            auto* record = ::new (allocation) table_record{};
+            static_assert(std::is_trivially_destructible_v<table_record>);
+
+            const auto discard = [&] {
+                record->~table_record();
+                out.allocator.release(out.allocator.context, allocation);
+            };
+
+            record->allocation = allocation;
+            record->signature  = load_u32(header);
+            record->length     = length;
+            record->revision   = header[8];
+            record->aml        = record->signature == dsdt_signature ||
+                          record->signature == ssdt_signature;
+
+            u8* const bytes = reinterpret_cast<u8*>(record + 1);
+
+            if (!read_bytes(reader, address, bytes, length)) {
+                discard();
+                error = table_error::truncated;
+
+                return false;
+            }
+
+            if (load_u32(bytes) != record->signature ||
+                load_u32(bytes + 4) != record->length) {
+                discard();
+                error = table_error::source_changed;
+
+                return false;
+            }
+
+            if (checksum(bytes, length) != 0) {
+                discard();
+                error = table_error::bad_table_checksum;
+
+                return false;
+            }
+
+            if (load_u32(bytes) == 0) {
+                discard();
+                error = table_error::bad_table_signature;
+
+                return false;
+            }
+
+            record->value = {
+                span<const u8>(bytes, length),
+                address,
+            };
+
+            if (out.tail == nullptr) {
+                out.head = record;
+            }
+            else {
+                out.tail->next = record;
+            }
+
+            out.tail = record;
+            ++out.count;
+            out.total_bytes += length;
+
+            out.inventory[out.inventory_count++] = {
+                record->signature,
+                record->length,
+                record->revision,
+                record->aml,
+            };
+
+            switch (record->signature) {
+            case fadt_signature:
+                if (out.fadt.bytes.empty())
+                    out.fadt = record->value;
+
+                break;
+            case dsdt_signature:
+                if (out.dsdt.bytes.empty())
+                    out.dsdt = record->value;
+
+                break;
+            case ssdt_signature:
+                if (out.ssdt_count < max_ssdts)
+                    out.ssdt[out.ssdt_count++] = record->value;
+
+                break;
+            default:
+                break;
+            }
+
+            return true;
+        }
     } // namespace
 
     u16 load_u16(const u8* bytes) {
@@ -147,6 +294,10 @@ namespace astia::acpi::detail {
             return "table too large";
         case table_error::storage_exhausted:
             return "table storage";
+        case table_error::out_of_memory:
+            return "table allocation";
+        case table_error::source_changed:
+            return "table changed during read";
         case table_error::no_fadt:
             return "FADT absent";
         case table_error::no_dsdt:
@@ -156,117 +307,156 @@ namespace astia::acpi::detail {
         return "unknown";
     }
 
-    bool discover(const memory_reader& reader, u64 rsdp_address, span<u8> storage,
-                  table_set& out) {
-        out              = table_set{};
+    table_set::~table_set() {
+        clear();
+    }
+
+    void table_set::release_records() {
+        table_record* record = head;
+
+        while (record != nullptr) {
+            table_record* next       = record->next;
+            void*         allocation = record->allocation;
+
+            if (allocator.release != nullptr && allocation != nullptr) {
+                record->~table_record();
+                allocator.release(allocator.context, allocation);
+            }
+
+            record = next;
+        }
+
+        head        = nullptr;
+        tail        = nullptr;
+        count       = 0;
+        total_bytes = 0;
+    }
+
+    void table_set::clear() {
+        release_records();
+
+        allocator       = {};
+        fadt            = {};
+        dsdt            = {};
+        ssdt_count      = 0;
+        inventory_count = 0;
+        error           = table_error::none;
+        rsdp_address    = 0;
+        valid_rsdp      = false;
+        root_address_space = 0;
+        root_signature     = 0;
+
+        for (table& entry : ssdt) {
+            entry = {};
+        }
+
+        for (inventory_entry& entry : inventory) {
+            entry = {};
+        }
+    }
+
+    bool table_set::find(u32 wanted, usize occurrence, table& out) const {
+        table_record* record = nullptr;
+
+        if (!find(wanted, occurrence, record))
+            return false;
+
+        out = record->value;
+
+        return true;
+    }
+
+    bool table_set::find(u32 wanted, usize occurrence, table_record*& out) const {
+        usize index = 0;
+
+        for (table_record* record = head; record != nullptr; record = record->next) {
+            if (record->signature != wanted)
+                continue;
+
+            if (index == occurrence) {
+                out = record;
+
+                return true;
+            }
+
+            ++index;
+        }
+
+        return false;
+    }
+
+    bool discover(const memory_reader& reader, u64 rsdp_address,
+                  const table_allocator& allocator, table_set& out) {
+        out.clear();
+        out.allocator    = allocator;
         out.rsdp_address = rsdp_address;
 
-        if (rsdp_address == 0) {
-            out.error = table_error::no_rsdp;
+        const auto fail = [&](table_error error) {
+            const bool valid = out.valid_rsdp;
+
+            out.clear();
+            out.allocator    = allocator;
+            out.rsdp_address = rsdp_address;
+            out.valid_rsdp   = valid;
+            out.error        = error;
 
             return false;
-        }
+        };
+
+        if (rsdp_address == 0)
+            return fail(table_error::no_rsdp);
 
         rsdp_info rsdp{};
 
         if (!validate_rsdp(reader, rsdp_address, rsdp)) {
             u8 header[rsdp_v1_size]{};
 
-            if (!read_bytes(reader, rsdp_address, header, rsdp_v1_size)) {
-                out.error = table_error::no_rsdp;
-            }
-            else if (!rsdp_signature_ok(header)) {
-                out.error = table_error::bad_rsdp_signature;
-            }
-            else if (checksum(header, rsdp_v1_size) != 0) {
-                out.error = table_error::bad_rsdp_checksum;
-            }
-            else {
-                out.error = table_error::bad_rsdp_length;
-            }
+            if (!read_bytes(reader, rsdp_address, header, rsdp_v1_size))
+                return fail(table_error::no_rsdp);
 
-            return false;
+            if (!rsdp_signature_ok(header))
+                return fail(table_error::bad_rsdp_signature);
+
+            if (checksum(header, rsdp_v1_size) != 0)
+                return fail(table_error::bad_rsdp_checksum);
+
+            return fail(table_error::bad_rsdp_length);
         }
 
         out.valid_rsdp = true;
 
         const u64 root_address = rsdp.xsdt != 0 ? rsdp.xsdt : rsdp.rsdt;
 
-        if (root_address == 0) {
-            out.error = table_error::bad_root_table;
+        if (root_address == 0)
+            return fail(table_error::bad_root_table);
 
-            return false;
-        }
+        table_error error = table_error::none;
 
-        u8 root_header[sdt_header_size]{};
+        if (!append_table(reader, root_address, out, error))
+            return fail(error);
 
-        if (!read_bytes(reader, root_address, root_header, sdt_header_size)) {
-            out.error = table_error::truncated;
+        const table root = out.head->value;
+        const u32   root_signature = load_u32(root.bytes.data());
+        const usize root_length    = root.bytes.size();
 
-            return false;
-        }
+        if (root_signature != xsdt_signature && root_signature != rsdt_signature)
+            return fail(table_error::bad_root_table);
 
-        const u32 root_signature = load_u32(root_header);
-        const u32 root_length    = load_u32(root_header + 4);
-
-        if (root_signature != xsdt_signature && root_signature != rsdt_signature) {
-            out.error = table_error::bad_root_table;
-
-            return false;
-        }
-
-        if (root_length < sdt_header_size || root_length > max_table_bytes) {
-            out.error = table_error::bad_table_length;
-
-            return false;
-        }
-
-        if (root_length > storage.size()) {
-            out.error = table_error::storage_exhausted;
-
-            return false;
-        }
-
-        u8* root_bytes = storage.data();
-        if (!read_bytes(reader, root_address, root_bytes, root_length)) {
-            out.error = table_error::truncated;
-
-            return false;
-        }
-
-        if (checksum(root_bytes, root_length) != 0) {
-            out.error = table_error::bad_table_checksum;
-
-            return false;
-        }
+        if (root_length < sdt_header_size)
+            return fail(table_error::bad_table_length);
 
         const usize entry_size = root_signature == xsdt_signature ? 8 : 4;
 
-        if ((root_length - sdt_header_size) % entry_size != 0) {
-            out.error = table_error::bad_table_length;
-
-            return false;
-        }
+        if ((root_length - sdt_header_size) % entry_size != 0)
+            return fail(table_error::bad_table_length);
 
         const usize entry_count = (root_length - sdt_header_size) / entry_size;
 
-        if (entry_count + 1 > max_tables) {
-            out.error = table_error::too_many_tables;
-
-            return false;
-        }
+        if (entry_count + 1 > max_tables)
+            return fail(table_error::too_many_tables);
 
         out.root_signature     = root_signature;
         out.root_address_space = rsdp.rsdt != 0 ? 1 : 2;
-
-        usize used = root_length;
-
-        out.inventory[out.inventory_count++] = {
-            root_signature,
-            root_length,
-            root_header[8],
-            false,
-        };
 
         u64 table_addresses[max_tables]{};
 
@@ -275,217 +465,60 @@ namespace astia::acpi::detail {
         table_addresses[0] = root_address;
 
         for (usize i = 0; i < entry_count; ++i) {
-            const u8* entry   = root_bytes + sdt_header_size + i * entry_size;
+            const u8* entry   = root.bytes.data() + sdt_header_size + i * entry_size;
             const u64 address = entry_size == 8 ? load_u64(entry) : load_u32(entry);
 
-            if (address == 0) {
-                out.error = table_error::bad_root_table;
-
-                return false;
-            }
+            if (address == 0)
+                return fail(table_error::bad_root_table);
 
             for (usize k = 0; k < table_address_count; ++k) {
-                if (table_addresses[k] == address) {
-                    out.error = table_error::duplicate_table;
-
-                    return false;
-                }
+                if (table_addresses[k] == address)
+                    return fail(table_error::duplicate_table);
             }
 
-            if (table_address_count == max_tables) {
-                out.error = table_error::too_many_tables;
-
-                return false;
-            }
+            if (table_address_count == max_tables)
+                return fail(table_error::too_many_tables);
 
             table_addresses[table_address_count++] = address;
 
-            u8 header[sdt_header_size]{};
-
-            if (!read_bytes(reader, address, header, sdt_header_size)) {
-                out.error = table_error::truncated;
-
-                return false;
-            }
-
-            const u32 table_length = load_u32(header + 4);
-
-            if (table_length < sdt_header_size || table_length > max_table_bytes) {
-                out.error = table_error::bad_table_length;
-
-                return false;
-            }
-
-            if (used > storage.size() || table_length > storage.size() - used) {
-                out.error = table_error::storage_exhausted;
-
-                return false;
-            }
-
-            u8* bytes = storage.data() + used;
-
-            if (!read_bytes(reader, address, bytes, table_length)) {
-                out.error = table_error::truncated;
-
-                return false;
-            }
-
-            if (checksum(bytes, table_length) != 0) {
-                out.error = table_error::bad_table_checksum;
-
-                return false;
-            }
-
-            const u32 table_signature = load_u32(bytes);
-
-            if (table_signature == 0) {
-                out.error = table_error::bad_table_signature;
-
-                return false;
-            }
-
-            const table loaded{
-                span<const u8>(bytes, table_length),
-                address,
-            };
-
-            if (out.inventory_count == max_tables) {
-                out.error = table_error::too_many_tables;
-
-                return false;
-            }
-
-            switch (table_signature) {
-            case fadt_signature:
-                out.fadt = loaded;
-
-                break;
-            case dsdt_signature:
-                out.dsdt = loaded;
-
-                break;
-            case ssdt_signature:
-                if (out.ssdt_count == max_ssdts) {
-                    out.error = table_error::too_many_tables;
-
-                    return false;
-                }
-
-                out.ssdt[out.ssdt_count++] = loaded;
-
-                break;
-            default:
-                break;
-            }
-
-            out.inventory[out.inventory_count++] = {
-                table_signature,
-                table_length,
-                header[8],
-                table_signature == dsdt_signature || table_signature == ssdt_signature,
-            };
-            used += table_length;
-
-            if (used > max_aml_bytes) {
-                out.error = table_error::too_large;
-
-                return false;
-            }
+            if (!append_table(reader, address, out, error))
+                return fail(error);
         }
 
-        if (out.fadt.bytes.empty()) {
-            out.error = table_error::no_fadt;
+        table fadt{};
 
-            return false;
-        }
+        if (!out.find(fadt_signature, 0, fadt))
+            return fail(table_error::no_fadt);
 
         if (out.dsdt.bytes.empty()) {
-            const u8* fadt = out.fadt.bytes.data();
+            if (fadt.bytes.size() < 44)
+                return fail(table_error::bad_table_length);
 
-            if (out.fadt.bytes.size() < 44) {
-                out.error = table_error::bad_table_length;
+            u64 dsdt_address = load_u32(fadt.bytes.data() + 40);
 
-                return false;
-            }
-
-            u64 dsdt_address = load_u32(fadt + 40);
-
-            if (out.fadt.bytes.size() >= 148) {
-                const u64 extended = load_u64(fadt + 140);
+            if (fadt.bytes.size() >= 148) {
+                const u64 extended = load_u64(fadt.bytes.data() + 140);
 
                 if (extended != 0)
                     dsdt_address = extended;
             }
 
-            if (dsdt_address == 0) {
-                out.error = table_error::no_dsdt;
-
-                return false;
-            }
+            if (dsdt_address == 0)
+                return fail(table_error::no_dsdt);
 
             for (usize k = 0; k < table_address_count; ++k) {
-                if (table_addresses[k] == dsdt_address) {
-                    out.error = table_error::duplicate_table;
-
-                    return false;
-                }
+                if (table_addresses[k] == dsdt_address)
+                    return fail(table_error::duplicate_table);
             }
 
-            u8 header[sdt_header_size]{};
+            if (table_address_count == max_tables)
+                return fail(table_error::too_many_tables);
 
-            if (!read_bytes(reader, dsdt_address, header, sdt_header_size)) {
-                out.error = table_error::truncated;
+            if (!append_table(reader, dsdt_address, out, error))
+                return fail(error);
 
-                return false;
-            }
-
-            const u32 table_length = load_u32(header + 4);
-
-            if (table_length < sdt_header_size || table_length > max_table_bytes) {
-                out.error = table_error::bad_table_length;
-
-                return false;
-            }
-
-            if (used > storage.size() || table_length > storage.size() - used) {
-                out.error = table_error::storage_exhausted;
-
-                return false;
-            }
-
-            u8* bytes = storage.data() + used;
-
-            if (!read_bytes(reader, dsdt_address, bytes, table_length)) {
-                out.error = table_error::truncated;
-
-                return false;
-            }
-
-            if (checksum(bytes, table_length) != 0) {
-                out.error = table_error::bad_table_checksum;
-
-                return false;
-            }
-
-            if (load_u32(bytes) != dsdt_signature) {
-                out.error = table_error::bad_table_signature;
-
-                return false;
-            }
-
-            if (out.inventory_count == max_tables) {
-                out.error = table_error::too_many_tables;
-
-                return false;
-            }
-
-            out.dsdt = {span<const u8>(bytes, table_length), dsdt_address};
-            out.inventory[out.inventory_count++] = {
-                dsdt_signature,
-                table_length,
-                header[8],
-                true,
-            };
+            if (out.dsdt.bytes.empty())
+                return fail(table_error::bad_table_signature);
         }
 
         out.error = table_error::none;
