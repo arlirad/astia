@@ -5519,6 +5519,44 @@ int main(int argc, char** argv) {
         printf("astia: setpgid exec ok\n");
     }
 
+    /* 54: open(O_CREAT) and mkdir honor the process umask. */
+    {
+        static const char file[] = "/tmp/umask_create_file";
+        static const char dir[]  = "/tmp/umask_create_dir";
+
+        struct stat metadata;
+
+        unsigned int old_mask;
+        int          fd;
+
+        (void) unlink(file);
+        (void) rmdir(dir);
+
+        old_mask = umask(0077);
+
+        fd = open(file, O_CREAT | O_WRONLY | O_TRUNC, 0666);
+        if (fd < 0)
+            return 193;
+
+        if (fstat(fd, &metadata) != 0 || (metadata.st_mode & 0777) != 0600)
+            return 194;
+
+        if (close(fd) != 0)
+            return 195;
+
+        if (mkdir(dir, 0777) != 0)
+            return 196;
+
+        if (stat(dir, &metadata) != 0 || (metadata.st_mode & 0777) != 0700)
+            return 197;
+
+        if (umask(old_mask) != 0077)
+            return 198;
+
+        if (unlink(file) != 0 || rmdir(dir) != 0)
+            return 199;
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */

@@ -106,6 +106,14 @@ namespace astia::fs {
         u16 value_;
     };
 
+    /// Apply a process umask to permissions requested at node creation.
+    /// Only permission bits are affected; umask is stored as 0777.
+    inline file_permissions apply_umask(file_permissions permissions, u32 mask) {
+        const u16 allowed = static_cast<u16>(file_permissions_mask & ~mask);
+
+        return file_permissions(static_cast<u16>(permissions.raw() & allowed));
+    }
+
     // Filesystem policy modes.  Keep these in the kernel VFS namespace so
     // callers do not have to repeat unexplained octal permission literals.
     inline constexpr file_permissions default_file_permissions{0666};
@@ -208,6 +216,10 @@ namespace astia::fs {
         file_type        type_;
         file_permissions permissions_;
     };
+
+    inline file_mode apply_umask(file_mode mode, u32 mask) {
+        return file_mode(mode.type(), apply_umask(mode.permissions(), mask));
+    }
 
     inline constexpr u32 max_nodes      = 32;
     inline constexpr u32 path_max       = 4096;
