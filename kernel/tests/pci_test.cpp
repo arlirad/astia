@@ -8,6 +8,7 @@
 #include <astia/dev/mmio.hpp>
 #include <astia/hw/pci.hpp>
 
+#include "task_host.hpp"
 #include "test.hpp"
 
 #include <cstdio>
@@ -135,34 +136,34 @@ namespace {
     unsigned mmio_maps   = 0;
     unsigned mmio_unmaps = 0;
 
-    class capture_driver final {
+    class capture_driver final : public astia::hw::driver {
         public:
-        bool match(const astia::hw::device_info&) const {
+        const char* name() const override {
+            return "capture";
+        }
+
+        bool match(const astia::hw::device_info&) const override {
             return true;
         }
 
-        astia::i64 probe(const astia::hw::device_info& value) {
+        astia::core::task<astia::i64>
+        probe(const astia::hw::device_info& value) override {
             const auto* pci = astia::hw::pci_device_info::get(value);
             if (pci != nullptr)
                 captured = pci->device();
-
-            return pci != nullptr ? 0 : -ENODEV;
+            co_return pci != nullptr ? 0 : -ENODEV;
         }
 
-        astia::i64 start(const astia::hw::device_info&) {
-            return 0;
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
         }
 
-        void stop(const astia::hw::device_info&) {}
-
-        void remove(const astia::hw::device_info&) {}
-
-        astia::hw::product_handle publish(const astia::hw::device_info&) {
-            return {};
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
         }
 
-        bool selftest() {
-            return true;
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
         }
 
         astia::hw::pci_device captured{};
@@ -297,6 +298,14 @@ namespace astia::arch {
 
     void cpu::interrupts() {}
 
+    u32 cpu::current_index() {
+        return 0;
+    }
+
+    void cpu::request_local_reschedule() {}
+
+    void cpu::relax() noexcept {}
+
     bool page_map::map_4k(vaddr_t virt, paddr_t, page_flags) {
         ++fake_map_calls;
 
@@ -315,12 +324,14 @@ namespace astia::arch {
 ASTIA_TEST(pci_enumeration_discovers_bar_geometry) {
     astia::hw::driver_handle capture_handle{};
 
-    ASTIA_CHECK(
-        astia::hw::drivers().register_driver(
-            astia::hw::make_driver_descriptor(capture, "capture", astia::hw::kernel_owner,
-                                              astia::hw::driver_resource_mmio),
-            capture_handle) == 0);
-    ASTIA_CHECK(astia::hw::pci_enumerate() == 1);
+    ASTIA_CHECK(astia::hw::drivers().register_driver(
+                    capture, capture_handle, astia::hw::kernel_owner,
+                    astia::hw::driver_resource_mmio) == 0);
+
+    astia::u32 enumerated = 0;
+
+    ASTIA_CHECK(astia_test::run_task(astia::hw::pci_enumerate(), enumerated));
+    ASTIA_CHECK(enumerated == 1);
 
     const auto& first = capture.captured.bars[0];
 

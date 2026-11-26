@@ -1015,8 +1015,12 @@ namespace {
         controller& _owner;
     };
 
-    class virtio_driver final {
+    class virtio_driver final : public astia::hw::driver {
         public:
+        const char* name() const override {
+            return "virtio-blk";
+        }
+
         bool match_pci(const astia::hw::pci_device& value) const {
             return value.vendor_id == pci_vendor_virtio &&
                    value.device_id == pci_device_blk && value.class_code == 1 &&
@@ -1033,143 +1037,120 @@ namespace {
             return device.start() || (device.release(), false);
         }
 
-        bool match(const astia::hw::device_info& info) const {
+        bool match(const astia::hw::device_info& info) const override {
             const auto* pci = astia::hw::pci_device_info::get(info);
-
             return pci != nullptr && match_pci(pci->device());
         }
 
-        astia::i64 probe(const astia::hw::device_info& info) {
+        astia::core::task<astia::i64> probe(const astia::hw::device_info& info) override {
             astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 state = teardown_state(token);
-
             if (state == teardown_complete &&
                 !__atomic_compare_exchange_n(&_teardown_token, &token,
                                              teardown_word(teardown_generation(token), 0),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return -ENODEV;
-
+                co_return -ENODEV;
             if (state != 0 && state != teardown_complete)
-                return -ENODEV;
-
+                co_return -ENODEV;
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
-                return -ENODEV;
-
+                co_return -ENODEV;
             auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
-
             if (stable == nullptr || !probe_pci(*stable))
-                return -ENODEV;
-
+                co_return -ENODEV;
             auto block = astia::mm::share<virtio_block>(device);
             if (!block) {
                 device.release();
 
-                return -ENODEV;
+                co_return -ENODEV;
             }
-
             astia::mm::shptr<astia::dev::device> owner = block;
             auto file = astia::mm::share<astia::dev::device_file>(owner);
             if (!file) {
                 device.release();
 
-                return -ENODEV;
+                co_return -ENODEV;
             }
-
             if (astia::fs::register_device("/dev/vblk0", file) < 0) {
                 device.release();
 
-                return -ENODEV;
+                co_return -ENODEV;
             }
-
             _file    = file;
             _product = block;
-
-            return 0;
+            co_return 0;
         }
 
-        astia::i64 start(const astia::hw::device_info&) {
-            return 0;
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
         }
 
-        void stop(const astia::hw::device_info&) {}
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
 
-        astia::hw::product_handle publish(const astia::hw::device_info&) {
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
             return _product;
         }
 
-        void remove(const astia::hw::device_info&) {
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
             astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
                     ? 1
                     : teardown_generation(expected) + 1;
             const astia::u64 state = teardown_state(expected);
-
             if (state != 0 && state != teardown_complete)
-                return;
-
+                co_return astia::error_t::enone;
             if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
                                              teardown_word(generation, teardown_claiming),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return;
-
+                co_return astia::error_t::enone;
             if (_file) {
                 _file->detach();
                 (void) astia::fs::unregister_device("/dev/vblk0", _file);
             }
-
             if (_file)
                 (void) _file->arm_quiescence_handler(quiescence_callback, this,
                                                      generation);
-
             __atomic_store_n(&_teardown_token,
                              teardown_word(generation, teardown_waiting),
                              __ATOMIC_RELEASE);
             finish_remove(generation);
+            co_return astia::error_t::enone;
         }
 
-        bool selftest() {
+        bool selftest() override {
             char      sector[512]{};
             const int first =
                 device.read(sector, sizeof sector, 0) == sizeof sector ? 0 : -5;
-
             if (!device.started || first != 0)
                 return false;
-
             char invalid[512]{};
-
             if (device.read(invalid, sizeof invalid, 1) >= 0 ||
                 device.read(invalid, sizeof invalid, device.capacity * 512) >= 0)
                 return false;
-
             const bool known = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
                                sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
                                sector[6] == 'V' && sector[7] == 'I';
             if (!known)
                 return false;
-
             astia::module::log("vblk", "known sector ok");
             astia::module::log("vblk", "invalid geometry rejected");
-
             char async_read[512]{};
-
             if (astia::module::read_registered_async("/dev/vblk0", async_read,
                                                      sizeof async_read, 0) != 0 ||
                 async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
                 async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
                 async_read[6] != 'V' || async_read[7] != 'I')
                 return false;
-
             if (!device.write_supported) {
                 astia::module::log("vblk", "attached kernel-buffer async read ok");
                 astia::module::log("vblk", "write rejected: read-only or no flush");
 
                 return true;
             }
-
             char written[512]{};
-
             written[0] = 'A';
             written[1] = 'S';
             written[2] = 'T';
@@ -1178,18 +1159,13 @@ namespace {
             written[5] = '_';
             written[6] = 'W';
             written[7] = 'R';
-
             if (device.write(written, sizeof written, 512) != sizeof written)
                 return false;
-
             char persisted[512]{};
-
             if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
                 persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
                 return false;
-
             astia::module::log("vblk", "write flush persistence ok");
-
             return true;
         }
 
@@ -1292,11 +1268,13 @@ namespace {
 
 int module_main() {
     astia::hw::driver_handle handle{};
-    const auto               descriptor = astia::hw::make_driver_descriptor(
-        driver, "virtio-blk", astia::hw::kernel_owner,
-        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
-            astia::hw::driver_resource_device_file | astia::hw::driver_resource_async);
 
-    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -22;
+    return astia::hw::drivers().register_driver(
+               driver, handle, astia::hw::kernel_owner,
+               astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+                   astia::hw::driver_resource_device_file |
+                   astia::hw::driver_resource_async) == 0
+               ? 0
+               : -22;
 }
 #endif

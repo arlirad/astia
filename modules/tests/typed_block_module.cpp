@@ -20,29 +20,37 @@ namespace {
         }
     };
 
-    class fixture_driver final {
+    class fixture_driver final : public astia::hw::driver {
         public:
-        bool match(const astia::hw::device_info&) const {
+        const char* name() const override {
+            return "typed";
+        }
+
+        bool match(const astia::hw::device_info&) const override {
             return false;
         }
 
-        astia::i64 probe(const astia::hw::device_info&) {
-            return -ENODEV;
+        astia::core::task<astia::i64> probe(const astia::hw::device_info&) override {
+            co_return -ENODEV;
         }
 
-        astia::i64 start(const astia::hw::device_info&) {
-            return 0;
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
         }
 
-        void stop(const astia::hw::device_info&) {}
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
 
-        void remove(const astia::hw::device_info&) {}
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
 
-        astia::hw::product_handle publish(const astia::hw::device_info&) {
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
             return {};
         }
 
-        bool selftest() {
+        bool selftest() override {
             return true;
         }
     };
@@ -53,18 +61,11 @@ namespace {
 }
 
 int module_main() {
-    astia::core::clsource request_source;
-    astia::io::request    request(request_source, nullptr, 0, 0, 0,
-                                  astia::io::direction::input);
-
-    (void) request;
-    (void) block;
-    (void) buffer;
-
     astia::hw::driver_handle handle{};
-    const auto               descriptor = astia::hw::make_driver_descriptor(
-        driver, "typed", astia::hw::kernel_owner,
-        astia::hw::driver_resource_device_file | astia::hw::driver_resource_async);
 
-    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -1;
+    return astia::hw::drivers().register_driver(driver, handle, astia::hw::kernel_owner,
+                                                astia::hw::driver_resource_device_file |
+                                                    astia::hw::driver_resource_async) == 0
+               ? 0
+               : -1;
 }

@@ -4,6 +4,7 @@
 #include <astia/boot/init.hpp>
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
+#include <astia/hw/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 #include <astia/version.hpp>
@@ -50,6 +51,17 @@ namespace {
 
         if (!ok)
             astia::core::kpanic("init failed");
+
+        astia::arch::cpu::interrupts();
+
+        auto enumerated = co_await astia::hw::pci_enumerate();
+
+        astia::arch::cpu::nointerrupts();
+
+        if (!enumerated)
+            astia::core::kpanic("PCI enumeration failed");
+
+        astia::log::info("pci: enumerated %u function(s)", enumerated.value);
 
         const char* path = selected.path;
         auto        file = astia::fs::open_path(path);

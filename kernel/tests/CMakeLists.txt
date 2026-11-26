@@ -336,7 +336,9 @@ astia_add_host_test(astia_pci_core_test
         pci_core_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 target_include_directories(astia_pci_core_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_pci_test
@@ -344,14 +346,17 @@ astia_add_host_test(astia_pci_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/pci.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/mmio.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/mmio.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp)
 target_compile_definitions(astia_pci_test PRIVATE ASTIA_HOST_TEST=1)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_driver_manager_test
         driver_manager_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
 target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
 astia_add_host_test(astia_net_test

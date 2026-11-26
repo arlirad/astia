@@ -1,4 +1,3 @@
-#include <astia/hw/pci.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 
@@ -40,14 +39,6 @@ namespace astia::dev {
     static bool step_pseudo(init::context&) {
         return pseudo_devices_init();
     }
-
-    static bool step_pci(init::context&) {
-        const u32 found = hw::pci_enumerate();
-
-        astia::log::info("pci: enumerated %u function(s)", found);
-
-        return true;
-    }
 } // namespace astia::dev
 
 ASTIA_INIT_STEP(early, uart16550, astia::dev::step_uart16550)
@@ -57,4 +48,3 @@ ASTIA_INIT_STEP(devices, virtual_tty, astia::dev::step_virtual_tty, "uart16550_i
                 "framebuffer")
 ASTIA_INIT_STEP(devices, framebuffer, astia::dev::step_framebuffer, "boot_info", "paging")
 ASTIA_INIT_STEP(devices, pseudo, astia::dev::step_pseudo, "fs")
-ASTIA_INIT_STEP(devices, pci, astia::dev::step_pci, "uart16550_irq", "mod")

@@ -2,6 +2,7 @@
 
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/dev/driver.hpp>
 #include <astia/dev/mmio.hpp>
 #include <astia/optional.hpp>
@@ -165,7 +166,7 @@ namespace astia::dev {
 
     using pci_filter_fn = bool (*)(const pci_device&);
 
-    u32                      pci_enumerate(pci_filter_fn filter = nullptr);
+    core::task<u32>          pci_enumerate(pci_filter_fn filter = nullptr);
     bool                     pci_probe_bar(pci_device& device, u8 index);
     bool                     pci_enable_bus_master(pci_device& device);
     bool                     pci_disable_bus_master(pci_device& device);

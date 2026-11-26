@@ -1,3 +1,4 @@
+#include "support/task_host.hpp"
 #include "support/test.hpp"
 #ifdef RENAME_NOREPLACE
 #undef RENAME_NOREPLACE
@@ -183,7 +184,11 @@ namespace astia::arch {
 ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
     reset_fixture();
     astia::hw::pci_set_config_backend({config_read, config_write});
-    ASTIA_CHECK(astia::hw::pci_enumerate() == 2);
+
+    astia::u32 enumerated = 0;
+
+    ASTIA_CHECK(astia_test::run_task(astia::hw::pci_enumerate(), enumerated));
+    ASTIA_CHECK(enumerated == 2);
     ASTIA_CHECK(astia::hw::pci_devices().count() == 2);
 
     auto* device = astia::hw::pci_devices().at(0);
@@ -200,9 +205,14 @@ ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
     ASTIA_CHECK(device->interrupt.vector_count == 4);
     ASTIA_CHECK(astia::hw::pci_interrupt_status(*device) ==
                 astia::hw::pci_interrupt_blocker::msix_table_unmapped);
-    ASTIA_CHECK(astia::hw::pci_enumerate([](const astia::hw::pci_device& value) {
-                    return value.function == 1;
-                }) == 1);
+
+    astia::u32 filtered = 0;
+
+    ASTIA_CHECK(astia_test::run_task(
+        astia::hw::pci_enumerate(
+            [](const astia::hw::pci_device& value) { return value.function == 1; }),
+        filtered));
+    ASTIA_CHECK(filtered == 1);
     astia::hw::pci_reset_config_backend();
 }
 
@@ -214,7 +224,11 @@ ASTIA_TEST(pci_bus_master_and_resource_ownership) {
     reset_fixture();
     astia::hw::pci_set_config_backend({config_read, config_write});
     astia::hw::pci_set_mmio_mapper(map_bar, unmap_bar);
-    ASTIA_CHECK(astia::hw::pci_enumerate() == 2);
+
+    astia::u32 enumerated = 0;
+
+    ASTIA_CHECK(astia_test::run_task(astia::hw::pci_enumerate(), enumerated));
+    ASTIA_CHECK(enumerated == 2);
 
     auto* first  = astia::hw::pci_devices().at(0);
     auto* second = astia::hw::pci_devices().at(1);
