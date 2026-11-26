@@ -706,6 +706,22 @@ target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
         -ffreestanding -fno-pic -fno-pie -mcmodel=large
         -fno-exceptions -fno-rtti -fno-use-cxa-atexit)
 
+# Compile-only target: the dl boot fixtures are built by custom commands in
+# the QEMU initrd rule, which do not appear in compile_commands.json.  Keep
+# this at directory scope so the entries exist even when QEMU is not found;
+# nothing links these objects.
+add_library(astia_dl_boot_fixture_compile_db OBJECT
+        fixture_gnu.c
+        fixture_semihash.c
+        interp_gnu.c
+        interp_relro.c
+        interp_tpoff32.c)
+target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/include)
+target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
+        -ffreestanding -fno-builtin -fno-stack-protector
+        -fno-asynchronous-unwind-tables -mno-red-zone)
+
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
 add_custom_command(
@@ -1526,22 +1542,6 @@ if (ARCH STREQUAL "x86_64")
         # Cpio images are test inputs, not sources of any target, so build them as
         # part of the default build to guarantee they exist before ctest runs.
         add_custom_target(astia_boot_initrd ALL DEPENDS ${_fix_dir}/boot_initrd.cpio)
-
-        # Compile-only target: the dl boot fixtures are built by the custom
-        # commands above, which do not appear in compile_commands.json.  The
-        # object library supplies compilation-database entries for clang-tidy
-        # without linking the fixtures into any test binary.
-        add_library(astia_dl_boot_fixture_compile_db OBJECT
-                fixture_gnu.c
-                fixture_semihash.c
-                interp_gnu.c
-                interp_relro.c
-                interp_tpoff32.c)
-        target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
-                ${ASTIA_KERNEL_SOURCE_DIR}/include)
-        target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
-                -ffreestanding -fno-builtin -fno-stack-protector
-                -fno-asynchronous-unwind-tables -mno-red-zone)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/boot_initrd.cpio.gz
