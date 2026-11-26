@@ -42,7 +42,7 @@ while IFS= read -r managed_name; do
 done <"$next_source_manifest"
 mv "$next_source_manifest" "$source_manifest"
 compile_flags() {
-    "$clang" --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
+    "$clang" --target="$target" -ffreestanding -fno-builtin -fPIE \
         -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone \
         -nostdinc -isystem "$resource_dir/include" -isystem "$sysroot/include" "$@"
 }
@@ -60,7 +60,7 @@ for source in "$root"/coreutils/src/*.c; do
     name=$(basename "$source" .c)
     object_key=$(
         {
-            sha256sum "$source" "$sysroot/lib/libastia_libc.a"
+            sha256sum "$source" "$sysroot/lib/libastia_libc.a" "$sysroot/lib/libc.so"
             printf '%s\n' "$toolchain_revision"
         } | sha256sum | awk '{print $1}'
     )
@@ -73,17 +73,17 @@ for source in "$root"/coreutils/src/*.c; do
     link_key=$(
         {
             sha256sum "$out/obj/$name.o" "$crt0" \
-                "$sysroot/lib/libastia_libc.a" "$builtins"
+                "$sysroot/lib/libastia_libc.a" "$sysroot/lib/libc.so" "$builtins"
             printf '%s\n' "$toolchain_revision"
         } | sha256sum | awk '{print $1}'
     )
     if [ ! -f "$out/bin/$name" ] ||
         [ ! -f "$out/.keys/$name" ] ||
         [ "$(cat "$out/.keys/$name")" != "$link_key" ]; then
-        compile_flags -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
-            -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 \
+        compile_flags -nostdlib -Wl,-Bdynamic -Wl,-pie -Wl,-e,_start \
+            -Wl,--dynamic-linker=/lib/ld.astia.so -Wl,-rpath-link,"$sysroot/lib" \
             -o "$out/bin/$name" "$crt0" "$out/obj/$name.o" \
-            "$sysroot/lib/libastia_libc.a" "$builtins"
+            "$sysroot/lib/libc.so" "$builtins"
         printf '%s\n' "$link_key" >"$out/.keys/$name"
     fi
 done

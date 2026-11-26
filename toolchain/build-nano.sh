@@ -120,9 +120,13 @@ ln -sfn "$root/toolchain/nano-astia" "$config_compat_dir/nano-astia"
 ln -sfn "$crt0" "$config_compat_dir/crt0.o"
 ln -sfn "$builtins" "$config_compat_dir/libclang_rt.builtins.a"
 ln -sfn "$sysroot/lib/libastia_libc.a" "$config_compat_dir/libastia_libc.a"
+ln -sfn "$sysroot/lib/libc.so" "$config_compat_dir/libc.so"
+for stub in dl m rt tinfo terminfo curses termcap pthread; do
+    ar rcs "$config_compat_dir/lib$stub.a"
+done
 cat > "$build/astia-cc" <<EOF
 #!/bin/sh
-exec $clang --target=$target -U__linux__ -ffreestanding -fno-builtin -fno-pic -fno-pie \\
+exec $clang --target=$target -U__linux__ -ffreestanding -fno-builtin -fPIE \\
 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \\
 -isystem "$resource_dir/include" -isystem "$config_compat_dir/sysroot/include" "\$@"
 EOF
@@ -134,6 +138,7 @@ curses_key=$(
     {
         sha256sum "$root/toolchain/nano-astia/curses.c" \
             "$root/toolchain/nano-astia/curses.h" "$sysroot/lib/libastia_libc.a" \
+            "$sysroot/lib/libc.so" \
             "$clang_path"
         "$clang" --version
         printf '%s\n' "$target" "$resource_dir" "$sysroot"
@@ -143,7 +148,7 @@ if [ ! -f "$build/astia/curses.o" ] ||
     [ ! -f "$build/astia/libncurses.a" ] ||
     [ ! -f "$build/astia/curses.key" ] ||
     [ "$(cat "$build/astia/curses.key")" != "$curses_key" ]; then
-    $clang --target="$target" -ffreestanding -fno-builtin -fno-pic -fno-pie \
+    $clang --target="$target" -ffreestanding -fno-builtin -fPIE \
         -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone -nostdinc \
         -isystem "$resource_dir/include" -isystem "$sysroot/include" \
         -I"$root/toolchain/nano-astia" -c "$root/toolchain/nano-astia/curses.c" \
@@ -187,15 +192,17 @@ if [ ! -f "$build/Makefile" ] || [ ! -f "$build/.astia-config-key" ] ||
     CC="$compiler_launcher" \
     CPPFLAGS="-I$config_compat_dir/nano-astia -include $config_compat_dir/nano-astia/force-assert.h" \
     CFLAGS='-O0' \
-    LDFLAGS="-nostdlib -static -Wl,-no-pie -Wl,-Ttext-segment=0x40000000 -L$config_compat_dir/astia" \
-        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libclang_rt.builtins.a -lncurses $config_compat_dir/libastia_libc.a"
+    LDFLAGS="-nostdlib -Wl,-Bdynamic -Wl,-pie -Wl,-e,_start -Wl,--dynamic-linker=/lib/ld.astia.so -Wl,-rpath-link,$sysroot/lib -L$config_compat_dir/astia -L$config_compat_dir" \
+        LIBS="$config_compat_dir/crt0.o $config_compat_dir/libclang_rt.builtins.a -lncurses $sysroot/lib/libc.so"
     printf '%s\n' "$config_key" >"$build/.astia-config-key"
 fi
 
 # nano links the libc archive statically and make does not track it as a
 # prerequisite, so an ABI update would otherwise leave the stale binary.
-if [ -e "$sysroot/lib/libastia_libc.a" ] && [ -e "$build/src/nano" ] &&
-    [ "$sysroot/lib/libastia_libc.a" -nt "$build/src/nano" ]; then
+if { [ -e "$sysroot/lib/libastia_libc.a" ] && [ -e "$build/src/nano" ] &&
+    [ "$sysroot/lib/libastia_libc.a" -nt "$build/src/nano" ]; } ||
+    { [ -e "$sysroot/lib/libc.so" ] && [ -e "$build/src/nano" ] &&
+    [ "$sysroot/lib/libc.so" -nt "$build/src/nano" ]; }; then
     rm -f "$build/src/nano" "$build/output/nano"
 fi
 make -j "$jobs"
@@ -204,3 +211,9 @@ if [ ! -e "$build/output/nano" ] || ! cmp -s "$build/src/nano" "$build/output/na
     cp "$build/src/nano" "$build/output/nano"
 fi
 file "$build/output/nano"
+if command -v readelf >/dev/null 2>&1; then
+    readelf -d "$build/output/nano" | grep -q 'NEEDED.*libc\.so' || {
+        echo "nano is not linked against libc.so" >&2
+        exit 1
+    }
+fi
