@@ -833,6 +833,7 @@ static volatile int          user_signal_info_seen;
 static siginfo_t             user_signal_info;
 static volatile uintptr_t    fault_expected_addr;
 static volatile int          fault_expected_code;
+static int                   abort_pipe_write_fd = -1;
 
 static void page_fault_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
@@ -883,6 +884,13 @@ static void altstack_handler(int signal_number) {
 
     if (altstack_calls == 1)
         raise(SIGUSR1);
+}
+
+static void abort_handler(int signal_number) {
+    char byte = 'A';
+
+    (void) signal_number;
+    (void) write(abort_pipe_write_fd, &byte, 1);
 }
 
 static void* libc_mutex_worker(void* opaque) {
@@ -1608,6 +1616,88 @@ int main(int argc, char** argv) {
         if (sigaction(SIGUSR1, &caught, NULL) != 0 ||
             sigaction(SIGUSR2, &ignored, NULL) != 0)
             return 127;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 206;
+
+        if (child == 0)
+            abort();
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGABRT)
+            return 207;
+    }
+
+    {
+        int pipe_fds[2];
+
+        if (pipe(pipe_fds) != 0)
+            return 208;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 209;
+
+        if (child == 0) {
+            struct sigaction action = {0};
+
+            action.sa_handler = abort_handler;
+
+            close(pipe_fds[0]);
+
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGABRT, &action, NULL) != 0)
+                _Exit(210);
+
+            abort_pipe_write_fd = pipe_fds[1];
+
+            abort();
+            _Exit(211);
+        }
+
+        close(pipe_fds[1]);
+
+        char byte   = 0;
+        int  status = 0;
+        int  rc     = read(pipe_fds[0], &byte, 1);
+
+        close(pipe_fds[0]);
+
+        if (rc != 1 || byte != 'A' || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGABRT)
+            return 212;
+    }
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 213;
+
+        if (child == 0) {
+            struct sigaction ignored = {0};
+            sigset_t         mask;
+
+            ignored.sa_handler = SIG_IGN;
+
+            if (sigemptyset(&ignored.sa_mask) != 0 || sigemptyset(&mask) != 0 ||
+                sigaddset(&mask, SIGABRT) != 0 ||
+                sigprocmask(SIG_BLOCK, &mask, NULL) != 0 ||
+                sigaction(SIGABRT, &ignored, NULL) != 0)
+                _Exit(214);
+
+            abort();
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGABRT)
+            return 215;
     }
 
     {
