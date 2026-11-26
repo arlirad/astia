@@ -598,6 +598,33 @@ ASTIA_TEST(aio_filesystem_statx_reports_symlink_identity) {
     ASTIA_CHECK(stat.ino == 77);
 }
 
+ASTIA_TEST(aio_filesystem_statx_fstat_uses_handle_device) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_identity("/tmp/node", 9, 123);
+
+    auto file = aio_test::make_open_file(new aio_test::fake_file);
+
+    file->set_path("/tmp/node");
+
+    const i32 fd = install_descriptor(file);
+
+    astia_stat           stat{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_STATX, fd);
+
+    sqe.offset = reinterpret_cast<u64>(&stat);
+    sqe.length = sizeof(stat);
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(stat.dev == 9);
+    ASTIA_CHECK(stat.ino == 123);
+}
+
 ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
     using namespace aio::test_support;
 

@@ -873,6 +873,20 @@ namespace astia::fs {
     open_file::~open_file() {}
 #endif
 
+    void open_file::set_path(const char* path) {
+        if (path == nullptr)
+            return;
+
+        u32 i = 0;
+
+        for (; i + 1 < path_max && path[i] != '\0'; ++i) {
+            _path[i] = path[i];
+        }
+
+        _path[i]  = '\0';
+        _has_path = true;
+    }
+
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
             return -EINVAL;
@@ -1031,6 +1045,10 @@ namespace astia::fs {
         auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
 
         return entry != nullptr && entry->identity_set ? entry->device : 0u;
+    }
+
+    u32 node_device(const open_file& handle) {
+        return node_device(handle.path());
     }
 
     u64 node_inode(const char* path) {

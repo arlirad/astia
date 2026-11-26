@@ -51,6 +51,10 @@ namespace astia::fs {
     /// Device identity of the mount backing `path`.  A live mount always
     /// reports a nonzero value; 0 means the path names no mount.
     u32 node_device(const char* path);
+    /// Device identity of the mount an open descriptor was bound to when
+    /// it was opened.  A descriptor bound straight to a file object has no
+    /// mount and reports the device of its path, or 0 without one.
+    u32 node_device(const open_file& handle);
     /// Inode number of `path` inside its filesystem.  Filesystems that
     /// cannot supply one (implicit initrd directories, devfs entries)
     /// get a stable synthetic value derived from the mount and the

@@ -1,20 +1,8 @@
 #include "../../io/aio/handler.hpp"
-#include "../mount.hpp"
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
     namespace {
-        /// st_dev for an open handle: the mount the VFS attached when the
-        /// path was opened.  A descriptor bound straight to a file object
-        /// has no mount and falls back to the path's device, or 0 without
-        /// a namespace path.
-        u32 handle_device(const fs::open_file& handle) {
-            if (const auto* owner = handle.mount_owner())
-                return owner->device();
-
-            return fs::node_device(handle.path());
-        }
-
         /// st_ino for an open handle: the backing file's own inode, with
         /// the VFS node identity taking over for filesystems whose file
         /// objects carry none.
@@ -177,7 +165,7 @@ namespace astia::io::aio::operations {
 
             const fs::file_timestamps times = handle->timestamps();
 
-            stat_out->dev        = handle_device(*handle);
+            stat_out->dev        = fs::node_device(*handle);
             stat_out->ino        = handle_inode(*handle);
             stat_out->nlink      = handle->parent()->nlink();
             stat_out->size       = static_cast<u64>(size);

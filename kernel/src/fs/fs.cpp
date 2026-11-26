@@ -1218,6 +1218,13 @@ namespace astia::fs {
         return operation ? operation.instance()->device() : 0u;
     }
 
+    u32 node_device(const open_file& handle) {
+        if (const auto* owner = handle.mount_owner())
+            return owner->device();
+
+        return node_device(handle.path());
+    }
+
     u64 node_inode(const char* path) {
         if (path == nullptr || path[0] != '/')
             return 0;
