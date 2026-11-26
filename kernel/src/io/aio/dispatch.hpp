@@ -52,7 +52,8 @@ namespace astia::io::aio::dispatch {
 
     bool dispatch_one(ring::ring_slot& slot, astia_rings* ring, const astia_sqe& sqe);
     void retry_pending(ring::ring_slot& slot, astia_rings* ring);
-    void resume_parked(proc::process* owner, astia_rings* ring, ring::parked_op& op);
+    void resume_parked(proc::process* owner, astia_rings* ring, ring::parked_op& op,
+                       ring::ring_slot* slot = nullptr);
     void complete_control(proc::process* owner, astia_rings* ring, ring::parked_op& op,
                           i32 result);
     u64  poll_now_ns();

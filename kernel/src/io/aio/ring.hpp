@@ -170,6 +170,8 @@ namespace astia::io::aio::ring {
         u32                  notify_signaled;
         u32                  pool_index;
         bool                 kernel_buffers;
+        atomic<u64>          armed_mask;
+        atomic<u64>          signal_mask;
         parked_op            park[parked_slot_count];
         parked_cleanup       cleanup;
         alignas(mm::page_size) u8 map[mapping_pages * mm::page_size];
@@ -197,6 +199,70 @@ namespace astia::io::aio::ring {
 
     u64  ready_generation();
     void note_device_ready(const fs::file* device);
+
+    /// Parked deadlines are tracked as a per-ring bitmask so the timer tick
+    /// can skip rings with no armed sleep/timeout/poll operation.  The global
+    /// bitmap makes the idle tick O(1).
+    inline atomic<u64> g_armed_ring_bitmap{0};
+
+    inline bool any_armed() {
+        return g_armed_ring_bitmap.load(memory_order::acquire) != 0;
+    }
+
+    inline u64 armed_ring_bitmap() {
+        return g_armed_ring_bitmap.load(memory_order::acquire);
+    }
+
+    inline u64 armed_mask(const ring_slot& slot) {
+        return const_cast<ring_slot&>(slot).armed_mask.load(memory_order::acquire);
+    }
+
+    inline void note_armed(ring_slot& slot, u32 park_index) {
+        if (park_index >= parked_slot_count)
+            return;
+
+        const u64 bit      = u64{1} << park_index;
+        const u64 previous = slot.armed_mask.fetch_or(bit, memory_order::acq_rel);
+
+        if (previous == 0)
+            g_armed_ring_bitmap.fetch_or(u64{1} << slot.pool_index,
+                                         memory_order::acq_rel);
+    }
+
+    inline void clear_armed(ring_slot& slot, u32 park_index) {
+        if (park_index >= parked_slot_count)
+            return;
+
+        const u64 bit      = u64{1} << park_index;
+        const u64 previous = slot.armed_mask.fetch_and(~bit, memory_order::acq_rel);
+
+        if (previous == bit)
+            g_armed_ring_bitmap.fetch_and(~(u64{1} << slot.pool_index),
+                                          memory_order::acq_rel);
+    }
+
+    void clear_all_armed(ring_slot& slot);
+
+    inline u64 signal_mask(const ring_slot& slot) {
+        return const_cast<ring_slot&>(slot).signal_mask.load(memory_order::acquire);
+    }
+
+    inline void note_signalable(ring_slot& slot, u32 park_index) {
+        if (park_index < parked_slot_count)
+            slot.signal_mask.fetch_or(u64{1} << park_index, memory_order::acq_rel);
+    }
+
+    inline void clear_signalable(ring_slot& slot, u32 park_index) {
+        if (park_index < parked_slot_count)
+            slot.signal_mask.fetch_and(~(u64{1} << park_index), memory_order::acq_rel);
+    }
+
+    inline void clear_all_signalable(ring_slot& slot) {
+        slot.signal_mask.store(0, memory_order::release);
+    }
+
+    /// Snapshot the ring indices owned by one process for signal delivery.
+    u32  owner_ring_indices(proc::process* owner, u8* out, u32 capacity);
     void clear_waiter_hint(const ring_slot& slot, u32 park_index);
     void publish_waiter_hint(const ring_slot& slot, u32 park_index, const fs::file* key);
     void snapshot_waiters(const fs::file* key,

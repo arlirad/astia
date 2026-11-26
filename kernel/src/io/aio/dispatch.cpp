@@ -111,7 +111,7 @@ namespace astia::io::aio::dispatch {
             return whole > UINT64_MAX - fraction ? UINT64_MAX : whole + fraction;
         }
 
-        void arm_request_timeout(parked_op& op) {
+        void arm_request_timeout(ring_slot* slot, parked_op& op) {
             op.operation->request().timeout_expired(false);
             op.operation->request().poll_wakeup(false);
 
@@ -141,6 +141,15 @@ namespace astia::io::aio::dispatch {
                     UINT64_MAX - now < op.operation->request().poll_interval_ns()
                         ? UINT64_MAX
                         : now + op.operation->request().poll_interval_ns();
+            }
+
+            if (slot != nullptr) {
+                const u32 park_index = static_cast<u32>(&op - slot->park);
+
+                if (op.sleeping || op.timed || op.poll_timed)
+                    ring::note_armed(*slot, park_index);
+                else
+                    ring::clear_armed(*slot, park_index);
             }
         }
 
@@ -339,7 +348,8 @@ namespace astia::io::aio::dispatch {
             }
         }
 
-        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op);
+        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
+                           ring_slot* slot);
 
         bool publish_pending(astia_rings* ring, parked_op& op) {
             if (!op.pending_cqe)
@@ -526,7 +536,7 @@ namespace astia::io::aio::dispatch {
             const auto outcome = pump(*p, result);
 
             if (outcome == io_outcome::parked) {
-                arm_request_timeout(*p);
+                arm_request_timeout(&slot, *p);
                 publish_waiter_hint(slot, park_index, p->handle->parent().get());
 
                 if (ready_generation() != generation)
@@ -571,7 +581,8 @@ namespace astia::io::aio::dispatch {
         /// up from request.stage(), and a stretch that finishes hands the
         /// operation on to the next entry.  A device that is still not ready
         /// returns 0 and stays parked.
-        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op) {
+        void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
+                           ring_slot* slot) {
             // Cancellation posts the target CQE and marks the operation done,
             // but the readiness nudge that was already in flight may still
             // reach this slot before task context reaps it.  Never post a
@@ -640,7 +651,7 @@ namespace astia::io::aio::dispatch {
                 result = -ECANCELED;
             }
             else if (pump(op, result) == io_outcome::parked) {
-                arm_request_timeout(op);
+                arm_request_timeout(slot, op);
 
                 op.resuming = false;
 
@@ -919,8 +930,9 @@ namespace astia::io::aio::dispatch {
         detail::retry_pending(slot, ring);
     }
 
-    void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op) {
-        detail::resume_parked(owner, ring, op);
+    void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
+                       ring_slot* slot) {
+        detail::resume_parked(owner, ring, op, slot);
     }
 
     void complete_control(proc::process* owner, astia_rings* ring, parked_op& op,
