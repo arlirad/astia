@@ -146,6 +146,9 @@ astia_add_host_test(astia_atomic_test atomic_test.cpp)
 astia_add_test_label(astia_atomic_test "deterministic;core")
 astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_dl_test dl_test.cpp)
+astia_add_host_test(astia_dl_symcount_test dl_symcount_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
+astia_add_test_label(astia_dl_symcount_test "dl;host;deterministic")
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -1370,6 +1373,7 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
                 -Wl,--hash-style=sysv
@@ -1428,6 +1432,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
