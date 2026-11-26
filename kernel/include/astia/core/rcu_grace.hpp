@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 
 namespace astia::core {
@@ -64,27 +65,32 @@ namespace astia::core {
         };
 
         void enter() const {
-            __atomic_add_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+            astia::atomic_ref<u32>(_readers).add_fetch(1, astia::memory_order::seq_cst);
         }
 
         void leave() const {
-            __atomic_sub_fetch(&_readers, 1, __ATOMIC_SEQ_CST);
+            astia::atomic_ref<u32>(_readers).sub_fetch(1, astia::memory_order::seq_cst);
         }
 
         void retire(Snapshot* value, retired_record* record) const {
             record->value = value;
-            record->epoch = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+            record->epoch =
+                astia::atomic_ref<u64>(_epoch).load(astia::memory_order::seq_cst);
 
-            retired_record* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
+            retired_record* head = astia::atomic_ref<retired_record*>(_retired).load(
+                astia::memory_order::relaxed);
 
             do {
                 record->next = head;
-            } while (!__atomic_compare_exchange_n(&_retired, &head, record, false,
-                                                  __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+            } while (
+                !astia::atomic_ref<retired_record*>(_retired).compare_exchange_strong(
+                    head, record, astia::memory_order::seq_cst,
+                    astia::memory_order::seq_cst));
         }
 
         void reclaim() const {
-            const u64 grace = __atomic_add_fetch(&_epoch, 1, __ATOMIC_SEQ_CST);
+            const u64 grace =
+                astia::atomic_ref<u64>(_epoch).add_fetch(1, astia::memory_order::seq_cst);
 #ifdef ASTIA_HOST_TEST
             if (rcu_test::reclaim_pre_exchange_observer != nullptr)
                 rcu_test::reclaim_pre_exchange_observer();
@@ -127,10 +133,10 @@ namespace astia::core {
         }
 
         void discard() const {
-            __atomic_store_n(&_readers, 0, __ATOMIC_SEQ_CST);
+            astia::atomic_ref<u32>(_readers).store(0, astia::memory_order::seq_cst);
 
-            retired_record* list =
-                __atomic_exchange_n(&_retired, nullptr, __ATOMIC_SEQ_CST);
+            retired_record* list = astia::atomic_ref<retired_record*>(_retired).exchange(
+                nullptr, astia::memory_order::seq_cst);
 
             while (list != nullptr) {
                 retired_record* next = list->next;
@@ -144,18 +150,18 @@ namespace astia::core {
 
 #ifdef ASTIA_HOST_TEST
         u64 epoch_for_test() const {
-            return __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+            return astia::atomic_ref<u64>(_epoch).load(astia::memory_order::seq_cst);
         }
 
         void set_epoch_for_test(u64 epoch) const {
-            __atomic_store_n(&_epoch, epoch, __ATOMIC_SEQ_CST);
+            astia::atomic_ref<u64>(_epoch).store(epoch, astia::memory_order::seq_cst);
         }
 #endif
 
         private:
         retired_record* detach_retired() const {
-            retired_record* list =
-                __atomic_exchange_n(&_retired, nullptr, __ATOMIC_SEQ_CST);
+            retired_record* list = astia::atomic_ref<retired_record*>(_retired).exchange(
+                nullptr, astia::memory_order::seq_cst);
 #ifdef ASTIA_HOST_TEST
             if (rcu_test::reclaim_post_exchange_observer != nullptr)
                 rcu_test::reclaim_post_exchange_observer();
@@ -164,7 +170,8 @@ namespace astia::core {
         }
 
         bool observe_readers() const {
-            const bool quiescent = __atomic_load_n(&_readers, __ATOMIC_SEQ_CST) == 0;
+            const bool quiescent =
+                astia::atomic_ref<u32>(_readers).load(astia::memory_order::seq_cst) == 0;
 #ifdef ASTIA_HOST_TEST
             if (rcu_test::reclaim_reader_check_observer != nullptr)
                 rcu_test::reclaim_reader_check_observer();
@@ -175,12 +182,15 @@ namespace astia::core {
         void push(retired_record* list) const {
             while (list != nullptr) {
                 retired_record* next = list->next;
-                retired_record* head = __atomic_load_n(&_retired, __ATOMIC_RELAXED);
+                retired_record* head = astia::atomic_ref<retired_record*>(_retired).load(
+                    astia::memory_order::relaxed);
 
                 do {
                     list->next = head;
-                } while (!__atomic_compare_exchange_n(
-                    &_retired, &head, list, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+                } while (
+                    !astia::atomic_ref<retired_record*>(_retired).compare_exchange_strong(
+                        head, list, astia::memory_order::seq_cst,
+                        astia::memory_order::seq_cst));
 
                 list = next;
             }

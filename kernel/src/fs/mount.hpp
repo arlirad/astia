@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/fs.hpp>
 
 namespace astia::fs {
@@ -34,23 +35,26 @@ namespace astia::fs {
         virtual long      readlink(const char* path, char* buffer, u32 capacity) const;
 
         void retain_open() {
-            __atomic_fetch_add(&_open_count, 1u, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(_open_count)
+                .fetch_add(1u, astia::memory_order::acq_rel);
         }
 
         void release_open() {
-            u32 count = __atomic_load_n(&_open_count, __ATOMIC_ACQUIRE);
+            u32 count =
+                astia::atomic_ref<u32>(_open_count).load(astia::memory_order::acquire);
 
-            while (count != 0 &&
-                   !__atomic_compare_exchange_n(&_open_count, &count, count - 1, false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            while (count != 0 && !astia::atomic_ref<u32>(_open_count)
+                                      .compare_exchange_strong(
+                                          count, count - 1, astia::memory_order::acq_rel,
+                                          astia::memory_order::acquire)) {
             }
         }
 
         u32 open_count() const {
-            return __atomic_load_n(&_open_count, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u32>(_open_count).load(astia::memory_order::acquire);
         }
 
         private:
-        u32 _open_count = 0;
+        mutable u32 _open_count = 0;
     };
 } // namespace astia::fs

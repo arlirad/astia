@@ -2,6 +2,7 @@
 #include <astia/arch/interrupt_frame.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/log.hpp>
 
@@ -14,22 +15,24 @@ namespace astia::test {
     namespace {
         using logs = astia::log::context<"selftest">;
 
-        volatile u32 ap_work_seen       = 0;
-        volatile u32 ap_stress_done     = 0;
-        volatile u32 ap_stress_cpu_mask = 0;
-        volatile u32 migration_done     = 0;
-        volatile u32 migration_cpu_mask = 0;
-        volatile u32 vector_test_hits   = 0;
+        u32 ap_work_seen       = 0;
+        u32 ap_stress_done     = 0;
+        u32 ap_stress_cpu_mask = 0;
+        u32 migration_done     = 0;
+        u32 migration_cpu_mask = 0;
+        u32 vector_test_hits   = 0;
 
         extern "C" void interrupt_dispatch(arch::interrupt_frame* frame);
 
         void vector_test_handler(void*) {
-            __atomic_add_fetch(&vector_test_hits, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u32>(vector_test_hits)
+                .add_fetch(1, astia::memory_order::relaxed);
         }
 
         void ap_scheduler_worker(void*) {
             if (arch::cpu::current_index() == 1)
-                __atomic_store_n(&ap_work_seen, 1, __ATOMIC_RELEASE);
+                astia::atomic_ref<u32>(ap_work_seen)
+                    .store(1, astia::memory_order::release);
 
             proc::current_thread()->exit();
         }
@@ -37,15 +40,18 @@ namespace astia::test {
         void ap_stress_worker(void*) {
             const u32 cpu = arch::cpu::current_index();
 
-            __atomic_or_fetch(&ap_stress_cpu_mask, 1u << cpu, __ATOMIC_RELEASE);
-            __atomic_add_fetch(&ap_stress_done, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(ap_stress_cpu_mask)
+                .or_fetch(1u << cpu, astia::memory_order::release);
+            astia::atomic_ref<u32>(ap_stress_done)
+                .add_fetch(1, astia::memory_order::release);
             proc::current_thread()->exit();
         }
 
         void migration_worker(void*) {
-            __atomic_or_fetch(&migration_cpu_mask, 1u << arch::cpu::current_index(),
-                              __ATOMIC_RELEASE);
-            __atomic_add_fetch(&migration_done, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(migration_cpu_mask)
+                .or_fetch(1u << arch::cpu::current_index(), astia::memory_order::release);
+            astia::atomic_ref<u32>(migration_done)
+                .add_fetch(1, astia::memory_order::release);
             proc::current_thread()->exit();
         }
 
@@ -66,14 +72,16 @@ namespace astia::test {
 
             arch::cpu::interrupts();
 
-            for (u32 i = 0;
-                 i < 200 && __atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0; ++i) {
+            for (u32 i = 0; i < 200 && astia::atomic_ref<u32>(ap_work_seen)
+                                               .load(astia::memory_order::acquire) == 0;
+                 ++i) {
                 arch::cpu::halt();
             }
 
             arch::cpu::nointerrupts();
 
-            if (__atomic_load_n(&ap_work_seen, __ATOMIC_ACQUIRE) == 0) {
+            if (astia::atomic_ref<u32>(ap_work_seen).load(astia::memory_order::acquire) ==
+                0) {
                 logs::error("smp scheduler: AP work did not run");
 
                 return false;
@@ -97,16 +105,19 @@ namespace astia::test {
 
             arch::cpu::interrupts();
 
-            for (u32 i = 0; i < 400 && __atomic_load_n(&ap_stress_done,
-                                                       __ATOMIC_ACQUIRE) < stress_jobs;
+            for (u32 i = 0;
+                 i < 400 && astia::atomic_ref<u32>(ap_stress_done)
+                                    .load(astia::memory_order::acquire) < stress_jobs;
                  ++i) {
                 arch::cpu::halt();
             }
 
             arch::cpu::nointerrupts();
 
-            const u32 done = __atomic_load_n(&ap_stress_done, __ATOMIC_ACQUIRE);
-            const u32 mask = __atomic_load_n(&ap_stress_cpu_mask, __ATOMIC_ACQUIRE);
+            const u32 done =
+                astia::atomic_ref<u32>(ap_stress_done).load(astia::memory_order::acquire);
+            const u32 mask = astia::atomic_ref<u32>(ap_stress_cpu_mask)
+                                 .load(astia::memory_order::acquire);
 
             if (done != stress_jobs || mask != (1u << 1)) {
                 logs::error("smp scheduler: stress done=%u mask=%x", done, mask);
@@ -134,17 +145,19 @@ namespace astia::test {
             arch::cpu::request_reschedule();
             arch::cpu::interrupts();
 
-            for (u32 i = 0; i < 400 && __atomic_load_n(&migration_done,
-                                                       __ATOMIC_ACQUIRE) < migration_jobs;
+            for (u32 i = 0;
+                 i < 400 && astia::atomic_ref<u32>(migration_done)
+                                    .load(astia::memory_order::acquire) < migration_jobs;
                  ++i) {
                 arch::cpu::halt();
             }
 
             arch::cpu::nointerrupts();
 
-            const u32 migrated_done = __atomic_load_n(&migration_done, __ATOMIC_ACQUIRE);
-            const u32 migrated_mask =
-                __atomic_load_n(&migration_cpu_mask, __ATOMIC_ACQUIRE);
+            const u32 migrated_done =
+                astia::atomic_ref<u32>(migration_done).load(astia::memory_order::acquire);
+            const u32 migrated_mask = astia::atomic_ref<u32>(migration_cpu_mask)
+                                          .load(astia::memory_order::acquire);
 
             if (migrated_done != migration_jobs || (migrated_mask & (1u << 1)) == 0) {
                 logs::error("smp scheduler: migration done=%u mask=%x", migrated_done,
@@ -249,8 +262,8 @@ namespace astia::test {
 
                 interrupt_dispatch(&frame);
 
-                const u32 first_hits =
-                    __atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED);
+                const u32 first_hits = astia::atomic_ref<u32>(vector_test_hits)
+                                           .load(astia::memory_order::relaxed);
                 const bool masked = arch::mask_interrupt_vector(route);
 
                 if (first_hits != 1 || !masked) {
@@ -263,7 +276,8 @@ namespace astia::test {
 
                 interrupt_dispatch(&frame);
 
-                if (__atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED) != 1 ||
+                if (astia::atomic_ref<u32>(vector_test_hits)
+                            .load(astia::memory_order::relaxed) != 1 ||
                     !arch::unmask_interrupt_vector(route)) {
                     logs::error("interrupt vectors fail (masked dispatch/unmask)");
 
@@ -272,7 +286,8 @@ namespace astia::test {
 
                 interrupt_dispatch(&frame);
 
-                if (__atomic_load_n(&vector_test_hits, __ATOMIC_RELAXED) != 2 ||
+                if (astia::atomic_ref<u32>(vector_test_hits)
+                            .load(astia::memory_order::relaxed) != 2 ||
                     !arch::unregister_interrupt_vector(route) ||
                     arch::mask_interrupt_vector(route) ||
                     arch::unmask_interrupt_vector(route)) {

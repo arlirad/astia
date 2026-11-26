@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -72,9 +73,9 @@ namespace astia::net {
     class bounded_spsc_queue final {
         static_assert(Capacity >= 2 && (Capacity & (Capacity - 1u)) == 0);
 
-        T            _values[Capacity]{};
-        volatile u32 _head = 0;
-        volatile u32 _tail = 0;
+        T           _values[Capacity]{};
+        mutable u32 _head = 0;
+        mutable u32 _tail = 0;
 
         public:
         bounded_spsc_queue() {
@@ -85,41 +86,45 @@ namespace astia::net {
         bounded_spsc_queue& operator=(const bounded_spsc_queue&) = delete;
 
         void initialize() {
-            __atomic_store_n(&_head, 0, __ATOMIC_RELAXED);
-            __atomic_store_n(&_tail, 0, __ATOMIC_RELAXED);
+            astia::atomic_ref<u32>(_head).store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_tail).store(0, astia::memory_order::relaxed);
         }
 
         bool push(const T& value) {
-            const u32 head = __atomic_load_n(&_head, __ATOMIC_RELAXED);
-            const u32 tail = __atomic_load_n(&_tail, __ATOMIC_ACQUIRE);
+            const u32 head =
+                astia::atomic_ref<u32>(_head).load(astia::memory_order::relaxed);
+            const u32 tail =
+                astia::atomic_ref<u32>(_tail).load(astia::memory_order::acquire);
 
             if (head - tail == Capacity)
                 return false;
 
             _values[head & (Capacity - 1u)] = value;
 
-            __atomic_store_n(&_head, head + 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_head).store(head + 1u, astia::memory_order::release);
 
             return true;
         }
 
         bool pop(T& value) {
-            const u32 tail = __atomic_load_n(&_tail, __ATOMIC_RELAXED);
-            const u32 head = __atomic_load_n(&_head, __ATOMIC_ACQUIRE);
+            const u32 tail =
+                astia::atomic_ref<u32>(_tail).load(astia::memory_order::relaxed);
+            const u32 head =
+                astia::atomic_ref<u32>(_head).load(astia::memory_order::acquire);
 
             if (tail == head)
                 return false;
 
             value = _values[tail & (Capacity - 1u)];
 
-            __atomic_store_n(&_tail, tail + 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_tail).store(tail + 1u, astia::memory_order::release);
 
             return true;
         }
 
         u32 size() const {
-            return __atomic_load_n(&_head, __ATOMIC_ACQUIRE) -
-                   __atomic_load_n(&_tail, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u32>(_head).load(astia::memory_order::acquire) -
+                   astia::atomic_ref<u32>(_tail).load(astia::memory_order::acquire);
         }
     };
 
@@ -128,13 +133,13 @@ namespace astia::net {
         static_assert(Capacity >= 2 && (Capacity & (Capacity - 1u)) == 0);
 
         struct cell {
-            volatile u32 sequence = 0;
-            T            value{};
+            u32 sequence = 0;
+            T   value{};
         };
 
-        cell         _cells[Capacity]{};
-        volatile u32 _enqueue_position = 0;
-        volatile u32 _dequeue_position = 0;
+        cell _cells[Capacity]{};
+        u32  _enqueue_position = 0;
+        u32  _dequeue_position = 0;
 
         public:
         bounded_mpsc_queue() {
@@ -145,29 +150,36 @@ namespace astia::net {
         bounded_mpsc_queue& operator=(const bounded_mpsc_queue&) = delete;
 
         void initialize() {
-            __atomic_store_n(&_enqueue_position, 0, __ATOMIC_RELAXED);
-            __atomic_store_n(&_dequeue_position, 0, __ATOMIC_RELAXED);
+            astia::atomic_ref<u32>(_enqueue_position)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_dequeue_position)
+                .store(0, astia::memory_order::relaxed);
 
             for (u32 i = 0; i < Capacity; ++i) {
-                __atomic_store_n(&_cells[i].sequence, i, __ATOMIC_RELAXED);
+                astia::atomic_ref<u32>(_cells[i].sequence)
+                    .store(i, astia::memory_order::relaxed);
             }
         }
 
         bool push(const T& value) {
-            u32 position = __atomic_load_n(&_enqueue_position, __ATOMIC_RELAXED);
+            u32 position = astia::atomic_ref<u32>(_enqueue_position)
+                               .load(astia::memory_order::relaxed);
 
             while (true) {
                 cell& slot = _cells[position & (Capacity - 1u)];
 
-                const u32 sequence   = __atomic_load_n(&slot.sequence, __ATOMIC_ACQUIRE);
+                const u32 sequence = astia::atomic_ref<u32>(slot.sequence)
+                                         .load(astia::memory_order::acquire);
                 const i32 difference = static_cast<i32>(sequence - position);
                 if (difference == 0) {
-                    if (__atomic_compare_exchange_n(&_enqueue_position, &position,
-                                                    position + 1u, false,
-                                                    __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+                    if (astia::atomic_ref<u32>(_enqueue_position)
+                            .compare_exchange_strong(position, position + 1u,
+                                                     astia::memory_order::relaxed,
+                                                     astia::memory_order::relaxed)) {
                         slot.value = value;
 
-                        __atomic_store_n(&slot.sequence, position + 1u, __ATOMIC_RELEASE);
+                        astia::atomic_ref<u32>(slot.sequence)
+                            .store(position + 1u, astia::memory_order::release);
 
                         return true;
                     }
@@ -176,25 +188,30 @@ namespace astia::net {
                     return false;
                 }
                 else {
-                    position = __atomic_load_n(&_enqueue_position, __ATOMIC_RELAXED);
+                    position = astia::atomic_ref<u32>(_enqueue_position)
+                                   .load(astia::memory_order::relaxed);
                 }
             }
         }
 
         bool pop(T& value) {
-            const u32 position = __atomic_load_n(&_dequeue_position, __ATOMIC_RELAXED);
+            const u32 position = astia::atomic_ref<u32>(_dequeue_position)
+                                     .load(astia::memory_order::relaxed);
 
             cell& slot = _cells[position & (Capacity - 1u)];
 
-            const u32 sequence = __atomic_load_n(&slot.sequence, __ATOMIC_ACQUIRE);
+            const u32 sequence =
+                astia::atomic_ref<u32>(slot.sequence).load(astia::memory_order::acquire);
 
             if (static_cast<i32>(sequence - (position + 1u)) < 0)
                 return false;
 
             value = slot.value;
 
-            __atomic_store_n(&slot.sequence, position + Capacity, __ATOMIC_RELEASE);
-            __atomic_store_n(&_dequeue_position, position + 1u, __ATOMIC_RELAXED);
+            astia::atomic_ref<u32>(slot.sequence)
+                .store(position + Capacity, astia::memory_order::release);
+            astia::atomic_ref<u32>(_dequeue_position)
+                .store(position + 1u, astia::memory_order::relaxed);
 
             return true;
         }
@@ -215,17 +232,19 @@ namespace astia::net {
 
         bounded_mpsc_queue<tx_request, PendingDepth>    _pending;
         bounded_spsc_queue<completion, CompletionDepth> _completed;
-        volatile u64                                    _generation    = 1;
-        volatile u32                                    _accepting     = 1;
-        volatile u32                                    _submitters    = 0;
-        volatile u32                                    _completers    = 0;
-        volatile u32                                    _consumer_lock = 0;
+        mutable u64                                     _generation    = 1;
+        mutable u32                                     _accepting     = 1;
+        u32                                             _submitters    = 0;
+        u32                                             _completers    = 0;
+        u32                                             _consumer_lock = 0;
 
         void lock_consumer() {
             u32 expected = 0;
 
-            while (!__atomic_compare_exchange_n(&_consumer_lock, &expected, 1, false,
-                                                __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            while (!astia::atomic_ref<u32>(_consumer_lock)
+                        .compare_exchange_strong(expected, 1,
+                                                 astia::memory_order::acquire,
+                                                 astia::memory_order::relaxed)) {
                 expected = 0;
 
                 arch::cpu::relax();
@@ -233,7 +252,7 @@ namespace astia::net {
         }
 
         void unlock_consumer() {
-            __atomic_store_n(&_consumer_lock, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_consumer_lock).store(0, astia::memory_order::release);
         }
 
         void reclaim(tx_request& request, int status) {
@@ -247,16 +266,19 @@ namespace astia::net {
         }
 
         void stop_accepting() {
-            __atomic_store_n(&_accepting, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_accepting).store(0, astia::memory_order::release);
 
-            while (__atomic_load_n(&_submitters, __ATOMIC_ACQUIRE) != 0 ||
-                   __atomic_load_n(&_completers, __ATOMIC_ACQUIRE) != 0) {
+            while (
+                astia::atomic_ref<u32>(_submitters).load(astia::memory_order::acquire) !=
+                    0 ||
+                astia::atomic_ref<u32>(_completers).load(astia::memory_order::acquire) !=
+                    0) {
                 arch::cpu::relax();
             }
         }
 
         void start_accepting() {
-            __atomic_store_n(&_accepting, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_accepting).store(1, astia::memory_order::release);
         }
 
         public:
@@ -270,11 +292,11 @@ namespace astia::net {
         void initialize(void* context = nullptr) {
             _pending.initialize();
             _completed.initialize();
-            __atomic_store_n(&_generation, 1, __ATOMIC_RELAXED);
-            __atomic_store_n(&_accepting, 1, __ATOMIC_RELAXED);
-            __atomic_store_n(&_submitters, 0, __ATOMIC_RELAXED);
-            __atomic_store_n(&_completers, 0, __ATOMIC_RELAXED);
-            __atomic_store_n(&_consumer_lock, 0, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(_generation).store(1, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_accepting).store(1, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_submitters).store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_completers).store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(_consumer_lock).store(0, astia::memory_order::relaxed);
 
             _context = context;
         }
@@ -284,22 +306,28 @@ namespace astia::net {
                 request.reclaim == nullptr)
                 return -EINVAL;
 
-            if (__atomic_load_n(&_accepting, __ATOMIC_ACQUIRE) == 0)
+            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
+                0)
                 return -ECANCELED;
 
-            __atomic_add_fetch(&_submitters, 1, __ATOMIC_ACQUIRE);
+            astia::atomic_ref<u32>(_submitters)
+                .add_fetch(1, astia::memory_order::acquire);
 
-            if (__atomic_load_n(&_accepting, __ATOMIC_ACQUIRE) == 0) {
-                __atomic_sub_fetch(&_submitters, 1, __ATOMIC_RELEASE);
+            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
+                0) {
+                astia::atomic_ref<u32>(_submitters)
+                    .sub_fetch(1, astia::memory_order::release);
 
                 return -ECANCELED;
             }
 
-            request.generation = __atomic_load_n(&_generation, __ATOMIC_ACQUIRE);
+            request.generation =
+                astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
 
             const bool pushed = _pending.push(request);
 
-            __atomic_sub_fetch(&_submitters, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_submitters)
+                .sub_fetch(1, astia::memory_order::release);
 
             return pushed ? 0 : -EAGAIN;
         }
@@ -315,24 +343,30 @@ namespace astia::net {
         }
 
         bool complete(const tx_request& request, int status) {
-            __atomic_add_fetch(&_completers, 1, __ATOMIC_ACQUIRE);
+            astia::atomic_ref<u32>(_completers)
+                .add_fetch(1, astia::memory_order::acquire);
 
-            if (__atomic_load_n(&_accepting, __ATOMIC_ACQUIRE) == 0 ||
-                request.generation != __atomic_load_n(&_generation, __ATOMIC_ACQUIRE)) {
-                __atomic_sub_fetch(&_completers, 1, __ATOMIC_RELEASE);
+            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
+                    0 ||
+                request.generation != astia::atomic_ref<u64>(_generation)
+                                          .load(astia::memory_order::acquire)) {
+                astia::atomic_ref<u32>(_completers)
+                    .sub_fetch(1, astia::memory_order::release);
 
                 return false;
             }
 
             const bool pushed = _completed.push({request, status});
 
-            __atomic_sub_fetch(&_completers, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_completers)
+                .sub_fetch(1, astia::memory_order::release);
 
             return pushed;
         }
 
         bool cancel(const tx_request& request) {
-            const u64 generation = __atomic_load_n(&_generation, __ATOMIC_ACQUIRE);
+            const u64 generation =
+                astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
 
             if (request.generation != 0 && request.generation != generation)
                 return false;
@@ -401,11 +435,14 @@ namespace astia::net {
                 reclaim(item.request, -ECANCELED);
             }
 
-            u64 generation = __atomic_load_n(&_generation, __ATOMIC_RELAXED) + 1;
+            u64 generation =
+                astia::atomic_ref<u64>(_generation).load(astia::memory_order::relaxed) +
+                1;
             if (generation == 0)
                 generation = 1;
 
-            __atomic_store_n(&_generation, generation, __ATOMIC_RELEASE);
+            astia::atomic_ref<u64>(_generation)
+                .store(generation, astia::memory_order::release);
             unlock_consumer();
             start_accepting();
         }
@@ -426,15 +463,17 @@ namespace astia::net {
         }
 
         bool accepting() const {
-            return __atomic_load_n(&_accepting, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u32>(_accepting)
+                       .load(astia::memory_order::acquire) != 0;
         }
 
         void set_generation(u64 value) {
-            __atomic_store_n(&_generation, value == 0 ? 1 : value, __ATOMIC_RELEASE);
+            astia::atomic_ref<u64>(_generation)
+                .store(value == 0 ? 1 : value, astia::memory_order::release);
         }
 
         u64 generation() const {
-            return __atomic_load_n(&_generation, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
         }
 
         private:

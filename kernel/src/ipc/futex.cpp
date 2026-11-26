@@ -4,6 +4,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -89,11 +90,14 @@ namespace astia::proc {
         }
 
         bool reserve_waiter() {
-            u32 count = __atomic_load_n(&waiter_count, __ATOMIC_RELAXED);
+            u32 count =
+                astia::atomic_ref<u32>(waiter_count).load(astia::memory_order::relaxed);
 
             while (count < futex_capacity &&
-                   !__atomic_compare_exchange_n(&waiter_count, &count, count + 1, false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+                   !astia::atomic_ref<u32>(waiter_count)
+                        .compare_exchange_strong(count, count + 1,
+                                                 astia::memory_order::acq_rel,
+                                                 astia::memory_order::relaxed)) {
             }
 
             return count < futex_capacity;
@@ -161,7 +165,8 @@ namespace astia::proc {
 
                         waiter = {};
 
-                        __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                        astia::atomic_ref<u32>(waiter_count)
+                            .fetch_sub(1, astia::memory_order::acq_rel);
                         break;
                     }
 
@@ -210,7 +215,8 @@ namespace astia::proc {
 
                     waiter = {};
 
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                     break;
                 }
 
@@ -318,7 +324,8 @@ namespace astia::proc {
 
         core::spinlock_guard lock(bucket.lock);
 
-        if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
+        if (astia::atomic_ref<u32>(*word).load(astia::memory_order::seq_cst) !=
+            expected) {
             shared_mapping.release();
 
             co_return -EAGAIN;
@@ -353,7 +360,8 @@ namespace astia::proc {
         }
 
         if (slot == futex_bucket_capacity) {
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             shared_mapping.release();
 
             co_return -EAGAIN;
@@ -362,7 +370,8 @@ namespace astia::proc {
         mm::shptr<thread> retained = owner->retain_thread(self);
 
         if (!retained || retained.get() != self) {
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             shared_mapping.release();
 
             co_return -EAGAIN;
@@ -394,7 +403,8 @@ namespace astia::proc {
 
             waiter = {};
 
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             self->state(thread_state::running);
             shared_mapping.release();
 
@@ -450,7 +460,8 @@ namespace astia::proc {
 
                 bucket.waiters[i] = {};
 
-                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                astia::atomic_ref<u32>(waiter_count)
+                    .fetch_sub(1, astia::memory_order::acq_rel);
             }
         }
 
@@ -485,7 +496,8 @@ namespace astia::proc {
 
                     bucket.waiters[i] = {};
 
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                 }
             }
         }
@@ -523,7 +535,8 @@ namespace astia::proc {
 
                     waiter = {};
 
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                 }
             }
 

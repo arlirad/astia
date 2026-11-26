@@ -11,9 +11,9 @@ namespace astia::io::aio::ring {
 
 namespace astia::io::aio::test_support {
     struct cq_capture {
-        astia_rings   ring{};
-        astia_cq_ring cq{};
-        astia_cqe     cqes[64]{};
+        astia_rings           ring{};
+        mutable astia_cq_ring cq{};
+        astia_cqe             cqes[64]{};
 
         cq_capture();
 

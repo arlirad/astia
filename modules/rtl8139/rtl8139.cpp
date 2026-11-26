@@ -1,3 +1,4 @@
+#include <astia/atomic.hpp>
 #include <astia/module.hpp>
 
 #include "rtl8139_protocol.hpp"
@@ -35,12 +36,12 @@ namespace {
         tx_ring                                                          _tx_ring;
         bounded_spsc_queue<rx_packet, astia::rtl8139::rx_deferred_depth> _rx_deferred;
         astia::module::msix_route                                        _irq_route{};
-        net_device        _net_device{"rtl8139", this};
-        device_state      _state                 = device_state::detached;
-        bool              _irq_active            = false;
-        uint64_t          _generation            = 1;
-        volatile uint32_t _process_lock          = 0;
-        unsigned          _tx_selftest_reclaimed = 0;
+        net_device   _net_device{"rtl8139", this};
+        device_state _state                 = device_state::detached;
+        bool         _irq_active            = false;
+        uint64_t     _generation            = 1;
+        uint32_t     _process_lock          = 0;
+        unsigned     _tx_selftest_reclaimed = 0;
 
         static void tx_selftest_reclaim(void* context, const tx_request*, int status) {
             auto* controller = static_cast<rtl8139_controller*>(context);
@@ -52,8 +53,10 @@ namespace {
         void lock_process() {
             uint32_t expected = 0;
 
-            while (!__atomic_compare_exchange_n(&_process_lock, &expected, 1, false,
-                                                __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            while (!astia::atomic_ref<uint32_t>(_process_lock)
+                        .compare_exchange_strong(expected, 1,
+                                                 astia::memory_order::acquire,
+                                                 astia::memory_order::relaxed)) {
                 expected = 0;
 
                 asm volatile("pause");
@@ -61,7 +64,8 @@ namespace {
         }
 
         void unlock_process() {
-            __atomic_store_n(&_process_lock, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<uint32_t>(_process_lock)
+                .store(0, astia::memory_order::release);
         }
 
         uint8_t* rx_buffer() const {

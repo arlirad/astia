@@ -8,6 +8,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/completion.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/elf.hpp>
@@ -90,14 +91,16 @@ namespace astia::mod {
         }
 
         void retain_waiter(close_waiter* waiter) {
-            __atomic_add_fetch(&waiter->refs, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter->refs)
+                .add_fetch(1, astia::memory_order::acq_rel);
         }
 
         void release_waiter(close_waiter* waiter) {
             if (waiter == nullptr)
                 return;
 
-            if (__atomic_sub_fetch(&waiter->refs, 1, __ATOMIC_ACQ_REL) == 0)
+            if (astia::atomic_ref<u32>(waiter->refs)
+                    .sub_fetch(1, astia::memory_order::acq_rel) == 0)
                 delete waiter;
         }
 
@@ -112,12 +115,14 @@ namespace astia::mod {
         bool begin_execution() {
             u32 expected = 0;
 
-            return __atomic_compare_exchange_n(&execution_owner, &expected, 1, false,
-                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u32>(execution_owner)
+                .compare_exchange_strong(expected, 1, astia::memory_order::acq_rel,
+                                         astia::memory_order::acquire);
         }
 
         void end_execution() {
-            __atomic_store_n(&execution_owner, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(execution_owner)
+                .store(0, astia::memory_order::release);
         }
 
         /// Serialises module entry/exit and finalizer callbacks. `active` is the

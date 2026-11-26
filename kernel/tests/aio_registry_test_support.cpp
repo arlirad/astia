@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/interrupts.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/error.hpp>
 #include <astia/mm/heap.hpp>
@@ -202,14 +203,17 @@ namespace astia::io::aio::test_support {
     }
 
     u32 cq_capture::count() const {
-        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
-        const u32 tail = __atomic_load_n(&cq.tail, __ATOMIC_ACQUIRE);
+        const u32 head =
+            astia::atomic_ref<u32>(cq.head).load(astia::memory_order::acquire);
+        const u32 tail =
+            astia::atomic_ref<u32>(cq.tail).load(astia::memory_order::acquire);
 
         return tail - head;
     }
 
     const astia_cqe* cq_capture::at(u32 index) const {
-        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+        const u32 head =
+            astia::atomic_ref<u32>(cq.head).load(astia::memory_order::acquire);
 
         return &cqes[(head + index) & cq.mask];
     }
@@ -223,9 +227,10 @@ namespace astia::io::aio::test_support {
     }
 
     void cq_capture::consume(u32 count) {
-        const u32 head = __atomic_load_n(&cq.head, __ATOMIC_ACQUIRE);
+        const u32 head =
+            astia::atomic_ref<u32>(cq.head).load(astia::memory_order::acquire);
 
-        __atomic_store_n(&cq.head, head + count, __ATOMIC_RELEASE);
+        astia::atomic_ref<u32>(cq.head).store(head + count, astia::memory_order::release);
     }
 
     void reset_environment() {
@@ -439,15 +444,17 @@ namespace astia::io::aio::ring {
         astia_cq_ring* cq   = astia_rings_cq(ring);
         astia_cqe*     cqes = astia_rings_cqes(ring);
 
-        const u32 head = __atomic_load_n(&cq->head, __ATOMIC_ACQUIRE);
-        const u32 tail = __atomic_load_n(&cq->tail, __ATOMIC_RELAXED);
+        const u32 head =
+            astia::atomic_ref<u32>(cq->head).load(astia::memory_order::acquire);
+        const u32 tail =
+            astia::atomic_ref<u32>(cq->tail).load(astia::memory_order::relaxed);
 
         if (tail - head >= cq->entries)
             return false;
 
         cqes[tail & cq->mask] = {user_data, result, 0};
 
-        __atomic_store_n(&cq->tail, tail + 1, __ATOMIC_RELEASE);
+        astia::atomic_ref<u32>(cq->tail).store(tail + 1, astia::memory_order::release);
 
         return true;
     }

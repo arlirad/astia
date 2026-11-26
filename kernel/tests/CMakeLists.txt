@@ -142,6 +142,8 @@ astia_add_test_label(astia_normalize_init_log "deterministic;init")
 # error_t / optional<T>: header-only carriers for fallible kernel operations.
 astia_add_host_test(astia_optional_test optional_test.cpp)
 astia_add_host_test(astia_completion_test completion_test.cpp)
+astia_add_host_test(astia_atomic_test atomic_test.cpp)
+astia_add_test_label(astia_atomic_test "deterministic;core")
 astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_dl_test dl_test.cpp)
 astia_add_host_test(astia_task_test
@@ -433,6 +435,14 @@ add_test(NAME astia_architecture_boundaries
         -P ${CMAKE_CURRENT_SOURCE_DIR}/architecture_boundaries_test.cmake)
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
+
+add_test(NAME astia_atomic_builtin_boundary
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/atomic_builtin_boundary.py
+                --root ${ASTIA_KERNEL_SOURCE_DIR}/..
+                --self-test)
+set_tests_properties(astia_atomic_builtin_boundary
+        PROPERTIES LABELS "kernel;atomic;deterministic;core")
 
 add_test(NAME astia_experimental_core_removal
         COMMAND ${CMAKE_COMMAND}

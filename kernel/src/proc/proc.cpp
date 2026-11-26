@@ -7,6 +7,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
 
@@ -119,7 +120,8 @@ namespace astia::proc {
     }
 
     pid_t allocate_pid() {
-        return pid_from_raw(__atomic_fetch_add(&next_pid, 1u, __ATOMIC_RELAXED));
+        return pid_from_raw(
+            astia::atomic_ref<u32>(next_pid).fetch_add(1u, astia::memory_order::relaxed));
     }
 
     bool init() {
@@ -188,7 +190,8 @@ namespace astia::proc {
     }
 
     tid_t allocate_tid() {
-        return __atomic_fetch_add(&next_tid, 1u, __ATOMIC_RELAXED);
+        return astia::atomic_ref<u32>(next_tid).fetch_add(1u,
+                                                          astia::memory_order::relaxed);
     }
 
     void set_current_thread(thread* value) {

@@ -1,5 +1,7 @@
 #include "aio.hpp"
 
+#include <astia/atomic.hpp>
+
 #include "../io/aio/aio.hpp"
 #include "time.hpp"
 #include "user_mem.hpp"
@@ -50,12 +52,15 @@ namespace {
     void install_user_memory_adapter() {
         astia::u32 expected = 0;
 
-        if (__atomic_load_n(&adapter_state, __ATOMIC_ACQUIRE) == 2)
+        if (astia::atomic_ref<astia::u32>(adapter_state)
+                .load(astia::memory_order::acquire) == 2)
             return;
 
-        if (!__atomic_compare_exchange_n(&adapter_state, &expected, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            while (__atomic_load_n(&adapter_state, __ATOMIC_ACQUIRE) != 2) {
+        if (!astia::atomic_ref<astia::u32>(adapter_state)
+                 .compare_exchange_strong(expected, 1, astia::memory_order::acq_rel,
+                                          astia::memory_order::acquire)) {
+            while (astia::atomic_ref<astia::u32>(adapter_state)
+                       .load(astia::memory_order::acquire) != 2) {
             }
 
             return;
@@ -67,7 +72,8 @@ namespace {
         };
 
         astia::io::aio::set_user_memory_adapter(value);
-        __atomic_store_n(&adapter_state, 2, __ATOMIC_RELEASE);
+        astia::atomic_ref<astia::u32>(adapter_state)
+            .store(2, astia::memory_order::release);
     }
 } // namespace
 

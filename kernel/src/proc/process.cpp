@@ -5,6 +5,7 @@
 #include <astia/api/termios.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/share.hpp>
@@ -649,8 +650,10 @@ namespace astia::proc {
             arch::interrupt_spinlock_guard guard(_lifecycle_lock);
 
             if (!process_exit_requested()) {
-                __atomic_store_n(&_requested_exit_status, status, __ATOMIC_RELEASE);
-                __atomic_store_n(&_exit_requested, 1, __ATOMIC_RELEASE);
+                astia::atomic_ref<i32>(_requested_exit_status)
+                    .store(status, astia::memory_order::release);
+                astia::atomic_ref<u8>(_exit_requested)
+                    .store(1, astia::memory_order::release);
             }
 
             for (u32 i = 0; i < max_threads_per_process; ++i) {
@@ -812,7 +815,8 @@ namespace astia::proc {
                 state(process_state::runnable);
 
                 if (signal == signal_number::cont)
-                    __atomic_store_n(&_continued_event, 1, __ATOMIC_RELEASE);
+                    astia::atomic_ref<u8>(_continued_event)
+                        .store(1, astia::memory_order::release);
 
                 for (u32 i = 0; i < max_threads_per_process; ++i) {
                     thread* value = _threads[i].get();
@@ -851,7 +855,7 @@ namespace astia::proc {
 
             _stop_signal = static_cast<i32>(signal);
 
-            __atomic_store_n(&_stop_event, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_stop_event).store(1, astia::memory_order::release);
             state(process_state::stopped);
 
             for (u32 i = 0; i < max_threads_per_process; ++i) {
@@ -938,8 +942,8 @@ namespace astia::proc {
             next = UINT64_MAX - now < duration ? UINT64_MAX : now + duration;
         }
 
-        const u64 previous =
-            __atomic_exchange_n(&_alarm_deadline, next, __ATOMIC_ACQ_REL);
+        const u64 previous = astia::atomic_ref<u64>(_alarm_deadline)
+                                 .exchange(next, astia::memory_order::acq_rel);
 
         if (previous == 0 || previous <= now)
             return 0;
@@ -953,11 +957,13 @@ namespace astia::proc {
         if (state() == process_state::zombie || state() == process_state::dead)
             return;
 
-        u64 deadline = __atomic_load_n(&_alarm_deadline, __ATOMIC_ACQUIRE);
+        u64 deadline =
+            astia::atomic_ref<u64>(_alarm_deadline).load(astia::memory_order::acquire);
 
         while (deadline != 0 && deadline <= now) {
-            if (__atomic_compare_exchange_n(&_alarm_deadline, &deadline, 0, false,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            if (astia::atomic_ref<u64>(_alarm_deadline)
+                    .compare_exchange_strong(deadline, 0, astia::memory_order::acq_rel,
+                                             astia::memory_order::acquire)) {
                 (void) _signals.send(signal_number::alrm);
                 interrupt_signal_io(signal_number::alrm);
                 wake_signal_waiters();

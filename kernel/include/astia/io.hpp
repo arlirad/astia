@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/core/cancellation.hpp>
 #include <astia/core/completion.hpp>
@@ -370,8 +371,8 @@ namespace astia::io {
         };
 
         astia::io::request _request;
-        volatile u8        _state          = static_cast<u8>(state::owner);
-        volatile u32       _refs           = 1;
+        mutable u8         _state          = static_cast<u8>(state::owner);
+        u32                _refs           = 1;
         bool               _heap_owned     = false;
         bool               _owner_released = false;
 
@@ -385,7 +386,9 @@ namespace astia::io {
         }
 
         void release_ref() {
-            if (__atomic_sub_fetch(&_refs, 1u, __ATOMIC_ACQ_REL) == 0 && _heap_owned)
+            if (astia::atomic_ref<u32>(_refs).sub_fetch(
+                    1u, astia::memory_order::acq_rel) == 0 &&
+                _heap_owned)
                 destroy(this);
         }
 
@@ -400,7 +403,7 @@ namespace astia::io {
             if (_request._operation != this)
                 return false;
 
-            __atomic_add_fetch(&_refs, 1u, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(_refs).add_fetch(1u, astia::memory_order::acq_rel);
 
             return true;
         }
@@ -412,12 +415,14 @@ namespace astia::io {
         void release_owner() {
             bool expected = false;
 
-            if (!__atomic_compare_exchange_n(&_owner_released, &expected, true, false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!astia::atomic_ref<bool>(_owner_released)
+                     .compare_exchange_strong(expected, true,
+                                              astia::memory_order::acq_rel,
+                                              astia::memory_order::acquire))
                 return;
 
-            const auto observed =
-                static_cast<state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
+            const auto observed = static_cast<state>(
+                astia::atomic_ref<u8>(_state).load(astia::memory_order::acquire));
 
             if (observed == state::parked || observed == state::active ||
                 observed == state::active_completed)
@@ -492,57 +497,60 @@ namespace astia::io {
 
             _request._operation = this;
 
-            __atomic_store_n(&_refs, 1u, __ATOMIC_RELEASE);
-            __atomic_store_n(&_owner_released, false, __ATOMIC_RELEASE);
-            __atomic_store_n(&_state, static_cast<u8>(state::owner), __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_refs).store(1u, astia::memory_order::release);
+            astia::atomic_ref<bool>(_owner_released)
+                .store(false, astia::memory_order::release);
+            astia::atomic_ref<u8>(_state).store(static_cast<u8>(state::owner),
+                                                astia::memory_order::release);
         }
 
         bool park_device() {
             u8 expected = static_cast<u8>(state::owner);
 
-            if (!__atomic_compare_exchange_n(&_state, &expected,
-                                             static_cast<u8>(state::parked), false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                    expected, static_cast<u8>(state::parked),
+                    astia::memory_order::acq_rel, astia::memory_order::acquire))
                 return false;
 
-            __atomic_add_fetch(&_refs, 1u, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(_refs).add_fetch(1u, astia::memory_order::acq_rel);
 
             return true;
         }
 
         bool canceled() const {
-            return static_cast<state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE)) ==
-                   state::canceled;
+            return static_cast<state>(astia::atomic_ref<u8>(_state).load(
+                       astia::memory_order::acquire)) == state::canceled;
         }
 
         bool begin_device() {
             u8 expected = static_cast<u8>(state::parked);
 
-            return __atomic_compare_exchange_n(&_state, &expected,
-                                               static_cast<u8>(state::active), false,
-                                               __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                expected, static_cast<u8>(state::active), astia::memory_order::acq_rel,
+                astia::memory_order::acquire);
         }
 
         void end_device() {
             u8 expected = static_cast<u8>(state::active);
 
-            if (__atomic_compare_exchange_n(&_state, &expected,
-                                            static_cast<u8>(state::parked), false,
-                                            __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+            if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                    expected, static_cast<u8>(state::parked),
+                    astia::memory_order::release, astia::memory_order::acquire))
                 return;
 
             if (expected == static_cast<u8>(state::active_completed)) {
                 u8 completed = static_cast<u8>(state::active_completed);
 
-                if (__atomic_compare_exchange_n(&_state, &completed,
-                                                static_cast<u8>(state::completed), false,
-                                                __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+                if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                        completed, static_cast<u8>(state::completed),
+                        astia::memory_order::release, astia::memory_order::acquire))
                     release_ref();
             }
         }
 
         void acknowledge() {
-            u8 observed = __atomic_load_n(&_state, __ATOMIC_ACQUIRE);
+            u8 observed =
+                astia::atomic_ref<u8>(_state).load(astia::memory_order::acquire);
 
             while (true) {
                 const auto current = static_cast<state>(observed);
@@ -554,9 +562,9 @@ namespace astia::io {
                 if (current == state::active) {
                     u8 expected = static_cast<u8>(state::active);
 
-                    if (__atomic_compare_exchange_n(
-                            &_state, &expected, static_cast<u8>(state::active_completed),
-                            false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                    if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                            expected, static_cast<u8>(state::active_completed),
+                            astia::memory_order::acq_rel, astia::memory_order::acquire))
                         return;
 
                     observed = expected;
@@ -564,9 +572,9 @@ namespace astia::io {
                     continue;
                 }
 
-                if (__atomic_compare_exchange_n(&_state, &observed,
-                                                static_cast<u8>(state::completed), false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
+                        observed, static_cast<u8>(state::completed),
+                        astia::memory_order::acq_rel, astia::memory_order::acquire)) {
                     release_ref();
 
                     return;

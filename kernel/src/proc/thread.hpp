@@ -2,6 +2,7 @@
 
 #include <astia/api/signal.h>
 #include <astia/arch/context.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
@@ -49,13 +50,13 @@ namespace astia::proc {
         }
 
         thread_state state() const {
-            return static_cast<thread_state>(
-                __atomic_load_n(reinterpret_cast<const u8*>(&_state), __ATOMIC_ACQUIRE));
+            return astia::atomic_ref<thread_state>(_state).load(
+                astia::memory_order::acquire);
         }
 
         void state(thread_state value) {
-            __atomic_store_n(reinterpret_cast<u8*>(&_state), static_cast<u8>(value),
-                             __ATOMIC_RELEASE);
+            astia::atomic_ref<thread_state>(_state).store(value,
+                                                          astia::memory_order::release);
         }
 
         /// Interrupt gate this thread was running with when the scheduler
@@ -288,49 +289,58 @@ namespace astia::proc {
         }
 
         bool owns_user_stack() const {
-            return __atomic_load_n(&_owns_user_stack, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_owns_user_stack)
+                       .load(astia::memory_order::acquire) != 0;
         }
 
         void owns_user_stack(bool value) {
-            __atomic_store_n(&_owns_user_stack, value ? 1 : 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_owns_user_stack)
+                .store(value ? 1 : 0, astia::memory_order::release);
         }
 
         bool claim_owned_user_stack() {
-            return __atomic_exchange_n(&_owns_user_stack, 0, __ATOMIC_ACQ_REL) != 0;
+            return astia::atomic_ref<u8>(_owns_user_stack)
+                       .exchange(0, astia::memory_order::acq_rel) != 0;
         }
 
         bool detached() const {
-            return __atomic_load_n(&_detached, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_detached).load(astia::memory_order::acquire) !=
+                   0;
         }
 
         bool cancellation_pending() const {
-            return __atomic_load_n(&_cancellation_pending, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_cancellation_pending)
+                       .load(astia::memory_order::acquire) != 0;
         }
 
         bool exit_requested() const {
-            return __atomic_load_n(&_exit_requested, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_exit_requested)
+                       .load(astia::memory_order::acquire) != 0;
         }
 
         void request_exit() {
-            __atomic_store_n(&_exit_requested, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_exit_requested).store(1, astia::memory_order::release);
         }
 
         bool kill_pending() const {
-            return __atomic_load_n(&_kill_pending, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_kill_pending)
+                       .load(astia::memory_order::acquire) != 0;
         }
 
         void request_kill() {
-            __atomic_store_n(&_kill_pending, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_kill_pending).store(1, astia::memory_order::release);
         }
 
         void request_cancellation() {
-            __atomic_store_n(&_cancellation_pending, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_cancellation_pending)
+                .store(1, astia::memory_order::release);
         }
 
         /// Consume the request after the thread handled it, so a thread that
         /// stays alive is not interrupted by every later wait.
         void clear_cancellation() {
-            __atomic_store_n(&_cancellation_pending, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_cancellation_pending)
+                .store(0, astia::memory_order::release);
         }
 
         bool wake_join_for_cancellation();
@@ -351,7 +361,7 @@ namespace astia::proc {
 
         process*                _owner;
         tid_t                   _tid;
-        thread_state            _state                         = thread_state::fresh;
+        mutable thread_state    _state                         = thread_state::fresh;
         scheduling_class        _sched_class                   = scheduling_class::normal;
         i32                     _nice                          = 0;
         u8                      _rt_priority                   = 0;
@@ -380,11 +390,11 @@ namespace astia::proc {
         std::coroutine_handle<> _pending_resume[2]{};
         u32                     _pending_resume_count = 0;
         void*                   _result               = nullptr;
-        u8                      _detached             = 0;
-        u8                      _owns_user_stack      = 0;
-        u8                      _cancellation_pending = 0;
-        u8                      _exit_requested       = 0;
-        u8                      _kill_pending         = 0;
+        mutable u8              _detached             = 0;
+        mutable u8              _owns_user_stack      = 0;
+        mutable u8              _cancellation_pending = 0;
+        mutable u8              _exit_requested       = 0;
+        mutable u8              _kill_pending         = 0;
         thread*                 _joining              = nullptr;
         bool                    _join_cancel_wakeup   = false;
         bool                    _idle                 = false;

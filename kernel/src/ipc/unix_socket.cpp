@@ -1,6 +1,7 @@
 #include "unix_socket.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/resource_limits.hpp>
@@ -106,8 +107,10 @@ namespace astia::fs {
                         return 0;
 
                     const u32 peer = socket_peer_side(side),
-                              h = __atomic_load_n(&channel->head[peer], __ATOMIC_ACQUIRE),
-                              t = __atomic_load_n(&channel->tail[peer], __ATOMIC_RELAXED);
+                              h    = astia::atomic_ref<u32>(channel->head[peer])
+                                      .load(astia::memory_order::acquire),
+                              t = astia::atomic_ref<u32>(channel->tail[peer])
+                                      .load(astia::memory_order::relaxed);
 
                     if (h == t)
                         return 0;
@@ -121,7 +124,8 @@ namespace astia::fs {
                                                      (socket_stream_capacity_bytes - 1)];
                     }
 
-                    __atomic_store_n(&channel->tail[peer], t + count, __ATOMIC_RELEASE);
+                    astia::atomic_ref<u32>(channel->tail[peer])
+                        .store(t + count, astia::memory_order::release);
                 }
                 // Readiness may synchronously resume a parked operation.  Never
                 // call into the AIO engine while the channel lock is held.
@@ -158,8 +162,10 @@ namespace astia::fs {
                         channel->shut_wr[side])
                         return -EPIPE;
 
-                    u32 h    = __atomic_load_n(&channel->head[side], __ATOMIC_RELAXED),
-                        t    = __atomic_load_n(&channel->tail[side], __ATOMIC_ACQUIRE);
+                    u32 h = astia::atomic_ref<u32>(channel->head[side])
+                                .load(astia::memory_order::relaxed),
+                        t = astia::atomic_ref<u32>(channel->tail[side])
+                                .load(astia::memory_order::acquire);
                     u32 free = socket_stream_capacity_bytes - (h - t);
                     if (!free)
                         return 0;
@@ -174,7 +180,8 @@ namespace astia::fs {
                             in[i];
                     }
 
-                    __atomic_store_n(&channel->head[side], h + count, __ATOMIC_RELEASE);
+                    astia::atomic_ref<u32>(channel->head[side])
+                        .store(h + count, astia::memory_order::release);
                 }
                 // As above, readiness callbacks must run after channel unlock.
                 if (peer_owner)
@@ -227,8 +234,10 @@ namespace astia::fs {
 
                     const u32 peer = socket_peer_side(side);
 
-                    if (__atomic_load_n(&channel->head[peer], __ATOMIC_ACQUIRE) !=
-                        __atomic_load_n(&channel->tail[peer], __ATOMIC_RELAXED))
+                    if (astia::atomic_ref<u32>(channel->head[peer])
+                            .load(astia::memory_order::acquire) !=
+                        astia::atomic_ref<u32>(channel->tail[peer])
+                            .load(astia::memory_order::relaxed))
                         result |= POLLIN;
 
                     if (channel->closed[side] || channel->shut_rd[side])
@@ -241,10 +250,10 @@ namespace astia::fs {
                         result |= POLLERR;
                     else if (!channel->shut_wr[side] &&
                              socket_stream_capacity_bytes -
-                                     (__atomic_load_n(&channel->head[side],
-                                                      __ATOMIC_RELAXED) -
-                                      __atomic_load_n(&channel->tail[side],
-                                                      __ATOMIC_ACQUIRE)) !=
+                                     (astia::atomic_ref<u32>(channel->head[side])
+                                          .load(astia::memory_order::relaxed) -
+                                      astia::atomic_ref<u32>(channel->tail[side])
+                                          .load(astia::memory_order::acquire)) !=
                                  0)
                         result |= POLLOUT;
                 }
@@ -318,11 +327,13 @@ namespace astia::fs {
             const unix_socket_operations* unix_socket_capability() const override;
 
             void duplicate(u32) override {
-                __atomic_fetch_add(&_opens, 1u, __ATOMIC_ACQ_REL);
+                astia::atomic_ref<u32>(_opens).fetch_add(1u,
+                                                         astia::memory_order::acq_rel);
             }
 
             void close(u32) override {
-                if (__atomic_fetch_sub(&_opens, 1u, __ATOMIC_ACQ_REL) != 1)
+                if (astia::atomic_ref<u32>(_opens).fetch_sub(
+                        1u, astia::memory_order::acq_rel) != 1)
                     return;
                 bool                 bound;
                 char                 path[path_max]{};

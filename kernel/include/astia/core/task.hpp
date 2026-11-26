@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/error.hpp>
@@ -623,25 +624,30 @@ namespace astia::core {
         inline static u32        _pool_allocations  = 0;
 
         static void initialize_pool() {
-            u32 state = __atomic_load_n(&_frame_initialized, __ATOMIC_ACQUIRE);
+            u32 state = astia::atomic_ref<u32>(_frame_initialized)
+                            .load(astia::memory_order::acquire);
             if (state == 2)
                 return;
 
             u32 expected = 0;
 
-            if (__atomic_compare_exchange_n(&_frame_initialized, &expected, 1, false,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+            if (astia::atomic_ref<u32>(_frame_initialized)
+                    .compare_exchange_strong(expected, 1, astia::memory_order::acq_rel,
+                                             astia::memory_order::acquire)) {
                 for (u32 i = 0; i + 1 < frame_slot_count; ++i) {
                     _frame_pool[i].next = i + 1;
                 }
 
                 _frame_pool[frame_slot_count - 1].next = frame_slot_count;
 
-                __atomic_store_n(&_frame_head, 0, __ATOMIC_RELEASE);
-                __atomic_store_n(&_frame_initialized, 2, __ATOMIC_RELEASE);
+                astia::atomic_ref<u32>(_frame_head)
+                    .store(0, astia::memory_order::release);
+                astia::atomic_ref<u32>(_frame_initialized)
+                    .store(2, astia::memory_order::release);
             }
             else {
-                while (__atomic_load_n(&_frame_initialized, __ATOMIC_ACQUIRE) != 2) {
+                while (astia::atomic_ref<u32>(_frame_initialized)
+                           .load(astia::memory_order::acquire) != 2) {
                 }
             }
         }
@@ -652,14 +658,17 @@ namespace astia::core {
 
             initialize_pool();
 
-            u32 head = __atomic_load_n(&_frame_head, __ATOMIC_ACQUIRE);
+            u32 head =
+                astia::atomic_ref<u32>(_frame_head).load(astia::memory_order::acquire);
 
             while (head != frame_slot_count) {
                 u32 next = _frame_pool[head].next;
 
-                if (__atomic_compare_exchange_n(&_frame_head, &head, next, false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                    __atomic_add_fetch(&_pool_allocations, 1, __ATOMIC_RELAXED);
+                if (astia::atomic_ref<u32>(_frame_head)
+                        .compare_exchange_strong(head, next, astia::memory_order::acq_rel,
+                                                 astia::memory_order::acquire)) {
+                    astia::atomic_ref<u32>(_pool_allocations)
+                        .add_fetch(1, astia::memory_order::relaxed);
 
                     return _frame_pool[head].storage;
                 }
@@ -695,17 +704,21 @@ namespace astia::core {
             if (!owns_frame(value, index))
                 return;
 
-            u32 head = __atomic_load_n(&_frame_head, __ATOMIC_RELAXED);
+            u32 head =
+                astia::atomic_ref<u32>(_frame_head).load(astia::memory_order::relaxed);
 
             do {
                 _frame_pool[index].next = head;
-            } while (!__atomic_compare_exchange_n(&_frame_head, &head, index, false,
-                                                  __ATOMIC_RELEASE, __ATOMIC_RELAXED));
+            } while (!astia::atomic_ref<u32>(_frame_head)
+                          .compare_exchange_strong(head, index,
+                                                   astia::memory_order::release,
+                                                   astia::memory_order::relaxed));
         }
 
         public:
         static u32 pooled_frame_allocations() {
-            return __atomic_load_n(&_pool_allocations, __ATOMIC_RELAXED);
+            return astia::atomic_ref<u32>(_pool_allocations)
+                .load(astia::memory_order::relaxed);
         }
 
         private:

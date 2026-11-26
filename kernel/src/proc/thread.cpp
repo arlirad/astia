@@ -3,6 +3,7 @@
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/mm/heap.hpp>
 
 #include "proc.hpp"
@@ -278,7 +279,8 @@ namespace astia::proc {
 
     bool thread::wake_join_for_cancellation() {
         arch::interrupt_guard gate;
-        thread*               target = __atomic_load_n(&_joining, __ATOMIC_ACQUIRE);
+        thread*               target =
+            astia::atomic_ref<thread*>(_joining).load(astia::memory_order::acquire);
         if (target == nullptr)
             return false;
 
@@ -287,10 +289,12 @@ namespace astia::proc {
         {
             arch::interrupt_spinlock_guard target_guard(target->_lifecycle_lock);
 
-            if (__atomic_load_n(&_joining, __ATOMIC_ACQUIRE) != target)
+            if (astia::atomic_ref<thread*>(_joining).load(astia::memory_order::acquire) !=
+                target)
                 return false;
 
-            __atomic_store_n(&_join_cancel_wakeup, true, __ATOMIC_RELEASE);
+            astia::atomic_ref<bool>(_join_cancel_wakeup)
+                .store(true, astia::memory_order::release);
 
             continuation               = target->_async_join_handle;
             target->_async_join_handle = {};
@@ -411,7 +415,8 @@ namespace astia::proc {
 
             _joiner = current;
 
-            __atomic_store_n(&current->_joining, this, __ATOMIC_RELEASE);
+            astia::atomic_ref<thread*>(current->_joining)
+                .store(this, astia::memory_order::release);
         }
 
         struct join_awaiter {
@@ -430,14 +435,15 @@ namespace astia::proc {
 
         (void) co_await wait;
 
-        if (__atomic_exchange_n(&current->_join_cancel_wakeup, false, __ATOMIC_ACQ_REL)) {
+        if (astia::atomic_ref<bool>(current->_join_cancel_wakeup)
+                .exchange(false, astia::memory_order::acq_rel)) {
             arch::interrupt_spinlock_guard guard(_lifecycle_lock);
 
             if (_joiner == current)
                 _joiner = nullptr;
 
-            __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
-                             __ATOMIC_RELEASE);
+            astia::atomic_ref<thread*>(current->_joining)
+                .store(static_cast<thread*>(nullptr), astia::memory_order::release);
 
             co_return -EINTR;
         }
@@ -445,8 +451,8 @@ namespace astia::proc {
         if (result != nullptr)
             *result = _result;
 
-        __atomic_store_n(&current->_joining, static_cast<thread*>(nullptr),
-                         __ATOMIC_RELEASE);
+        astia::atomic_ref<thread*>(current->_joining)
+            .store(static_cast<thread*>(nullptr), astia::memory_order::release);
 
         if (_owner != nullptr)
             _owner->release_thread_stack(this);
@@ -466,7 +472,7 @@ namespace astia::proc {
             if (detached() || _joiner != nullptr)
                 return -EINVAL;
 
-            __atomic_store_n(&_detached, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_detached).store(1, astia::memory_order::release);
 
             dead = state() == thread_state::dead;
         }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -25,7 +26,7 @@ namespace astia::core {
             u32          retired_count = 0;
         };
 
-        alignas(cache_line_bytes) u64 _epoch = 1;
+        alignas(cache_line_bytes) mutable u64 _epoch = 1;
         cpu_state _cpus[CpuCount]{};
 
         bool grace_complete(u64 retired_epoch) const {
@@ -49,7 +50,8 @@ namespace astia::core {
                 cpu_state& state = _domain._cpus[_cpu];
 
                 if (state.nesting++ == 0)
-                    state.epoch = __atomic_load_n(&_domain._epoch, __ATOMIC_SEQ_CST);
+                    state.epoch = astia::atomic_ref<u64>(_domain._epoch)
+                                      .load(astia::memory_order::seq_cst);
 
                 _active = true;
             }
@@ -84,7 +86,8 @@ namespace astia::core {
                 return false;
 
             state.retired[state.retired_count++] = {
-                value, destroy, __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST)};
+                value, destroy,
+                astia::atomic_ref<u64>(_epoch).load(astia::memory_order::seq_cst)};
 
             return true;
         }
@@ -96,7 +99,7 @@ namespace astia::core {
         /// Advance the epoch and reclaim objects whose pre-existing readers
         /// have all left. Destructors run outside any lock by construction.
         u32 poll() {
-            __atomic_add_fetch(&_epoch, 1, __ATOMIC_SEQ_CST);
+            astia::atomic_ref<u64>(_epoch).add_fetch(1, astia::memory_order::seq_cst);
 
             u32 reclaimed = 0;
 
@@ -135,11 +138,12 @@ namespace astia::core {
 
         void quiescent(u32 cpu) {
             if (cpu < CpuCount && _cpus[cpu].nesting == 0)
-                _cpus[cpu].epoch = __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+                _cpus[cpu].epoch =
+                    astia::atomic_ref<u64>(_epoch).load(astia::memory_order::seq_cst);
         }
 
         u64 epoch() const {
-            return __atomic_load_n(&_epoch, __ATOMIC_SEQ_CST);
+            return astia::atomic_ref<u64>(_epoch).load(astia::memory_order::seq_cst);
         }
     };
 } // namespace astia::core

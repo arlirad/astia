@@ -1,6 +1,7 @@
 #include "pipe.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/share.hpp>
 
@@ -76,7 +77,8 @@ namespace astia::fs {
             long write_ready(const void* buffer, u32 length, u64) override {
                 if (buffer == nullptr && length != 0)
                     return -EFAULT;
-                if (__atomic_load_n(&_readers, __ATOMIC_ACQUIRE) == 0)
+                if (astia::atomic_ref<u32>(_readers).load(astia::memory_order::acquire) ==
+                    0)
                     return -EPIPE;
                 u32 count = 0;
                 {
@@ -112,10 +114,12 @@ namespace astia::fs {
                     if (_head != _tail)
                         result |= POLLIN;
 
-                    if (__atomic_load_n(&_writers, __ATOMIC_ACQUIRE) == 0)
+                    if (astia::atomic_ref<u32>(_writers).load(
+                            astia::memory_order::acquire) == 0)
                         result |= POLLIN | POLLHUP;
                 }
-                else if (__atomic_load_n(&_readers, __ATOMIC_ACQUIRE) == 0) {
+                else if (astia::atomic_ref<u32>(_readers).load(
+                             astia::memory_order::acquire) == 0) {
                     result |= POLLERR;
                 }
                 else if (pipe_capacity_bytes - (_head - _tail) != 0) {
@@ -127,14 +131,16 @@ namespace astia::fs {
             void close(u32 flags) override {
                 u32* count =
                     (flags & pipe_read_endpoint_flag) != 0 ? &_readers : &_writers;
-                if (__atomic_fetch_sub(count, 1u, __ATOMIC_ACQ_REL) == 1)
+                if (astia::atomic_ref<u32>(*count).fetch_sub(
+                        1u, astia::memory_order::acq_rel) == 1)
                     sys::io_device_ready_context(this);
             }
 
             void duplicate(u32 flags) override {
                 u32* count =
                     (flags & pipe_read_endpoint_flag) != 0 ? &_readers : &_writers;
-                __atomic_fetch_add(count, 1u, __ATOMIC_ACQ_REL);
+                astia::atomic_ref<u32>(*count).fetch_add(1u,
+                                                         astia::memory_order::acq_rel);
             }
 
             long submit(io::request& request) override {
@@ -145,7 +151,8 @@ namespace astia::fs {
                 if (result == 0 && request.length() == 0)
                     request.complete(true);
                 else if (result == 0 && request.direction() == io::direction::input &&
-                         __atomic_load_n(&_writers, __ATOMIC_ACQUIRE) == 0)
+                         astia::atomic_ref<u32>(_writers).load(
+                             astia::memory_order::acquire) == 0)
                     request.complete(true);
                 else if (result == 0)
                     request.stage(1);

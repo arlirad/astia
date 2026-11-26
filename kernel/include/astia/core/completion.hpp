@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/error.hpp>
@@ -21,36 +22,38 @@ namespace astia::core {
             canceled,
         };
 
-        optional<T>             result_;
-        u8                      state_             = static_cast<u8>(state::pending);
-        u8                      deferred_inflight_ = 0;
-        u64                     generation_        = 1;
-        std::coroutine_handle<> continuation_{};
+        optional<T> result_;
+        mutable u8  state_             = static_cast<u8>(state::pending);
+        u8          deferred_inflight_ = 0;
+        u64         generation_        = 1;
+        void*       continuation_      = nullptr;
 
         bool finished() const {
-            u8 value = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
+            u8 value = astia::atomic_ref<u8>(state_).load(astia::memory_order::acquire);
 
             while (value == static_cast<u8>(state::completing)) {
-                value = __atomic_load_n(&state_, __ATOMIC_ACQUIRE);
+                value = astia::atomic_ref<u8>(state_).load(astia::memory_order::acquire);
             }
 
             return value != static_cast<u8>(state::pending);
         }
 
         void wake() {
-            auto continuation = __atomic_exchange_n(
-                reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
+            auto continuation = astia::atomic_ref<void*>(continuation_)
+                                    .exchange(nullptr, astia::memory_order::acq_rel);
             if (continuation != nullptr)
                 std::coroutine_handle<>::from_address(continuation).resume();
         }
 
         void wake_deferred() {
-            __atomic_store_n(&deferred_inflight_, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(deferred_inflight_)
+                .store(1, astia::memory_order::release);
 
-            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            const u64 generation =
+                astia::atomic_ref<u64>(generation_).load(astia::memory_order::acquire);
 
-            auto continuation = __atomic_exchange_n(
-                reinterpret_cast<void**>(&continuation_), nullptr, __ATOMIC_ACQ_REL);
+            auto continuation = astia::atomic_ref<void*>(continuation_)
+                                    .exchange(nullptr, astia::memory_order::acq_rel);
             if (continuation != nullptr) {
                 const auto handle = std::coroutine_handle<>::from_address(continuation);
 
@@ -58,7 +61,8 @@ namespace astia::core {
                     handle.resume();
             }
 
-            __atomic_store_n(&deferred_inflight_, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(deferred_inflight_)
+                .store(0, astia::memory_order::release);
         }
 
         public:
@@ -198,37 +202,41 @@ namespace astia::core {
         bool begin_completion() {
             u8 expected = static_cast<u8>(state::pending);
 
-            if (!__atomic_compare_exchange_n(&state_, &expected,
-                                             static_cast<u8>(state::completing), false,
-                                             __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!astia::atomic_ref<u8>(state_).compare_exchange_strong(
+                    expected, static_cast<u8>(state::completing),
+                    astia::memory_order::acq_rel, astia::memory_order::acquire))
                 return false;
 
             return true;
         }
 
         void publish(state value) {
-            __atomic_store_n(&state_, static_cast<u8>(value), __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(state_).store(static_cast<u8>(value),
+                                                astia::memory_order::release);
         }
 
         u64 attach(std::coroutine_handle<> continuation) noexcept {
             if (finished())
                 return 0;
 
-            const u64 generation = __atomic_load_n(&generation_, __ATOMIC_ACQUIRE);
+            const u64 generation =
+                astia::atomic_ref<u64>(generation_).load(astia::memory_order::acquire);
 
             void* expected = nullptr;
 
-            if (!__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
-                                             &expected, continuation.address(), false,
-                                             __ATOMIC_RELEASE, __ATOMIC_ACQUIRE))
+            if (!astia::atomic_ref<void*>(continuation_)
+                     .compare_exchange_strong(expected, continuation.address(),
+                                              astia::memory_order::release,
+                                              astia::memory_order::acquire))
                 return 0;
 
             if (finished()) {
                 void* value = continuation.address();
 
-                if (__atomic_compare_exchange_n(reinterpret_cast<void**>(&continuation_),
-                                                &value, nullptr, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE))
+                if (astia::atomic_ref<void*>(continuation_)
+                        .compare_exchange_strong(value, nullptr,
+                                                 astia::memory_order::acq_rel,
+                                                 astia::memory_order::acquire))
                     return 0;
 
                 return generation;
@@ -241,15 +249,18 @@ namespace astia::core {
             if (!continuation)
                 return;
 
-            __atomic_add_fetch(&generation_, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u64>(generation_)
+                .add_fetch(1, astia::memory_order::acq_rel);
 
             void* expected = continuation.address();
 
-            const bool detached = __atomic_compare_exchange_n(
-                reinterpret_cast<void**>(&continuation_), &expected, nullptr, false,
-                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+            const bool detached = astia::atomic_ref<void*>(continuation_)
+                                      .compare_exchange_strong(
+                                          expected, nullptr, astia::memory_order::acq_rel,
+                                          astia::memory_order::acquire);
             if (!detached) {
-                while (__atomic_load_n(&deferred_inflight_, __ATOMIC_ACQUIRE) != 0) {
+                while (astia::atomic_ref<u8>(deferred_inflight_)
+                           .load(astia::memory_order::acquire) != 0) {
                     arch::cpu::relax();
                 }
             }
