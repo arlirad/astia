@@ -321,6 +321,7 @@ namespace astia::proc {
         }
         /// Startup-vector facts about the image this process will enter.
         struct exec_image_info {
+            u64 base   = 0; ///< payload load bias (AT_ASTIA_PAYLOAD_BASE)
             u64 entry  = 0; ///< payload entry (AT_ENTRY)
             u64 phdr   = 0; ///< payload phdr table (AT_PHDR)
             u64 interp = 0; ///< interpreter load bias (AT_BASE), 0 = static
