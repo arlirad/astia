@@ -7,7 +7,6 @@
 #include <vector>
 
 namespace {
-
     using astia::u16;
     using astia::u32;
     using astia::u64;
@@ -19,9 +18,12 @@ namespace {
 
     bool read_image(void* context, u64 offset, void* buffer, astia::usize length) {
         auto& source = *static_cast<image*>(context);
+
         if (offset > source.bytes.size() || length > source.bytes.size() - offset)
             return false;
+
         std::memcpy(buffer, source.bytes.data() + offset, length);
+
         return true;
     }
 
@@ -32,15 +34,21 @@ namespace {
 
     bool find_entry(void*                                                context,
                     const astia::fs::filesystems::ext4::directory_entry& entry) {
-        auto& state  = *static_cast<find_state*>(context);
-        u32   length = 0;
-        while (state.wanted[length] != '\0')
+        auto& state = *static_cast<find_state*>(context);
+
+        u32 length = 0;
+
+        while (state.wanted[length] != '\0') {
             ++length;
+        }
+
         if (length == entry.name_length &&
             std::memcmp(state.wanted, entry.name, length) == 0) {
             state.inode = entry.inode;
+
             return false;
         }
+
         return true;
     }
 
@@ -48,14 +56,17 @@ namespace {
                     const astia::fs::filesystems::ext4::inode& directory,
                     const char* name, astia::fs::filesystems::ext4::inode& result) {
         find_state state{name};
+
         if (!reader.read_directory(directory, find_entry, &state) || state.inode == 0)
             return false;
+
         return reader.read_inode(state.inode, result);
     }
 
     bool check(bool condition, const char* expression) {
         if (!condition)
             std::printf("FAIL: %s\n", expression);
+
         return condition;
     }
 
@@ -65,23 +76,28 @@ namespace {
                static_cast<u32>(bytes[offset + 2]) << 16 |
                static_cast<u32>(bytes[offset + 3]) << 24;
     }
-
 }
 
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::printf("usage: %s IMAGE\n", argv[0]);
+
         return 2;
     }
+
     image         image_data;
     std::ifstream input(argv[1], std::ios::binary);
+
     image_data.bytes.assign(std::istreambuf_iterator<char>(input), {});
+
     if (!check(input.good() || input.eof(), "read fixture"))
         return 1;
 
     astia::fs::filesystems::ext4::reader reader;
+
     if (!check(reader.open(read_image, &image_data), "open metadata-csum fixture"))
         return 1;
+
     if (!check((reader.feature_ro_compat() & 0x0400) != 0, "metadata checksums enabled"))
         return 1;
 
@@ -90,13 +106,15 @@ int main(int argc, char** argv) {
     astia::fs::filesystems::ext4::inode known;
     astia::fs::filesystems::ext4::inode directory;
     astia::fs::filesystems::ext4::inode nested;
-    bool                                valid =
+
+    bool valid =
         check(reader.read_inode(2, root), "read root inode") &&
         check(find_inode(reader, root, "etc", etc), "find etc") &&
         check(find_inode(reader, etc, "known.txt", known), "find known.txt") &&
         check(find_inode(reader, root, "dir", directory), "find dir") &&
         check(find_inode(reader, directory, "nested.txt", nested), "find nested.txt");
     char contents[64]{};
+
     valid = check(valid && reader.read_file(known, 0, contents, sizeof contents),
                   "read known.txt") &&
             check(valid && std::strcmp(contents, "read-only ext4 fixture\n") == 0,
@@ -105,8 +123,11 @@ int main(int argc, char** argv) {
         return 1;
 
     image corrupted = image_data;
+
     corrupted.bytes[1024 + 0x3FC] ^= 1;
+
     astia::fs::filesystems::ext4::reader damaged;
+
     valid =
         check(!damaged.open(read_image, &corrupted), "reject bad superblock checksum") &&
         check(damaged.last_error() == astia::fs::filesystems::ext4::error::checksum,
@@ -120,10 +141,12 @@ int main(int argc, char** argv) {
                   "descriptor checksum error") &&
             valid;
 
-    corrupted              = image_data;
+    corrupted = image_data;
+
     const u64 inode_table  = get32(corrupted.bytes, 2048 + 0x08);
     const u64 inode_offset = inode_table * reader.block_size() +
                              static_cast<u64>(known.number - 1) * reader.inode_size();
+
     corrupted.bytes[inode_offset + 0x7C] ^= 1;
     valid =
         check(damaged.open(read_image, &corrupted), "open bad inode image") &&
@@ -131,5 +154,6 @@ int main(int argc, char** argv) {
         check(damaged.last_error() == astia::fs::filesystems::ext4::error::checksum,
               "inode checksum error") &&
         valid;
+
     return valid ? 0 : 1;
 }

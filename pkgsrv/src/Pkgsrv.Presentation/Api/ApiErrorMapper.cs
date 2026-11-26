@@ -10,7 +10,9 @@ public static class ApiErrorMapper
 {
     public static bool IsMapped(Exception exception) =>
         Unwrap(exception) is ValidationFailedException
+            or AuthenticationRequiredException
             or AuthorizationDeniedException
+            or AuthorizationUnavailableException
             or PackageNotFoundException
             or PackageConflictException
             or PackageArtifactNotFoundException
@@ -27,11 +29,21 @@ public static class ApiErrorMapper
         return unwrapped switch
         {
             ValidationFailedException validation => ValidationProblem(validation),
+            AuthenticationRequiredException unauthenticated => Problem(
+                401,
+                "Authentication required",
+                unauthenticated.Message,
+                unauthenticated.Code),
             AuthorizationDeniedException denied => Problem(
                 403,
                 "Authorization denied",
                 denied.Message,
                 denied.Code),
+            AuthorizationUnavailableException unavailable => Problem(
+                503,
+                "Authorization unavailable",
+                unavailable.Message,
+                unavailable.Code),
             PackageNotFoundException notFound => Problem(
                 404,
                 "Package not found",

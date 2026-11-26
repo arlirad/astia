@@ -5,7 +5,6 @@
 #include <astia/mm/shptr.hpp>
 
 namespace astia::dev {
-
     class console_backend {
         public:
         virtual bool write_byte(u8 byte) = 0;
@@ -17,5 +16,4 @@ namespace astia::dev {
     bool        console_backend_available();
     bool        console_putc(u8 byte);
     mm::shptr<fs::open_file> open_console(u32 flags);
-
 } // namespace astia::dev

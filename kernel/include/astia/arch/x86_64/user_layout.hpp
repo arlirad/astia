@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch::x86_64 {
-
     struct user_layout_policy {
         inline static constexpr u32 virtual_address_bits = 48;
 
@@ -23,9 +22,9 @@ namespace astia::arch::x86_64 {
             constexpr u64 sign_bit = u64{1} << (virtual_address_bits - 1);
             const u64     low      = address & low_mask;
             const u64     high     = address & ~low_mask;
+
             return (high == 0 && (low & sign_bit) == 0) ||
                    (high == ~low_mask && (low & sign_bit) != 0);
         }
     };
-
 } // namespace astia::arch::x86_64

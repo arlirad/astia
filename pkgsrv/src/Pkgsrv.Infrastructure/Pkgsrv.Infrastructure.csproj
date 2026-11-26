@@ -17,4 +17,12 @@
     <ProjectReference Include="..\Pkgsrv.Application\Pkgsrv.Application.csproj" />
     <ProjectReference Include="..\Pkgsrv.Domain\Pkgsrv.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Security\IrvaClientAdapterFactory.Real.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(IrvaClientProject)' != ''">
+    <ProjectReference Include="$(IrvaClientProject)" />
+    <Compile Remove="Security\IrvaClientAdapterFactory.Default.cs" />
+    <Compile Include="Security\IrvaClientAdapterFactory.Real.cs" />
+  </ItemGroup>
 </Project>

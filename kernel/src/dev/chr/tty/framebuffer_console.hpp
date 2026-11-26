@@ -1,18 +1,20 @@
 #pragma once
 
-#include "../../console.hpp"
-#include "framebuffer_renderer.hpp"
 #include <astia/boot.hpp>
 #include <astia/dev/mmio.hpp>
 
-namespace astia::dev {
+#include "../../console.hpp"
+#include "framebuffer_renderer.hpp"
 
+namespace astia::dev {
     class framebuffer_console final : public console_backend {
         public:
         bool initialize(const boot::framebuffer_info& info);
+
         bool write_byte(u8 byte) override {
             return _renderer.write_byte(byte);
         }
+
         bool available() const {
             return _renderer.ready();
         }
@@ -25,5 +27,4 @@ namespace astia::dev {
 
     framebuffer_console* framebuffer_console_backend();
     bool                 framebuffer_console_init(const boot::boot_info* info);
-
 } // namespace astia::dev

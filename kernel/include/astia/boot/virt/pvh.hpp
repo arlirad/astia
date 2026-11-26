@@ -4,7 +4,6 @@
 #include <astia/span.hpp>
 
 namespace astia::boot::virt {
-
     /// Interpret the x86/HVM direct boot ABI ("PVH") start_info at
     /// `start_info` and fill `out` with the bootloader-agnostic handoff it
     /// carries: memory map, command line, RSDP and modules.
@@ -18,5 +17,4 @@ namespace astia::boot::virt {
     bool parse_start_info(span<const u8> start_info, span<const u8> physical_memory,
                           boot_info& out);
     bool parse_start_info(span<const u8> start_info, boot_info& out);
-
 } // namespace astia::boot::virt

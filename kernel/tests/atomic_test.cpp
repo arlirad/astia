@@ -29,7 +29,8 @@ ASTIA_TEST(atomic_pointer_compare_exchange_success) {
     int second = 2;
 
     astia::atomic<int*> slot(&first);
-    int*                expected = &first;
+
+    int* expected = &first;
 
     ASTIA_CHECK(slot.compare_exchange_strong(
         expected, &second, astia::memory_order::acq_rel, astia::memory_order::acquire));
@@ -42,7 +43,8 @@ ASTIA_TEST(atomic_pointer_compare_exchange_failure_updates_expected) {
     int second = 2;
 
     astia::atomic<int*> slot(&first);
-    int*                expected = &second;
+
+    int* expected = &second;
 
     ASTIA_CHECK(!slot.compare_exchange_strong(
         expected, &second, astia::memory_order::acq_rel, astia::memory_order::acquire));
@@ -51,9 +53,10 @@ ASTIA_TEST(atomic_pointer_compare_exchange_failure_updates_expected) {
 }
 
 ASTIA_TEST(atomic_pointer_ref_compare_exchange) {
-    int  first  = 1;
-    int  second = 2;
-    int* slot   = &first;
+    int first  = 1;
+    int second = 2;
+
+    int* slot = &first;
 
     astia::atomic_ref<int*> ref(slot);
     int*                    expected = &first;
@@ -73,6 +76,7 @@ ASTIA_TEST(atomic_weak_compare_exchange_retries) {
                                         astia::memory_order::relaxed)) {
         if (++attempts > 1000)
             break;
+
         expected = 0;
     }
 
@@ -103,6 +107,7 @@ ASTIA_TEST(atomic_enum_storage) {
     ASTIA_CHECK(value.load() == mode::running);
 
     mode expected = mode::stopped;
+
     ASTIA_CHECK(!value.compare_exchange_strong(expected, mode::idle));
     ASTIA_CHECK(expected == mode::running);
     ASTIA_CHECK(value.compare_exchange_strong(expected, mode::idle));

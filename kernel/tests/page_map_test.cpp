@@ -6,7 +6,6 @@
 #include "test.hpp"
 
 namespace {
-
     using astia::arch::page_flags;
     using astia::arch::page_map;
 
@@ -20,9 +19,11 @@ namespace {
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
+
             map.add(astia_test::arena_base, astia_test::arena_size,
                     astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
+
             ready = true;
         }
 
@@ -33,11 +34,11 @@ namespace {
     astia::vaddr_t kvirt(astia::vaddr_t offset) {
         return astia::arch::kernel_base + offset;
     }
-
 } // namespace
 
 ASTIA_TEST(page_map_create_allocates_empty_root) {
     auto pm = make_map();
+
     ASTIA_CHECK(pm.valid());
     ASTIA_CHECK((pm.root() % 4096) == 0);
     ASTIA_CHECK(pm.parent() == nullptr);
@@ -74,6 +75,7 @@ ASTIA_TEST(page_map_map_4k_splits_2m_page) {
     // Punch a single 4 KiB page through the middle of the 2 MiB leaf; the
     // split must keep the surrounding frames mapped one page at a time.
     const astia::u64 page_phys = astia_test::arena_base + 0x600000;
+
     ASTIA_CHECK(pm.map_4k(0x201000, page_phys, rw));
 
     ASTIA_CHECK(pm.translate(0x201000) == page_phys);
@@ -141,6 +143,7 @@ ASTIA_TEST(page_map_rejects_misaligned_and_non_canonical) {
     ASTIA_CHECK(!pm.map_2m(0x200000, astia_test::arena_base + 0x1000, rw));
 
     const astia::u64 non_canonical = 0x0001000000000000ull;
+
     ASTIA_CHECK(!pm.map_4k(non_canonical, astia_test::arena_base + 0xa00000, rw));
     ASTIA_CHECK(pm.translate(non_canonical) == page_map::invalid);
 }
@@ -183,9 +186,11 @@ ASTIA_TEST(page_map_unmap_removes_4k_over_split) {
 ASTIA_TEST(page_map_child_shares_parent_kernel_half) {
     auto             parent = make_map();
     const astia::u64 phys   = astia_test::arena_base + 0x200000;
+
     ASTIA_CHECK(parent.map_4k(kvirt(0x400000), phys, rw));
 
     auto child = page_map::create(&parent);
+
     ASTIA_CHECK(child.valid());
     ASTIA_CHECK(child.parent() == &parent);
     // The child's hardware walk sees the parent's kernel mapping...
@@ -196,9 +201,11 @@ ASTIA_TEST(page_map_child_shares_parent_kernel_half) {
 
 ASTIA_TEST(page_map_without_parent_sees_no_kernel_mappings) {
     auto parent = make_map();
+
     ASTIA_CHECK(parent.map_4k(kvirt(0x600000), astia_test::arena_base + 0x200000, rw));
 
     auto orphan = make_map(); // no parent: nothing shared
+
     ASTIA_CHECK(orphan.parent() == nullptr);
     ASTIA_CHECK(orphan.translate(kvirt(0x600000)) == page_map::invalid);
 }
@@ -206,12 +213,14 @@ ASTIA_TEST(page_map_without_parent_sees_no_kernel_mappings) {
 ASTIA_TEST(page_map_parent_fallback_for_late_kernel_maps) {
     auto parent = make_map();
     auto child  = page_map::create(&parent);
+
     ASTIA_CHECK(child.valid());
 
     // Mapped on the parent *after* the child copied its (empty) kernel
     // half, so the child's own top-level slot knows nothing about it...
     const astia::u64 virt = kvirt(0x800000);
     const astia::u64 phys = astia_test::arena_base + 0x300000;
+
     ASTIA_CHECK(parent.map_4k(virt, phys, rw));
 
     // ...translate still finds it through the parent.
@@ -234,9 +243,11 @@ ASTIA_TEST(page_map_child_maps_only_its_own_half) {
 
 ASTIA_TEST(page_map_recursive_slot_points_at_own_root) {
     auto parent = make_map();
+
     ASTIA_CHECK(parent.map_4k(0x400000, astia_test::arena_base + 0x200000, rw));
 
     auto child = page_map::create(&parent);
+
     ASTIA_CHECK(child.valid());
     ASTIA_CHECK(parent.root() != child.root());
 

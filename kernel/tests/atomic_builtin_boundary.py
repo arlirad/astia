@@ -20,8 +20,8 @@ CPP_ALLOWLIST = (
 OUT_OF_SCOPE_ALLOWLIST = (
     ("kernel/include/astia/api/aio.h", "kernel", ".h"),
     ("kernel/tests/init_libc.c", "kernel", ".c"),
-    ("libc/src/pthread.c", "libc", ".c"),
-    ("libc/src/semaphore.c", "libc", ".c"),
+    ("libc/src/process/pthread.c", "libc", ".c"),
+    ("libc/src/process/semaphore.c", "libc", ".c"),
     ("user/gnulib/**", "user", None),
 )
 ALLOWLIST = CPP_ALLOWLIST + OUT_OF_SCOPE_ALLOWLIST
@@ -139,8 +139,8 @@ def self_test():
         )
         write_fixture(root, "kernel/include/astia/api/aio.h")
         write_fixture(root, "kernel/tests/init_libc.c")
-        write_fixture(root, "libc/src/pthread.c")
-        write_fixture(root, "libc/src/semaphore.c")
+        write_fixture(root, "libc/src/process/pthread.c")
+        write_fixture(root, "libc/src/process/semaphore.c")
         (root / "user" / "gnulib").mkdir(parents=True)
         write_fixture(
             root,

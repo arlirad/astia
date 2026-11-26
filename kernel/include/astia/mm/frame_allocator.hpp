@@ -5,7 +5,6 @@
 #include <astia/mm/memory_map.hpp>
 
 namespace astia::mm {
-
     using frame_access_fn = void* (*) (u64 physical);
 
     /// Modifiers for frame_allocator::alloc().
@@ -98,5 +97,4 @@ namespace astia::mm {
 
     /// The kernel's single physical frame allocator.
     frame_allocator& kernel_frames();
-
 } // namespace astia::mm

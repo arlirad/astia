@@ -5,7 +5,6 @@
 #include <astia/core/spinlock.hpp>
 
 namespace astia::arch {
-
     /// Mask interrupts before acquiring a lock so an IRQ on this CPU cannot
     /// preempt a holder and spin forever on that same lock.
     class interrupt_spinlock_guard {
@@ -13,6 +12,7 @@ namespace astia::arch {
         explicit interrupt_spinlock_guard(core::spinlock& lock) : _gate(), _lock(lock) {
             _lock.lock();
         }
+
         ~interrupt_spinlock_guard() {
             unlock();
         }
@@ -23,7 +23,9 @@ namespace astia::arch {
         void unlock() {
             if (_locked) {
                 _lock.unlock();
+
                 _locked = false;
+
                 _gate.unlock();
             }
         }
@@ -33,5 +35,4 @@ namespace astia::arch {
         core::spinlock& _lock;
         bool            _locked = true;
     };
-
 } // namespace astia::arch

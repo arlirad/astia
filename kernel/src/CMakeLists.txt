@@ -5,6 +5,7 @@ if (ARCH STREQUAL "aarch64")
     # source composition so x86 keeps the existing target graph unchanged.
     add_subdirectory(lib)
     add_subdirectory(arch)
+    add_subdirectory(dbg)
     add_subdirectory(plat/aarch64-virt)
     add_subdirectory(boot/aarch64-virt)
     return()

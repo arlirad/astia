@@ -5,7 +5,6 @@
 #include "smp.hpp"
 
 namespace astia::arch {
-
     void cpu::halt() {
         asm volatile("hlt");
     }
@@ -26,7 +25,9 @@ namespace astia::arch {
 
     bool cpu::check_interrupts() {
         u64 flags;
+
         asm volatile("pushfq; popq %0" : "=r"(flags) : : "memory");
+
         return (flags & (1ull << 9)) != 0; // RFLAGS.IF
     }
 
@@ -40,10 +41,12 @@ namespace astia::arch {
 
     void cpu::interrupt_exit() {
         u32 depth;
+
         asm volatile("decl %%gs:%c1; movl %%gs:%c1, %0"
                      : "=r"(depth)
                      : "i"(ASTIA_GS_INTERRUPT_DEPTH)
                      : "memory");
+
         if (depth == 0 && x86_64::smp::consume_reschedule(current_index())) {
             asm volatile("movl $1, %%gs:%c0" : : "i"(ASTIA_GS_SHOULD_YIELD) : "memory");
         }
@@ -51,19 +54,23 @@ namespace astia::arch {
 
     bool cpu::in_interrupt() {
         u32 depth;
+
         asm volatile("movl %%gs:%c1, %0"
                      : "=r"(depth)
                      : "i"(ASTIA_GS_INTERRUPT_DEPTH)
                      : "memory");
+
         return depth != 0;
     }
 
     bool cpu::consume_should_yield() {
         u32 value = 0;
+
         asm volatile("xchgl %0, %%gs:%c1"
                      : "+r"(value)
                      : "i"(ASTIA_GS_SHOULD_YIELD)
                      : "memory");
+
         return value != 0;
     }
 
@@ -81,8 +88,9 @@ namespace astia::arch {
 
     u32 cpu::current_index() {
         u32 value;
+
         asm volatile("movl %%gs:%c1, %0" : "=r"(value) : "i"(ASTIA_GS_CPU_INDEX));
+
         return value;
     }
-
 } // namespace astia::arch

@@ -16,6 +16,7 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
+
             const auto validated = output.validate();
             if (!validated)
                 return -EFAULT;
@@ -24,17 +25,20 @@ namespace astia::proc::syscalls {
             auto target = owner->thread_stack_info(tid, snapshot);
             if (!target)
                 return -ESRCH;
+
             if (!snapshot.supported)
                 return -ENOTSUP;
 
             astia_thread_stack_info info;
+
             fill_zero(&info, sizeof info);
+
             info.stack_addr = snapshot.stack_base;
             info.stack_size = static_cast<u64>(snapshot.stack_size);
             info.detached   = snapshot.detached ? 1u : 0u;
             info.reserved   = 0u;
+
             return sys::copy_out(validated.value.bytes(), &info) ? 0 : -EFAULT;
         }
     };
-
 } // namespace astia::proc::syscalls

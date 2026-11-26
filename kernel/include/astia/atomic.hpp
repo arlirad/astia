@@ -75,7 +75,8 @@ namespace astia {
             static bool compare_exchange(storage* value, T& expected, T desired,
                                          bool weak, memory_order success,
                                          memory_order failure) {
-                storage    observed  = static_cast<storage>(expected);
+                storage observed = static_cast<storage>(expected);
+
                 const bool exchanged = __atomic_compare_exchange_n(
                     value, &observed, static_cast<storage>(desired), weak,
                     atomic_order(success), atomic_order(failure));
@@ -88,6 +89,7 @@ namespace astia {
             static T fetch_add(storage* value, T delta, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_fetch_add(
                     value, static_cast<storage>(delta), atomic_order(order)));
             }
@@ -95,6 +97,7 @@ namespace astia {
             static T fetch_sub(storage* value, T delta, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_fetch_sub(
                     value, static_cast<storage>(delta), atomic_order(order)));
             }
@@ -102,6 +105,7 @@ namespace astia {
             static T fetch_or(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_fetch_or(value, static_cast<storage>(mask),
                                                         atomic_order(order)));
             }
@@ -109,6 +113,7 @@ namespace astia {
             static T fetch_and(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_fetch_and(
                     value, static_cast<storage>(mask), atomic_order(order)));
             }
@@ -116,6 +121,7 @@ namespace astia {
             static T fetch_xor(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_fetch_xor(
                     value, static_cast<storage>(mask), atomic_order(order)));
             }
@@ -123,6 +129,7 @@ namespace astia {
             static T add_fetch(storage* value, T delta, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_add_fetch(
                     value, static_cast<storage>(delta), atomic_order(order)));
             }
@@ -130,6 +137,7 @@ namespace astia {
             static T sub_fetch(storage* value, T delta, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_sub_fetch(
                     value, static_cast<storage>(delta), atomic_order(order)));
             }
@@ -137,6 +145,7 @@ namespace astia {
             static T or_fetch(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_or_fetch(value, static_cast<storage>(mask),
                                                         atomic_order(order)));
             }
@@ -144,6 +153,7 @@ namespace astia {
             static T and_fetch(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_and_fetch(
                     value, static_cast<storage>(mask), atomic_order(order)));
             }
@@ -151,6 +161,7 @@ namespace astia {
             static T xor_fetch(storage* value, T mask, memory_order order) {
                 static_assert(atomic_traits<T>::arithmetic,
                               "arithmetic atomics do not cover pointers");
+
                 return static_cast<T>(__atomic_xor_fetch(
                     value, static_cast<storage>(mask), atomic_order(order)));
             }

@@ -32,13 +32,17 @@ namespace {
             probe get_return_object() {
                 return probe{std::coroutine_handle<promise_type>::from_promise(*this)};
             }
+
             std::suspend_always initial_suspend() noexcept {
                 return {};
             }
+
             std::suspend_always final_suspend() noexcept {
                 return {};
             }
+
             void return_void() {}
+
             void unhandled_exception() {
                 std::abort();
             }
@@ -54,6 +58,7 @@ namespace {
 
     probe resume_probe(bool& resumed) {
         resumed = true;
+
         co_return;
     }
 } // namespace
@@ -67,8 +72,10 @@ ASTIA_TEST(thread_park_without_pending_resume_blocks) {
 
 ASTIA_TEST(thread_park_with_pending_resume_keeps_it_for_the_caller) {
     astia::proc::thread value(nullptr, 2);
-    bool                resumed = false;
-    probe               pending = resume_probe(resumed);
+
+    bool resumed = false;
+
+    probe pending = resume_probe(resumed);
 
     value.request_resume(pending.handle);
     ASTIA_CHECK(!value.park_unless_woken());
@@ -81,8 +88,10 @@ ASTIA_TEST(thread_park_with_pending_resume_keeps_it_for_the_caller) {
 
 ASTIA_TEST(thread_park_after_draining_a_resume_blocks) {
     astia::proc::thread value(nullptr, 3);
-    bool                resumed = false;
-    probe               pending = resume_probe(resumed);
+
+    bool resumed = false;
+
+    probe pending = resume_probe(resumed);
 
     value.request_resume(pending.handle);
     value.resume_pending();
@@ -94,6 +103,7 @@ ASTIA_TEST(thread_park_after_draining_a_resume_blocks) {
 
 ASTIA_TEST(thread_cancellation_roundtrip) {
     astia::proc::thread value(nullptr, 4);
+
     ASTIA_CHECK(!value.cancellation_pending());
     value.request_cancellation();
     ASTIA_CHECK(value.cancellation_pending());

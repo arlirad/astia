@@ -24,6 +24,7 @@ extern "C" i64 astia_syscall_dispatch(u64 nr, u64 a0, u64 a1, u64 a2, u64 a3, u6
     image->set_mode(arch::return_mode::ordinary);
 
     const auto result = sys::dispatch(id.value, a0, a1, a2, a3, a4, a5, *image);
+
     sys::invoke_exit_hook(*image, result);
 
     return result;

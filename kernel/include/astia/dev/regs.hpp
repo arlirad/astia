@@ -4,7 +4,6 @@
 #include <astia/dev/capabilities.hpp>
 
 namespace astia::dev {
-
     /// C++ device-driver view of a mapped MMIO register block.  The wrapper
     /// owns no mapping and is not part of the public module contract; the caller owns
     /// the mapped address and must keep it valid for the wrapper's lifetime.
@@ -15,6 +14,7 @@ namespace astia::dev {
 
         public:
         constexpr regs() = default;
+
         explicit regs(volatile void* base) : _base(static_cast<volatile u8*>(base)) {}
 
         volatile T& operator[](usize offset) const {
@@ -40,6 +40,7 @@ namespace astia::dev {
 
         public:
         constexpr ports() = default;
+
         explicit constexpr ports(u16 base) : _base(base) {}
 
         class ref {
@@ -79,5 +80,4 @@ namespace astia::dev {
         private:
         u16 _base = 0;
     };
-
 } // namespace astia::dev

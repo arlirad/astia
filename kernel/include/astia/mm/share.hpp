@@ -10,7 +10,6 @@
 void* operator new(astia::usize size, void* where) noexcept;
 
 namespace astia::mm {
-
     template <typename T>
     void destroy_shared(void* value) {
         static_cast<T*>(value)->~T();
@@ -20,13 +19,12 @@ namespace astia::mm {
     template <typename T, typename... Args>
     shptr<T> share(Args&&... args) {
         auto memory = heap::alloc(sizeof(T));
-        if (!memory) {
+        if (!memory)
             return {};
-        }
 
         T* object =
             ::new (static_cast<void*>(memory.value)) T(static_cast<Args&&>(args)...);
+
         return shptr<T>::adopt(object, &destroy_shared<T>);
     }
-
 } // namespace astia::mm

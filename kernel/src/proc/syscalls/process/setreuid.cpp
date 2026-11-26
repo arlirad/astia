@@ -12,11 +12,12 @@ namespace astia::proc::syscalls {
             auto* p = current_process();
             if (!p)
                 return -ESRCH;
+
             if ((r < -1 || static_cast<u64>(r) > ~u32{0}) ||
                 (e < -1 || static_cast<u64>(e) > ~u32{0}))
                 return -EINVAL;
+
             return p->setreuid(static_cast<u32>(r), static_cast<u32>(e));
         }
     };
-
 } // namespace astia::proc::syscalls

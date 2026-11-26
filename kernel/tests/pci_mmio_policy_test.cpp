@@ -4,7 +4,6 @@
 #include "test.hpp"
 
 namespace {
-
     using astia::arch::mmio_borrow_status;
     using astia::arch::mmio_borrow_status_for;
     using astia::arch::page_flags;
@@ -28,7 +27,6 @@ namespace {
                astia::arch::has_flag(flags, page_flags::cache_disable) &&
                astia::arch::has_flag(flags, page_flags::write_through);
     }
-
 } // namespace
 
 ASTIA_TEST(pci_bar_non_prefetchable_maps_strict_uc) {
@@ -51,6 +49,7 @@ ASTIA_TEST(pci_bar_below_identity_floor_rejected) {
 
 ASTIA_TEST(pci_bar_overlapping_direct_map_floor_rejected) {
     constexpr astia::u64 direct_map_floor = 0x1'0000'0000ull;
+
     ASTIA_CHECK(
         pci_mmio_range_check(direct_map_floor - 0x1000, 0x2000, direct_map_floor) ==
         pci_mmio_range::write_back_alias);
@@ -58,6 +57,7 @@ ASTIA_TEST(pci_bar_overlapping_direct_map_floor_rejected) {
 
 ASTIA_TEST(pci_bar_fresh_high_extent_accepted) {
     constexpr astia::u64 direct_map_floor = 0x1'0000'0000ull;
+
     ASTIA_CHECK(pci_mmio_range_check(direct_map_floor + 0x2000, 0x4000,
                                      direct_map_floor) == pci_mmio_range::accepted);
 }
@@ -89,6 +89,7 @@ ASTIA_TEST(pci_mmio_safe_floor_uses_max) {
 ASTIA_TEST(pci_bar_disjoint_bytes_in_one_page_overlap) {
     const auto first  = pci_mmio_page_span_of(0x1000, 0x100);
     const auto second = pci_mmio_page_span_of(0x1100, 0x100);
+
     ASTIA_CHECK(first.first == 0x1000);
     ASTIA_CHECK(first.last == 0x1000);
     ASTIA_CHECK(second.first == 0x1000);
@@ -99,12 +100,14 @@ ASTIA_TEST(pci_bar_disjoint_bytes_in_one_page_overlap) {
 ASTIA_TEST(pci_bar_adjacent_page_spans_do_not_overlap) {
     const auto first  = pci_mmio_page_span_of(0x1000, 0x1000);
     const auto second = pci_mmio_page_span_of(0x2000, 0x1000);
+
     ASTIA_CHECK(!pci_mmio_spans_overlap(first, second));
 }
 
 ASTIA_TEST(pci_bar_active_page_span_conflict) {
     const auto active    = pci_mmio_page_span_of(0x4000, 0x1000);
     const auto candidate = pci_mmio_page_span_of(0x4400, 0x100);
+
     ASTIA_CHECK(pci_mmio_spans_overlap(active, candidate));
 }
 
@@ -146,6 +149,7 @@ ASTIA_TEST(pci_bar_direct_map_va_limits_are_bounded) {
 
     constexpr auto limits = pci_mmio_va_limits_for(kernel_base, direct_map_limit,
                                                    mmio_base, recursive_base, image_base);
+
     ASTIA_CHECK(limits.direct_map_limit == direct_map_limit);
     ASTIA_CHECK(limits.reserved_floor == mmio_base - kernel_base);
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(direct_map_limit - 0x2000,
@@ -158,6 +162,7 @@ ASTIA_TEST(pci_bar_reserved_higher_half_rejected) {
     constexpr astia::u64 kernel_base    = 0xFFFF800000000000ull;
     constexpr astia::u64 reserved_floor = 0x400000000000ull;
     constexpr auto limits = pci_mmio_va_limits{kernel_base, 1ull << 50, reserved_floor};
+
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(reserved_floor - 0x2000,
                                                reserved_floor - 0x1000, limits));
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(reserved_floor - 0x1000,
@@ -179,6 +184,7 @@ ASTIA_TEST(pci_bar_direct_map_boundary_pages) {
                                                    mmio_base, recursive_base, image_base);
 
     constexpr astia::u64 last_page = direct_map_limit - 0x1000;
+
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(last_page, last_page, limits));
     ASTIA_CHECK(
         !pci_mmio_range_fits_direct_map(direct_map_limit, direct_map_limit, limits));
@@ -193,6 +199,7 @@ ASTIA_TEST(pci_bar_huge_span_rejected_without_iteration) {
     constexpr astia::u64 direct_map_limit = 1ull << 39;
     constexpr auto       limits =
         pci_mmio_va_limits{kernel_base, direct_map_limit, direct_map_limit};
+
     ASTIA_CHECK(
         !pci_mmio_range_fits_direct_map(0x1'0000'0000ull, 0x4000'0000'0000ull, limits));
 }
@@ -221,6 +228,7 @@ ASTIA_TEST(pci_bar_canonical_span_must_not_cross_hole) {
 
     constexpr auto crossing_limits =
         pci_mmio_va_limits{0x1000, ~astia::u64{0}, ~astia::u64{0}};
+
     ASTIA_CHECK(!pci_mmio_range_fits_direct_map(0, crossing_end, crossing_limits));
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(0, 0x1000, crossing_limits));
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(
@@ -240,11 +248,13 @@ ASTIA_TEST(pci_bar_direct_map_va_span_must_be_canonical) {
 
     constexpr auto accepted_boundary =
         pci_mmio_va_limits{0x00007FFFFFFFF000ull, 0x2000, 0x2000};
+
     ASTIA_CHECK(pci_mmio_va_is_canonical(0x00007FFFFFFFF000ull));
     ASTIA_CHECK(pci_mmio_range_fits_direct_map(0, 0, accepted_boundary));
     ASTIA_CHECK(!pci_mmio_range_fits_direct_map(0, 0x1000, accepted_boundary));
 
     constexpr auto overflowing =
         pci_mmio_va_limits{~astia::u64{0} - 0x7ffull, limit, limit};
+
     ASTIA_CHECK(!pci_mmio_range_fits_direct_map(0, 0x1000, overflowing));
 }

@@ -1,13 +1,13 @@
-#include "arena.hpp"
-#include "test.hpp"
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/pinned_buffer.hpp>
 
-namespace {
+#include "arena.hpp"
+#include "test.hpp"
 
+namespace {
     using astia::mm::phys_region;
 
     // The heap's arch hook is a no-op on the host: the window is
@@ -26,23 +26,27 @@ namespace {
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
+
             map.add(astia_test::arena_base, astia_test::arena_size,
                     astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
 
             static astia::u8 region[64 * 1024];
+
             astia::mm::heap::configure(region, sizeof(region), fake_map);
             astia::mm::heap::init();
+
             ready = true;
         }
+
         return astia::mm::kernel_frames().available_frames();
     }
-
 } // namespace
 
 ASTIA_TEST(phys_region_create_adopts_frames) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(region->pages() == 4);
     ASTIA_CHECK(region->references() == 1);
@@ -54,12 +58,14 @@ ASTIA_TEST(phys_region_create_adopts_frames) {
 ASTIA_TEST(phys_region_lazy_allocates_pages_on_demand) {
     const auto before = init_world();
     auto*      region = phys_region::create_lazy(4);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
     ASTIA_CHECK(region->page_base(0) == astia::mm::frame_allocator::invalid_frame);
     ASTIA_CHECK(region->page_direct(0) == nullptr);
 
     bool created = false;
+
     ASTIA_CHECK(region->ensure_page(2, true, &created));
     ASTIA_CHECK(created);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 1);
@@ -75,7 +81,9 @@ ASTIA_TEST(phys_region_lazy_allocates_pages_on_demand) {
 
 ASTIA_TEST(phys_region_unique_until_shared) {
     init_world();
+
     auto* region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(region->uniquely_held(0));
     region->addref(); // a fork would do exactly this
@@ -89,18 +97,25 @@ ASTIA_TEST(phys_region_unique_until_shared) {
 ASTIA_TEST(phys_region_split_page_copies_and_tracks) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
+
     auto* bytes = static_cast<astia::u8*>(region->page_direct(1));
+
     for (astia::usize b = 0; b < phys_region::frame_size; ++b) {
         bytes[b] = static_cast<astia::u8>(b & 0xFF);
     }
 
     region->addref(); // shared between two address spaces
+
     auto* child = region->split_page(1);
+
     ASTIA_CHECK(child != nullptr);
     ASTIA_CHECK(child->pages() == 1);
     ASTIA_CHECK(child->references() == 1);
+
     const auto* copy = static_cast<const astia::u8*>(child->page_direct(0));
+
     ASTIA_CHECK(copy[0] == 0 && copy[17] == 17 && copy[4095] == 255);
     // The copier now maps the child, not the parent page: one sharer
     // left on page 1 — but page 0 is still shared.
@@ -109,6 +124,7 @@ ASTIA_TEST(phys_region_split_page_copies_and_tracks) {
 
     // A second copier of the same page: nobody maps the parent page.
     auto* second = region->split_page(1);
+
     ASTIA_CHECK(second != nullptr);
     ASTIA_CHECK(!region->uniquely_held(1));
     second->release(); // the second copier exits
@@ -125,10 +141,13 @@ ASTIA_TEST(phys_region_split_page_copies_and_tracks) {
 ASTIA_TEST(phys_region_copy_page_is_reversible) {
     const auto before = init_world();
     auto*      region = phys_region::create(1, true);
+
     ASTIA_CHECK(region != nullptr);
+
     static_cast<astia::u8*>(region->page_direct(0))[0] = 0x5a;
 
     auto* copy = region->copy_page(0);
+
     ASTIA_CHECK(copy != nullptr);
     ASTIA_CHECK(region->uniquely_held(0));
     ASTIA_CHECK(static_cast<astia::u8*>(copy->page_direct(0))[0] == 0x5a);
@@ -142,6 +161,7 @@ ASTIA_TEST(phys_region_copy_page_is_reversible) {
 ASTIA_TEST(phys_region_split_rejects_unmaterialized_page) {
     const auto before = init_world();
     auto*      region = phys_region::create_lazy(1);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(region->split_page(0) == nullptr);
     ASTIA_CHECK(region->copy_page(0) == nullptr);
@@ -153,24 +173,32 @@ ASTIA_TEST(phys_region_split_rejects_unmaterialized_page) {
 ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
     const auto before = init_world();
     auto*      region = phys_region::create(1, true);
+
     ASTIA_CHECK(region != nullptr);
+
     const auto   frame = region->page_base(0);
     const auto   used  = astia::mm::heap::used();
     void*        held[4096]{};
     astia::usize held_count = 0;
+
     while (held_count < sizeof held / sizeof held[0]) {
         auto block = astia::mm::heap::alloc(16);
         if (!block)
             break;
+
         held[held_count++] = block.value;
     }
+
     ASTIA_CHECK(astia::mm::heap::used() > used);
     ASTIA_CHECK(region->copy_page(0) == nullptr);
     ASTIA_CHECK(region->page_base(0) == frame);
     ASTIA_CHECK(region->uniquely_held(0));
     ASTIA_CHECK(region->references() == 1);
-    for (astia::usize i = 0; i < held_count; ++i)
+
+    for (astia::usize i = 0; i < held_count; ++i) {
         astia::mm::heap::free(held[i]);
+    }
+
     ASTIA_CHECK(astia::mm::heap::used() == used);
     region->release();
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
@@ -179,6 +207,7 @@ ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
 ASTIA_TEST(phys_region_reclaims_last_unmapped_page) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 4);
 
@@ -199,17 +228,25 @@ ASTIA_TEST(phys_region_reclaims_last_unmapped_page) {
 ASTIA_TEST(phys_region_parent_death_detaches_children) {
     const auto before = init_world();
     auto*      region = phys_region::create(1, true);
+
     ASTIA_CHECK(region != nullptr);
+
     auto* child = region->split_page(0);
+
     ASTIA_CHECK(child != nullptr);
 
     region->release(); // last reference: the parent dies first
+
     // The child owns its own frames and needs no parent: it must stay // fully usable,
     // and able to CoW again.
     auto* byte = static_cast<astia::u8*>(child->page_direct(0));
-    byte[0]    = 0x77;
+
+    byte[0] = 0x77;
+
     ASTIA_CHECK(byte[0] == 0x77);
+
     auto* grandchild = child->split_page(0);
+
     ASTIA_CHECK(grandchild != nullptr);
     grandchild->release();
     child->release();
@@ -219,10 +256,12 @@ ASTIA_TEST(phys_region_parent_death_detaches_children) {
 ASTIA_TEST(pinned_buffer_holds_frames_across_vma_release) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
+
     ASTIA_CHECK(region != nullptr);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 4);
 
     astia::mm::pinned_buffer pin;
+
     ASTIA_CHECK(pin.acquire(region, 1, 2, false));
     ASTIA_CHECK(pin.valid());
     ASTIA_CHECK(pin.pages() == 2);
@@ -247,16 +286,20 @@ ASTIA_TEST(pinned_buffer_holds_frames_across_vma_release) {
 ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::pinned_buffer pin;
+
     ASTIA_CHECK(pin.acquire(region, 1, 3, false));
 
     // A region is a contiguous frame run and the direct map is linear, so the
     // pinned range is a single kernel window.  That is the property the ring
     // leans on to hand a device one base address instead of a scatter list.
     auto* base = static_cast<astia::u8*>(pin.direct(0));
+
     ASTIA_CHECK(base == region->page_direct(1));
+
     for (astia::usize page = 0; page < pin.pages(); ++page) {
         ASTIA_CHECK(pin.direct(page) == base + page * phys_region::frame_size);
         ASTIA_CHECK(pin.phys(page) ==
@@ -271,9 +314,11 @@ ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
 ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::pinned_buffer pin;
+
     ASTIA_CHECK(!pin.acquire(nullptr, 0, 1, true));
     ASTIA_CHECK(!pin.acquire(region, 0, 0, true));
     ASTIA_CHECK(!pin.acquire(region, 2, 1, true)); // first page past the end
@@ -294,6 +339,7 @@ ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
 ASTIA_TEST(pinned_buffer_destination_marks_are_counted) {
     const auto before = init_world();
     auto*      region = phys_region::create(3, true);
+
     ASTIA_CHECK(region != nullptr);
 
     // Two operations are filling the same two pages; a third is draining
@@ -303,6 +349,7 @@ ASTIA_TEST(pinned_buffer_destination_marks_are_counted) {
     astia::mm::pinned_buffer first;
     astia::mm::pinned_buffer second;
     astia::mm::pinned_buffer drain;
+
     ASTIA_CHECK(first.acquire(region, 0, 2, true));
     ASTIA_CHECK(second.acquire(region, 0, 2, true));
     ASTIA_CHECK(drain.acquire(region, 1, 2, false));
@@ -327,6 +374,7 @@ ASTIA_TEST(pinned_buffer_destination_marks_are_counted) {
 ASTIA_TEST(phys_region_destination_release_is_idempotent) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
 
     ASTIA_CHECK(!region->retain_destination(2, 1)); // first page past the end
@@ -355,13 +403,16 @@ ASTIA_TEST(phys_region_split_does_not_carry_destination_marks) {
     // a different frame, and the operation's frame is still the parent's.
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::pinned_buffer pin;
+
     ASTIA_CHECK(pin.acquire(region, 1, 1, true));
     ASTIA_CHECK(region->destination_pinned(1));
 
     auto* copy = region->split_page(1);
+
     ASTIA_CHECK(copy != nullptr);
     ASTIA_CHECK(!copy->destination_pinned(0));  // the copy is a fresh frame
     ASTIA_CHECK(region->destination_pinned(1)); // the pinned frame keeps its mark
@@ -377,10 +428,12 @@ ASTIA_TEST(iovec_holds_every_entry_across_vma_release) {
     const auto before = init_world();
     auto*      first  = phys_region::create(4, true);
     auto*      second = phys_region::create(2, true);
+
     ASTIA_CHECK(first != nullptr && second != nullptr);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 6);
 
     astia::mm::iovec list;
+
     // Two entries in different regions, with a zero-length entry between them:
     // legal in a writev(), and it must leave no trace at all.
     ASTIA_CHECK(list.append(first, 1, 2, 0, 8192, false));
@@ -408,9 +461,11 @@ ASTIA_TEST(iovec_holds_every_entry_across_vma_release) {
 ASTIA_TEST(iovec_cursor_walks_entries_in_kernel_address_space) {
     const auto before = init_world();
     auto*      region = phys_region::create(4, true);
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::iovec list;
+
     ASTIA_CHECK(list.append(region, 0, 2, 16, 5000, false)); // crosses pages 0..1
     ASTIA_CHECK(list.append(region, 2, 1, 0, 100, false));
     ASTIA_CHECK(list.bytes() == 5100);
@@ -447,9 +502,11 @@ ASTIA_TEST(iovec_cursor_walks_entries_in_kernel_address_space) {
 ASTIA_TEST(iovec_refuses_what_it_cannot_hold) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::iovec list;
+
     // Neither an entry that addresses bytes outside the frames the pin holds
     // nor one that starts past them may be recorded.
     ASTIA_CHECK(!list.append(region, 0, 1, 0, 4097, false));
@@ -460,6 +517,7 @@ ASTIA_TEST(iovec_refuses_what_it_cannot_hold) {
     for (astia::usize i = 0; i < astia::mm::iovec::max_segments; ++i) {
         ASTIA_CHECK(list.append(region, 0, 1, 0, 16, false));
     }
+
     ASTIA_CHECK(list.count() == astia::mm::iovec::max_segments);
     ASTIA_CHECK(!list.append(region, 0, 1, 0, 16, false)); // no room left
     ASTIA_CHECK(list.count() == astia::mm::iovec::max_segments);
@@ -472,10 +530,13 @@ ASTIA_TEST(iovec_refuses_what_it_cannot_hold) {
 ASTIA_TEST(iovec_walks_a_kernel_entry_like_any_other) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
-    char       local[8];
+
+    char local[8];
+
     ASTIA_CHECK(region != nullptr);
 
     astia::mm::iovec list;
+
     ASTIA_CHECK(list.append(region, 0, 1, 8, 100, false));
     ASTIA_CHECK(list.append_kernel(local, sizeof local));
     ASTIA_CHECK(list.count() == 2);

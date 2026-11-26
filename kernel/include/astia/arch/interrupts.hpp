@@ -5,7 +5,6 @@
 #include <concepts>
 
 namespace astia::arch {
-
     struct interrupt_frame;
 
     /// Stack pointer of the interrupted ring-3 context (fault path).
@@ -50,6 +49,7 @@ namespace astia::arch {
     /// (SMP-scalable — one LAPIC per core) when bring-up calibrated it,
     /// the boot PIT otherwise. Diagnostics today; per-CPU once SMP lands.
     enum class timer_source : u8 { pit, lapic };
+
     timer_source current_timer_source();
 
     /// Number of int3 breakpoints dispatched since init_interrupts() — a
@@ -117,5 +117,4 @@ namespace astia::arch {
     };
 
     bool interrupt_vector_message(interrupt_vector route, msi_message& message);
-
 } // namespace astia::arch

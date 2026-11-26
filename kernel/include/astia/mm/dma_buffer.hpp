@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::mm {
-
     /// Owns a contiguous, kernel-mapped DMA allocation.
     ///
     /// A buffer is move-only.  The physical address and kernel mapping remain
@@ -25,12 +24,15 @@ namespace astia::mm {
         explicit operator bool() const {
             return _address != nullptr;
         }
+
         u64 physical() const {
             return _physical;
         }
+
         void* data() const {
             return _address;
         }
+
         usize pages() const {
             return _pages;
         }
@@ -47,5 +49,4 @@ namespace astia::mm {
         void* _address  = nullptr;
         usize _pages    = 0;
     };
-
 } // namespace astia::mm

@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch::aarch64 {
-
     /// EL1 exception-entry frame. The assembly in
     /// src/arch/aarch64/exception.S owns this layout; the C++ fatal reporter
     /// and the host layout test share these definitions.
@@ -37,5 +36,4 @@ namespace astia::arch::aarch64 {
     static_assert(sizeof(exception_frame) == exception_frame_size);
     static_assert(alignof(exception_frame) == 8);
     static_assert(exception_frame_size % 16 == 0);
-
 } // namespace astia::arch::aarch64

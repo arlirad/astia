@@ -7,7 +7,6 @@
 #include <astia/span.hpp>
 
 namespace astia::fs {
-
     /// One kernel-visible buffer in an async vector operation.
     struct buffer {
         void* data   = nullptr;
@@ -65,5 +64,4 @@ namespace astia::fs {
         virtual ~syncable()                               = default;
         virtual core::task<i64> sync(core::cltoken token) = 0;
     };
-
 } // namespace astia::fs

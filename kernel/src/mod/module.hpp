@@ -60,7 +60,6 @@ namespace astia::proc {
 }
 
 namespace astia::mod {
-
     /// Stable, generation-checked module handle. `slot` indexes the fixed
     /// registry; `generation` changes on every slot release. Wraparound would
     /// require 2^64 releases of one slot, so a stale id cannot alias a later
@@ -72,9 +71,11 @@ namespace astia::mod {
         constexpr bool valid() const {
             return slot != ~u32{0};
         }
+
         constexpr explicit operator bool() const {
             return valid();
         }
+
         friend constexpr bool operator==(module_id, module_id) = default;
     };
 
@@ -230,12 +231,12 @@ namespace astia::mod {
     /// objects are modules; ET_EXEC/ET_DYN images are userspace executables
     /// and are rejected before the generic loader can publish them.
     inline module_error validate_module_image_format(span<const u8> image) {
-        if (image.data() == nullptr || image.size() == 0) {
+        if (image.data() == nullptr || image.size() == 0)
             return module_error::invalid_argument;
-        }
-        if (elf::loader::kind_of(image) != elf::loader::kind::relocatable) {
+
+        if (elf::loader::kind_of(image) != elf::loader::kind::relocatable)
             return module_error::load_failed;
-        }
+
         return module_error::ok;
     }
 
@@ -280,7 +281,8 @@ namespace astia::mod {
 
     /// Nonblocking lookup. Copies bounded metadata; returns `busy` while a slot
     /// is loading/unloading and `stale_id` for a released generation.
-    module_error        lookup(module_id id, module_info& out);
+    module_error lookup(module_id id, module_info& out);
+
     inline module_error stat(module_id id, module_info& out) {
         return lookup(id, out);
     }
@@ -338,6 +340,7 @@ namespace astia::mod {
 
     const loaded_module* load_module(span<const u8> image);
     const loaded_module* load_module(span<const u8> image, const elf::loader::env& env);
+
     inline const loaded_module* load_module(const void* image, usize size) {
         return load_module(span<const u8>(static_cast<const u8*>(image), size));
     }
@@ -359,5 +362,4 @@ namespace astia::mod {
 
     /// The i-th published module in slot order, or null if out of range.
     const loaded_module* at(usize i);
-
 } // namespace astia::mod

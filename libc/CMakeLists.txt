@@ -25,58 +25,12 @@ endif()
 
 add_compile_options(-Wall -Wextra -pedantic)
 
-set(ASTIA_LIBC_SOURCES
-  src/assert.c
-  src/aio.c
-  src/atfork.c
-  src/backend_aio.c
-  src/ctype.c
-  src/dirent.c
-  src/errno.c
-  src/file.c
-  src/group.c
-  src/getopt.c
-  src/ioctl.c
-  src/locale.c
-  src/math.c
-  src/malloc.c
-  src/mman.c
-  src/process.c
-  src/pty.c
-  src/pwd.c
-  src/path.c
-  src/poll.c
-  src/realpath.c
-  src/select.c
-  src/semaphore.c
-  src/prctl.c
-  src/rlimit.c
-  src/printf.c
-  src/scanf.c
-  src/snprintf.c
-  src/signal.c
-  src/setjmp.c
-  src/stdlib.c
-  src/string.c
-  src/stat.c
-  src/strptime.c
-  src/termcap.c
-  src/termios.c
-  src/time.c
-  src/time_aio.c
-  src/time_sleep_aio.c
-  src/times.c
-  src/utsname.c
-  src/unistd.c
-  src/socket.c
-  src/uio.c
-  src/wchar.c
-)
+include(${CMAKE_CURRENT_SOURCE_DIR}/sources.cmake)
 
-add_library(astia_libc_objects OBJECT ${ASTIA_LIBC_SOURCES})
+add_library(astia_libc_objects OBJECT ${ASTIA_LIBC_CORE_SOURCES})
 add_library(astia_libc STATIC
   $<TARGET_OBJECTS:astia_libc_objects>
-  src/process_aio.c
+  ${ASTIA_LIBC_ARCHIVE_EXTRA_SOURCES}
 )
 
 # libc.so for dynamically linked userspace images.  It is compiled separately
@@ -88,11 +42,11 @@ add_library(astia_libc STATIC
 set(ASTIA_LIBC_SHARED_BUILTINS "" CACHE FILEPATH
   "clang runtime builtins archive to link into libc.so")
 add_library(astia_libc_shared_objects STATIC
-  ${ASTIA_LIBC_SOURCES}
-  src/pthread.c
-  src/process_aio.c
+  ${ASTIA_LIBC_CORE_SOURCES}
+  ${ASTIA_LIBC_SHARED_EXTRA_SOURCES}
 )
 target_include_directories(astia_libc_shared_objects PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
 )
@@ -121,7 +75,7 @@ add_custom_target(astia_libc_shared ALL DEPENDS ${ASTIA_LIBC_SHARED_OUTPUT})
 # to the freestanding userspace image (kernel/tests adds it directly),
 # not to those host executables.
 if(NOT ASTIA_BUILD_TESTS)
-  target_sources(astia_libc_objects PRIVATE src/pthread.c)
+  target_sources(astia_libc_objects PRIVATE src/process/pthread.c)
 endif()
 
 # backend_aio.c is the astia side of the file port: real syscall traps,
@@ -136,7 +90,11 @@ target_include_directories(astia_libc PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
 )
+target_include_directories(astia_libc PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
 target_include_directories(astia_libc_objects PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
 )
@@ -154,6 +112,7 @@ target_compile_options(astia_libc_objects PRIVATE -fvisibility=hidden -fno-stack
 if(ASTIA_BUILD_TESTS)
   add_library(astia_libc_host STATIC $<TARGET_OBJECTS:astia_libc_objects>)
   target_include_directories(astia_libc_host PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
   )
@@ -162,7 +121,7 @@ endif()
 # string.c *defines* the functions the optimizer likes to replace byte
 # loops with; -fno-builtin keeps a loop from ever becoming a call to the
 # very function being defined.
-set_source_files_properties(src/string.c PROPERTIES
+set_source_files_properties(src/string/string.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
 
@@ -171,19 +130,19 @@ set_source_files_properties(src/string.c PROPERTIES
 # defensive NULL guards (a closed stream's fd == -1 story, setvbuf's
 # contract) into -Wnonnull-compare warnings and potentially dead code.
 # Not being builtins is exactly the truth of this translation unit.
-set_source_files_properties(src/file.c PROPERTIES
+set_source_files_properties(src/stdio/file.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
-set_source_files_properties(src/printf.c PROPERTIES
+set_source_files_properties(src/stdio/printf.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
-set_source_files_properties(src/time.c PROPERTIES
+set_source_files_properties(src/time/time.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
-set_source_files_properties(src/math.c PROPERTIES
+set_source_files_properties(src/math/math.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
-set_source_files_properties(src/wchar.c PROPERTIES
+set_source_files_properties(src/string/wchar.c PROPERTIES
   COMPILE_OPTIONS "-fno-builtin"
 )
 

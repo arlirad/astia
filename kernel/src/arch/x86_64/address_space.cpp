@@ -8,7 +8,6 @@ namespace astia::arch {
 }
 
 namespace astia::mm {
-
     namespace {
         arch::page_flags arch_flags(mapping_flags flags) {
             return static_cast<arch::page_flags>(static_cast<u64>(flags));
@@ -30,11 +29,13 @@ namespace astia::mm {
         if (this != &other) {
             if (_owned)
                 delete static_cast<arch::page_map*>(_native);
+
             _native       = other._native;
             _owned        = other._owned;
             other._native = nullptr;
             other._owned  = false;
         }
+
         return *this;
     }
 
@@ -47,10 +48,13 @@ namespace astia::mm {
             parent == nullptr ? arch::kernel_page_map()
                               : static_cast<const arch::page_map*>(parent->_native);
         auto* map = new arch::page_map(arch::page_map::create(parent_map));
+
         if (map == nullptr || !map->valid()) {
             delete map;
+
             return {};
         }
+
         return address_space(map, true);
     }
 
@@ -101,28 +105,37 @@ namespace astia::mm {
     bool address_space::valid_user_range(u64 address, usize length) const {
         if (length == 0)
             return true;
+
         if (address == 0 || !arch::user_layout_policy::is_canonical(address) ||
             address >= arch::user_layout_policy::address_limit)
             return false;
+
         const u64 last = address + static_cast<u64>(length) - 1;
+
         if (last < address || last >= arch::user_layout_policy::address_limit)
             return false;
+
         return arch::user_layout_policy::is_canonical(last);
     }
 
     bool address_space::validate(u64 address, usize length, access required) const {
         if (length == 0)
             return true;
+
         if (!valid_user_range(address, length))
             return false;
+
         const u64 first = address & ~page_mask;
         const u64 last  = (address + length - 1) & ~page_mask;
+
         for (u64 page = first;; page += page_size) {
             if (!user_accessible(page))
                 return false;
+
             if ((required == access::write && !writable(page)) ||
                 (required == access::execute && !executable(page)))
                 return false;
+
             if (page == last)
                 return true;
         }
@@ -150,11 +163,15 @@ namespace astia::mm {
         if (_finished || _space == nullptr || _mapped >= _pages ||
             virt != _first + _mapped * page_size || _first + _mapped * page_size < _first)
             return false;
+
         if (_space->translate(virt) != address_space::invalid)
             return false;
+
         if (!_space->map_4k(virt, phys, flags))
             return false;
+
         ++_mapped;
+
         return true;
     }
 
@@ -162,7 +179,9 @@ namespace astia::mm {
         if (_finished || _space == nullptr || _mapped >= _pages ||
             virt != _first + _mapped * page_size || _first + _mapped * page_size < _first)
             return false;
+
         ++_mapped;
+
         return true;
     }
 
@@ -173,13 +192,15 @@ namespace astia::mm {
     void mapping_transaction::rollback() {
         if (_finished || _space == nullptr)
             return;
+
         for (usize page = 0; page < _mapped; ++page) {
             const vaddr_t virt = _first + page * page_size;
+
             (void) _space->unmap(virt);
             address_space::invalidate(virt);
         }
+
         _finished = true;
         _mapped   = 0;
     }
-
 } // namespace astia::mm

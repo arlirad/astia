@@ -52,19 +52,21 @@ extern "C" void __tsan_release(void const*);
 namespace astia::fs {}
 
 namespace astia::io {
-
     class generation final {
         public:
         u64 issue() {
             const u64 result = _next;
-            _current         = result;
-            _next            = _next == ~u64{0} ? 1 : _next + 1;
+
+            _current = result;
+            _next    = _next == ~u64{0} ? 1 : _next + 1;
+
             return result;
         }
 
         bool current(u64 value) const {
             return value != 0 && value == _current;
         }
+
         u64 value() const {
             return _current;
         }
@@ -105,21 +107,27 @@ namespace astia::io {
         void* buffer() const {
             return _buffer;
         }
+
         u32 length() const {
             return _length;
         }
+
         u64 offset() const {
             return _offset;
         }
+
         u64 user_data() const {
             return _user_data;
         }
+
         u64 generation() const {
             return _generation;
         }
+
         void generation(u64 value) {
             _generation = value;
         }
+
         astia::io::direction direction() const {
             return _direction;
         }
@@ -161,6 +169,7 @@ namespace astia::io {
         u8 stage() const {
             return _stage;
         }
+
         void stage(u8 value) {
             _stage = value;
         }
@@ -179,9 +188,11 @@ namespace astia::io {
         core::completion<i64>* completion() const {
             return _completion.get();
         }
+
         void completion(mm::uptr<core::completion<i64>> value) {
             _completion = static_cast<mm::uptr<core::completion<i64>>&&>(value);
         }
+
         void complete(bool value) {
             _complete = value;
         }
@@ -191,12 +202,15 @@ namespace astia::io {
         void* device_state() const {
             return _device_state;
         }
+
         void device_state(void* value) {
             _device_state = value;
         }
+
         bool stable() const {
             return _operation != nullptr;
         }
+
         bool retain_for_device();
         void release_for_device();
 
@@ -234,6 +248,7 @@ namespace astia::io {
         bool poll_wakeup() const {
             return _poll_wakeup;
         }
+
         void poll_wakeup(bool value) {
             _poll_wakeup = value;
         }
@@ -241,9 +256,11 @@ namespace astia::io {
         bool poll_interval_set() const {
             return _poll_interval_set;
         }
+
         u64 poll_interval_ns() const {
             return _poll_interval_ns;
         }
+
         void poll_interval_ns(u64 value) {
             _poll_interval_set = value != 0;
             _poll_interval_ns  = value;
@@ -262,14 +279,18 @@ namespace astia::io {
         bool wake(u64 generation) const {
             if (_generation != generation)
                 return false;
+
             wake();
+
             return true;
         }
 
         bool park_device();
+
         bool canceled() const {
             return _cancel_requested || _external_token.canceled();
         }
+
         bool begin_device();
         void end_device();
         void acknowledge();
@@ -277,23 +298,31 @@ namespace astia::io {
         core::cltoken cancellation_token() const {
             return _external_token;
         }
+
         void external_token(core::cltoken token) {
             _external_token = token;
         }
+
         bool cancellation_requested() const {
             return canceled();
         }
+
         core::cancel_reason cancellation_reason() const {
             const core::cancel_reason external = _external_token.reason();
+
             return external != core::cancel_reason::none ? external : _cancel_reason;
         }
+
         bool cancel_device(bool                       = false,
                            core::cancel_reason reason = core::cancel_reason::request) {
             if (_cancel_requested)
                 return false;
+
             _cancel_requested = true;
             _cancel_reason    = reason;
+
             wake();
+
             return true;
         }
 
@@ -364,7 +393,9 @@ namespace astia::io {
         bool retain_for_device() {
             if (_request._operation != this)
                 return false;
+
             astia::atomic_ref<u32>(_refs).add_fetch(1u, astia::memory_order::acq_rel);
+
             return true;
         }
 
@@ -374,43 +405,52 @@ namespace astia::io {
 
         void release_owner() {
             bool expected = false;
+
             if (!astia::atomic_ref<bool>(_owner_released)
                      .compare_exchange_strong(expected, true,
                                               astia::memory_order::acq_rel,
                                               astia::memory_order::acquire))
                 return;
+
             const auto observed = static_cast<state>(
                 astia::atomic_ref<u8>(_state).load(astia::memory_order::acquire));
+
             if (observed == state::parked || observed == state::active ||
-                observed == state::active_completed) {
+                observed == state::active_completed)
                 request().cancel_device(true, core::cancel_reason::owner);
-            }
+
             release_ref();
         }
 
         operation() {
             _request._operation = this;
         }
+
         operation(void* buffer, u32 length, u64 offset, direction direction,
                   mm::uptr<core::completion<i64>> completion = {},
                   core::cltoken                   token      = {})
             : _request(buffer, length, offset, 0, direction) {
             _request._operation = this;
+
             _request.external_token(token);
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
+
         operation(void* buffer, u32 length, u64 offset, u64 user_data,
                   direction direction, mm::uptr<core::completion<i64>> completion = {},
                   core::cltoken token = {})
             : _request(buffer, length, offset, user_data, direction) {
             _request._operation = this;
+
             _request.external_token(token);
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
         }
+
         operation(const operation&)            = delete;
         operation& operator=(const operation&) = delete;
+
         ~operation() {
             release_owner();
         }
@@ -418,6 +458,7 @@ namespace astia::io {
         astia::io::request& request() {
             return _request;
         }
+
         const astia::io::request& request() const {
             return _request;
         }
@@ -426,6 +467,7 @@ namespace astia::io {
                    direction direction) {
             release_owner();
             _request.stretch(buffer, length, offset);
+
             _request._user_data         = user_data;
             _request._direction         = direction;
             _request._generation        = 0;
@@ -438,10 +480,14 @@ namespace astia::io {
             _request._append_reserved   = false;
             _request._append_length     = 0;
             _request._append_length_set = false;
+
             mm::uptr<core::completion<i64>> completion;
+
             _request.completion(
                 static_cast<mm::uptr<core::completion<i64>>&&>(completion));
+
             _request._operation = this;
+
             astia::atomic_ref<u32>(_refs).store(1u, astia::memory_order::release);
             astia::atomic_ref<bool>(_owner_released)
                 .store(false, astia::memory_order::release);
@@ -451,11 +497,14 @@ namespace astia::io {
 
         bool park_device() {
             u8 expected = static_cast<u8>(state::owner);
+
             if (!astia::atomic_ref<u8>(_state).compare_exchange_strong(
                     expected, static_cast<u8>(state::parked),
                     astia::memory_order::acq_rel, astia::memory_order::acquire))
                 return false;
+
             astia::atomic_ref<u32>(_refs).add_fetch(1u, astia::memory_order::acq_rel);
+
             return true;
         }
 
@@ -466,6 +515,7 @@ namespace astia::io {
 
         bool begin_device() {
             u8 expected = static_cast<u8>(state::parked);
+
             return astia::atomic_ref<u8>(_state).compare_exchange_strong(
                 expected, static_cast<u8>(state::active), astia::memory_order::acq_rel,
                 astia::memory_order::acquire);
@@ -473,12 +523,15 @@ namespace astia::io {
 
         void end_device() {
             u8 expected = static_cast<u8>(state::active);
+
             if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
                     expected, static_cast<u8>(state::parked),
                     astia::memory_order::release, astia::memory_order::acquire))
                 return;
+
             if (expected == static_cast<u8>(state::active_completed)) {
                 u8 completed = static_cast<u8>(state::active_completed);
+
                 if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
                         completed, static_cast<u8>(state::completed),
                         astia::memory_order::release, astia::memory_order::acquire))
@@ -489,24 +542,32 @@ namespace astia::io {
         void acknowledge() {
             u8 observed =
                 astia::atomic_ref<u8>(_state).load(astia::memory_order::acquire);
-            for (;;) {
+
+            while (true) {
                 const auto current = static_cast<state>(observed);
+
                 if (current == state::completed || current == state::owner ||
                     current == state::active_completed)
                     return;
+
                 if (current == state::active) {
                     u8 expected = static_cast<u8>(state::active);
+
                     if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
                             expected, static_cast<u8>(state::active_completed),
                             astia::memory_order::acq_rel, astia::memory_order::acquire))
                         return;
+
                     observed = expected;
+
                     continue;
                 }
+
                 if (astia::atomic_ref<u8>(_state).compare_exchange_strong(
                         observed, static_cast<u8>(state::completed),
                         astia::memory_order::acq_rel, astia::memory_order::acquire)) {
                     release_ref();
+
                     return;
                 }
             }
@@ -539,7 +600,6 @@ namespace astia::io {
         if (_operation != nullptr)
             _operation->acknowledge();
     }
-
 } // namespace astia::io
 
 #undef ASTIA_IO_TSAN_ACQUIRE

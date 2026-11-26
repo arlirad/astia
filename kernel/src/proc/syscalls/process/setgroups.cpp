@@ -12,15 +12,19 @@ namespace astia::proc::syscalls {
             auto* p = current_process();
             if (!p)
                 return -ESRCH;
+
             if (n < 0 || n > static_cast<i64>(max_supplementary_groups))
                 return -EINVAL;
-            u32        values[max_supplementary_groups]{};
+
+            u32 values[max_supplementary_groups]{};
+
             const auto source = in.validate(static_cast<usize>(n));
+
             if (n != 0 && (!source || !sys::copy_in(values, source.value.bytes(
                                                                 static_cast<usize>(n)))))
                 return -EFAULT;
+
             return p->setgroups(static_cast<i32>(n), values);
         }
     };
-
 } // namespace astia::proc::syscalls

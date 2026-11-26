@@ -5,7 +5,6 @@
 #include <syscall.hpp>
 
 namespace astia::fs::syscalls {
-
     struct io_destroy : sys::syscall_handler<io_destroy, sys::syscall_id::io_destroy,
                                              sys::syscall_mode::sync> {
         static i64 invoke(u64 ring) {
@@ -13,5 +12,4 @@ namespace astia::fs::syscalls {
                 reinterpret_cast<astia_rings*>(static_cast<usize>(ring)));
         }
     };
-
 } // namespace astia::fs::syscalls

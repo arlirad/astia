@@ -4,7 +4,6 @@
 #include <astia/fs.hpp>
 
 namespace astia::fs {
-
     /// A mounted filesystem instance.  The filesystem type is the
     /// factory; this object carries the mounted state and path lookup.
     class mount {
@@ -32,15 +31,18 @@ namespace astia::fs {
             astia::atomic_ref<u32>(_open_count)
                 .fetch_add(1u, astia::memory_order::acq_rel);
         }
+
         void release_open() {
             u32 count =
                 astia::atomic_ref<u32>(_open_count).load(astia::memory_order::acquire);
+
             while (count != 0 && !astia::atomic_ref<u32>(_open_count)
                                       .compare_exchange_strong(
                                           count, count - 1, astia::memory_order::acq_rel,
                                           astia::memory_order::acquire)) {
             }
         }
+
         u32 open_count() const {
             return astia::atomic_ref<u32>(_open_count).load(astia::memory_order::acquire);
         }
@@ -48,5 +50,4 @@ namespace astia::fs {
         private:
         mutable u32 _open_count = 0;
     };
-
 } // namespace astia::fs

@@ -57,11 +57,7 @@ public sealed class RegisterPackageCommandHandler
             PackageAction.Publish,
             null,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(nameof(PackageAction.Publish), authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Publish));
 
         var source = PackageSource.Create(request.SourceUrl, request.SourceCommit);
 

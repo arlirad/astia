@@ -26,11 +26,13 @@ public static class PkgsrvServiceCollectionExtensions
     public static IServiceCollection AddPkgsrv(
         this IServiceCollection services,
         IEnumerable<string>? allowedSourceHosts = null,
-        PkgsrvDatabaseOptions? databaseOptions = null)
+        PkgsrvDatabaseOptions? databaseOptions = null,
+        PkgsrvIrvaOptions? irvaOptions = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         databaseOptions ??= PkgsrvDatabaseOptions.InMemory;
+        irvaOptions ??= PkgsrvIrvaOptions.Disabled;
 
         services.AddSingleton<ISourceAllowlist>(
             new ConfiguredSourceAllowlist(allowedSourceHosts ?? Array.Empty<string>()));
@@ -64,14 +66,67 @@ public static class PkgsrvServiceCollectionExtensions
         services.AddSingleton<IPackagePublisher, RefusingUnsignedPackagePublisher>();
         services.AddSingleton<IDomainEventPublisher, InMemoryDomainEventPublisher>();
         services.AddSingleton<ISystemClock, SystemClock>();
-        services.AddSingleton<IIrvaClientAuthorizationBoundary, PendingIrvaClientAuthorizationBoundary>();
-        services.AddSingleton<IIrvaAuthorization, PendingIrvaClientAuthorizationAdapter>();
+        services.AddSingleton(irvaOptions);
 
         services.AddHttpContextAccessor();
-        services.AddScoped<IActorContextAccessor, HeaderActorContextAccessor>();
+        services.AddSingleton<HttpTransportIdentityAccessor>();
+        services.AddSingleton<ITransportIdentityAccessor>(
+            provider => provider.GetRequiredService<HttpTransportIdentityAccessor>());
+        services.AddSingleton<IActorContextAccessor>(
+            provider => provider.GetRequiredService<HttpTransportIdentityAccessor>());
+        AddIrvaAuthorization(services, irvaOptions);
 
         services.AddMediator(typeof(RegisterPackageCommandHandler));
 
         return services;
+    }
+
+    private static void AddIrvaAuthorization(
+        IServiceCollection services,
+        PkgsrvIrvaOptions options)
+    {
+        if (!options.Enabled)
+        {
+            services.AddSingleton<IIrvaIdentityVerifier, PendingIrvaIdentityVerifier>();
+            services.AddSingleton<IIrvaClientAuthorizationBoundary, PendingIrvaClientAuthorizationBoundary>();
+            services.AddSingleton<IIrvaAuthorization, IrvaClientAuthorizationAdapter>();
+            return;
+        }
+
+        IIrvaClientAdapter adapter;
+
+        if (!options.IsComplete)
+        {
+            const string reason =
+                "Pkgsrv:Irva:BaseUrl and Pkgsrv:Irva:AppToken are required for the Irva.Client integration.";
+
+            if (options.Required)
+            {
+                throw new InvalidOperationException(reason);
+            }
+
+            adapter = new UnavailableIrvaClientAdapter(reason);
+        }
+        else if (!IrvaClientAdapterFactory.IsAvailable)
+        {
+            const string reason =
+                "The Irva.Client project was not supplied at build time. Build with -p:IrvaClientProject=<path-to-Irva.Client.csproj>.";
+
+            if (options.Required)
+            {
+                throw new InvalidOperationException(reason);
+            }
+
+            adapter = new UnavailableIrvaClientAdapter(reason);
+        }
+        else
+        {
+            adapter = IrvaClientAdapterFactory.Create(options.ToConnectionSettings());
+        }
+
+        services.AddSingleton(adapter);
+        services.AddSingleton<IIrvaIdentityVerifier, IrvaClientIdentityVerifier>();
+        services.AddSingleton<IIrvaClientAuthorizationBoundary, IrvaClientAuthorizationBoundary>();
+        services.AddSingleton<IIrvaAuthorization, IrvaClientAuthorizationAdapter>();
     }
 }

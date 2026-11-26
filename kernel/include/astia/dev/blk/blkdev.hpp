@@ -3,7 +3,6 @@
 #include <astia/dev/device.hpp>
 
 namespace astia::dev::blk {
-
     class blkdev : public device {
         public:
         constexpr blkdev(const char* name, u64 size_bytes, u32 block_size)
@@ -17,6 +16,7 @@ namespace astia::dev::blk {
         u64 size_bytes() const {
             return size_bytes_;
         }
+
         u32 block_size() const {
             return block_size_;
         }
@@ -41,5 +41,4 @@ namespace astia::dev::blk {
         u64 size_bytes_;
         u32 block_size_;
     };
-
 } // namespace astia::dev::blk

@@ -18,17 +18,19 @@ namespace {
 
     void record_deadline_a(void* context) {
         auto* probe = static_cast<deadline_probe*>(context);
-        if (probe->calls < 4) {
+
+        if (probe->calls < 4)
             probe->order[probe->calls] = 1;
-        }
+
         probe->calls = probe->calls + 1;
     }
 
     void record_deadline_b(void* context) {
         auto* probe = static_cast<deadline_probe*>(context);
-        if (probe->calls < 4) {
+
+        if (probe->calls < 4)
             probe->order[probe->calls] = 2;
-        }
+
         probe->calls = probe->calls + 1;
     }
 
@@ -40,14 +42,16 @@ namespace {
     };
 
     void reschedule_deadline(void* context) {
-        auto* probe  = static_cast<deadline_reentry_probe*>(context);
+        auto* probe = static_cast<deadline_reentry_probe*>(context);
+
         probe->calls = probe->calls + 1;
-        u32 id       = 0;
+
+        u32 id = 0;
+
         if (timer::schedule_deadline(probe->schedule_now, 10, count_local_irq,
                                      &probe->later_calls,
-                                     id) == timer::deadline_error::none) {
+                                     id) == timer::deadline_error::none)
             probe->later_id = id;
-        }
     }
 } // namespace
 
@@ -65,6 +69,7 @@ ASTIA_TEST(aarch64_gic_local_intid_validity) {
 
 ASTIA_TEST(aarch64_gic_local_registration_policy) {
     u32 calls = 0;
+
     ASTIA_CHECK(gicv3::register_local_irq(32, count_local_irq, &calls) ==
                 gicv3::registration_error::invalid_intid);
     ASTIA_CHECK(
@@ -81,7 +86,9 @@ ASTIA_TEST(aarch64_gic_local_registration_policy) {
 
 ASTIA_TEST(aarch64_gic_local_dispatch_policy) {
     ASTIA_CHECK(gicv3::classify_intid(7) == gicv3::irq_action::fatal);
+
     u32 calls = 0;
+
     ASTIA_CHECK(gicv3::register_local_irq(7, count_local_irq, &calls) ==
                 gicv3::registration_error::none);
     ASTIA_CHECK(gicv3::classify_intid(7) == gicv3::irq_action::handled);
@@ -105,6 +112,7 @@ ASTIA_TEST(aarch64_gic_mpidr_affinity) {
 
 ASTIA_TEST(aarch64_gic_irq_policy) {
     u32 calls = 0;
+
     ASTIA_CHECK(gicv3::register_local_irq(gicv3::self_sgi_id, count_local_irq, &calls) ==
                 gicv3::registration_error::none);
     ASTIA_CHECK(gicv3::register_local_irq(timer::ppi_id, count_local_irq, &calls) ==
@@ -135,6 +143,7 @@ ASTIA_TEST(aarch64_timer_ppi_policy) {
     ASTIA_CHECK(timer::tval_max_positive == 0x7fffffffU);
 
     u32 ticks = 0;
+
     ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
     ASTIA_CHECK(ticks == 625000U);
     ASTIA_CHECK(timer::one_shot_ticks(1U, timer::one_shot_interval_ms, ticks));
@@ -161,6 +170,7 @@ ASTIA_TEST(aarch64_timer_periodic_policy) {
                 timer::tick_action::stop);
 
     u32 ticks = 0;
+
     ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
     ASTIA_CHECK(ticks > 0);
     ASTIA_CHECK(ticks <= timer::tval_max_positive);
@@ -179,6 +189,7 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(timer::pending_deadlines() == 0U);
 
     u64 ms = 0;
+
     ASTIA_CHECK(!timer::count_to_ms(0, 0, ms));
     ASTIA_CHECK(timer::count_to_ms(625000U, 62500000U, ms));
     ASTIA_CHECK(ms == 10U);
@@ -189,6 +200,7 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(!timer::count_to_ms(~u64{0}, 1U, ms));
 
     u64 due = 0;
+
     ASTIA_CHECK(timer::add_ms_checked(100U, 25U, due));
     ASTIA_CHECK(due == 125U);
     ASTIA_CHECK(timer::add_ms_checked(~u64{0} - 5U, 5U, due));
@@ -201,23 +213,34 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
 
     ASTIA_CHECK(timer::earliest_due_index(timer::deadline_table,
                                           timer::deadline_capacity) == 0xffffffffU);
+
     timer::deadline_entry table[3]{};
+
     ASTIA_CHECK(timer::earliest_due_index(table, 3) == 0xffffffffU);
+
     table[1].armed  = true;
     table[1].due_ms = 50;
+
     ASTIA_CHECK(timer::earliest_due_index(table, 3) == 1U);
+
     table[0].armed  = true;
     table[0].due_ms = 70;
+
     ASTIA_CHECK(timer::earliest_due_index(table, 3) == 1U);
+
     table[2].armed  = true;
     table[2].due_ms = 50;
+
     ASTIA_CHECK(timer::earliest_due_index(table, 3) == 1U);
+
     table[1].armed = false;
+
     ASTIA_CHECK(timer::earliest_due_index(table, 3) == 2U);
 
     u32 calls = 0;
     u32 id_a  = 0;
     u32 id_b  = 0;
+
     ASTIA_CHECK(timer::schedule_deadline(0, 0, count_local_irq, &calls, id_a) ==
                 timer::deadline_error::invalid_delay);
     ASTIA_CHECK(timer::schedule_deadline(0, 10, nullptr, nullptr, id_a) ==
@@ -231,11 +254,13 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(id_b > id_a);
 
     u32 filler_ids[6]{};
+
     for (u32 index = 0; index < 6; ++index) {
         ASTIA_CHECK(timer::schedule_deadline(1000, 10, count_local_irq, &calls,
                                              filler_ids[index]) ==
                     timer::deadline_error::none);
     }
+
     ASTIA_CHECK(timer::schedule_deadline(1000, 10, count_local_irq, &calls,
                                          filler_ids[0]) == timer::deadline_error::full);
     ASTIA_CHECK(timer::pending_deadlines() == timer::deadline_capacity);
@@ -249,9 +274,11 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(timer::pending_deadlines() == 0U);
 
     deadline_probe catch_up{};
-    u32            late_id  = 0;
-    u32            not_due  = 0;
-    u32            extra_id = 0;
+
+    u32 late_id  = 0;
+    u32 not_due  = 0;
+    u32 extra_id = 0;
+
     ASTIA_CHECK(timer::schedule_deadline(0, 30, record_deadline_a, &catch_up, late_id) ==
                 timer::deadline_error::none);
     ASTIA_CHECK(timer::schedule_deadline(0, 10, record_deadline_b, &catch_up, extra_id) ==
@@ -267,7 +294,9 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(timer::dispatch_due(30U) == 0U);
 
     timer::reset_deadlines();
+
     u32 fresh_id = 0;
+
     ASTIA_CHECK(timer::pending_deadlines() == 0U);
     ASTIA_CHECK(timer::schedule_deadline(0, 10, count_local_irq, &calls, fresh_id) ==
                 timer::deadline_error::none);
@@ -275,14 +304,19 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(timer::cancel_deadline(fresh_id));
     timer::reset_deadlines();
 
-    u32 wrapped_armed_id    = 0;
+    u32 wrapped_armed_id = 0;
+
     timer::deadline_next_id = 0xffffffffU;
+
     ASTIA_CHECK(
         timer::schedule_deadline(0, 10, count_local_irq, &calls, wrapped_armed_id) ==
         timer::deadline_error::none);
     ASTIA_CHECK(wrapped_armed_id == 0xffffffffU);
+
     timer::deadline_next_id = 0xffffffffU;
-    u32 wrapped_new_id      = 0;
+
+    u32 wrapped_new_id = 0;
+
     ASTIA_CHECK(timer::schedule_deadline(0, 20, count_local_irq, &calls,
                                          wrapped_new_id) == timer::deadline_error::none);
     ASTIA_CHECK(wrapped_new_id != 0U);
@@ -296,9 +330,13 @@ ASTIA_TEST(aarch64_timer_deadline_policy) {
     ASTIA_CHECK(timer::pending_deadlines() == 0U);
 
     timer::reset_deadlines();
+
     deadline_reentry_probe reentry{};
+
     reentry.schedule_now = 10;
-    u32 reentry_id       = 0;
+
+    u32 reentry_id = 0;
+
     ASTIA_CHECK(timer::schedule_deadline(0, 10, reschedule_deadline, &reentry,
                                          reentry_id) == timer::deadline_error::none);
     ASTIA_CHECK(timer::dispatch_due(10U) == 1U);

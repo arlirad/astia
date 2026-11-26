@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::mm {
-
     /// Address range types as reported by the firmware/hypervisor map. The
     /// values match the x86/HVM (PVH) ABI, which in turn matches the ACPI
     /// "System Address Map Interfaces" range types.
@@ -30,21 +29,24 @@ namespace astia::mm {
         static constexpr usize max_regions = 128;
 
         void add(u64 base, u64 size, memory_type type) {
-            if (_count >= max_regions) {
+            if (_count >= max_regions)
                 return;
-            }
+
             _regions[_count++] = {base, size, type};
         }
 
         usize count() const {
             return _count;
         }
+
         const memory_region* begin() const {
             return _regions;
         }
+
         const memory_region* end() const {
             return _regions + _count;
         }
+
         const memory_region& operator[](usize index) const {
             return _regions[index];
         }
@@ -53,5 +55,4 @@ namespace astia::mm {
         memory_region _regions[max_regions]{};
         usize         _count = 0;
     };
-
 } // namespace astia::mm

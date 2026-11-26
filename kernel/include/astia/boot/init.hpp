@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::boot {
-
     inline constexpr usize init_path_capacity = 256;
 
     enum class init_option_error : u8 {
@@ -20,5 +19,4 @@ namespace astia::boot {
     };
 
     init_selection select_init(const char* command_line);
-
 } // namespace astia::boot

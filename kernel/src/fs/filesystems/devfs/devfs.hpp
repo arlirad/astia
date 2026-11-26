@@ -5,7 +5,6 @@
 #include "../../filesystem.hpp"
 
 namespace astia::fs::filesystems {
-
     inline constexpr u32 devfs_max_entries = 32;
 
     class devfs_mount final : public mount {
@@ -38,6 +37,7 @@ namespace astia::fs::filesystems {
         const char* name() const override {
             return "devfs";
         }
+
         fs::mount* mount(const char* source) const override;
 
         void attach(devfs_mount* instance) {
@@ -47,5 +47,4 @@ namespace astia::fs::filesystems {
         private:
         devfs_mount* _instance = nullptr;
     };
-
 } // namespace astia::fs::filesystems

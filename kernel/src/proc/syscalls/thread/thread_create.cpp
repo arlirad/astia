@@ -18,21 +18,21 @@
 
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
-
     struct thread_create
         : sys::syscall_handler<thread_create, sys::syscall_id::thread_create,
                                sys::syscall_mode::sync> {
         static i64 invoke(sys::user_ptr<u8> entry, u64 stack_top,
                           sys::user_ptr<u8> argument) {
             auto* owner = current_process();
+
             if (owner == nullptr ||
-                !detail::valid_thread_start(entry.address(), stack_top)) {
+                !detail::valid_thread_start(entry.address(), stack_top))
                 return -EFAULT;
-            }
+
             auto value =
                 owner->create_thread(entry.address(), stack_top, argument.address());
+
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
     };
-
 } // namespace astia::proc::syscalls

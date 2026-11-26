@@ -5,7 +5,6 @@
 #include <concepts>
 
 namespace astia::arch {
-
     class syscall_return;
     struct interrupt_frame;
 
@@ -50,5 +49,4 @@ namespace astia::arch {
             } -> std::same_as<signal_restore_state>;
         };
     static_assert(signal_context_port<>);
-
 } // namespace astia::arch

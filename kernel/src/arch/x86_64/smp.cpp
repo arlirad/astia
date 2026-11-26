@@ -21,7 +21,6 @@ extern void                astia_ap_trampoline_end();
 }
 
 namespace astia::arch::x86_64::smp {
-
     namespace {
         using logs = astia::log::context<"smp">;
 
@@ -39,40 +38,53 @@ namespace astia::arch::x86_64::smp {
 
         extern "C" void ap_entry(u64 cpu_index) {
             logs::info("AP%u entered trampoline", static_cast<u32>(cpu_index));
+
             if (!x86_64::init_gdt_tss_cpu(static_cast<u32>(cpu_index))) {
                 logs::error("AP%u per-CPU GDT/TSS allocation failed",
                             static_cast<u32>(cpu_index));
+
                 return;
             }
+
             astia::arch::load_interrupts();
+
             if (!lapic::enable()) {
                 logs::error("AP%u LAPIC enable failed", static_cast<u32>(cpu_index));
+
                 return;
             }
+
             astia::atomic_ref<u32>(cpu_online).fetch_add(1, astia::memory_order::release);
             logs::info("AP%u online", static_cast<u32>(cpu_index));
             astia::arch::cpu::interrupts();
             logs::info("AP%u park", static_cast<u32>(cpu_index));
+
             while (astia::atomic_ref<u32>(scheduler_online)
                        .load(astia::memory_order::acquire) == 0) {
                 astia::arch::cpu::halt();
             }
+
             if (!astia::proc::scheduler::start_cpu(static_cast<u32>(cpu_index))) {
                 logs::error("AP%u scheduler start failed", static_cast<u32>(cpu_index));
+
                 return;
             }
-            for (;;) {
+
+            while (true) {
                 astia::arch::cpu::halt();
-                if (consume_reschedule(static_cast<u32>(cpu_index))) {
+
+                if (consume_reschedule(static_cast<u32>(cpu_index)))
                     astia::proc::scheduler::yield();
-                }
             }
         }
 
         u32 cpuid_threads() {
             u32 eax = 1, ebx = 0, ecx = 0, edx = 0;
+
             asm volatile("cpuid" : "+a"(eax), "=b"(ebx), "+c"(ecx), "=d"(edx));
+
             const u32 count = (ebx >> 16) & 0xffu;
+
             return count == 0 ? 1 : count;
         }
 
@@ -83,10 +95,14 @@ namespace astia::arch::x86_64::smp {
         }
 
         u8 checksum(const void* p, usize n) {
-            const auto* b   = static_cast<const u8*>(p);
-            u8          sum = 0;
-            for (usize i = 0; i < n; ++i)
+            const auto* b = static_cast<const u8*>(p);
+
+            u8 sum = 0;
+
+            for (usize i = 0; i < n; ++i) {
                 sum = static_cast<u8>(sum + b[i]);
+            }
+
             return sum;
         }
 
@@ -125,19 +141,25 @@ namespace astia::arch::x86_64::smp {
                 checksum(madt, madt->header.length) != 0)
                 return 0;
 
-            u32         count = 0;
-            const auto* p     = reinterpret_cast<const u8*>(madt) + sizeof(madt_header);
-            const auto* end   = reinterpret_cast<const u8*>(madt) + madt->header.length;
+            u32 count = 0;
+
+            const auto* p   = reinterpret_cast<const u8*>(madt) + sizeof(madt_header);
+            const auto* end = reinterpret_cast<const u8*>(madt) + madt->header.length;
+
             while (p + 2 <= end) {
                 const u8 type   = p[0];
                 const u8 length = p[1];
+
                 if (length < 2 || p + length > end)
                     break;
+
                 u32 flags = 0;
+
                 if (type == 0 && length >= 8)
                     flags = reinterpret_cast<const u32*>(p + 4)[0];
                 else if (type == 9 && length >= 16)
                     flags = reinterpret_cast<const u32*>(p + 8)[0];
+
                 if (((type == 0 && length >= 8) || (type == 9 && length >= 16)) &&
                     (flags & 1u)) {
                     if (count < max_cpus) {
@@ -145,14 +167,19 @@ namespace astia::arch::x86_64::smp {
                                            ? p[3]
                                            : static_cast<u32>(
                                                  reinterpret_cast<const u32*>(p + 4)[0]);
-                        for (u32 i = 0; i < count; ++i)
+
+                        for (u32 i = 0; i < count; ++i) {
                             if (apic_ids[i] == id)
                                 return 0;
+                        }
+
                         apic_ids[count++] = id;
                     }
                 }
+
                 p += length;
             }
+
             return count == 0 ? 1 : count;
         }
 
@@ -160,36 +187,46 @@ namespace astia::arch::x86_64::smp {
             if (r->revision >= 2 && r->length >= sizeof(rsdp) && r->length <= 4096 &&
                 r->xsdt != 0 && checksum(r, r->length) == 0) {
                 const auto* table = static_cast<const sdt_header*>(phys_ptr(r->xsdt));
+
                 if (table->signature == xsdt_signature &&
                     table->length >= sizeof(sdt_header) &&
                     checksum(table, table->length) == 0) {
-                    const u32   n       = (table->length - sizeof(sdt_header)) / 8;
+                    const u32 n = (table->length - sizeof(sdt_header)) / 8;
+
                     const auto* entries = reinterpret_cast<const u64*>(
                         reinterpret_cast<const u8*>(table) + sizeof(sdt_header));
+
                     for (u32 i = 0; i < n; ++i) {
                         const auto* h =
                             static_cast<const sdt_header*>(phys_ptr(entries[i]));
+
                         if (h->signature == madt_signature)
                             return count_madt(reinterpret_cast<const madt_header*>(h));
                     }
                 }
             }
+
             if (r->rsdt != 0 && checksum(r, 20) == 0) {
                 const auto* table = static_cast<const sdt_header*>(phys_ptr(r->rsdt));
+
                 if (table->signature == rsdt_signature &&
                     table->length >= sizeof(sdt_header) &&
                     checksum(table, table->length) == 0) {
-                    const u32   n       = (table->length - sizeof(sdt_header)) / 4;
+                    const u32 n = (table->length - sizeof(sdt_header)) / 4;
+
                     const auto* entries = reinterpret_cast<const u32*>(
                         reinterpret_cast<const u8*>(table) + sizeof(sdt_header));
+
                     for (u32 i = 0; i < n; ++i) {
                         const auto* h =
                             static_cast<const sdt_header*>(phys_ptr(entries[i]));
+
                         if (h->signature == madt_signature)
                             return count_madt(reinterpret_cast<const madt_header*>(h));
                     }
                 }
             }
+
             return 0;
         }
     } // namespace
@@ -198,56 +235,76 @@ namespace astia::arch::x86_64::smp {
         cpu_total        = 1;
         cpu_online       = 1;
         scheduler_online = 0;
+
         astia::atomic_ref<u32>(reschedule_pending[0])
             .store(0u, astia::memory_order::relaxed);
+
         bool have_acpi = info.rsdp != 0;
         if (!have_acpi) {
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
+
             logs::info("discovered=%u online=1 (CPUID; no ACPI RSDP)", cpu_total);
             logs::info("reschedule IPI armed");
+
             if (cpu_total > 2) {
                 logs::error(
                     "AP startup unavailable: no APIC-ID topology (safe limit is 1 AP)");
+
                 return true;
             }
         }
+
         const auto* r =
             have_acpi ? static_cast<const rsdp*>(phys_ptr(info.rsdp)) : nullptr;
+
         if (have_acpi && (*reinterpret_cast<const u64*>(r->signature) != rsdp_signature ||
                           checksum(r, 20) != 0)) {
             have_acpi = false;
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
+
             logs::info("discovered=%u online=1 (CPUID; invalid ACPI RSDP)", cpu_total);
             logs::info("reschedule IPI armed");
+
             if (cpu_total > 1) {
                 logs::info(
                     "AP startup deferred: no APIC-ID topology (invalid ACPI RSDP)");
+
                 return true;
             }
         }
+
         const u32 found = have_acpi ? find_madt(r) : 0;
+
         if (have_acpi && found == 0) {
             have_acpi = false;
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
         }
+
         const u32 bsp = lapic::id();
+
         if (found != 0) {
             bool have_bsp = false;
             bool have_ap  = false;
+
             for (u32 i = 0; i < found; ++i) {
                 if (apic_ids[i] == bsp)
                     have_bsp = true;
                 else
                     have_ap = true;
             }
+
             if (!have_bsp || !have_ap)
                 have_acpi = false;
         }
+
         if (found != 0)
             cpu_total = platform::clamp_cpu_count(found);
+
         logs::info("discovered=%u online=1", cpu_total);
+
         if (cpu_total <= 1)
             return true;
+
         if (!have_acpi) {
             logs::info(
                 found == 0 && r != nullptr
@@ -255,48 +312,61 @@ namespace astia::arch::x86_64::smp {
                     : "AP startup deferred: no APIC-ID topology (PVH provides no ACPI "
                       "RSDP)");
             logs::info("reschedule IPI armed");
+
             return true;
         }
 
         const bool broadcast = !have_acpi;
         u32        index     = 1;
+
         for (u32 n = 0; n < cpu_total; ++n) {
             if ((!broadcast && apic_ids[n] == bsp) || (broadcast && n != 0))
                 continue;
+
             constexpr usize ap_stack_bytes = 16 * 1024;
-            auto            stack          = mm::heap::alloc(ap_stack_bytes);
+
+            auto stack = mm::heap::alloc(ap_stack_bytes);
             if (!stack) {
                 logs::error("AP%u stack allocation failed", index);
                 break;
             }
-            astia_ap_cr3    = static_cast<u32>(astia::arch::kernel_page_map()->root());
-            astia_ap_stack  = reinterpret_cast<u64>(stack.value) + ap_stack_bytes;
-            astia_ap_entry  = reinterpret_cast<u64>(&ap_entry);
-            astia_ap_cpu    = index;
+
+            astia_ap_cr3   = static_cast<u32>(astia::arch::kernel_page_map()->root());
+            astia_ap_stack = reinterpret_cast<u64>(stack.value) + ap_stack_bytes;
+            astia_ap_entry = reinterpret_cast<u64>(&ap_entry);
+            astia_ap_cpu   = index;
+
             const bool sent = broadcast ? lapic::init_sipi_all(0x08)
                                         : lapic::init_sipi(apic_ids[n], 0x08);
             if (!sent) {
                 logs::error("APIC INIT/SIPI failed for APIC ID %u", apic_ids[n]);
                 break;
             }
+
             for (u32 wait = 0;
                  wait < 1000000 &&
                  astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) <
                      index + 1;
                  ++wait) {
             }
+
             if (astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) <
                 index + 1) {
                 logs::error("APIC ID %u did not report online", apic_ids[n]);
                 break;
             }
+
             ++index;
         }
+
         logs::info("online=%u", cpu_online);
+
         if (cpu_online == cpu_total)
             logs::info("smp: verified online=%u", cpu_online);
+
         logs::info("reschedule IPI armed");
         request_reschedule();
+
         return true;
     }
 
@@ -305,15 +375,20 @@ namespace astia::arch::x86_64::smp {
         // and park, then the BSP publishes their scheduler state here.
         const u32 online =
             astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire);
+
         for (u32 index = 1; index < online && index < max_cpus; ++index) {
             if (!astia::proc::scheduler::init_cpu(index)) {
                 logs::error("AP%u scheduler initialization failed", index);
+
                 return false;
             }
         }
+
         astia::atomic_ref<u32>(scheduler_online).store(1u, astia::memory_order::release);
+
         if (astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) > 1)
             request_reschedule();
+
         return true;
     }
 
@@ -323,8 +398,10 @@ namespace astia::arch::x86_64::smp {
 
     void request_reschedule() {
         request_local_reschedule();
+
         const u32 online =
             astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire);
+
         for (u32 index = 1; index < online && index < max_cpus; ++index) {
             astia::atomic_ref<u32>(reschedule_pending[index])
                 .store(1u, astia::memory_order::release);
@@ -334,10 +411,9 @@ namespace astia::arch::x86_64::smp {
 
     void request_local_reschedule() {
         const u32 index = astia::arch::cpu::current_index();
-        if (index < max_cpus) {
+        if (index < max_cpus)
             astia::atomic_ref<u32>(reschedule_pending[index])
                 .store(1u, astia::memory_order::release);
-        }
     }
 
     // Called by the vector-49 epilogue while the interrupt gate is still
@@ -349,8 +425,8 @@ namespace astia::arch::x86_64::smp {
     bool consume_reschedule(u32 cpu_index) {
         if (cpu_index >= max_cpus)
             return false;
+
         return astia::atomic_ref<u32>(reschedule_pending[cpu_index])
                    .exchange(0u, astia::memory_order::acq_rel) != 0;
     }
-
 } // namespace astia::arch::x86_64::smp

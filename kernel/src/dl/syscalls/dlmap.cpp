@@ -8,7 +8,6 @@
 #include <syscall.hpp>
 
 namespace astia::dl::syscalls {
-
     struct dlmap
         : sys::syscall_handler<dlmap, sys::syscall_id::dlmap, sys::syscall_mode::async> {
         static core::task<i64> invoke(i32 fd, u32 flags,
@@ -23,6 +22,7 @@ namespace astia::dl::syscalls {
 
             if (fd < 0)
                 co_return -EBADF;
+
             auto file = process->descriptor(fd_t{fd});
             if (!file)
                 co_return -EBADF;
@@ -32,6 +32,7 @@ namespace astia::dl::syscalls {
                 co_return error_errno(mapped.error);
 
             astia_dl_info info{};
+
             info.size    = sizeof(info);
             info.version = ASTIA_DL_INFO_VERSION;
             info.base    = mapped.value.base;
@@ -40,10 +41,11 @@ namespace astia::dl::syscalls {
             info.phdr    = mapped.value.phdr;
             info.phnum   = mapped.value.phnum;
             info.phent   = mapped.value.phent;
+
             if (!sys::copy_out(range.value.bytes(), &info))
                 co_return -EFAULT;
+
             co_return static_cast<i64>(mapped.value.base);
         }
     };
-
 } // namespace astia::dl::syscalls

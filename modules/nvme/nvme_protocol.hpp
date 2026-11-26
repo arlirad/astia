@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 namespace nvme_protocol {
-
     constexpr uint32_t max_transfer = astia::mm::page_size * 2u;
     constexpr uint8_t  flush_opcode = 0x00;
     constexpr uint8_t  write_opcode = 0x01;
@@ -30,31 +29,42 @@ namespace nvme_protocol {
             (offset % value.block_size) != 0 ||
             value.blocks > UINT64_MAX / value.block_size)
             return false;
+
         const uint64_t bytes = value.blocks * value.block_size;
+
         return offset <= bytes && static_cast<uint64_t>(length) <= bytes - offset;
     }
 
     inline bool set_prp(command& value, uint64_t physical, uint32_t length) {
         if (physical == UINT64_MAX || length == 0)
             return false;
+
         value.dword[6] = static_cast<uint32_t>(physical);
         value.dword[7] = static_cast<uint32_t>(physical >> 32);
         value.dword[8] = 0;
         value.dword[9] = 0;
+
         const uint32_t first =
             astia::mm::page_size -
             static_cast<uint32_t>(physical & (astia::mm::page_size - 1u));
+
         if (length <= first)
             return true;
+
         if (length - first > astia::mm::page_size)
             return false;
+
         const uint64_t page =
             physical & ~(static_cast<uint64_t>(astia::mm::page_size) - 1u);
+
         if (page > UINT64_MAX - astia::mm::page_size)
             return false;
+
         const uint64_t second = page + astia::mm::page_size;
-        value.dword[8]        = static_cast<uint32_t>(second);
-        value.dword[9]        = static_cast<uint32_t>(second >> 32);
+
+        value.dword[8] = static_cast<uint32_t>(second);
+        value.dword[9] = static_cast<uint32_t>(second >> 32);
+
         return true;
     }
 
@@ -81,11 +91,13 @@ namespace nvme_protocol {
             (length % block_size) != 0 || (offset % block_size) != 0 ||
             !set_prp(value, physical, length))
             return false;
+
         value.dword[0]  = opcode | (static_cast<uint32_t>(cid) << 16);
         value.dword[1]  = namespace_id;
         value.dword[10] = static_cast<uint32_t>(offset / block_size);
         value.dword[11] = static_cast<uint32_t>((offset / block_size) >> 32);
         value.dword[12] = (fua ? (1u << 30) : 0) | (length / block_size - 1);
+
         return true;
     }
 
@@ -105,14 +117,18 @@ namespace nvme_protocol {
     inline bool begin(request_state& state) {
         if (state != request_state::free)
             return false;
+
         state = request_state::pending;
+
         return true;
     }
 
     inline bool cancel(request_state& state) {
         if (state != request_state::pending)
             return false;
+
         state = request_state::canceled;
+
         return true;
     }
 
@@ -123,12 +139,13 @@ namespace nvme_protocol {
     inline bool complete(request_state& state) {
         if (state != request_state::pending && state != request_state::canceled)
             return false;
+
         state = request_state::completed;
+
         return true;
     }
 
     inline void release(request_state& state) {
         state = request_state::free;
     }
-
 }

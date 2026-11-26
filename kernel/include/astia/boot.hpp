@@ -6,7 +6,6 @@
 #include <astia/mm/memory_map.hpp>
 
 namespace astia::boot {
-
     /// Maximum number of loader modules kept in boot_info. Extra modules the
     /// loader reports are dropped, mirroring memory_map's fixed capacity.
     inline constexpr usize max_modules = 8;
@@ -41,5 +40,4 @@ namespace astia::boot {
         usize            module_count = 0;       ///< Number of valid entries in modules.
         framebuffer_info framebuffer; ///< One loader-provided linear framebuffer.
     };
-
 } // namespace astia::boot

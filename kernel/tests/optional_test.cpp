@@ -1,15 +1,15 @@
-#include "test.hpp"
 #include <astia/optional.hpp>
 
-namespace {
+#include "test.hpp"
 
+namespace {
     using astia::error_t;
     using astia::optional;
-
 } // namespace
 
 ASTIA_TEST(optional_holds_a_value) {
     optional<int> v = 42;
+
     ASTIA_CHECK(v);
     ASTIA_CHECK(v.has_value);
     ASTIA_CHECK(v.value == 42);
@@ -19,6 +19,7 @@ ASTIA_TEST(optional_holds_a_value) {
 
 ASTIA_TEST(optional_carries_an_error) {
     optional<int> v = error_t::enomem;
+
     ASTIA_CHECK(!v);
     ASTIA_CHECK(!v.has_value);
     ASTIA_CHECK(v.error == error_t::enomem);
@@ -27,6 +28,7 @@ ASTIA_TEST(optional_carries_an_error) {
 
 ASTIA_TEST(optional_default_is_disengaged_but_clean) {
     optional<astia::u64> v;
+
     ASTIA_CHECK(!v);
     ASTIA_CHECK(v.error == error_t::enone);
     ASTIA_CHECK(v.value_or(7) == 7);
@@ -34,6 +36,7 @@ ASTIA_TEST(optional_default_is_disengaged_but_clean) {
 
 ASTIA_TEST(optional_value_with_status) {
     optional<int> v = optional<int>(7, error_t::eagain);
+
     ASTIA_CHECK(v);
     ASTIA_CHECK(v.value == 7);
     ASTIA_CHECK(v.error == error_t::eagain);
