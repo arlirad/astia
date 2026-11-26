@@ -27,10 +27,20 @@
    resolver instead of its result.  Resolving such chains needs the per-slot
    lazy thunk mechanism tracked with lazy PLT binding (#163), and remains a
    known residual limitation.
-5. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
-6. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
+5. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
    copies the templates after relocation, and applies the TLS relocations.
-7. Jumps to `AT_ENTRY` with the original stack.
+6. Makes each module's `PT_GNU_RELRO` range read-only (`.data.rel.ro` and,
+   under partial RELRO, `.got`) after relocation, IFUNC resolution and TLS
+   setup, before any constructor runs. Only the lazy PLT slots (`.got.plt`)
+   stay writable because they lie outside the segment; `-z now` alone does
+   not move them in: full RELRO is the `-z relro -z now` combination that
+   places `.got.plt` inside `PT_GNU_RELRO`, where this step protects it as
+   well. The range is page-rounded: start down, end up, and a wrapping
+   interval fails closed. The interpreter image itself (`ld.astia.so`) is
+   mapped by the kernel and is not in this base's module table, so its own
+   RELRO is out of scope here.
+7. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
+8. Jumps to `AT_ENTRY` with the original stack.
 
 The kernel applies `RELATIVE` when it maps an image and defers symbol
 relocations for `dlmap`ped images (`defer_symbol_relocs`); an `astia_dlmap`
@@ -41,6 +51,9 @@ program can consume that contract today.
 
 - eager binding (`-z now`); no lazy PLT;
 - breadth-first `DT_NEEDED`, transitive dependencies, diamond dedup;
+- `PT_GNU_RELRO` applied after relocation/TLS and before constructors:
+  `.data.rel.ro` and `.got` are read-only; full RELRO (`-z relro -z now`)
+  additionally covers the lazy `.got.plt` slots;
 - `DT_INIT`/`DT_INIT_ARRAY` (dependencies first); `DT_FINI` is left to process
   teardown;
 - static TLS only: build DSOs with `-ftls-model=initial-exec`;
@@ -48,8 +61,8 @@ program can consume that contract today.
 
 Known gaps are tracked in the issue tracker under the `dl` label
 (`gh issue list --label dl`): lazy PLT binding, symbol versioning,
-global-dynamic TLS, `dlopen`/`dlclose` scopes and unload quiescence, RELRO, and
-the eagerly allocated TLS reserve.  At most 64 IFUNC relocations per process
+global-dynamic TLS, `dlopen`/`dlclose` scopes and unload quiescence, and the
+eagerly allocated TLS reserve.  At most 64 IFUNC relocations per process
 (`LD_MAX_IFUNCS`) are supported.
 
 A missing library or unresolved symbol exits with a non-zero status; the boot

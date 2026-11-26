@@ -4855,6 +4855,39 @@ int main(int argc, char** argv) {
             return 86;
     }
 
+    /* PT_GNU_RELRO.  The control build writes only ordinary .data and must
+       exit 0, proving a plain-data fault cannot masquerade as a RELRO pass.
+       The fault build then writes .data.rel.ro, which must raise SIGSEGV once
+       the interpreter has made the RELRO pages read-only. */
+    {
+        const int control = run_staged_fixture("/bin/interp_relro_ok");
+        if (control < 0)
+            return 245;
+
+        if (control == 0) {
+            const pid_t child = fork();
+            if (child < 0)
+                return 245;
+
+            if (child == 0) {
+                char* child_argv[] = {(char*) "/bin/interp_relro", NULL};
+
+                execv("/bin/interp_relro", child_argv);
+                _Exit(241); /* fixture not staged in this initrd */
+            }
+
+            int status = 0;
+
+            if (waitpid(child, &status, 0) != child)
+                return 245;
+
+            if (WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)
+                printf("astia: relro ok\n");
+            else
+                return 245; /* the RELRO write did not fault */
+        }
+    }
+
     /* 52: PT_INTERP bootstrap.  The kernel must enter /lib/ld.stub.so,
        which stamps argc and jumps to the payload's AT_ENTRY; the payload
        exits 0 only if it saw the stamp and a non-zero AT_BASE. */

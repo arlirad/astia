@@ -37,10 +37,11 @@ typedef struct {
 } Elf64_Rela;
 
 enum {
-    PT_LOAD    = 1,
-    PT_DYNAMIC = 2,
-    PT_PHDR    = 6,
-    PT_TLS     = 7,
+    PT_LOAD      = 1,
+    PT_DYNAMIC   = 2,
+    PT_PHDR      = 6,
+    PT_TLS       = 7,
+    PT_GNU_RELRO = 0x6474e552,
 };
 
 enum {
@@ -111,4 +112,7 @@ typedef struct {
     uint64_t tls_memsz;
     uint64_t tls_align;
     int64_t  tls_offset;
+    /* Absolute PT_GNU_RELRO start (base + p_vaddr) and its p_memsz. */
+    uint64_t relro_start;
+    uint64_t relro_size;
 } ld_module;
