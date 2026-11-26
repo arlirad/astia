@@ -1,4 +1,5 @@
 using Arlirad.Ervi.Mediator.Interfaces;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -75,6 +76,7 @@ public sealed class PkgsrvCompositionTests
             CancellationToken.None);
 
         Assert.False(decision.IsAllowed);
+        Assert.Equal(AuthorizationFailure.AuthenticationRequired, decision.Failure);
 
         var sandbox = scope.ServiceProvider.GetRequiredService<IBuildSandbox>();
         var package = TestPackages.CreatePackage();
@@ -123,6 +125,77 @@ public sealed class PkgsrvCompositionTests
     }
 
     [Fact]
+    public async Task AddPkgsrv_EnabledWithoutWiredIrvaDeniesWithToken()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv([], irvaOptions: CreateIrvaOptions(required: false));
+
+        await using var provider = services.BuildServiceProvider();
+        var httpContextAccessor = provider.GetRequiredService<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Authorization = "Bearer access-token";
+        httpContextAccessor.HttpContext = httpContext;
+
+        var authorization = provider.GetRequiredService<IIrvaAuthorization>();
+        var decision = await authorization.AuthorizeAsync(
+            TestPackages.Actor,
+            PackageAction.Read,
+            null,
+            CancellationToken.None);
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(AuthorizationFailure.Unavailable, decision.Failure);
+        Assert.Contains("not supplied at build time", decision.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddPkgsrv_EnabledWithoutWiredIrvaAndRequiredFailsComposition()
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => services.AddPkgsrv([], irvaOptions: CreateIrvaOptions(required: true)));
+
+        Assert.Contains("Irva.Client project", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddPkgsrv_EnabledIncompleteAndRequiredFailsComposition()
+    {
+        var services = new ServiceCollection();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => services.AddPkgsrv(
+                [],
+                irvaOptions: CreateIrvaOptions(required: true, includeSettings: false)));
+
+        Assert.Contains("BaseUrl", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AddPkgsrv_DisabledWithBearerReturnsUnavailable()
+    {
+        var services = new ServiceCollection();
+        services.AddPkgsrv([]);
+
+        await using var provider = services.BuildServiceProvider();
+        var httpContextAccessor = provider.GetRequiredService<IHttpContextAccessor>();
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Authorization = "Bearer access-token";
+        httpContextAccessor.HttpContext = httpContext;
+
+        var authorization = provider.GetRequiredService<IIrvaAuthorization>();
+        var decision = await authorization.AuthorizeAsync(
+            TestPackages.Actor,
+            PackageAction.Read,
+            null,
+            CancellationToken.None);
+
+        Assert.False(decision.IsAllowed);
+        Assert.Equal(AuthorizationFailure.Unavailable, decision.Failure);
+    }
+
+    [Fact]
     public async Task AddPkgsrv_DispatchesThroughErviAndSurfacesAuthorizedReads()
     {
         var services = new ServiceCollection();
@@ -138,6 +211,29 @@ public sealed class PkgsrvCompositionTests
             CancellationToken.None);
 
         Assert.Empty(packages);
+    }
+
+    private static PkgsrvIrvaOptions CreateIrvaOptions(
+        bool required,
+        bool includeSettings = true)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["Pkgsrv:Irva:Enabled"] = "true",
+            ["Pkgsrv:Irva:Required"] = required.ToString()
+        };
+
+        if (includeSettings)
+        {
+            values["Pkgsrv:Irva:BaseUrl"] = "https://irva.example";
+            values["Pkgsrv:Irva:AppToken"] = "configured-secret";
+        }
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(values)
+            .Build();
+
+        return PkgsrvIrvaOptions.FromConfiguration(configuration);
     }
 
     private sealed class AlwaysAllowAuthorization : IIrvaAuthorization

@@ -224,6 +224,79 @@ public sealed class PackageJsonCacheTests
     }
 
     [Fact]
+    public async Task List_UsesVerifiedIdentityForCacheKeyNotSpoofedActor()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var verified = AuthorizationContext.Create(
+            "alice",
+            accountId: Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+        var cache = CreateCache(memory, new VerifiedAuthorization(verified));
+        var calls = 0;
+
+        Task<PackageListResponse> Load(CancellationToken _)
+        {
+            calls++;
+            return Task.FromResult(CreateListResponse());
+        }
+
+        await cache.GetListJsonAsync(
+            AuthorizationContext.Create(
+                "spoof-a",
+                ["reader"],
+                Guid.Parse("11111111-2222-3333-4444-555555555555")),
+            null,
+            Load,
+            CancellationToken.None);
+        await cache.GetListJsonAsync(
+            AuthorizationContext.Create(
+                "spoof-b",
+                ["publisher"],
+                Guid.Parse("99999999-8888-7777-6666-555555555555")),
+            null,
+            Load,
+            CancellationToken.None);
+
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task List_DifferentVerifiedAccountsUseDifferentCacheKeys()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var first = AuthorizationContext.Create(
+            "alice",
+            accountId: Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+        var second = AuthorizationContext.Create(
+            "bob",
+            accountId: Guid.Parse("11111111-2222-3333-4444-555555555555"));
+        var cache = CreateCache(memory, new VerifiedAuthorization(first, second));
+        var calls = 0;
+
+        Task<PackageListResponse> Load(CancellationToken _)
+        {
+            calls++;
+            return Task.FromResult(CreateListResponse(calls == 1 ? "first" : "second"));
+        }
+
+        var spoofed = AuthorizationContext.Create("spoofed", ["reader"]);
+        var firstJson = await cache.GetListJsonAsync(spoofed, null, Load, CancellationToken.None);
+        var secondJson = await cache.GetListJsonAsync(spoofed, null, Load, CancellationToken.None);
+
+        Assert.Equal(2, calls);
+        Assert.NotEqual(firstJson, secondJson);
+    }
+
+    [Fact]
     public async Task InvalidateAfterMutation_ForcesReload()
     {
         var clock = new ManualClock();
@@ -376,6 +449,28 @@ public sealed class PackageJsonCacheTests
             PackageKey? package,
             CancellationToken cancellationToken) =>
             Task.FromResult(AuthorizationResult.Allow());
+    }
+
+    private sealed class VerifiedAuthorization : IIrvaAuthorization
+    {
+        private readonly AuthorizationContext[] _contexts;
+        private int _calls;
+
+        public VerifiedAuthorization(params AuthorizationContext[] contexts)
+        {
+            _contexts = contexts;
+        }
+
+        public Task<AuthorizationResult> AuthorizeAsync(
+            AuthorizationContext context,
+            PackageAction action,
+            PackageKey? package,
+            CancellationToken cancellationToken)
+        {
+            var verified = _contexts[Math.Min(_calls++, _contexts.Length - 1)];
+            return Task.FromResult(
+                AuthorizationResult.Allow(verified, "verified"));
+        }
     }
 
     private sealed class ToggleAuthorization : IIrvaAuthorization

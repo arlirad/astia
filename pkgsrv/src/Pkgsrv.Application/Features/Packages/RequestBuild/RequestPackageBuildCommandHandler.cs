@@ -58,11 +58,7 @@ public sealed class RequestPackageBuildCommandHandler
             PackageAction.Build,
             key,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(nameof(PackageAction.Build), authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Build));
 
         var package = await _repository.FindAsync(key, cancellationToken).ConfigureAwait(false);
 
