@@ -3,6 +3,7 @@
 #include <float.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -851,7 +852,20 @@ void srand(unsigned seed) {
 /* ------------------------------------------------------------------- program */
 
 void abort(void) {
-    /* No signal machinery and no process runtime yet: a trap is the one
-       abnormal-stop that means the same thing everywhere. */
-    __builtin_trap();
+    sigset_t         unblock;
+    struct sigaction action = {0};
+
+    if (sigemptyset(&unblock) == 0 && sigaddset(&unblock, SIGABRT) == 0)
+        (void) sigprocmask(SIG_UNBLOCK, &unblock, NULL);
+
+    (void) raise(SIGABRT);
+
+    action.sa_handler = SIG_DFL;
+
+    (void) sigemptyset(&action.sa_mask);
+    (void) sigaction(SIGABRT, &action, NULL);
+
+    (void) raise(SIGABRT);
+
+    _Exit(127);
 }
