@@ -5,6 +5,7 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/atomic.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 
@@ -48,11 +49,12 @@ namespace astia::arch::x86_64::smp {
                 logs::error("AP%u LAPIC enable failed", static_cast<u32>(cpu_index));
                 return;
             }
-            __atomic_fetch_add(&cpu_online, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(cpu_online).fetch_add(1, astia::memory_order::release);
             logs::info("AP%u online", static_cast<u32>(cpu_index));
             astia::arch::cpu::interrupts();
             logs::info("AP%u park", static_cast<u32>(cpu_index));
-            while (__atomic_load_n(&scheduler_online, __ATOMIC_ACQUIRE) == 0) {
+            while (astia::atomic_ref<u32>(scheduler_online)
+                       .load(astia::memory_order::acquire) == 0) {
                 astia::arch::cpu::halt();
             }
             if (!astia::proc::scheduler::start_cpu(static_cast<u32>(cpu_index))) {
@@ -196,7 +198,8 @@ namespace astia::arch::x86_64::smp {
         cpu_total        = 1;
         cpu_online       = 1;
         scheduler_online = 0;
-        __atomic_store_n(&reschedule_pending[0], 0u, __ATOMIC_RELAXED);
+        astia::atomic_ref<u32>(reschedule_pending[0])
+            .store(0u, astia::memory_order::relaxed);
         bool have_acpi = info.rsdp != 0;
         if (!have_acpi) {
             cpu_total = platform::clamp_cpu_count(cpuid_threads());
@@ -276,11 +279,14 @@ namespace astia::arch::x86_64::smp {
                 logs::error("APIC INIT/SIPI failed for APIC ID %u", apic_ids[n]);
                 break;
             }
-            for (u32 wait = 0; wait < 1000000 &&
-                               __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE) < index + 1;
+            for (u32 wait = 0;
+                 wait < 1000000 &&
+                 astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) <
+                     index + 1;
                  ++wait) {
             }
-            if (__atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE) < index + 1) {
+            if (astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) <
+                index + 1) {
                 logs::error("APIC ID %u did not report online", apic_ids[n]);
                 break;
             }
@@ -297,15 +303,16 @@ namespace astia::arch::x86_64::smp {
     bool init_scheduler() {
         // AP entry must not wait for proc: APs finish architectural bring-up
         // and park, then the BSP publishes their scheduler state here.
-        const u32 online = __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE);
+        const u32 online =
+            astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire);
         for (u32 index = 1; index < online && index < max_cpus; ++index) {
             if (!astia::proc::scheduler::init_cpu(index)) {
                 logs::error("AP%u scheduler initialization failed", index);
                 return false;
             }
         }
-        __atomic_store_n(&scheduler_online, 1u, __ATOMIC_RELEASE);
-        if (__atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE) > 1)
+        astia::atomic_ref<u32>(scheduler_online).store(1u, astia::memory_order::release);
+        if (astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire) > 1)
             request_reschedule();
         return true;
     }
@@ -316,9 +323,11 @@ namespace astia::arch::x86_64::smp {
 
     void request_reschedule() {
         request_local_reschedule();
-        const u32 online = __atomic_load_n(&cpu_online, __ATOMIC_ACQUIRE);
+        const u32 online =
+            astia::atomic_ref<u32>(cpu_online).load(astia::memory_order::acquire);
         for (u32 index = 1; index < online && index < max_cpus; ++index) {
-            __atomic_store_n(&reschedule_pending[index], 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(reschedule_pending[index])
+                .store(1u, astia::memory_order::release);
             (void) lapic::send_ipi(apic_ids[index], lapic::reschedule_vector);
         }
     }
@@ -326,7 +335,8 @@ namespace astia::arch::x86_64::smp {
     void request_local_reschedule() {
         const u32 index = astia::arch::cpu::current_index();
         if (index < max_cpus) {
-            __atomic_store_n(&reschedule_pending[index], 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(reschedule_pending[index])
+                .store(1u, astia::memory_order::release);
         }
     }
 
@@ -339,8 +349,8 @@ namespace astia::arch::x86_64::smp {
     bool consume_reschedule(u32 cpu_index) {
         if (cpu_index >= max_cpus)
             return false;
-        return __atomic_exchange_n(&reschedule_pending[cpu_index], 0u,
-                                   __ATOMIC_ACQ_REL) != 0;
+        return astia::atomic_ref<u32>(reschedule_pending[cpu_index])
+                   .exchange(0u, astia::memory_order::acq_rel) != 0;
     }
 
 } // namespace astia::arch::x86_64::smp

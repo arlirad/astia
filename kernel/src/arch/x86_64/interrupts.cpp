@@ -2,6 +2,7 @@
 #include <astia/arch/interrupt_frame.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/log.hpp>
 
@@ -183,7 +184,8 @@ namespace astia::arch {
         const u64 vector = frame->vector;
 
         if (vector == 3) { // #BP: software int3 (debugger, boot selftest)
-            __atomic_fetch_add(&breakpoint_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(breakpoint_count)
+                .fetch_add(1, astia::memory_order::relaxed);
             return;
         }
         if (vector < 32) {
@@ -209,7 +211,7 @@ namespace astia::arch {
             fatal_exception(*frame); // [[noreturn]]
         }
         if (vector == pic::irq_base) { // IRQ0: PIT tick (fallback source)
-            __atomic_fetch_add(&tick_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(tick_count).fetch_add(1, astia::memory_order::relaxed);
             pic::eoi(vector);
             if (tick_hook != nullptr) {
                 tick_hook();
@@ -217,7 +219,7 @@ namespace astia::arch {
             return;
         }
         if (vector == lapic::timer_vector) { // LAPIC timer tick (primary source)
-            __atomic_fetch_add(&tick_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(tick_count).fetch_add(1, astia::memory_order::relaxed);
             lapic::eoi();
             if (tick_hook != nullptr) {
                 tick_hook();
@@ -315,7 +317,7 @@ namespace astia::arch {
     }
 
     u64 timer_ticks() {
-        return __atomic_load_n(&tick_count, __ATOMIC_RELAXED);
+        return astia::atomic_ref<u64>(tick_count).load(astia::memory_order::relaxed);
     }
 
     u32 timer_hz() {
@@ -402,7 +404,8 @@ namespace astia::arch {
     }
 
     u64 breakpoint_hits() {
-        return __atomic_load_n(&breakpoint_count, __ATOMIC_RELAXED);
+        return astia::atomic_ref<u64>(breakpoint_count)
+            .load(astia::memory_order::relaxed);
     }
 
     bool register_timer_hook(timer_hook hook) {

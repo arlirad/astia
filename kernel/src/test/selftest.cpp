@@ -5,6 +5,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/error.hpp>
 #include <astia/fs.hpp>
@@ -29,13 +30,13 @@ namespace astia::test {
         /// This suite's log source.
         using logs = astia::log::context<"selftest">;
 
-        volatile u32 scheduler_counts[2]{};
-        volatile u32 scheduler_gate_result = 0;
-        volatile u32 scheduler_wake_phase  = 0;
-        volatile u32 scheduler_wake_result = 0;
-        volatile u32 preempt_started       = 0;
-        volatile u32 preempt_main_seen     = 0;
-        volatile u32 preempt_done          = 0;
+        u32 scheduler_counts[2]{};
+        u32 scheduler_gate_result = 0;
+        u32 scheduler_wake_phase  = 0;
+        u32 scheduler_wake_result = 0;
+        u32 preempt_started       = 0;
+        u32 preempt_main_seen     = 0;
+        u32 preempt_done          = 0;
 
         class registry_test_mount final : public fs::mount {};
 
@@ -61,9 +62,9 @@ namespace astia::test {
         };
 
         void scheduler_worker(void* argument) {
-            auto* count = static_cast<volatile u32*>(argument);
+            auto* count = static_cast<u32*>(argument);
             for (u32 i = 0; i < 3; ++i) {
-                __atomic_add_fetch(count, 1, __ATOMIC_RELAXED);
+                astia::atomic_ref<u32>(*count).add_fetch(1, astia::memory_order::relaxed);
                 proc::scheduler::yield();
             }
         }
@@ -72,27 +73,32 @@ namespace astia::test {
             proc::current_thread()->charge_runtime(1ull << 60);
             arch::cpu::nointerrupts();
             proc::scheduler::yield();
-            __atomic_store_n(&scheduler_gate_result,
-                             arch::cpu::check_interrupts() ? 2u : 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(scheduler_gate_result)
+                .store(arch::cpu::check_interrupts() ? 2u : 1u,
+                       astia::memory_order::release);
             arch::cpu::interrupts();
         }
 
         void scheduler_wake_worker(void*) {
             arch::cpu::nointerrupts();
             proc::current_thread()->state(proc::thread_state::blocked);
-            __atomic_store_n(&scheduler_wake_phase, 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(scheduler_wake_phase)
+                .store(1u, astia::memory_order::release);
             proc::scheduler::yield();
-            __atomic_store_n(&scheduler_wake_result,
-                             arch::cpu::check_interrupts() ? 2u : 1u, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(scheduler_wake_result)
+                .store(arch::cpu::check_interrupts() ? 2u : 1u,
+                       astia::memory_order::release);
             arch::cpu::interrupts();
         }
 
         void scheduler_waker(void* argument) {
             auto* target = static_cast<proc::thread*>(argument);
-            while (__atomic_load_n(&scheduler_wake_phase, __ATOMIC_ACQUIRE) == 0)
+            while (astia::atomic_ref<u32>(scheduler_wake_phase)
+                       .load(astia::memory_order::acquire) == 0)
                 proc::scheduler::yield();
             if (!proc::scheduler::wake(target)) {
-                __atomic_store_n(&scheduler_wake_result, 3u, __ATOMIC_RELEASE);
+                astia::atomic_ref<u32>(scheduler_wake_result)
+                    .store(3u, astia::memory_order::release);
             }
             proc::current_thread()->exit();
         }
@@ -117,8 +123,8 @@ namespace astia::test {
                 return false;
             }
             proc::scheduler::yield();
-            const u32 masked_result =
-                __atomic_load_n(&scheduler_gate_result, __ATOMIC_ACQUIRE);
+            const u32 masked_result = astia::atomic_ref<u32>(scheduler_gate_result)
+                                          .load(astia::memory_order::acquire);
             if (masked_result != 1) {
                 if (!gate_open) {
                     arch::cpu::nointerrupts();
@@ -138,13 +144,13 @@ namespace astia::test {
                 logs::error("scheduler: could not spawn wake workers");
                 return false;
             }
-            for (u32 i = 0;
-                 i < 16 && __atomic_load_n(&scheduler_wake_result, __ATOMIC_ACQUIRE) == 0;
+            for (u32 i = 0; i < 16 && astia::atomic_ref<u32>(scheduler_wake_result)
+                                              .load(astia::memory_order::acquire) == 0;
                  ++i) {
                 proc::scheduler::yield();
             }
-            const u32 wake_result =
-                __atomic_load_n(&scheduler_wake_result, __ATOMIC_ACQUIRE);
+            const u32 wake_result = astia::atomic_ref<u32>(scheduler_wake_result)
+                                        .load(astia::memory_order::acquire);
             if (wake_result != 1) {
                 if (!gate_open) {
                     arch::cpu::nointerrupts();
@@ -175,8 +181,10 @@ namespace astia::test {
                  i < 16 && (scheduler_counts[0] != 3 || scheduler_counts[1] != 3); ++i) {
                 proc::scheduler::yield();
             }
-            const u32 first  = __atomic_load_n(&scheduler_counts[0], __ATOMIC_RELAXED);
-            const u32 second = __atomic_load_n(&scheduler_counts[1], __ATOMIC_RELAXED);
+            const u32 first  = astia::atomic_ref<u32>(scheduler_counts[0])
+                                   .load(astia::memory_order::relaxed);
+            const u32 second = astia::atomic_ref<u32>(scheduler_counts[1])
+                                   .load(astia::memory_order::relaxed);
             if (!gate_open) {
                 arch::cpu::nointerrupts();
             }
@@ -189,12 +197,14 @@ namespace astia::test {
         }
 
         void preempt_worker(void*) {
-            __atomic_store_n(&preempt_started, 1, __ATOMIC_RELEASE);
-            while (__atomic_load_n(&preempt_main_seen, __ATOMIC_ACQUIRE) == 0) {
+            astia::atomic_ref<u32>(preempt_started)
+                .store(1, astia::memory_order::release);
+            while (astia::atomic_ref<u32>(preempt_main_seen)
+                       .load(astia::memory_order::acquire) == 0) {
                 // Deliberately no yield: only timer preemption can return
                 // control to the bootstrap thread.
             }
-            __atomic_store_n(&preempt_done, 1, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(preempt_done).store(1, astia::memory_order::release);
         }
 
         void join_worker(void*) {
@@ -267,23 +277,27 @@ namespace astia::test {
             }
 
             arch::cpu::interrupts();
-            for (u32 i = 0;
-                 i < 200 && __atomic_load_n(&preempt_started, __ATOMIC_ACQUIRE) == 0;
+            for (u32 i = 0; i < 200 && astia::atomic_ref<u32>(preempt_started)
+                                               .load(astia::memory_order::acquire) == 0;
                  ++i) {
                 arch::cpu::halt();
             }
-            if (__atomic_load_n(&preempt_started, __ATOMIC_ACQUIRE) == 0) {
+            if (astia::atomic_ref<u32>(preempt_started)
+                    .load(astia::memory_order::acquire) == 0) {
                 arch::cpu::nointerrupts();
                 logs::error("preemption: did not switch to worker");
                 return false;
             }
-            __atomic_store_n(&preempt_main_seen, 1, __ATOMIC_RELEASE);
-            for (u32 i = 0;
-                 i < 200 && __atomic_load_n(&preempt_done, __ATOMIC_ACQUIRE) == 0; ++i) {
+            astia::atomic_ref<u32>(preempt_main_seen)
+                .store(1, astia::memory_order::release);
+            for (u32 i = 0; i < 200 && astia::atomic_ref<u32>(preempt_done)
+                                               .load(astia::memory_order::acquire) == 0;
+                 ++i) {
                 arch::cpu::halt();
             }
             arch::cpu::nointerrupts();
-            if (__atomic_load_n(&preempt_done, __ATOMIC_ACQUIRE) == 0) {
+            if (astia::atomic_ref<u32>(preempt_done).load(astia::memory_order::acquire) ==
+                0) {
                 logs::error("preemption: worker did not finish");
                 return false;
             }
