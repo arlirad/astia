@@ -177,6 +177,41 @@ static void test_width_and_flags(void) {
     CHECK_FMT("7", 1, "%.*d", -1, 7); /* negative precision = none */
 }
 
+static void test_zero_precision(void) {
+    CHECK_FMT("", 0, "%.0d", 0);
+    CHECK_FMT("", 0, "%.0i", 0);
+    CHECK_FMT("", 0, "%.0u", 0);
+    CHECK_FMT("", 0, "%.0x", 0);
+    CHECK_FMT("", 0, "%.0X", 0);
+    CHECK_FMT("", 0, "%.0o", 0);
+    CHECK_FMT("0", 1, "%#.0o", 0);
+    CHECK_FMT("", 0, "%#.0x", 0);
+    CHECK_FMT("", 0, "%#.0X", 0);
+
+    CHECK_FMT("5", 1, "%.0d", 5);
+    CHECK_FMT("-5", 2, "%.0d", -5);
+    CHECK_FMT("5", 1, "%.0i", 5);
+    CHECK_FMT("5", 1, "%.0u", 5);
+    CHECK_FMT("ff", 2, "%.0x", 255);
+    CHECK_FMT("FF", 2, "%.0X", 255);
+    CHECK_FMT("10", 2, "%.0o", 8);
+    CHECK_FMT("010", 3, "%#.0o", 8);
+
+    CHECK_FMT("+", 1, "%+.0d", 0);
+    CHECK_FMT(" ", 1, "% .0d", 0);
+    CHECK_FMT("     ", 5, "%5.0d", 0);
+    CHECK_FMT("     ", 5, "%-5.0d", 0);
+    CHECK_FMT("  0", 3, "%#3.0o", 0);
+    CHECK_FMT("7", 1, "%.*d", 0, 7);
+    CHECK_FMT("", 0, "%.*d", 0, 0);
+
+    {
+        const char* f_prec_zero_pad = "%05.0d";
+
+        CHECK_FMT("     ", 5, f_prec_zero_pad, 0);
+    }
+}
+
 static void test_chars_and_strings(void) {
     CHECK_FMT("A", 1, "%c", 'A');
     CHECK_FMT("   A", 4, "%4c", 'A');
@@ -342,6 +377,7 @@ int main(void) {
     test_ints();
     test_radices();
     test_width_and_flags();
+    test_zero_precision();
     test_chars_and_strings();
     test_pointers();
     test_unsupported();

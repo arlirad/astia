@@ -92,6 +92,11 @@ static size_t uconv(char* tmp, unsigned long long v, unsigned base, int upper) {
     return n;
 }
 
+static int int_zero_precision_drops_digits(unsigned long long mag, size_t prec,
+                                           int prec_set, char spec) {
+    return prec_set && prec == 0 && mag == 0 && spec != 'p';
+}
+
 static void emit_reversed(struct sink* s, const char* tmp, size_t n) {
     while (n--) {
         sink_putc(s, tmp[n]);
@@ -798,7 +803,9 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
                     base = 16;
             }
 
-            ndig = uconv(tmp, mag, base, spec == 'X');
+            ndig = int_zero_precision_drops_digits(mag, prec, prec_set, spec)
+                       ? 0
+                       : uconv(tmp, mag, base, spec == 'X');
 
             if (spec == 'p') {
                 prefix = "0x";
@@ -812,7 +819,7 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
                 prefix = "0X";
                 plen   = 2;
             }
-            else if (alt && spec == 'o' && tmp[ndig - 1] != '0') {
+            else if (alt && spec == 'o' && (ndig == 0 || tmp[ndig - 1] != '0')) {
                 prefix = "0";
                 plen   = 1;
             }
