@@ -106,6 +106,26 @@ static int cmp_item(const void* a, const void* b) {
     return cmp_int(&((const struct item*) a)->key, &((const struct item*) b)->key);
 }
 
+/* C11 7.22.5.1: compar receives the key first and the array element second. */
+static int probe_order_errors;
+
+struct probe {
+    int key;
+    int magic;
+};
+
+#define PROBE_MAGIC 0x5EED1234
+
+static int cmp_probe_first(const void* a, const void* b) {
+    const struct probe* key  = (const struct probe*) a;
+    const struct item*  elem = (const struct item*) b;
+
+    if (key->magic != PROBE_MAGIC)
+        probe_order_errors++;
+
+    return cmp_int(&key->key, &elem->key);
+}
+
 static void check_sorted(const int* a, size_t n, int line) {
     for (size_t i = 0; i + 1 < n; i++) {
         if (a[i] > a[i + 1]) {
@@ -209,6 +229,22 @@ static void test_qsort_bsearch(void) {
         CHECK(bsearch(&last, s, m, sizeof s[0], cmp_int) == &s[m - 1]);
         CHECK(bsearch(&probe, s, 0, sizeof s[0], cmp_int) == NULL);
         CHECK(bsearch(&probe, s, m, 0, cmp_int) == NULL);
+    }
+
+    /* key-only comparator: reading the key's fields from the first argument */
+    {
+        static const struct item items[] = {{1, 10}, {3, 30}, {5, 50}, {7, 70}, {9, 90}};
+
+        size_t m = sizeof items / sizeof items[0];
+
+        struct probe hit  = {5, PROBE_MAGIC};
+        struct probe miss = {6, PROBE_MAGIC};
+
+        probe_order_errors = 0;
+
+        CHECK(bsearch(&hit, items, m, sizeof items[0], cmp_probe_first) == &items[2]);
+        CHECK(bsearch(&miss, items, m, sizeof items[0], cmp_probe_first) == NULL);
+        CHECK(probe_order_errors == 0);
     }
 }
 

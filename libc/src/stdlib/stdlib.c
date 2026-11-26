@@ -815,10 +815,10 @@ void* bsearch(const void* key, const void* base, size_t nmemb, size_t size,
 
         const char* elem = (const char*) base + mid * size;
 
-        int c = compar(elem, key);
-        if (c < 0)
+        int c = compar(key, elem);
+        if (c > 0)
             lo = mid + 1;
-        else if (c > 0)
+        else if (c < 0)
             hi = mid;
         else
             return (void*) elem; /* explicit cast from const char* */
