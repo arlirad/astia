@@ -2,6 +2,8 @@
 
 #include <errno.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #define CU_STDIN 0
@@ -32,6 +34,105 @@ static int cu_write_all(int fd, const void* data, size_t length) {
     }
 
     return 0;
+}
+
+typedef struct {
+    int    fd;
+    char   chunk[4096];
+    size_t chunk_offset;
+    size_t chunk_length;
+    char*  line;
+    size_t line_capacity;
+    size_t line_length;
+} cu_line_reader;
+
+static void cu_line_reader_init(cu_line_reader* reader, int fd) {
+    reader->fd            = fd;
+    reader->chunk_offset  = 0;
+    reader->chunk_length  = 0;
+    reader->line          = 0;
+    reader->line_capacity = 0;
+    reader->line_length   = 0;
+}
+
+static void cu_line_reader_destroy(cu_line_reader* reader) {
+    free(reader->line);
+
+    reader->line = 0;
+}
+
+static int cu_line_reserve(cu_line_reader* reader, size_t extra) {
+    size_t needed = reader->line_length + extra + 1;
+
+    if (needed <= reader->line_capacity)
+        return 0;
+
+    size_t next = reader->line_capacity == 0 ? 4096 : reader->line_capacity;
+
+    char* grown;
+
+    while (next < needed) {
+        next *= 2;
+    }
+
+    grown = (char*) realloc(reader->line, next);
+    if (grown == 0)
+        return -2;
+
+    reader->line          = grown;
+    reader->line_capacity = next;
+
+    return 0;
+}
+
+static int cu_read_line(cu_line_reader* reader) {
+    reader->line_length = 0;
+
+    for (;;) {
+        if (reader->chunk_offset == reader->chunk_length) {
+            long got = read(reader->fd, reader->chunk, sizeof reader->chunk);
+            if (got < 0) {
+                if (errno == EINTR)
+                    continue;
+
+                return -1;
+            }
+
+            if (got == 0) {
+                if (reader->line_length == 0)
+                    return 0;
+
+                break;
+            }
+
+            reader->chunk_offset = 0;
+            reader->chunk_length = (size_t) got;
+        }
+
+        char* newline = memchr(reader->chunk + reader->chunk_offset, '\n',
+                               reader->chunk_length - reader->chunk_offset);
+
+        size_t take =
+            newline != 0 ? (size_t) (newline - (reader->chunk + reader->chunk_offset)) + 1
+                         : reader->chunk_length - reader->chunk_offset;
+
+        int status = cu_line_reserve(reader, take);
+        if (status != 0)
+            return status;
+
+        memcpy(reader->line + reader->line_length, reader->chunk + reader->chunk_offset,
+               take);
+
+        reader->line_length += take;
+        reader->chunk_offset += take;
+
+        if (newline != 0)
+            break;
+    }
+
+    reader->line[reader->line_length] = '\0';
+
+    return 1;
 }
 
 static int cu_puts(const char* text) {

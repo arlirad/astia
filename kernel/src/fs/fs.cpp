@@ -405,6 +405,10 @@ namespace astia::fs {
         return {};
     }
 
+    u64 mount::node_inode(const char*) const {
+        return 0;
+    }
+
     uid_t mount::node_uid(const char*) const {
         return {};
     }
@@ -949,6 +953,22 @@ namespace astia::fs {
                                    astia::span<char>(name, capacity), type);
     }
 
+    long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
+                        u32 capacity, file_type* type) {
+        if (!directory)
+            return -EBADF;
+
+        const char* path = directory->path();
+
+        if (path == nullptr || path[0] != '/')
+            return -EBADF;
+
+        if (!directory->mode().is_directory())
+            return -ENOTDIR;
+
+        return read_directory(path, index, name, capacity, type);
+    }
+
     long make_directory(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
@@ -1146,6 +1166,19 @@ namespace astia::fs {
         return unix_mode.exists() ? unix_mode
                                   : operation.instance()->node_mode(
                                         relative_path(*operation.entry(), path));
+    }
+
+    bool directory_matches(const char* path, mount* owner, u64 inode) {
+        if (path == nullptr || path[0] != '/' || owner == nullptr)
+            return false;
+
+        mount_operation operation(path);
+
+        if (!operation || operation.instance() != owner)
+            return false;
+
+        return operation.instance()->node_inode(
+                   relative_path(*operation.entry(), path)) == inode;
     }
 
     uid_t node_uid(const char* path) {

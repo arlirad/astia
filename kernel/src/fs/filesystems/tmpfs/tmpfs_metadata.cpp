@@ -42,6 +42,20 @@ namespace astia::fs::filesystems {
         return {};
     }
 
+    u64 tmpfs_mount::node_inode(const char* path) const {
+        core::spinlock_guard guard(_namespace_lock);
+
+        if (path == nullptr || path[0] != '/')
+            return 0;
+
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (_entries[i].used && string_equal(_entries[i].path, path))
+                return _entries[i].target ? _entries[i].target->inode() : 0;
+        }
+
+        return 0;
+    }
+
     uid_t tmpfs_mount::node_uid(const char* path) const {
         core::spinlock_guard guard(_namespace_lock);
 

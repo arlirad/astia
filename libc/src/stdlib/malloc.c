@@ -45,6 +45,7 @@ struct aligned_meta {
     size_t magic;
     void*  base;
     void*  user;
+    size_t alignment;
 };
 
 #define HDR sizeof(struct blk)
@@ -60,6 +61,25 @@ static struct blk* free_list; /* first fit, newest at the head */
 static int         arena_ready;
 
 #define ALIGNED_META_MAGIC ((size_t) 0x41535449414d454du)
+
+static int aligned_unwrap(void* ptr, void** base, size_t* alignment) {
+    struct aligned_meta meta;
+
+    memcpy(&meta, (char*) ptr - sizeof meta, sizeof meta);
+
+    if (meta.magic != ALIGNED_META_MAGIC || meta.user != ptr || meta.base == NULL ||
+        (uintptr_t) meta.base % ALIGN_MIN != 0 ||
+        (uintptr_t) meta.base >= (uintptr_t) ptr)
+        return 0;
+
+    if (base)
+        *base = meta.base;
+
+    if (alignment)
+        *alignment = meta.alignment;
+
+    return 1;
+}
 
 static void arena_init(void) {
     struct blk* b = (struct blk*) (void*) arena;
@@ -199,16 +219,13 @@ void* malloc(size_t size) {
 }
 
 void free(void* ptr) {
-    struct aligned_meta meta;
+    void* base;
 
     if (ptr == NULL)
         return; /* free(NULL) is a no-op, per the standard */
 
-    memcpy(&meta, (char*) ptr - sizeof meta, sizeof meta);
-
-    if (meta.magic == ALIGNED_META_MAGIC && meta.user == ptr && meta.base != NULL &&
-        (uintptr_t) meta.base % ALIGN_MIN == 0 && (uintptr_t) meta.base < (uintptr_t) ptr)
-        ptr = meta.base;
+    if (aligned_unwrap(ptr, &base, NULL))
+        ptr = base;
 
     release((struct blk*) ((char*) ptr - HDR));
 }
@@ -247,12 +264,13 @@ int posix_memalign(void** memptr, size_t alignment, size_t size) {
         return ENOMEM;
     }
 
-    aligned     = (candidate + alignment - 1) & ~(uintptr_t) (alignment - 1);
-    meta        = (struct aligned_meta*) (aligned - sizeof *meta);
-    meta->magic = ALIGNED_META_MAGIC;
-    meta->base  = base;
-    meta->user  = (void*) aligned;
-    *memptr     = meta->user;
+    aligned         = (candidate + alignment - 1) & ~(uintptr_t) (alignment - 1);
+    meta            = (struct aligned_meta*) (aligned - sizeof *meta);
+    meta->magic     = ALIGNED_META_MAGIC;
+    meta->base      = base;
+    meta->user      = (void*) aligned;
+    meta->alignment = alignment;
+    *memptr         = meta->user;
 
     return 0;
 }
@@ -278,6 +296,9 @@ void* realloc(void* ptr, size_t size) {
     struct blk* t;
 
     size_t need;
+    size_t alignment;
+
+    void* base;
 
     if (ptr == NULL)
         return malloc(size);
@@ -286,6 +307,26 @@ void* realloc(void* ptr, size_t size) {
         free(ptr); /* v1 semantics: free and return NULL */
 
         return NULL;
+    }
+
+    if (aligned_unwrap(ptr, &base, &alignment)) {
+        struct blk* bb = (struct blk*) ((char*) base - HDR);
+
+        size_t offset = (size_t) ((char*) ptr - (char*) base);
+        size_t usable = bb->size - offset;
+
+        void* np;
+
+        if (size <= usable)
+            return ptr;
+
+        if (posix_memalign(&np, alignment, size) != 0)
+            return NULL;
+
+        memcpy(np, ptr, usable);
+        release(bb);
+
+        return np;
     }
 
     b = (struct blk*) ((char*) ptr - HDR);

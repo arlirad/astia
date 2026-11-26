@@ -23,6 +23,8 @@
 #include "selftest_arch.hpp"
 #include "syscall.hpp"
 
+#include <coroutine>
+
 namespace astia::test {
     namespace {
         /// This suite's log source.
@@ -35,6 +37,13 @@ namespace astia::test {
         u32 preempt_started       = 0;
         u32 preempt_main_seen     = 0;
         u32 preempt_done          = 0;
+        u32 wait_park_phase       = 0;
+        u32 wait_park_wake_ok     = 0;
+        u32 wait_park_resumed     = 0;
+        u32 wait_park_rescued     = 0;
+
+        proc::thread*           wait_park_waiter = nullptr;
+        std::coroutine_handle<> wait_park_operation{};
 
         class registry_test_mount final : public fs::mount {};
 
@@ -323,6 +332,235 @@ namespace astia::test {
 
             proc::scheduler::yield();
             logs::info("join ok");
+
+            return true;
+        }
+
+        struct wait_park_suspend {
+            bool await_ready() const {
+                return false;
+            }
+
+            void await_suspend(std::coroutine_handle<> handle) {
+                wait_park_operation = handle;
+            }
+
+            void await_resume() const {}
+        };
+
+        core::task<i64> wait_park_operation_task() {
+            co_await wait_park_suspend{};
+
+            co_return 0;
+        }
+
+        struct wait_park_probe {
+            struct promise_type {
+                wait_park_probe get_return_object() {
+                    return wait_park_probe{
+                        std::coroutine_handle<promise_type>::from_promise(*this)};
+                }
+
+                std::suspend_always initial_suspend() noexcept {
+                    return {};
+                }
+
+                std::suspend_always final_suspend() noexcept {
+                    return {};
+                }
+
+                void return_void() {}
+
+                void unhandled_exception() {
+                    __builtin_trap();
+                }
+            };
+
+            std::coroutine_handle<promise_type> handle;
+
+            ~wait_park_probe() {
+                if (handle)
+                    handle.destroy();
+            }
+        };
+
+        wait_park_probe wait_park_probe_coroutine() {
+            astia::atomic_ref<u32>(wait_park_resumed)
+                .store(1, astia::memory_order::release);
+
+            co_return;
+        }
+
+        void wait_park_checkpoint(proc::thread&) {
+            if (astia::atomic_ref<u32>(wait_park_phase)
+                    .load(astia::memory_order::acquire) != 0)
+                return;
+
+            astia::atomic_ref<u32>(wait_park_phase)
+                .store(1, astia::memory_order::release);
+
+            while (astia::atomic_ref<u32>(wait_park_phase)
+                       .load(astia::memory_order::acquire) != 2) {
+                proc::scheduler::yield();
+            }
+        }
+
+        void wait_park_helper(void*) {
+            while (astia::atomic_ref<u32>(wait_park_phase)
+                       .load(astia::memory_order::acquire) == 0) {
+                proc::scheduler::yield();
+            }
+
+            if (astia::atomic_ref<u32>(wait_park_phase)
+                    .load(astia::memory_order::acquire) == 1) {
+                const bool woke =
+                    wait_park_waiter != nullptr && wait_park_waiter->wake_wait();
+
+                astia::atomic_ref<u32>(wait_park_wake_ok)
+                    .store(woke ? 1u : 0u, astia::memory_order::release);
+
+                astia::atomic_ref<u32>(wait_park_phase)
+                    .store(2, astia::memory_order::release);
+
+                proc::scheduler::yield();
+            }
+
+            bool completed = false;
+
+            for (u32 i = 0; i < 64; ++i) {
+                if (astia::atomic_ref<u32>(wait_park_phase)
+                        .load(astia::memory_order::acquire) == 3)
+                    break;
+
+                const bool drained = astia::atomic_ref<u32>(wait_park_resumed)
+                                         .load(astia::memory_order::acquire) != 0;
+
+                if (!completed && wait_park_waiter != nullptr &&
+                    wait_park_waiter->state() == proc::thread_state::blocked) {
+                    if (!drained)
+                        astia::atomic_ref<u32>(wait_park_rescued)
+                            .store(1, astia::memory_order::release);
+
+                    auto operation = wait_park_operation;
+
+                    wait_park_operation = {};
+
+                    if (operation)
+                        operation.resume();
+
+                    completed = true;
+                }
+
+                proc::scheduler::yield();
+            }
+
+            proc::current_thread()->exit();
+        }
+
+        class wait_park_checkpoint_scope {
+            public:
+            explicit wait_park_checkpoint_scope(
+                proc::detail::wait_park_checkpoint checkpoint) {
+                proc::detail::wait_park_checkpoint_hook = checkpoint;
+            }
+
+            ~wait_park_checkpoint_scope() {
+                clear();
+            }
+
+            void clear() {
+                proc::detail::wait_park_checkpoint_hook = nullptr;
+            }
+        };
+
+        bool wait_park_preemption_checks() {
+            arch::interrupt_guard gate;
+
+            astia::atomic_ref<u32>(wait_park_phase)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(wait_park_wake_ok)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(wait_park_resumed)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(wait_park_rescued)
+                .store(0, astia::memory_order::relaxed);
+
+            wait_park_waiter    = nullptr;
+            wait_park_operation = {};
+
+            auto* owner = proc::current_process();
+            auto* self  = proc::current_thread();
+
+            if (owner == nullptr || self == nullptr) {
+                logs::error("wait park: no current process/thread");
+
+                return false;
+            }
+
+            auto owner_ref = proc::retain_process(owner->pid());
+            auto self_ref  = owner->retain_thread(self);
+
+            if (!owner_ref || !self_ref) {
+                logs::error("wait park: could not retain wait context");
+
+                return false;
+            }
+
+            wait_park_probe probe = wait_park_probe_coroutine();
+
+            wait_park_waiter = self_ref.get();
+
+            self_ref->arm_wait(probe.handle);
+
+            auto helper = proc::scheduler::create_kernel(wait_park_helper, nullptr);
+            if (!helper) {
+                self_ref->arm_wait({});
+
+                wait_park_waiter = nullptr;
+
+                logs::error("wait park: could not spawn helper");
+
+                return false;
+            }
+
+            i64  result = -1;
+            bool joined = false;
+
+            {
+                wait_park_checkpoint_scope checkpoint(wait_park_checkpoint);
+
+                result = proc::run_task(wait_park_operation_task());
+
+                checkpoint.clear();
+
+                astia::atomic_ref<u32>(wait_park_phase)
+                    .store(3, astia::memory_order::release);
+
+                joined = join_blocking(*helper) == 0;
+            }
+
+            self_ref->arm_wait({});
+
+            wait_park_waiter    = nullptr;
+            wait_park_operation = {};
+
+            const u32 wake_ok = astia::atomic_ref<u32>(wait_park_wake_ok)
+                                    .load(astia::memory_order::acquire);
+            const u32 resumed = astia::atomic_ref<u32>(wait_park_resumed)
+                                    .load(astia::memory_order::acquire);
+            const u32 rescued = astia::atomic_ref<u32>(wait_park_rescued)
+                                    .load(astia::memory_order::acquire);
+
+            if (result != 0 || resumed != 1 || wake_ok != 1 || rescued != 0 || !joined) {
+                logs::error(
+                    "wait park: result=%ld resumed=%u wake=%u rescued=%u joined=%u",
+                    static_cast<long>(result), resumed, wake_ok, rescued,
+                    joined ? 1u : 0u);
+
+                return false;
+            }
+
+            logs::info("wait park preemption ok");
 
             return true;
         }
@@ -1851,6 +2089,9 @@ namespace astia::test {
             return false;
 
         if (!join_checks())
+            return false;
+
+        if (!wait_park_preemption_checks())
             return false;
 
         if (!preemption_checks())

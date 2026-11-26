@@ -40,6 +40,10 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
+        if (path[0] != '/' && _anchor.bound() &&
+            !fs::directory_matches(_cwd, _anchor.mount.get(), _anchor.inode))
+            return -ENOENT;
+
         return compose_from_locked(_cwd, path, buffer);
     }
 
@@ -65,6 +69,23 @@ namespace astia::proc {
         return compose_from_locked(directory, path, buffer);
     }
 
+    i64 cwd_context::store_path_locked(const char* path) {
+        usize length = 0;
+
+        while (path[length] != '\0') {
+            ++length;
+        }
+
+        if (length + 1 > sizeof(_cwd))
+            return -ENAMETOOLONG;
+
+        for (usize i = 0; i <= length; ++i) {
+            _cwd[i] = path[i];
+        }
+
+        return 0;
+    }
+
     i64 cwd_context::change_directory(const char* path) {
         if (path == nullptr || path[0] == '\0')
             return -EINVAL;
@@ -88,24 +109,34 @@ namespace astia::proc {
         if (type != fs::directory_dir)
             return -ENOTDIR;
 
-        usize length = 0;
+        const i64 store_rc = store_path_locked(full);
+        if (store_rc < 0)
+            return store_rc;
 
-        while (full[length] != '\0') {
-            ++length;
-        }
+        _anchor = directory_anchor{};
 
-        if (length + 1 > sizeof(_cwd))
-            return -ENAMETOOLONG;
+        return 0;
+    }
 
-        for (usize i = 0; i <= length; ++i) {
-            _cwd[i] = full[i];
-        }
+    i64 cwd_context::bind_directory(const char* path, const directory_anchor& anchor) {
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
+
+        arch::interrupt_spinlock_guard guard(_lock);
+
+        const i64 store_rc = store_path_locked(path);
+        if (store_rc < 0)
+            return store_rc;
+
+        _anchor = anchor;
 
         return 0;
     }
 
     void cwd_context::inherit_from(const cwd_context& parent) {
         char snapshot[fs::path_max]{};
+
+        directory_anchor anchor;
 
         {
             arch::interrupt_spinlock_guard guard(parent._lock);
@@ -116,6 +147,8 @@ namespace astia::proc {
                 if (snapshot[i] == '\0')
                     break;
             }
+
+            anchor = parent._anchor;
         }
 
         arch::interrupt_spinlock_guard guard(_lock);
@@ -126,5 +159,7 @@ namespace astia::proc {
             if (_cwd[i] == '\0')
                 break;
         }
+
+        _anchor = anchor;
     }
 } // namespace astia::proc

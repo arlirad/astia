@@ -741,9 +741,9 @@ long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t ca
                     (uint32_t) capacity, 0, 0);
 }
 
-long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
-    return transact(OP_READDIR, (int32_t) index, (uint64_t) (uintptr_t) path, out,
-                    (uint32_t) sizeof *out, 0, 0);
+long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
+    return transact(OP_READDIR, fd, index, out, (uint32_t) sizeof *out,
+                    ASTIA_AIO_READDIR_FD, 0);
 }
 
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {

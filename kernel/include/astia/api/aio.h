@@ -381,6 +381,13 @@ enum {
 /* OP_STATX: preserve the final directory entry instead of following it. */
 enum { STATX_NOFOLLOW = 1u << 0 };
 
+/* OP_READDIR op_flags.  By default sqe.offset points at the pathname and
+   the entry index is in sqe.fd (the legacy path form).  With this flag
+   sqe.fd is an open directory descriptor and sqe.offset is the index, so
+   the stream reads through the handle opened by opendir() instead of
+   resolving a caller-held path again. */
+enum { ASTIA_AIO_READDIR_FD = 1u << 0 };
+
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */
 enum { UNLINKAT_REMOVEDIR = 1u << 0 };
 
