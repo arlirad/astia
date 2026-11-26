@@ -108,9 +108,26 @@ namespace astia::proc {
     bool                     has_controlling_terminal();
     i64                      setpgid(pid_t pid, pgrp_t pgid);
     i64                      setsid();
+
+    /// Credentials of a user-space signal sender. `kill()` group sends pass
+    /// them so only permitted members are signalled; kernel-internal sends
+    /// leave the filter out.
+    struct signal_sender {
+        u32 uid;
+        u32 euid;
+    };
+
     /// Send a signal to every live member of a process group.  Signal zero
-    /// only checks that the group has a live member.
-    i64 signal_process_group(pgrp_t group, signal_number signal, signal_info info = {});
+    /// only checks that the group has a permitted live member.  With a
+    /// sender, members failing the credential check are skipped and a group
+    /// with no permitted member reports -EPERM.
+    i64 signal_process_group(pgrp_t group, signal_number signal, signal_info info = {},
+                             const signal_sender* sender = nullptr);
+
+    /// Send a signal to every live process the sender may signal, skipping
+    /// `exclude` (the caller): the kill(-1) form.
+    i64 signal_all_processes(signal_number signal, signal_info info,
+                             const signal_sender& sender, pid_t exclude);
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns
