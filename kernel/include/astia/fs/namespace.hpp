@@ -48,6 +48,15 @@ namespace astia::fs {
     long      link_path(const char* old_path, const char* new_path);
     file_type node_type(const char* path);
     file_mode node_mode(const char* path);
+    /// Device identity of the mount backing `path`.  A live mount always
+    /// reports a nonzero value; 0 means the path names no mount.
+    u32 node_device(const char* path);
+    /// Inode number of `path` inside its filesystem.  Filesystems that
+    /// cannot supply one (implicit initrd directories, devfs entries)
+    /// get a stable synthetic value derived from the mount and the
+    /// canonical path, so distinct names never share an inode.  The top
+    /// bit is set, keeping a synthetic value clear of real inode numbers.
+    u64 node_inode(const char* path);
     /// True when the path still names the directory identified by the
     /// retained mount/inode pair.  A renamed, unlinked, or recycled name
     /// no longer matches, so callers can reject it instead of silently

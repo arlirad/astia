@@ -1764,7 +1764,8 @@ namespace astia::test {
                 return false;
             }
 
-            auto statx = [&](const char* path, i32 fd, astia_stat* out) -> long {
+            auto statx = [&](const char* path, i32 fd, astia_stat* out,
+                             u32 op_flags = 0) -> long {
                 astia_sqe* s = astia_sqe_slot(ring);
                 if (s == nullptr) {
                     return -EBUSY;
@@ -1775,6 +1776,7 @@ namespace astia::test {
                 s->address   = path == nullptr ? 0 : reinterpret_cast<u64>(path);
                 s->offset    = reinterpret_cast<u64>(out);
                 s->length    = static_cast<u32>(sizeof(astia_stat));
+                s->op_flags  = op_flags;
                 s->user_data = statx_tag;
                 astia_sq_publish(ring, 1);
                 if (sys::io_submit(ring, 1) < 0) {
@@ -1793,6 +1795,60 @@ namespace astia::test {
 
             if (statx(probe_path, -1, &st) != 0 || st.size != 4096 || st.blocks != 8) {
                 logs::error("statx fail (path form)");
+
+                return false;
+            }
+
+            // Device and inode identity come from the backing mount and
+            // filesystem, never a constant: two directories on one mount
+            // differ, a symlink reports its own inode, and two mounts
+            // report different devices.  The probe node has no inode of
+            // its own, so it also covers the synthetic per-name fallback.
+            static const char first_dir[]  = "/tmp/statx_dir_a";
+            static const char second_dir[] = "/tmp/statx_dir_b";
+            static const char link_path[]  = "/tmp/statx_link";
+
+            const fs::file_mode directory_mode(fs::directory_dir,
+                                               fs::file_permissions(0755));
+
+            if (fs::make_directory(first_dir, directory_mode) != 0 ||
+                fs::make_directory(second_dir, directory_mode) != 0 ||
+                fs::make_symlink("/tmp", link_path) != 0) {
+                logs::error("statx fail (identity fixtures)");
+
+                return false;
+            }
+
+            astia_stat first{}, second{}, link{}, dev_root{};
+
+            if (statx(first_dir, -1, &first) != 0 ||
+                statx(second_dir, -1, &second) != 0 ||
+                statx(link_path, -1, &link, STATX_NOFOLLOW) != 0 ||
+                statx("/dev", -1, &dev_root) != 0) {
+                logs::error("statx fail (identity stat)");
+
+                return false;
+            }
+
+            if (first.dev == 0 || first.dev != second.dev ||
+                first.dev != fs::node_device(first_dir) || first.ino == 0 ||
+                first.ino != fs::node_inode(first_dir) || second.ino == 0 ||
+                second.ino != fs::node_inode(second_dir) || first.ino == second.ino) {
+                logs::error("statx fail (directory identity)");
+
+                return false;
+            }
+
+            if (link.dev != first.dev || link.ino == 0 || link.ino == first.ino ||
+                link.ino == second.ino || link.ino != fs::node_inode(link_path)) {
+                logs::error("statx fail (symlink identity)");
+
+                return false;
+            }
+
+            if (dev_root.dev == 0 || dev_root.dev == first.dev || dev_root.ino == 0 ||
+                st.dev == 0 || st.ino == 0) {
+                logs::error("statx fail (mount identity)");
 
                 return false;
             }

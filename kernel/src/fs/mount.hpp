@@ -4,11 +4,31 @@
 #include <astia/fs.hpp>
 
 namespace astia::fs {
+    namespace detail {
+        /// Mount identity for st_dev.  Registry slots are recycled by
+        /// unmount, so the slot index cannot name a mount across time; a
+        /// monotonic counter identifies the instance for its whole life.
+        inline u32 allocate_mount_device() {
+            static u32 next = 1;
+
+            return astia::atomic_ref<u32>(next).fetch_add(1u,
+                                                          astia::memory_order::relaxed);
+        }
+    } // namespace detail
+
     /// A mounted filesystem instance.  The filesystem type is the
     /// factory; this object carries the mounted state and path lookup.
     class mount {
         public:
+        mount() : _device(detail::allocate_mount_device()) {}
+
         virtual ~mount() = default;
+
+        /// Identity the mount reports as st_dev: nonzero and unique among
+        /// live mounts, and shared by every object the mount backs.
+        u32 device() const {
+            return _device;
+        }
 
         /// True for an immutable mount: create/write namespace operations
         /// must fail with -EROFS instead of silently looking absent.
@@ -57,6 +77,7 @@ namespace astia::fs {
         }
 
         private:
+        const u32   _device;
         mutable u32 _open_count = 0;
     };
 } // namespace astia::fs
