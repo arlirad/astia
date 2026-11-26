@@ -1,9 +1,10 @@
+#include <astia/strings.hpp>
+
 #include "keymap.hpp"
 #include "ps2_fake_8042.hpp"
 #include "ps2_keyboard.hpp"
 #include "support/test.hpp"
-
-#include <string>
+#include <initializer_list>
 
 using astia::dev::ps2_port_window;
 using astia::ps2::input_sink;
@@ -16,9 +17,12 @@ using astia::ps2::us_keymap;
 
 namespace {
     struct capture_sink {
-        std::string output;
-        bool        accept = true;
-        astia::u32  calls  = 0;
+        static constexpr astia::u32 capacity = 64;
+
+        astia::u8  output[capacity]{};
+        astia::u32 length = 0;
+        bool       accept = true;
+        astia::u32 calls  = 0;
 
         static bool put(void* context, astia::u8 byte) {
             auto& self = *static_cast<capture_sink*>(context);
@@ -28,9 +32,35 @@ namespace {
             if (!self.accept)
                 return false;
 
-            self.output.push_back(static_cast<char>(byte));
+            if (self.length < capacity)
+                self.output[self.length++] = byte;
 
             return true;
+        }
+
+        astia::string_view view() const {
+            return {reinterpret_cast<const char*>(output),
+                    static_cast<astia::usize>(length)};
+        }
+
+        bool equals(const char* text) const {
+            return view().equals(astia::string_view::from_c_str(text));
+        }
+
+        bool equals(const char* data, astia::usize size) const {
+            return view().equals({data, size});
+        }
+
+        astia::u8 back() const {
+            return output[length - 1];
+        }
+
+        bool empty() const {
+            return length == 0;
+        }
+
+        void clear() {
+            length = 0;
         }
     };
 
@@ -50,30 +80,30 @@ ASTIA_TEST(keymap_letters_shift_caps_and_control) {
     modifiers    state;
 
     ASTIA_CHECK(us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "a");
+    ASTIA_CHECK(capture.equals("a"));
 
     state.left_shift = true;
 
     ASTIA_CHECK(us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "aA");
+    ASTIA_CHECK(capture.equals("aA"));
 
     state.left_shift = false;
     state.caps_lock  = true;
 
     ASTIA_CHECK(us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "aAA");
+    ASTIA_CHECK(capture.equals("aAA"));
 
     state.left_shift = true;
 
     ASTIA_CHECK(us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "aAAa");
+    ASTIA_CHECK(capture.equals("aAAa"));
 
     state.left_shift = false;
     state.left_ctrl  = true;
 
     ASTIA_CHECK(us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "aAAa\x01");
-    ASTIA_CHECK(capture.output.back() == static_cast<char>(0x01));
+    ASTIA_CHECK(capture.equals("aAAa\x01"));
+    ASTIA_CHECK(capture.back() == 0x01);
 }
 
 ASTIA_TEST(keymap_punctuation_and_digits) {
@@ -85,7 +115,7 @@ ASTIA_TEST(keymap_punctuation_and_digits) {
     ASTIA_CHECK(us_keymap::emit(key::equals, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::left_bracket, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::backslash, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "1-=[\\");
+    ASTIA_CHECK(capture.equals("1-=[\\"));
 
     state.left_shift = true;
 
@@ -94,7 +124,7 @@ ASTIA_TEST(keymap_punctuation_and_digits) {
     ASTIA_CHECK(us_keymap::emit(key::equals, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::left_bracket, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::backslash, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == "1-=[\\!_+{|");
+    ASTIA_CHECK(capture.equals("1-=[\\!_+{|"));
 }
 
 ASTIA_TEST(keymap_terminal_bytes_and_sequences) {
@@ -105,26 +135,23 @@ ASTIA_TEST(keymap_terminal_bytes_and_sequences) {
     ASTIA_CHECK(us_keymap::emit(key::enter, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::tab, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::escape, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output == std::string("\x7f\r\t\x1b", 4));
+    ASTIA_CHECK(capture.equals("\x7f\r\t\x1b", 4));
 
     ASTIA_CHECK(us_keymap::emit(key::up, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::down, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::right, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::left, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output ==
-                std::string("\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D", 16));
+    ASTIA_CHECK(capture.equals("\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D", 16));
 
     ASTIA_CHECK(us_keymap::emit(key::f1, state, sink_for(capture)));
     ASTIA_CHECK(us_keymap::emit(key::f5, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output ==
-                std::string("\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D\x1bOP\x1b[15~", 24));
+    ASTIA_CHECK(capture.equals("\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D\x1bOP\x1b[15~", 24));
 
     state.left_ctrl = true;
 
     ASTIA_CHECK(us_keymap::emit(key::up, state, sink_for(capture)));
-    ASTIA_CHECK(
-        capture.output ==
-        std::string("\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D\x1bOP\x1b[15~\x1b\x1b[A", 28));
+    ASTIA_CHECK(capture.equals(
+        "\x7f\r\t\x1b\x1b[A\x1b[B\x1b[C\x1b[D\x1bOP\x1b[15~\x1b\x1b[A", 28));
 }
 
 ASTIA_TEST(keymap_sink_failure_is_reported) {
@@ -135,7 +162,7 @@ ASTIA_TEST(keymap_sink_failure_is_reported) {
     modifiers state;
 
     ASTIA_CHECK(!us_keymap::emit(key::a, state, sink_for(capture)));
-    ASTIA_CHECK(capture.output.empty());
+    ASTIA_CHECK(capture.empty());
     ASTIA_CHECK(capture.calls == 1);
 }
 
@@ -148,25 +175,25 @@ ASTIA_TEST(keyboard_text_and_modifiers) {
     ps2_keyboard           keyboard(controller, sink_for(capture));
 
     feed_text(keyboard, {0x1C, 0x32, 0x21, 0x5A});
-    ASTIA_CHECK(capture.output == "abc\r");
+    ASTIA_CHECK(capture.equals("abc\r"));
 
     feed_text(keyboard, {0x12, 0x16});
-    ASTIA_CHECK(capture.output == "abc\r!");
+    ASTIA_CHECK(capture.equals("abc\r!"));
     ASTIA_CHECK(keyboard.state().shift());
 
     feed_text(keyboard, {0xF0, 0x12, 0x16});
-    ASTIA_CHECK(capture.output == "abc\r!1");
+    ASTIA_CHECK(capture.equals("abc\r!1"));
     ASTIA_CHECK(!keyboard.state().shift());
 
     feed_text(keyboard, {0x58, 0x58, 0x1C});
-    ASTIA_CHECK(capture.output == "abc\r!1A");
+    ASTIA_CHECK(capture.equals("abc\r!1A"));
     feed_text(keyboard, {0xF0, 0x58, 0x58, 0x1C});
-    ASTIA_CHECK(capture.output == "abc\r!1Aa");
+    ASTIA_CHECK(capture.equals("abc\r!1Aa"));
 
     feed_text(keyboard, {0x14, 0x1C});
-    ASTIA_CHECK(capture.output.back() == static_cast<char>(0x01));
+    ASTIA_CHECK(capture.back() == 0x01);
     feed_text(keyboard, {0xF0, 0x14, 0x1C});
-    ASTIA_CHECK(capture.output.back() == 'a');
+    ASTIA_CHECK(capture.back() == static_cast<astia::u8>('a'));
 }
 
 ASTIA_TEST(keyboard_arrows_function_keys_and_keypad) {
@@ -178,15 +205,15 @@ ASTIA_TEST(keyboard_arrows_function_keys_and_keypad) {
     ps2_keyboard           keyboard(controller, sink_for(capture));
 
     feed_text(keyboard, {0xE0, 0x75, 0xE0, 0x72, 0xE0, 0x74, 0xE0, 0x6B});
-    ASTIA_CHECK(capture.output == "\x1b[A\x1b[B\x1b[C\x1b[D");
+    ASTIA_CHECK(capture.equals("\x1b[A\x1b[B\x1b[C\x1b[D"));
 
-    capture.output.clear();
+    capture.clear();
     feed_text(keyboard, {0x05, 0x03, 0x66, 0x5A});
-    ASTIA_CHECK(capture.output == "\x1bOP\x1b[15~\x7f\r");
+    ASTIA_CHECK(capture.equals("\x1bOP\x1b[15~\x7f\r"));
 
-    capture.output.clear();
+    capture.clear();
     feed_text(keyboard, {0x69, 0xE0, 0x1C, 0xE0, 0x4A});
-    ASTIA_CHECK(capture.output == "1\r/");
+    ASTIA_CHECK(capture.equals("1\r/"));
 }
 
 ASTIA_TEST(keyboard_irq_drain_is_bounded) {
