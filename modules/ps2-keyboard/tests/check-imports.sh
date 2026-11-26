@@ -13,17 +13,12 @@ symbols=$("$nm" -u "$object" | awk 'NF { print $NF }' | LC_ALL=C sort -u)
 allowed='_ZN5astia3log6detail4emitENS0_5levelEPKcj
 _ZN5astia3log6detail6numberENS0_5levelEyjb
 _ZN5astia3log6detail6prefixERNS1_14record_builderENS0_5levelEPKcj
-_ZN5astia6module13ps2_claim_irqEPFvvERNS0_14lifetime_tokenE
-_ZN5astia6module14lifetime_token7acquireEv
-_ZN5astia6module14lifetime_token7releaseEv
-_ZN5astia6module14lifetime_tokenD1Ev
-_ZN5astia6module14lifetime_tokenaSEOS1_
+_ZN5astia6module13make_residentEv
+_ZN5astia6module13ps2_claim_irqEPFvvE
 _ZN5astia6module14ps2_unmask_irqEv
 _ZN5astia6module15ps2_release_irqEv
 _ZN5astia6module15tty_input_writeEh
 _ZN5astia6module18ps2_platform_portsEv
-_ZNK5astia6module14lifetime_token13make_residentEv
-_ZNK5astia6module14lifetime_token5validEv
 memcpy
 memset
 memmove'
@@ -39,11 +34,11 @@ done
 for required in \
     _ZN5astia3log6detail4emitENS0_5levelEPKcj \
     _ZN5astia3log6detail6prefixERNS1_14record_builderENS0_5levelEPKcj \
-    _ZN5astia6module13ps2_claim_irqEPFvvERNS0_14lifetime_tokenE \
+    _ZN5astia6module13ps2_claim_irqEPFvvE \
     _ZN5astia6module14ps2_unmask_irqEv \
     _ZN5astia6module15tty_input_writeEh \
     _ZN5astia6module18ps2_platform_portsEv \
-    _ZNK5astia6module14lifetime_token13make_residentEv; do
+    _ZN5astia6module13make_residentEv; do
     if ! printf '%s\n' "$symbols" | grep -qxF "$required"; then
         printf 'missing required module import: %s\n' "$required" >&2
         fail=1
