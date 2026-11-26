@@ -52,6 +52,7 @@ def check_production_layout(repository: Path) -> None:
         if mode == "async":
             assert name in {
                 "execve",
+                "fork",
                 "spawnve",
                 "munmap",
                 "mprotect",

@@ -529,7 +529,7 @@ namespace astia::proc {
         /// write bits on BOTH sides, and the child's PTEs start
         /// read-only — the first write anywhere faults into a private
         /// copy.  _tls_tp is copied as well.
-        bool clone_address_space_cow(process* child);
+        core::task<bool> clone_address_space_cow(process* child);
 
         /// Share this process's open file descriptions with a fork
         /// child: the child's entries reference the SAME descriptions
@@ -664,6 +664,7 @@ namespace astia::proc {
         // read frequently but are independent of thread lifetime and waits.
         mutable core::spinlock _metadata_lock{};
         core::spinlock         _mmap_lock{};
+        core::spinlock         _clone_gate{};
     };
 
     /// Queue a just-died thread for destruction once its kernel stack

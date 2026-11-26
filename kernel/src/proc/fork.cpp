@@ -22,18 +22,18 @@ namespace astia::proc {
         }
     }
 
-    i64 fork(const arch::user_context& uctx) {
+    core::task<i64> fork(const arch::user_context& uctx) {
         process* parent = current_process();
         if (parent == nullptr) {
-            return -ESRCH; // kernel threads have nothing to duplicate
+            co_return -ESRCH; // kernel threads have nothing to duplicate
         }
 
         if (parent->address_space() == nullptr)
-            return -EAGAIN;
+            co_return -EAGAIN;
 
         thread* parent_thread = current_thread();
         if (parent_thread == nullptr)
-            return -ESRCH;
+            co_return -ESRCH;
 
         u64   stack_base = 0;
         usize stack_size = 0;
@@ -45,7 +45,7 @@ namespace astia::proc {
 
         auto child = mm::share<process>(allocate_pid(), parent->pid(), parent->name());
         if (!child)
-            return -ENOMEM;
+            co_return -ENOMEM;
 
         child->inherit_groups(*parent);
         child->signals().inherit_dispositions_from(parent->signals());
@@ -53,11 +53,18 @@ namespace astia::proc {
         // initial state before that queue entry can run.
         child->state(process_state::runnable);
 
-        if (!child->copy_descriptors_from(*parent) ||
-            !parent->clone_address_space_cow(child.get()) || !register_process(child)) {
+        bool cloned = false;
+
+        if (child->copy_descriptors_from(*parent)) {
+            auto result = co_await parent->clone_address_space_cow(child.get());
+
+            cloned = result && result.value;
+        }
+
+        if (!cloned || !register_process(child)) {
             // The child shptr drops here; ~process releases every
             // backing reference and descriptor its failed clone took.
-            return -EAGAIN;
+            co_return -EAGAIN;
         }
 
         crypto::fork_child(raw_id(child->pid()));
@@ -65,7 +72,7 @@ namespace astia::proc {
         if (events::forked::emit_until(*child, *parent) == core::hook::outcome::stop) {
             (void) unregister_process(child.get());
 
-            return -EAGAIN;
+            co_return -EAGAIN;
         }
 
         if (!child->create_fork_thread(uctx, parent_thread->signals().blocked(),
@@ -73,9 +80,9 @@ namespace astia::proc {
             (void) unregister_process(child.get());
             parent->wake_waiters();
 
-            return -EAGAIN;
+            co_return -EAGAIN;
         }
 
-        return static_cast<i64>(raw_id(child->pid()));
+        co_return static_cast<i64>(raw_id(child->pid()));
     }
 } // namespace astia::proc

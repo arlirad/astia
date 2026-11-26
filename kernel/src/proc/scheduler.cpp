@@ -414,6 +414,30 @@ namespace astia::proc::scheduler {
         return queued;
     }
 
+    bool runnable_ready() {
+        if (!initialized)
+            return false;
+
+        const u32 index = arch::cpu::current_index();
+
+        if (index >= max_cpu_count || cpus[index].status != cpu_state::lifecycle::online)
+            return false;
+
+        auto& state = cpus[index];
+
+        arch::interrupt_spinlock_guard guard(state.lock);
+
+        for (u32 i = 0; i < state.queue_count; ++i) {
+            thread* value = state.queue[i];
+
+            if (value->state() == thread_state::runnable &&
+                value->owner()->state() != process_state::stopped)
+                return true;
+        }
+
+        return false;
+    }
+
     void tick() {
         sys::io_poll_tick();
         futex_tick();

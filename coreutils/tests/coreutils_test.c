@@ -1,5 +1,6 @@
 #include <astia/version.h>
 
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -69,6 +70,82 @@ static int has_mode(const char* path, mode_t mode) {
     struct stat info;
 
     return stat(path, &info) == 0 && (info.st_mode & 07777) == mode;
+}
+
+static int fork_cow_checks(void) {
+    enum { page_count = 1024 };
+
+    const size_t page_bytes = 4096;
+    const size_t length     = (size_t) page_count * page_bytes;
+
+    unsigned char* area =
+        mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (area == MAP_FAILED)
+        return fail("fork cow mmap");
+
+    for (size_t page = 0; page < page_count; ++page) {
+        area[page * page_bytes] = (unsigned char) (page * 31u + 7u);
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        (void) munmap(area, length);
+
+        return fail("fork cow fork");
+    }
+
+    if (child == 0) {
+        for (size_t page = 0; page < page_count; ++page) {
+            if (area[page * page_bytes] != (unsigned char) (page * 31u + 7u))
+                _Exit(1);
+        }
+
+        for (size_t page = 0; page < page_count; ++page) {
+            area[page * page_bytes] = (unsigned char) (page * 17u + 3u);
+        }
+
+        for (size_t page = 0; page < page_count; ++page) {
+            if (area[page * page_bytes] != (unsigned char) (page * 17u + 3u))
+                _Exit(2);
+        }
+
+        _Exit(0);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+        WEXITSTATUS(status) != 0) {
+        (void) munmap(area, length);
+
+        return fail("fork cow child");
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        if (area[page * page_bytes] != (unsigned char) (page * 31u + 7u)) {
+            (void) munmap(area, length);
+
+            return fail("fork cow parent");
+        }
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        area[page * page_bytes] ^= 0x5a;
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        if (area[page * page_bytes] !=
+            (unsigned char) (((unsigned char) (page * 31u + 7u)) ^ 0x5a)) {
+            (void) munmap(area, length);
+
+            return fail("fork cow parent write");
+        }
+    }
+
+    if (munmap(area, length) != 0)
+        return fail("fork cow munmap");
+
+    return 0;
 }
 
 static int file_equals(const char* path, const char* expected) {
@@ -622,6 +699,9 @@ int main(void) {
 
     if (chdir("/bin") != 0)
         return fail("runner chdir");
+
+    if (fork_cow_checks() != 0)
+        return 1;
 
     char* cat_stdin[]         = {"cat", NULL};
     char* cat_stdin_dash[]    = {"cat", "-", NULL};
