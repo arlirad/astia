@@ -3278,6 +3278,28 @@ int main(int argc, char** argv) {
             printf("astia: ld ok\n");
     }
 
+    /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
+       recover the load bias from auxv instead of guessing zero. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 89;
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_nophdr", NULL};
+            execv("/bin/interp_nophdr", child_argv);
+            _Exit(144);
+        }
+        int status = 0;
+        if (waitpid(child, &status, 0) != child)
+            return 89;
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 89;
+        else
+            printf("astia: ld nophdr ok\n");
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

@@ -1313,6 +1313,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/boot_stage/bin/
+                COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
+                ${_fix_dir}/interp_link ${_fix_dir}/interp_nophdr
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_nophdr ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1333,8 +1338,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
-                lib/libfixture_base.so bin/interp_link lib/libc.so bin/dyn_libc
-                etc/passwd etc/group
+                lib/libfixture_base.so bin/interp_link bin/interp_nophdr
+                lib/libc.so bin/dyn_libc etc/passwd etc/group
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1389,6 +1394,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
                 "astia: interp ok"
                 "astia: ld ok"
+                "astia: ld nophdr ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
