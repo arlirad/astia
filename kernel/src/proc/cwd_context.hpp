@@ -57,6 +57,7 @@ namespace astia::proc {
         }
 
         i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
+
         i64 resolve_path(const char* path, char* buffer, usize length,
                          bool follow_final) const {
             return resolve_path(path, span<char>(buffer, length), follow_final);
@@ -64,6 +65,7 @@ namespace astia::proc {
 
         i64 resolve_path_at(const char* directory, const char* path, span<char> buffer,
                             bool follow_final) const;
+
         i64 resolve_path_at(const char* directory, const char* path, char* buffer,
                             usize length, bool follow_final) const {
             return resolve_path_at(directory, path, span<char>(buffer, length),

@@ -184,6 +184,7 @@ namespace astia::proc {
         /// Absolute paths start at the root; relative paths resolve from cwd
         /// and fail with -ENOENT while cwd is outside the root.
         i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
+
         i64 resolve_path(const char* path, char* buffer, usize length,
                          bool follow_final) const {
             return resolve_path(path, span<char>(buffer, length), follow_final);
@@ -193,6 +194,7 @@ namespace astia::proc {
         /// whose canonical path is outside this process's root.
         i64 resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
                             bool follow_final) const;
+
         i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length,
                             bool follow_final) const {
             return resolve_path_at(dirfd, path, span<char>(buffer, length), follow_final);

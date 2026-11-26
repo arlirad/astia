@@ -102,6 +102,7 @@ namespace astia::fs {
                         std::strcpy(candidate, "/");
 
                     std::strcpy(joined, candidate);
+
                     dotted = true;
                 }
                 else if (length >= 3 && std::strcmp(candidate + length - 3, "/..") == 0) {

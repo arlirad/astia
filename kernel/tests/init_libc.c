@@ -1365,14 +1365,12 @@ int main(int argc, char** argv) {
             _Exit(201);
 
         fd = open("/init_libc", O_RDONLY);
-
         if (fd < 0)
             _Exit(202);
 
         close(fd);
 
         fd = open("/etc/passwd", O_RDONLY);
-
         if (fd < 0)
             _Exit(203);
 
@@ -4782,64 +4780,69 @@ int main(int argc, char** argv) {
        then fork+exec must keep the new root and only see the jail. */
     {
         char cwd[64];
-        int  fd;
+        int  fd = open("/jail/init_libc", O_RDONLY);
 
-        if (chdir("/") != 0 || chroot("/jail") != 0)
-            return 210;
+        if (fd >= 0) {
+            close(fd);
 
-        errno = 0;
+            if (chdir("/") != 0 || chroot("/jail") != 0)
+                return 210;
 
-        if (getcwd(cwd, sizeof(cwd)) != NULL || errno != ENOENT)
-            return 211;
+            errno = 0;
 
-        errno = 0;
+            if (getcwd(cwd, sizeof(cwd)) != NULL || errno != ENOENT)
+                return 211;
 
-        if (chdir("etc") != -1 || errno != ENOENT)
-            return 212;
+            errno = 0;
 
-        fd = open("/init_libc", O_RDONLY);
+            if (chdir("etc") != -1 || errno != ENOENT)
+                return 212;
 
-        if (fd < 0)
-            return 213;
+            fd = open("/init_libc", O_RDONLY);
+            if (fd < 0)
+                return 213;
 
-        close(fd);
+            close(fd);
 
-        fd = open("/etc/passwd", O_RDONLY);
+            fd = open("/etc/passwd", O_RDONLY);
+            if (fd < 0)
+                return 214;
 
-        if (fd < 0)
-            return 214;
+            close(fd);
 
-        close(fd);
+            errno = 0;
+            fd    = open("/../sbin/init", O_RDONLY);
 
-        errno = 0;
-        fd    = open("/../sbin/init", O_RDONLY);
+            if (fd >= 0 || errno != ENOENT)
+                return 215;
 
-        if (fd >= 0 || errno != ENOENT)
-            return 215;
+            if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+                strcmp(cwd, "/") != 0)
+                return 216;
 
-        if (chdir("/") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
-            return 216;
+            if (chdir("..") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+                strcmp(cwd, "/") != 0)
+                return 217;
 
-        if (chdir("..") != 0 || getcwd(cwd, sizeof(cwd)) == NULL || strcmp(cwd, "/") != 0)
-            return 217;
+            const pid_t child = fork();
+            if (child < 0)
+                return 218;
 
-        const pid_t child = fork();
-        if (child < 0)
-            return 218;
+            if (child == 0) {
+                char* child_argv[] = {(char*) "/init_libc", (char*) "--chroot-check",
+                                      NULL};
 
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/init_libc", (char*) "--chroot-check", NULL};
+                execv(child_argv[0], child_argv);
+                _Exit(219);
+            }
 
-            execv(child_argv[0], child_argv);
-            _Exit(219);
+            int status = 0;
+
+            if (waitpid(child, &status, 0) != child || status != 0)
+                return 220;
+
+            printf("astia: chroot ok\n");
         }
-
-        int status = 0;
-
-        if (waitpid(child, &status, 0) != child || status != 0)
-            return 220;
-
-        printf("astia: chroot ok\n");
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

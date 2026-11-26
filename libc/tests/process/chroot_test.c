@@ -39,15 +39,18 @@ int main(void) {
 
     next_result = -EPERM;
     errno       = 0;
+
     CHECK(chroot("/jail") == -1);
     CHECK(errno == EPERM);
 
     next_result = -ENOENT;
     errno       = 0;
+
     CHECK(chroot("/missing") == -1);
     CHECK(errno == ENOENT);
 
     errno = 0;
+
     CHECK(chroot(NULL) == -1);
     CHECK(errno == EFAULT);
 
