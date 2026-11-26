@@ -48,6 +48,17 @@ namespace astia::io::aio::operations {
             if (!existing_mode.exists() && (sqe.op_flags & ASTIA_AIO_O_CREAT) == 0)
                 co_return -ENOENT;
 
+            // A create or write on an immutable mount is a read-only failure,
+            // not a missing path.  The mount's open() has no create branch, so
+            // without this a new file under /bin would surface as ENOENT.
+            const bool needs_mutation =
+                (sqe.op_flags &
+                 (ASTIA_AIO_O_WRONLY | ASTIA_AIO_O_RDWR | ASTIA_AIO_O_TRUNC)) != 0 ||
+                (!existing_mode.exists() && (sqe.op_flags & ASTIA_AIO_O_CREAT) != 0);
+
+            if (needs_mutation && fs::read_only_path(resolved))
+                co_return -EROFS;
+
             if (existing_mode.exists()) {
                 auto*       cred  = proc::current_process();
                 const uid_t owner = fs::node_uid(resolved);

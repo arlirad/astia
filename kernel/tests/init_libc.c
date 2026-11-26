@@ -4330,6 +4330,41 @@ int main(int argc, char** argv) {
             printf("astia: ld nophdr ok\n");
     }
 
+    /* 54: the initrd namespace is immutable: create and mutation calls
+       report EROFS, never ENOENT or ENOSYS. */
+    {
+        errno = 0;
+
+        if (open("/bin/astia-erofs-probe", O_WRONLY | O_CREAT | O_TRUNC, 0600) >= 0 ||
+            errno != EROFS)
+            return 90;
+
+        errno = 0;
+
+        if (mkdir("/bin/astia-erofs-dir", 0700) == 0 || errno != EROFS)
+            return 91;
+
+        errno = 0;
+
+        if (unlink("/bin/init_libc") == 0 || errno != EROFS)
+            return 92;
+
+        errno = 0;
+
+        if (rename("/bin/init_libc", "/bin/astia-erofs-ren") == 0 || errno != EROFS)
+            return 93;
+
+        errno = 0;
+
+        if (link("/bin/init_libc", "/bin/astia-erofs-link") == 0 || errno != EROFS)
+            return 94;
+
+        errno = 0;
+
+        if (open("/bin/init_libc", O_WRONLY) >= 0 || errno != EROFS)
+            return 95;
+    }
+
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
        the frame the kernel built. */
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,

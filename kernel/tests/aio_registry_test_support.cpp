@@ -755,6 +755,10 @@ namespace astia::fs {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
+    bool read_only_path(const char*) {
+        return false;
+    }
+
     long resolve_path(const char* path, char* buffer, u32 capacity, bool) {
         if (path == nullptr || buffer == nullptr)
             return -EINVAL;
