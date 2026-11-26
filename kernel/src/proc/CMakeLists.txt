@@ -26,4 +26,4 @@ target_include_directories(proc PUBLIC
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
 )
 
-target_link_libraries(proc PUBLIC libcore core mm arch_${ARCH} fs elf ipc)
+target_link_libraries(proc PUBLIC libcore core crypto mm arch_${ARCH} fs elf ipc)

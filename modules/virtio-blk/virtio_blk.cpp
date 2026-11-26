@@ -1,5 +1,6 @@
 #include <astia/atomic.hpp>
 #include <astia/core/endian.hpp>
+#include <astia/core/name.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/device_file.hpp>
 #include <astia/dev/driver.hpp>
@@ -1074,7 +1075,13 @@ namespace {
 
                 co_return -ENODEV;
             }
-            if (astia::fs::register_device("/dev/vblk0", file) < 0) {
+            if (_path[0] == '\0' &&
+                !astia::core::name_number_increment(_path, sizeof _path, "/dev/vblk%")) {
+                device.release();
+
+                co_return -ENODEV;
+            }
+            if (astia::fs::register_device(_path, file) < 0) {
                 device.release();
 
                 co_return -ENODEV;
@@ -1113,7 +1120,7 @@ namespace {
                 co_return astia::error_t::enone;
             if (_file) {
                 _file->detach();
-                (void) astia::fs::unregister_device("/dev/vblk0", _file);
+                (void) astia::fs::unregister_device(_path, _file);
             }
             if (_file)
                 (void) _file->arm_quiescence_handler(quiescence_callback, this,
@@ -1144,7 +1151,7 @@ namespace {
             astia::module::log("vblk", "invalid geometry rejected");
             char async_read[512]{};
             auto read_result = co_await astia::module::read_registered(
-                "/dev/vblk0", async_read, sizeof async_read, 0);
+                _path, async_read, sizeof async_read, 0);
             if (!read_result || read_result.value != 0 || async_read[0] != 'A' ||
                 async_read[1] != 'S' || async_read[2] != 'T' || async_read[3] != 'I' ||
                 async_read[4] != 'A' || async_read[5] != '_' || async_read[6] != 'V' ||
@@ -1272,6 +1279,7 @@ namespace {
         controller                                device;
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
+        char                                      _path[32]{};
         astia::u64                                _teardown_token = 0;
     };
 

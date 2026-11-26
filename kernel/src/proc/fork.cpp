@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/crypto/random.hpp>
 #include <astia/mm/share.hpp>
 
 #include "events.hpp"
@@ -58,6 +59,8 @@ namespace astia::proc {
             // backing reference and descriptor its failed clone took.
             return -EAGAIN;
         }
+
+        crypto::fork_child(raw_id(child->pid()));
 
         if (events::forked::emit_until(*child, *parent) == core::hook::outcome::stop) {
             (void) unregister_process(child.get());

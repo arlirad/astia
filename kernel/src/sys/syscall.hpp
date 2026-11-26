@@ -94,6 +94,7 @@ namespace astia::sys {
         modls                 = 74,
         modstat               = 75,
         modclose              = 76,
+        getrandom             = 77,
     };
 
     /// How many registers the ABI hands every trap — and so the most
