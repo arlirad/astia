@@ -19,5 +19,5 @@ Returns zero or a negative errno.
 
 ## ERRORS
 
-- `-EINVAL`: The thread already has a joiner.
+- `-EINVAL`: The thread is already detached or already has a joiner.
 - `-ESRCH`: The thread does not exist.
