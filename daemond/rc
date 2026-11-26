@@ -1,3 +1,10 @@
 # Native service definitions (data, never a shell script).
 # Format: executable [argv ...] [respawn[=N]]
 # A bare respawn permits three restarts; N is bounded to 0..16.
+#
+# A file with no service records (this one) does not exit daemond: the
+# supervisor stays resident, keeps PID 1 alive, and serves daemonctl on the
+# control socket until SIGTERM/SIGINT.  A missing /etc/rc is treated the same
+# way and reported with its errno.  Once at least one service is configured,
+# daemond exits cleanly after every configured service has exited and no
+# restart is pending.

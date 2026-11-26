@@ -1,0 +1,5 @@
+# One-shot services used by the daemond visibility boot test.  `ps` must show
+# the supervisor, and daemonctl must reach the same process through the
+# control socket while it is resident.
+/bin/ps
+/bin/daemonctl status

@@ -111,7 +111,7 @@ ASTIA_TEST(aio_canceled_detached_operation_publishes_e_canceled) {
 
     ASTIA_CHECK(
         aio::runner::launch(suspend_until(pending), state, slot, &capture.ring, sqe));
-    ASTIA_CHECK(state->cancel.cancel(astia::core::cancel_reason::request));
+    ASTIA_CHECK(state->cancel->cancel(astia::core::cancel_reason::request));
     ASTIA_CHECK(pending.complete(aio::aio_result{7}));
 
     ASTIA_CHECK(capture.count() == 1);
@@ -141,7 +141,7 @@ ASTIA_TEST(aio_cancel_targets_a_detached_operation) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.count() == 1);
     ASTIA_CHECK(capture.result(0) == 0);
-    ASTIA_CHECK(target->cancel.token().canceled());
+    ASTIA_CHECK(target->cancel->token().canceled());
 
     slot.detached_head = nullptr;
     slot.detached_ops.fetch_sub(1, astia::memory_order::acq_rel);
@@ -164,7 +164,7 @@ ASTIA_TEST(aio_root_cancellation_reaches_a_detached_operation) {
     ASTIA_CHECK(
         aio::runner::launch(suspend_until(pending), state, slot, &capture.ring, sqe));
     ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
-    ASTIA_CHECK(state->cancel.token().canceled());
+    ASTIA_CHECK(state->cancel->token().canceled());
     ASTIA_CHECK(pending.complete(aio::aio_result{7}));
 
     ASTIA_CHECK(capture.count() == 1);
@@ -193,8 +193,8 @@ ASTIA_TEST(aio_exec_epoch_reset_discards_an_in_flight_result) {
     // exec cancels the old image and starts a fresh epoch.
     ASTIA_CHECK(root.cancel(astia::core::cancel_reason::shutdown));
     root.reset();
-    ASTIA_CHECK(state->cancel.token().stale());
-    ASTIA_CHECK(state->cancel.token().canceled());
+    ASTIA_CHECK(state->cancel->token().stale());
+    ASTIA_CHECK(state->cancel->token().canceled());
     ASTIA_CHECK(pending.complete(aio::aio_result{7}));
 
     ASTIA_CHECK(capture.count() == 1);
@@ -238,8 +238,8 @@ ASTIA_TEST(aio_cancel_targets_only_the_matching_operation) {
     ASTIA_CHECK(capture.count() == 1);
     ASTIA_CHECK(capture.result(0) == 0);
     ASTIA_CHECK(capture.user_data(0) == 0xc3);
-    ASTIA_CHECK(second->cancel.token().canceled());
-    ASTIA_CHECK(!first->cancel.token().canceled());
+    ASTIA_CHECK(second->cancel->token().canceled());
+    ASTIA_CHECK(!first->cancel->token().canceled());
 
     // Completing the untouched operation publishes its result and unlinks it
     // from the middle of the list.
@@ -315,7 +315,7 @@ ASTIA_TEST(aio_cancel_needs_a_completion_slot_before_cancelling) {
     sqe.offset    = 0x77;
     sqe.user_data = 0x88;
     ASTIA_CHECK(!aio::registry::dispatch(slot, &capture.ring, sqe));
-    ASTIA_CHECK(!target->cancel.token().canceled());
+    ASTIA_CHECK(!target->cancel->token().canceled());
     ASTIA_CHECK(slot.detached_ops.load() == 1);
 
     slot.detached_head = nullptr;

@@ -17,6 +17,7 @@
 #include "../../proc/proc.hpp"
 #include "memory.hpp"
 #include "registry.hpp"
+#include "runner.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -357,7 +358,10 @@ namespace astia::io::aio::dispatch {
             p->pending_result        = 0;
             p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
-            p->token                 = token;
+            // The runner state behind this token is released as soon as the
+            // operation parks; the parked op outlives it.
+            p->token_source = runner::retain_source(slot, token);
+            p->token        = token;
 
             // Snapshot every entry for as long as this operation lasts.  From
             // here the device is handed kernel windows and never the user

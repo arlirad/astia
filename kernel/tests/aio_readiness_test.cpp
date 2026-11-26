@@ -96,3 +96,35 @@ ASTIA_TEST(aio_readiness_sleep_validates_and_parks) {
     release_parked(slot);
     ASTIA_CHECK(!slot.park[0].used);
 }
+
+ASTIA_TEST(aio_parked_operation_retains_its_cancellation_source) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    const i32 fd = install_descriptor(aio_test::make_open_file(new aio_test::fake_file));
+
+    char                 byte = 0;
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe{};
+    sqe.op      = OP_RECV;
+    sqe.fd      = fd;
+    sqe.address = reinterpret_cast<u64>(&byte);
+    sqe.length  = 1;
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.count() == 0);
+    ASTIA_CHECK(slot.park[0].used);
+    // The detached runner state that supplied the SQE token is released as
+    // soon as the operation parks.  The parked op must retain that source, or
+    // a later readiness wake reads freed memory.
+    const auto source = slot.park[0].token_source;
+    ASTIA_CHECK(source.get() != nullptr);
+    if (source.get() != nullptr) {
+        ASTIA_CHECK(source.get() == slot.park[0].token.source());
+        ASTIA_CHECK(!slot.park[0].token.canceled());
+    }
+
+    release_parked(slot);
+}
