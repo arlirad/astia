@@ -52,9 +52,6 @@ int main(int argc, char** argv) {
 
         if (printf(",%u(%s)", (unsigned) groups[i], group_name(groups[i], fallback)) < 0)
             return 1;
-
-        if (i + 1 < count && printf(",") < 0)
-            return 1;
     }
 
     return printf("\n") < 0;
