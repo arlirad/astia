@@ -174,25 +174,21 @@ namespace astia::fs::filesystems {
         return 0;
     }
 
-    long tmpfs_file::touch(u64 sec, u64 nsec) {
+    long tmpfs_file::touch(const file_timestamps& times) {
         core::spinlock_guard guard(_lock);
 
-        _times.atime_sec  = sec;
-        _times.atime_nsec = nsec;
-        _times.mtime_sec  = sec;
-        _times.mtime_nsec = nsec;
+        _times.atime_sec  = times.atime_sec;
+        _times.atime_nsec = times.atime_nsec;
+        _times.mtime_sec  = times.mtime_sec;
+        _times.mtime_nsec = times.mtime_nsec;
 
-        u64 ctime_sec  = 0;
-        u64 ctime_nsec = 0;
+        u64 ctime_sec  = times.mtime_sec;
+        u64 ctime_nsec = times.mtime_nsec;
 
-        if (fs::realtime_now(ctime_sec, ctime_nsec)) {
-            _times.ctime_sec  = ctime_sec;
-            _times.ctime_nsec = ctime_nsec;
-        }
-        else {
-            _times.ctime_sec  = sec;
-            _times.ctime_nsec = nsec;
-        }
+        (void) fs::realtime_now(ctime_sec, ctime_nsec);
+
+        _times.ctime_sec  = ctime_sec;
+        _times.ctime_nsec = ctime_nsec;
 
         return 0;
     }

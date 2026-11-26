@@ -58,7 +58,7 @@ namespace astia::fs {
         return 0;
     }
 
-    long file::touch(u64, u64) {
+    long file::touch(const file_timestamps&) {
         return -EROFS;
     }
 
