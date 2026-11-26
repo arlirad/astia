@@ -207,8 +207,8 @@ namespace astia::dev {
     }
 
     core::task<i64> device_file::writev(span<const fs::buffer> buffers, u64 offset,
-                                        core::cltoken token) {
-        return submit_writev(buffers, offset, token);
+                                        core::cltoken token, bool nonblock) {
+        return submit_writev(buffers, offset, token, nonblock);
     }
 
     long device_file::submit(io::request& request) {

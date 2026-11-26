@@ -40,7 +40,7 @@ namespace astia::dev {
         core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
                               core::cltoken token) override;
         core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
-                               core::cltoken token) override;
+                               core::cltoken token, bool nonblock) override;
         long            submit(io::request& request) override;
         u32             poll(u32 events, u32 flags) override;
         core::task<i64> ioctl(u64 request, void* argp, usize size,
@@ -59,6 +59,12 @@ namespace astia::dev {
             if (value != nullptr)
                 end_operation();
             return result;
+        }
+
+        const char* device_name() const override {
+            const device* value = device_instance();
+
+            return value != nullptr ? value->name() : nullptr;
         }
 
         private:

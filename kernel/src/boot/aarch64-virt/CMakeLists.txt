@@ -2,6 +2,7 @@ add_executable(astiakrn
         exception.cpp
         fdt.cpp
         kmain.cpp
+        scheduler.cpp
 )
 
 target_include_directories(astiakrn PRIVATE

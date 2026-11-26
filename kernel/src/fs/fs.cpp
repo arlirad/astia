@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/api/termios.h>
 #include <astia/core/rcu_vector.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
@@ -403,6 +404,10 @@ namespace astia::fs {
 
     file_mode mount::node_mode(const char*) const {
         return {};
+    }
+
+    u64 mount::node_inode(const char*) const {
+        return 0;
     }
 
     uid_t mount::node_uid(const char*) const {
@@ -949,6 +954,22 @@ namespace astia::fs {
                                    astia::span<char>(name, capacity), type);
     }
 
+    long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
+                        u32 capacity, file_type* type) {
+        if (!directory)
+            return -EBADF;
+
+        const char* path = directory->path();
+
+        if (path == nullptr || path[0] != '/')
+            return -EBADF;
+
+        if (!directory->mode().is_directory())
+            return -ENOTDIR;
+
+        return read_directory(path, index, name, capacity, type);
+    }
+
     long make_directory(const char* path, file_mode mode) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
@@ -1098,6 +1119,11 @@ namespace astia::fs {
         return path_service::resolve(path, buffer, capacity, follow_final);
     }
 
+    long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
+                           bool follow_final) {
+        return path_service::resolve_from(root, path, buffer, capacity, follow_final);
+    }
+
     long make_symlink(const char* target, const char* path) {
         if (target == nullptr || path == nullptr || path[0] != '/')
             return -EINVAL;
@@ -1146,6 +1172,19 @@ namespace astia::fs {
         return unix_mode.exists() ? unix_mode
                                   : operation.instance()->node_mode(
                                         relative_path(*operation.entry(), path));
+    }
+
+    bool directory_matches(const char* path, mount* owner, u64 inode) {
+        if (path == nullptr || path[0] != '/' || owner == nullptr)
+            return false;
+
+        mount_operation operation(path);
+
+        if (!operation || operation.instance() != owner)
+            return false;
+
+        return operation.instance()->node_inode(
+                   relative_path(*operation.entry(), path)) == inode;
     }
 
     uid_t node_uid(const char* path) {
@@ -1470,6 +1509,9 @@ namespace astia::fs {
         if (!_parent)
             return -EBADF;
 
+        request.nonblock((_flags & static_cast<u32>(open_file_status_flags::nonblock)) !=
+                         0);
+
         // Resolve the offset once, at submission, and write it back into
         // the request: every resume of a parked operation must land on the
         // same position the caller asked for, not on a moved _position.
@@ -1517,6 +1559,51 @@ namespace astia::fs {
     }
 
     long open_file::ioctl(u64 request, void* argp, usize size) {
+        if (request == TIOCGNAME) {
+            if (argp == nullptr || size != sizeof(struct astia_tty_name))
+                return -EINVAL;
+
+            const char* device = _parent ? _parent->device_name() : nullptr;
+            const char* path   = this->path();
+
+            if ((device == nullptr || device[0] == '\0') && path == nullptr)
+                return -ENOTTY;
+
+            auto* name = static_cast<struct astia_tty_name*>(argp);
+
+            usize i = 0;
+
+            if (device != nullptr && device[0] != '\0') {
+                static constexpr char prefix[] = "/dev/";
+
+                for (usize j = 0; prefix[j] != '\0'; ++j) {
+                    if (i + 1 >= sizeof(name->path))
+                        return -ENAMETOOLONG;
+
+                    name->path[i++] = prefix[j];
+                }
+
+                for (usize j = 0; device[j] != '\0'; ++j) {
+                    if (i + 1 >= sizeof(name->path))
+                        return -ENAMETOOLONG;
+
+                    name->path[i++] = device[j];
+                }
+            }
+            else {
+                for (; i + 1 < sizeof(name->path) && path[i] != '\0'; ++i) {
+                    name->path[i] = path[i];
+                }
+
+                if (path[i] != '\0')
+                    return -ENAMETOOLONG;
+            }
+
+            name->path[i] = '\0';
+
+            return 0;
+        }
+
         if (!_parent)
             return -EBADF;
 

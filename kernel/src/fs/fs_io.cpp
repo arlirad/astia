@@ -53,7 +53,8 @@ namespace astia::fs {
         /// node.  A parked request is owned by the device-side pending queue;
         /// its completion resumes this coroutine when the device has data.
         core::task<i64> submit_vector(file* node, span<const buffer> buffers, u64 offset,
-                                      io::direction direction, core::cltoken token) {
+                                      io::direction direction, bool nonblock,
+                                      core::cltoken token) {
             i64 total = 0;
 
             for (usize i = 0; i < buffers.size(); ++i) {
@@ -102,6 +103,7 @@ namespace astia::fs {
 
                 auto& request = operation->request();
 
+                request.nonblock(nonblock);
                 request.wake_handler_set(wake_file, node);
 
                 if (!request.park_device()) {
@@ -181,12 +183,13 @@ namespace astia::fs {
 
     core::task<i64> file::submit_readv(span<const buffer> buffers, u64 offset,
                                        core::cltoken token) {
-        return submit_vector(this, buffers, offset, io::direction::input, token);
+        return submit_vector(this, buffers, offset, io::direction::input, false, token);
     }
 
     core::task<i64> file::submit_writev(span<const buffer> buffers, u64 offset,
-                                        core::cltoken token) {
-        return submit_vector(this, buffers, offset, io::direction::output, token);
+                                        core::cltoken token, bool nonblock) {
+        return submit_vector(this, buffers, offset, io::direction::output, nonblock,
+                             token);
     }
 
     core::task<i64> open_file::readv(span<const buffer> buffers, u64 offset,
@@ -247,7 +250,10 @@ namespace astia::fs {
         if (!contract)
             co_return error_t::ebadf;
 
-        auto result = co_await contract->writev(buffers, actual, token);
+        const bool nonblock =
+            (_flags & static_cast<u32>(open_file_status_flags::nonblock)) != 0;
+
+        auto result = co_await contract->writev(buffers, actual, token, nonblock);
         if (!result)
             co_return result.error;
 

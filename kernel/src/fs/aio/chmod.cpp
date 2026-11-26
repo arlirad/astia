@@ -42,11 +42,12 @@ namespace astia::io::aio::operations {
                                         memory::user_ptr<char>(sqe.address)))
                 co_return -EFAULT;
 
-            char resolved[256];
+            char       resolved[256];
+            const long resolve_rc =
+                current->resolve_path(path, resolved, sizeof resolved, true);
 
-            if (current == nullptr ||
-                current->compose_path(path, resolved, sizeof resolved) < 0)
-                co_return -ESRCH;
+            if (resolve_rc < 0)
+                co_return (i32) resolve_rc;
 
             if (current->euid() != 0 &&
                 current->euid() != static_cast<u32>(fs::node_uid(resolved)))

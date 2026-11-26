@@ -1,7 +1,6 @@
 #pragma once
 
 #include <astia/arch/cpu.hpp>
-#include <astia/arch/spinlock_guard.hpp>
 #include <astia/core/spinlock.hpp>
 
 namespace astia::arch {

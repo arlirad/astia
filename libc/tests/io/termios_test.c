@@ -112,11 +112,15 @@ int main(void) {
 
         errno = 0;
 
-        CHECK(tcflush(slave, TCOFLUSH) == -1 && errno == ENOSYS);
+        CHECK(tcflush(slave, TCOFLUSH) == 0);
 
         errno = 0;
 
-        CHECK(tcflush(slave, TCIOFLUSH) == -1 && errno == ENOSYS);
+        CHECK(tcflush(slave, TCIOFLUSH) == 0);
+
+        errno = 0;
+
+        CHECK(tcflush(slave, 99) == -1 && errno == EINVAL);
 
         errno = 0;
 

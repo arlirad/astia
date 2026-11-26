@@ -22,7 +22,13 @@ namespace astia::fs::syscalls {
             if (!sys::copy_in_string(span<char>(path, sizeof path), target))
                 co_return -EFAULT;
 
-            co_return unmount_type(path);
+            char      resolved[path_max]{};
+            const i64 resolve_rc =
+                current->resolve_path(path, resolved, sizeof resolved, false);
+            if (resolve_rc < 0)
+                co_return resolve_rc;
+
+            co_return unmount_type(resolved);
         }
     };
 } // namespace astia::fs::syscalls

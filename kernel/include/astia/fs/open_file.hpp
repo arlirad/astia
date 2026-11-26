@@ -137,6 +137,10 @@ namespace astia::fs {
             return _mount.get();
         }
 
+        mm::shptr<mount> mount_reference() const {
+            return _mount;
+        }
+
         mm::shptr<file> parent() const {
             return _parent;
         }

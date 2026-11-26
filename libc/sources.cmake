@@ -46,6 +46,8 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/sys/errno.c
   src/sys/mman.c
   src/sys/random.c
+  src/sys/syslog.c
+  src/sys/syslog_sink.c
   src/sys/unistd.c
   src/sys/utsname.c
   src/time/strptime.c

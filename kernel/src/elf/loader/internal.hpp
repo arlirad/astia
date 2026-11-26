@@ -24,6 +24,7 @@ namespace astia::elf::loader::detail {
     inline constexpr u32 sht_strtab     = 3;
     inline constexpr u32 sht_rela       = 4;
     inline constexpr u32 sht_nobits     = 8;
+    inline constexpr u32 sht_rel        = 9;
     inline constexpr u32 sht_init_array = 14;
     inline constexpr u32 sht_fini_array = 15;
 

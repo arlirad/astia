@@ -5,7 +5,9 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/heap.hpp>
 
+#include "mmap_chunk.hpp"
 #include "process.hpp"
+#include "scheduler.hpp"
 
 void* operator new(astia::usize size, void* where) noexcept;
 
@@ -22,6 +24,28 @@ namespace astia::proc {
 
             return ::new (storage.value) mmap_region{};
         }
+
+        constexpr usize clone_page_batch          = 64;
+        constexpr usize clone_saved_writable_unit = 64;
+
+        class clone_gate_guard {
+            public:
+            explicit clone_gate_guard(core::spinlock& lock) : _lock(lock) {
+                while (!_lock.try_lock()) {
+                    scheduler::yield();
+                }
+            }
+
+            ~clone_gate_guard() {
+                _lock.unlock();
+            }
+
+            clone_gate_guard(const clone_gate_guard&)            = delete;
+            clone_gate_guard& operator=(const clone_gate_guard&) = delete;
+
+            private:
+            core::spinlock& _lock;
+        };
 
         /// PROT_* word to PTE flags: user and present always; writable
         /// when PROT_WRITE; executable only when PROT_EXEC (x86
@@ -69,6 +93,57 @@ namespace astia::proc {
                 victim->backing->release_ref();
 
             victim->holds_ref = false;
+        }
+
+        void release_nodes(mmap_region* nodes) {
+            while (nodes != nullptr) {
+                mmap_region* next = nodes->next;
+
+                delete nodes;
+
+                nodes = next;
+            }
+        }
+
+        /// Pages of `source` inside [base, limit) that carry a mapping.
+        /// A stack region materialises its high end first, so only the slice
+        /// above the current frontier counts; every other region maps all of
+        /// its pages.
+        usize mapped_pages_in(const mmap_region& source, u64 base, u64 limit) {
+            if (limit <= base)
+                return 0;
+
+            const u64 page_bytes = mm::phys_region::frame_size;
+
+            if (!source.stack)
+                return static_cast<usize>((limit - base) / page_bytes);
+
+            const u64 frontier = source.end() - source.mapped_pages * page_bytes;
+            const u64 mapped   = base > frontier ? base : frontier;
+
+            return mapped < limit ? static_cast<usize>((limit - mapped) / page_bytes) : 0;
+        }
+
+        /// Write the [base, limit) slice of `source` into `node`, keeping the
+        /// backing page, file offset, and stack frontier in step.  `node` must
+        /// not alias `source`.
+        void fill_region_segment(mmap_region* node, const mmap_region& source, u64 base,
+                                 u64 limit, map_protection prot, bool holds_ref,
+                                 bool pending, mmap_region* next) {
+            const u64 page_bytes = mm::phys_region::frame_size;
+
+            *node              = source;
+            node->next         = next;
+            node->base         = base;
+            node->pages        = static_cast<usize>((limit - base) / page_bytes);
+            node->prot         = prot;
+            node->mapped_pages = mapped_pages_in(source, base, limit);
+            node->holds_ref    = holds_ref;
+            node->pending      = pending;
+            node->unloading    = false;
+            node->region_page  = source.region_page +
+                                static_cast<usize>((base - source.base) / page_bytes);
+            node->file_offset = source.file_offset + (base - source.base);
         }
 
         /// Placement over a base-sorted list: an aligned, free hint
@@ -803,40 +878,122 @@ namespace astia::proc {
         const u64 first = addr;
         const u64 last  = addr + pages * page_bytes;
 
-        // A region extending past the range's end is trimmed by giving
-        // its tail a new entry; pre-allocate that single node so the
-        // unmap cannot fail halfway.
-        mmap_region* tail = alloc_region();
-        if (tail == nullptr)
-            return -ENOMEM;
+        // A boundary inside a region splits it in two: the surviving head and
+        // tail each need a node.  Only the regions covering `first` and `last`
+        // can need one, and at most one region covers both, so two spare nodes
+        // always suffice.  Allocate them before the first lock acquisition:
+        // once the range is marked pending, teardown cannot fail.
+        mmap_region* spare = nullptr;
 
-        bool tail_used = false;
+        for (u32 i = 0; i < 2; ++i) {
+            mmap_region* node = alloc_region();
+            if (node == nullptr) {
+                release_nodes(spare);
+
+                return -ENOMEM;
+            }
+
+            node->next = spare;
+            spare      = node;
+        }
+
+        auto take_spare = [&]() {
+            mmap_region* node = spare;
+            if (node != nullptr) {
+                spare      = node->next;
+                node->next = nullptr;
+            }
+
+            return node;
+        };
 
         {
             arch::interrupt_spinlock_guard guard(_mmap_lock);
-            // A region extending past the range's end needs the preallocated
-            // node.  It is harmlessly discarded below when no such region is
-            // present.
-            mmap_region* prev = nullptr;
-            mmap_region* it   = _mmap_regions;
+
+            mmap_region* it = _mmap_regions;
 
             while (it != nullptr) {
                 mmap_region* next = it->next;
 
                 if (it->pending || it->end() <= first || it->base >= last) {
-                    prev = it;
-                    it   = next;
+                    it = next;
 
                     continue;
                 }
 
-                const u64 old_base = it->base;
-                const u64 old_end  = it->end();
+                const mmap_region source = *it;
 
-                // The covered middle loses its PTEs; the frames stay with
-                // the backing until its last mapping drops.
-                const u64 drop_from = old_base < first ? first : old_base;
-                const u64 drop_to   = old_end > last ? last : old_end;
+                const u64  old_base    = source.base;
+                const u64  old_end     = source.end();
+                const u64  middle_from = old_base < first ? first : old_base;
+                const u64  middle_to   = old_end > last ? last : old_end;
+                const bool head        = middle_from > old_base;
+                const bool tail        = middle_to < old_end;
+
+                mmap_region* middle_node = nullptr;
+                mmap_region* tail_node   = nullptr;
+
+                if (head) {
+                    middle_node = take_spare();
+
+                    if (tail) {
+                        tail_node = take_spare();
+
+                        fill_region_segment(it, source, old_base, middle_from,
+                                            source.prot, source.holds_ref, false,
+                                            middle_node);
+                        fill_region_segment(middle_node, source, middle_from, middle_to,
+                                            source.prot, false, true, tail_node);
+                        fill_region_segment(tail_node, source, middle_to, old_end,
+                                            source.prot, false, false, next);
+                    }
+                    else {
+                        fill_region_segment(it, source, old_base, middle_from,
+                                            source.prot, source.holds_ref, false,
+                                            middle_node);
+                        fill_region_segment(middle_node, source, middle_from, middle_to,
+                                            source.prot, false, true, next);
+                    }
+                }
+                else if (tail) {
+                    middle_node = it;
+                    tail_node   = take_spare();
+
+                    fill_region_segment(middle_node, source, middle_from, middle_to,
+                                        source.prot, source.holds_ref, true, tail_node);
+                    fill_region_segment(tail_node, source, middle_to, old_end,
+                                        source.prot, false, false, next);
+                }
+                else {
+                    // Wholly inside the range: this node reserves it while the
+                    // page tables come down.
+                    middle_node = it;
+
+                    middle_node->pending = true;
+                }
+
+                middle_node->unloading = true;
+                _mapped_bytes -= middle_to - middle_from;
+
+                it = next;
+            }
+        }
+
+        // Take the page tables down one bounded batch at a time.  The pending
+        // nodes keep the range reserved and lookup/fault/pin already skip
+        // them, so the whole range appears unmapped from the first batch.
+        for_each_mmap_chunk(first / page_bytes, pages, [&](const mmap_chunk& chunk) {
+            const u64 chunk_first = chunk.first * page_bytes;
+            const u64 chunk_last  = chunk.end() * page_bytes;
+
+            arch::interrupt_spinlock_guard guard(_mmap_lock);
+
+            for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
+                if (!it->unloading || it->end() <= chunk_first || it->base >= chunk_last)
+                    continue;
+
+                const u64 drop_from = it->base < chunk_first ? chunk_first : it->base;
+                const u64 drop_to   = it->end() > chunk_last ? chunk_last : it->end();
 
                 for (u64 virt = drop_from; virt < drop_to; virt += page_bytes) {
                     _address_space.unmap(virt);
@@ -844,72 +1001,46 @@ namespace astia::proc {
                 }
 
                 it->backing->unmap_range(
-                    it->region_page + (drop_from - old_base) / page_bytes,
+                    it->region_page + (drop_from - it->base) / page_bytes,
                     static_cast<usize>((drop_to - drop_from) / page_bytes));
+            }
+        });
 
-                _mapped_bytes -= drop_to - drop_from;
+        // Detach the reservations in one pass so readers never see a
+        // half-removed list; node teardown happens outside the lock.
+        mmap_region* removed = nullptr;
 
-                if (old_end > last) {
-                    tail_used         = true;
-                    tail->next        = it->next;
-                    tail->base        = last;
-                    tail->pages       = (old_end - last) / page_bytes;
-                    tail->prot        = it->prot;
-                    tail->shared      = it->shared;
-                    tail->stack       = it->stack;
-                    tail->demand_zero = it->demand_zero;
+        {
+            arch::interrupt_spinlock_guard guard(_mmap_lock);
 
-                    if (it->stack) {
-                        const u64 frontier    = old_end - it->mapped_pages * page_bytes;
-                        const u64 mapped_from = frontier > last ? frontier : last;
+            mmap_region* prev = nullptr;
+            mmap_region* it   = _mmap_regions;
 
-                        tail->mapped_pages = mapped_from < old_end
-                                                 ? (old_end - mapped_from) / page_bytes
-                                                 : 0;
-                    }
-                    else {
-                        tail->mapped_pages = tail->pages;
-                    }
+            while (it != nullptr) {
+                mmap_region* next = it->next;
 
-                    tail->holds_ref   = false;
-                    tail->backing     = it->backing;
-                    tail->region_page = it->region_page + (last - it->base) / page_bytes;
-                    tail->file        = it->file;
-                    tail->file_offset = it->file_offset + (last - it->base);
-                    it->next          = tail;
-                }
-
-                if (old_base < first) {
-                    it->pages = (first - old_base) / page_bytes;
-
-                    if (it->stack)
-                        it->mapped_pages = 0;
-                    else
-                        it->mapped_pages = it->pages;
-
+                if (!it->unloading) {
                     prev = it;
-                    it   = it->next;
+                    it   = next;
 
                     continue;
                 }
 
-                // Fully covered: unlink and free the entry, dropping the
-                // address space's reference on the backing.
                 drop_backing(prev, it);
 
                 if (prev == nullptr)
-                    _mmap_regions = it->next;
+                    _mmap_regions = next;
                 else
-                    prev->next = it->next;
+                    prev->next = next;
 
-                delete it;
-
-                it = next;
+                it->next = removed;
+                removed  = it;
+                it       = next;
             }
         }
 
-        if (!tail_used)
-            delete tail;
+        release_nodes(removed);
+        release_nodes(spare);
 
         return 0;
     }
@@ -931,25 +1062,6 @@ namespace astia::proc {
 
         if (last < first || last > user_address_limit)
             return -EINVAL;
-
-        auto segment_mapped_pages = [&](const mmap_region& source, u64 base,
-                                        u64 end) -> usize {
-            if (!source.stack) {
-                return static_cast<usize>((end - base) / page_bytes);
-            }
-            const u64 frontier = source.end() - source.mapped_pages * page_bytes;
-            const u64 mapped   = base > frontier ? base : frontier;
-            return mapped < end ? static_cast<usize>((end - mapped) / page_bytes) : 0;
-        };
-        auto release_nodes = [](mmap_region* nodes) {
-            while (nodes != nullptr) {
-                mmap_region* next = nodes->next;
-
-                delete nodes;
-
-                nodes = next;
-            }
-        };
 
         while (true) {
             usize needed = 0;
@@ -974,8 +1086,7 @@ namespace astia::proc {
                     }
 
                     const u64 end = it->end() < last ? it->end() : last;
-
-                    if (cursor < it->base || end <= cursor) {
+                    if (end <= cursor) {
                         valid = false;
 
                         break;
@@ -1013,7 +1124,81 @@ namespace astia::proc {
                 ++spare_count;
             }
 
-            bool retry   = false;
+            i32  status        = 0;
+            bool valid_surgery = true;
+            bool retry         = false;
+
+            // Change page-table permissions one bounded batch at a time.
+            // VMA surgery is deferred: a failed PTE walk returns without
+            // touching the region list, preserving the original behaviour.
+            for_each_mmap_chunk(first / page_bytes, pages, [&](const mmap_chunk& chunk) {
+                if (status != 0)
+                    return;
+
+                const u64 chunk_first = chunk.first * page_bytes;
+                const u64 chunk_last  = chunk.end() * page_bytes;
+
+                arch::interrupt_spinlock_guard guard(_mmap_lock);
+
+                u64 cursor = chunk_first;
+
+                mmap_region* it = _mmap_regions;
+
+                while (cursor < chunk_last) {
+                    while (it != nullptr && it->end() <= cursor) {
+                        it = it->next;
+                    }
+
+                    if (it == nullptr || it->pending || it->base > cursor) {
+                        status = -EINVAL;
+
+                        return;
+                    }
+
+                    const u64 end = it->end() < chunk_last ? it->end() : chunk_last;
+                    if (end <= cursor) {
+                        status = -EINVAL;
+
+                        return;
+                    }
+
+                    const u64   middle = cursor > it->base ? cursor : it->base;
+                    const usize page   = static_cast<usize>(
+                        (middle - it->base) / page_bytes + it->region_page);
+                    const usize count = static_cast<usize>((end - middle) / page_bytes);
+
+                    for (usize offset = 0; offset < count; ++offset) {
+                        const u64 virt = middle + offset * page_bytes;
+
+                        if (_address_space.translate(virt) == mm::address_space::invalid)
+                            continue;
+
+                        auto flags = pte_flags(prot);
+
+                        if (!it->shared && has(prot, map_protection::write) &&
+                            !it->backing->uniquely_held(page + offset))
+                            flags = static_cast<mm::mapping_flags>(
+                                static_cast<u64>(flags) &
+                                ~static_cast<u64>(mm::mapping_flags::writable));
+
+                        if (!_address_space.protect_4k(virt, flags)) {
+                            status = -ENOMEM;
+
+                            return;
+                        }
+                    }
+
+                    cursor = end;
+                    it     = it->next;
+                }
+            });
+
+            if (status != 0) {
+                release_nodes(spare);
+
+                return status;
+            }
+
             bool success = false;
 
             {
@@ -1030,12 +1215,17 @@ namespace astia::proc {
                     }
 
                     if (it == nullptr || it->pending || it->base > cursor) {
-                        retry = false;
+                        valid_surgery = false;
 
                         break;
                     }
 
                     const u64 end = it->end() < last ? it->end() : last;
+                    if (end <= cursor) {
+                        valid_surgery = false;
+
+                        break;
+                    }
 
                     if (cursor > it->base)
                         ++current_needed;
@@ -1047,7 +1237,7 @@ namespace astia::proc {
                     it     = it->next;
                 }
 
-                if (cursor != last) {
+                if (!valid_surgery) {
                     success = false;
                 }
                 else if (current_needed > spare_count) {
@@ -1057,143 +1247,77 @@ namespace astia::proc {
                     cursor = first;
                     it     = _mmap_regions;
 
-                    bool protected_ok = true;
-
                     while (cursor < last) {
                         while (it != nullptr && it->end() <= cursor) {
                             it = it->next;
                         }
 
-                        const u64   end    = it->end() < last ? it->end() : last;
-                        const u64   middle = cursor > it->base ? cursor : it->base;
-                        const usize page   = static_cast<usize>(
-                            (middle - it->base) / page_bytes + it->region_page);
-                        const usize count =
-                            static_cast<usize>((end - middle) / page_bytes);
+                        const mmap_region source = *it;
 
-                        for (usize offset = 0; offset < count; ++offset) {
-                            const u64 virt = middle + offset * page_bytes;
+                        const u64  end    = source.end() < last ? source.end() : last;
+                        const u64  middle = cursor > source.base ? cursor : source.base;
+                        const bool left   = middle > source.base;
+                        const bool right  = end < source.end();
 
-                            if (_address_space.translate(virt) ==
-                                mm::address_space::invalid)
-                                continue;
+                        mmap_region* middle_node = it;
+                        mmap_region* right_node  = nullptr;
+                        auto         take_spare  = [&]() {
+                            mmap_region* node = spare;
 
-                            auto flags = pte_flags(prot);
+                            spare      = spare->next;
+                            node->next = nullptr;
 
-                            if (!it->shared && has(prot, map_protection::write) &&
-                                !it->backing->uniquely_held(page + offset))
-                                flags = static_cast<mm::mapping_flags>(
-                                    static_cast<u64>(flags) &
-                                    ~static_cast<u64>(mm::mapping_flags::writable));
+                            --spare_count;
 
-                            if (!_address_space.protect_4k(virt, flags)) {
-                                protected_ok = false;
+                            return node;
+                        };
 
-                                break;
-                            }
-                        }
+                        if (left) {
+                            middle_node = take_spare();
 
-                        if (!protected_ok)
-                            break;
+                            if (right) {
+                                right_node = take_spare();
 
-                        cursor = end;
-                        it     = it->next;
-                    }
-
-                    if (!protected_ok) {
-                        success = false;
-                    }
-                    else {
-                        cursor = first;
-                        it     = _mmap_regions;
-
-                        while (cursor < last) {
-                            while (it != nullptr && it->end() <= cursor) {
-                                it = it->next;
-                            }
-
-                            const mmap_region source = *it;
-
-                            const u64 end = source.end() < last ? source.end() : last;
-                            const u64 middle =
-                                cursor > source.base ? cursor : source.base;
-                            const bool left  = middle > source.base;
-                            const bool right = end < source.end();
-
-                            mmap_region* middle_node = it;
-                            mmap_region* right_node  = nullptr;
-                            auto         take_spare  = [&]() {
-                                mmap_region* node = spare;
-
-                                spare      = spare->next;
-                                node->next = nullptr;
-
-                                --spare_count;
-
-                                return node;
-                            };
-                            auto fill = [&](mmap_region* node, u64 base, u64 limit,
-                                            map_protection value, bool holds_ref) {
-                                *node      = source;
-                                node->base = base;
-                                node->pages =
-                                    static_cast<usize>((limit - base) / page_bytes);
-                                node->prot = value;
-                                node->mapped_pages =
-                                    segment_mapped_pages(source, base, limit);
-                                node->holds_ref = holds_ref;
-                                node->region_page =
-                                    source.region_page +
-                                    static_cast<usize>((base - source.base) / page_bytes);
-                                node->file_offset =
-                                    source.file_offset + (base - source.base);
-                                node->pending = false;
-                                node->next    = nullptr;
-                            };
-
-                            if (left) {
-                                middle_node = take_spare();
-                                right_node  = right ? take_spare() : nullptr;
-
-                                fill(it, source.base, middle, source.prot,
-                                     source.holds_ref);
-                                fill(middle_node, middle, end, prot, false);
-
-                                if (right_node != nullptr)
-                                    fill(right_node, end, source.end(), source.prot,
-                                         false);
-
-                                it->next = middle_node;
-                                middle_node->next =
-                                    right_node != nullptr ? right_node : source.next;
-
-                                if (right_node != nullptr)
-                                    right_node->next = source.next;
+                                fill_region_segment(it, source, source.base, middle,
+                                                    source.prot, source.holds_ref, false,
+                                                    middle_node);
+                                fill_region_segment(middle_node, source, middle, end,
+                                                    prot, false, false, right_node);
+                                fill_region_segment(right_node, source, end, source.end(),
+                                                    source.prot, false, false,
+                                                    source.next);
                             }
                             else {
-                                right_node = right ? take_spare() : nullptr;
-
-                                fill(middle_node, middle, end, prot, source.holds_ref);
-
-                                if (right_node != nullptr) {
-                                    fill(right_node, end, source.end(), source.prot,
-                                         false);
-
-                                    middle_node->next = right_node;
-                                    right_node->next  = source.next;
-                                }
-                                else {
-                                    middle_node->next = source.next;
-                                }
+                                fill_region_segment(it, source, source.base, middle,
+                                                    source.prot, source.holds_ref, false,
+                                                    middle_node);
+                                fill_region_segment(middle_node, source, middle, end,
+                                                    prot, false, false, source.next);
                             }
+                        }
+                        else {
+                            if (right) {
+                                right_node = take_spare();
 
-                            cursor = end;
-                            it     = right_node != nullptr ? right_node->next
-                                                           : middle_node->next;
+                                fill_region_segment(middle_node, source, middle, end,
+                                                    prot, source.holds_ref, false,
+                                                    right_node);
+                                fill_region_segment(right_node, source, end, source.end(),
+                                                    source.prot, false, false,
+                                                    source.next);
+                            }
+                            else {
+                                fill_region_segment(middle_node, source, middle, end,
+                                                    prot, source.holds_ref, false,
+                                                    source.next);
+                            }
                         }
 
-                        success = true;
+                        cursor = end;
+                        it = right_node != nullptr ? right_node->next : middle_node->next;
                     }
+
+                    success = true;
                 }
             }
 
@@ -1202,7 +1326,10 @@ namespace astia::proc {
             if (retry)
                 continue;
 
-            return success ? 0 : -ENOMEM;
+            if (!success)
+                return -EINVAL;
+
+            return 0;
         }
     }
 
@@ -1446,81 +1573,99 @@ namespace astia::proc {
         return linked;
     }
 
-    bool process::clone_address_space_cow(process* child) {
+    core::task<bool> process::clone_address_space_cow(process* child) {
         if (!_address_space.attached() || child == nullptr ||
-            child->_address_space.attached())
-            return false;
+            child->_address_space.attached() || child->_mmap_regions != nullptr)
+            co_return false;
 
         mm::address_space map = mm::address_space::create();
 
         if (!map.valid())
-            return false;
+            co_return false;
+
+        clone_gate_guard serialized(_clone_gate);
 
         const u64 page_bytes = mm::phys_region::frame_size;
 
-        arch::interrupt_spinlock_guard guard(_mmap_lock);
+        mmap_region*  child_regions  = nullptr;
+        mmap_region** child_tail     = &child_regions;
+        u8*           saved_writable = nullptr;
 
-        // Keep the original parent write state for every private writable
-        // page.  A page may already be read-only because an earlier fork
-        // owns a sharing reference; such a page must not be made writable by
-        // rolling this fork back.
-        usize cow_pages = 0;
+        usize saved_writable_capacity = 0;
+        usize cow_pages               = 0;
+        u64   cursor                  = 0;
+        bool  have_cursor             = false;
 
-        for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
-            if (it->pending)
+        auto free_saved = [&]() {
+            if (saved_writable != nullptr) {
+                mm::heap::free(saved_writable);
+
+                saved_writable          = nullptr;
+                saved_writable_capacity = 0;
+            }
+        };
+
+        auto grow_saved = [&](usize needed) {
+            if (needed <= saved_writable_capacity)
+                return true;
+
+            usize capacity = saved_writable_capacity == 0 ? clone_saved_writable_unit
+                                                          : saved_writable_capacity;
+
+            while (capacity < needed) {
+                if (capacity > ~usize{0} / 2) {
+                    capacity = needed;
+
+                    break;
+                }
+
+                capacity *= 2;
+            }
+
+            auto storage = mm::heap::alloc(capacity);
+            if (!storage)
                 return false;
 
-            if (!it->shared && has(it->prot, map_protection::write)) {
-                if (cow_pages > ~usize{0} - it->pages)
-                    return false;
+            if (saved_writable != nullptr)
+                mm::heap::free(saved_writable);
 
-                cow_pages += it->pages;
-            }
-        }
+            saved_writable          = storage.value;
+            saved_writable_capacity = capacity;
 
-        auto saved_writable_storage = mm::heap::alloc(cow_pages);
+            return true;
+        };
 
-        if (cow_pages != 0 && !saved_writable_storage)
-            return false;
-
-        auto* saved_writable =
-            cow_pages == 0 ? nullptr : static_cast<u8*>(saved_writable_storage.value);
-
-        usize saved_writable_count = 0;
-
-        auto rollback = [&]() {
-            // Restore only bits this transaction actually changed.  This is
-            // important when the parent was already a CoW participant.
+        auto rollback = [&](usize saved_count) {
             usize state_at = 0;
 
-            for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
+            for (mmap_region* it = child_regions; it != nullptr; it = it->next) {
                 const bool cow = !it->shared && has(it->prot, map_protection::write);
+                if (!cow)
+                    continue;
+
+                arch::interrupt_spinlock_guard guard(_mmap_lock);
 
                 for (u64 page = 0; page < it->pages; ++page) {
-                    const u64 virt = it->base + page * page_bytes;
+                    if (state_at < saved_count && saved_writable[state_at] != 0) {
+                        const u64 virt = it->base + page * page_bytes;
+                        const u64 phys = it->backing->page_base(it->region_page + page);
 
-                    if (cow && state_at < saved_writable_count &&
-                        saved_writable[state_at] != 0) {
-                        const u64 phys = _address_space.translate(virt);
-
-                        if (phys != mm::address_space::invalid)
+                        if (phys != mm::frame_allocator::invalid_frame &&
+                            _address_space.translate(virt) == phys)
                             (void) _address_space.map_4k(virt, phys, pte_flags(it->prot));
                     }
 
-                    if (cow)
-                        ++state_at;
+                    ++state_at;
                 }
             }
 
-            while (child->_mmap_regions != nullptr) {
-                mmap_region* victim = child->_mmap_regions;
+            while (child_regions != nullptr) {
+                mmap_region* victim = child_regions;
 
-                child->_mmap_regions = victim->next;
+                child_regions = victim->next;
 
                 for (usize page = 0; page < victim->pages; ++page) {
-                    child->_address_space.attached()
-                        ? child->_address_space.unmap(victim->base + page * page_bytes)
-                        : map.unmap(victim->base + page * page_bytes);
+                    (void) map.unmap(victim->base + page * page_bytes);
                 }
 
                 victim->backing->unmap_range(victim->region_page, victim->pages);
@@ -1531,100 +1676,186 @@ namespace astia::proc {
                 delete victim;
             }
 
-            if (saved_writable_storage)
-                mm::heap::free(saved_writable_storage.value);
+            free_saved();
         };
 
-        for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
-            if (!it->backing->share_range(it->region_page, it->pages)) {
-                rollback();
-
-                return false;
-            }
-
+        while (true) {
             auto* entry = alloc_region();
             if (entry == nullptr) {
-                rollback();
+                rollback(0);
 
-                return false;
+                co_return false;
             }
 
-            *entry           = *it;
-            entry->holds_ref = true;
-            entry->next      = nullptr;
+            mmap_region* source = nullptr;
 
-            mmap_region** link = &child->_mmap_regions;
+            bool  pending         = false;
+            bool  needs_growth    = false;
+            bool  share_failed    = false;
+            bool  cow_overflow    = false;
+            usize entry_cow_pages = 0;
 
-            while (*link != nullptr) {
-                link = &(*link)->next;
+            {
+                arch::interrupt_spinlock_guard guard(_mmap_lock);
+
+                for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
+                    if (have_cursor && it->base <= cursor)
+                        continue;
+
+                    source = it;
+
+                    break;
+                }
+
+                if (source != nullptr) {
+                    if (source->pending) {
+                        pending = true;
+                    }
+                    else {
+                        entry_cow_pages =
+                            (!source->shared && has(source->prot, map_protection::write))
+                                ? source->pages
+                                : 0;
+                        cow_overflow = entry_cow_pages > ~usize{0} - cow_pages;
+
+                        if (!cow_overflow) {
+                            if (cow_pages + entry_cow_pages > saved_writable_capacity) {
+                                needs_growth = true;
+                            }
+                            else {
+                                *entry           = *source;
+                                entry->holds_ref = true;
+                                entry->next      = nullptr;
+
+                                if (!source->backing->share_range(source->region_page,
+                                                                  source->pages))
+                                    share_failed = true;
+                            }
+                        }
+                    }
+                }
             }
 
-            *link = entry;
+            if (pending) {
+                delete entry;
+                rollback(0);
 
-            // Private writable pages turn copy-on-write in BOTH
-            // spaces: the child maps them read-only and the parent's
-            // write bits come off, so the first write on either side
-            // faults into a private copy.  Read-only ranges (text,
-            // the TLS template) keep their flags and are shared as
-            // they are.
+                co_return false;
+            }
+
+            if (cow_overflow) {
+                delete entry;
+                rollback(0);
+
+                co_return false;
+            }
+
+            if (needs_growth) {
+                delete entry;
+
+                if (!grow_saved(cow_pages + entry_cow_pages)) {
+                    rollback(0);
+
+                    co_return false;
+                }
+
+                continue;
+            }
+
+            if (share_failed) {
+                delete entry;
+                rollback(0);
+
+                co_return false;
+            }
+
+            if (source == nullptr) {
+                delete entry;
+
+                break;
+            }
+
+            *child_tail = entry;
+            child_tail  = &entry->next;
+            cow_pages += entry_cow_pages;
+            cursor      = entry->base;
+            have_cursor = true;
+        }
+
+        if (scheduler::runnable_ready())
+            scheduler::yield();
+
+        usize saved_count = 0;
+
+        for (mmap_region* it = child_regions; it != nullptr; it = it->next) {
             const bool cow = !it->shared && has(it->prot, map_protection::write);
 
-            const auto flags =
+            const auto child_flags =
                 pte_flags(cow ? static_cast<map_protection>(
                                     static_cast<u32>(it->prot) &
                                     ~static_cast<u32>(map_protection::write))
                               : it->prot);
 
-            for (u64 page = 0; page < it->pages; ++page) {
-                const u64 virt = it->base + page * page_bytes;
-                const u64 phys = _address_space.translate(virt);
+            bool failed = false;
 
-                if (phys == mm::address_space::invalid)
-                    continue;
+            for (usize first = 0; first < it->pages && !failed;) {
+                const usize remaining = it->pages - first;
+                const usize batch =
+                    remaining < clone_page_batch ? remaining : clone_page_batch;
 
-                if (!map.map_4k(virt, phys, flags)) {
-                    for (u64 done = 0; done < page; ++done) {
-                        (void) map.unmap(it->base + done * page_bytes);
+                {
+                    arch::interrupt_spinlock_guard guard(_mmap_lock);
+
+                    for (usize page = first; page < first + batch; ++page) {
+                        const u64 virt = it->base + page * page_bytes;
+                        const u64 phys = it->backing->page_base(it->region_page + page);
+
+                        if (phys == mm::frame_allocator::invalid_frame) {
+                            if (cow)
+                                saved_writable[saved_count++] = 0;
+
+                            continue;
+                        }
+
+                        if (!map.map_4k(virt, phys, child_flags)) {
+                            failed = true;
+
+                            break;
+                        }
+
+                        if (cow) {
+                            const bool writable =
+                                _address_space.translate(virt) == phys &&
+                                _address_space.writable(virt);
+
+                            saved_writable[saved_count++] = writable ? 1 : 0;
+
+                            if (writable &&
+                                !_address_space.map_4k(virt, phys, child_flags)) {
+                                failed = true;
+
+                                break;
+                            }
+                        }
                     }
-
-                    rollback();
-
-                    return false;
                 }
+
+                if (failed)
+                    break;
+
+                first += batch;
             }
 
-            if (cow) {
-                // map_4k overwrites the entry and invalidates it.
-                for (u64 page = 0; page < it->pages; ++page) {
-                    const u64 virt = it->base + page * page_bytes;
+            if (failed) {
+                rollback(saved_count);
 
-                    saved_writable[saved_writable_count++] =
-                        _address_space.writable(virt) ? 1 : 0;
-
-                    if (saved_writable[saved_writable_count - 1] == 0)
-                        continue;
-
-                    const u64 phys = _address_space.translate(virt);
-
-                    if (phys == mm::address_space::invalid ||
-                        !_address_space.map_4k(virt, phys, flags)) {
-                        rollback();
-
-                        return false;
-                    }
-                }
+                co_return false;
             }
         }
 
         child->_address_space = static_cast<mm::address_space&&>(map);
-
-        if (!child->_address_space.attached()) {
-            rollback();
-
-            return false;
-        }
-
-        child->_mapped_bytes = _mapped_bytes;
+        child->_mapped_bytes  = _mapped_bytes;
+        child->_mmap_regions  = child_regions;
 
         astia_rlimit nofile_limit{}, address_limit{};
 
@@ -1636,10 +1867,9 @@ namespace astia::proc {
         child->_tls_tp     = _tls_tp;
         child->_exec_image = _exec_image;
 
-        if (saved_writable_storage)
-            mm::heap::free(saved_writable_storage.value);
+        free_saved();
 
-        return true;
+        co_return true;
     }
 
     bool process::cow_fault(u64 addr, bool write) {

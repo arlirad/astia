@@ -77,33 +77,23 @@ static int cut_field_list(const char* list) {
 }
 
 static int cut_fd(int fd, const char* name, char delimiter) {
-    char line[4096];
+    cu_line_reader reader;
+
+    cu_line_reader_init(&reader, fd);
 
     for (;;) {
-        size_t length = 0;
-        int    ended  = 0;
-
-        while (length < sizeof line - 1) {
-            long got = read(fd, line + length, 1);
-            if (got < 0)
-                return cu_error("cut", name);
-
-            if (got == 0) {
-                ended = 1;
-
-                break;
-            }
-
-            if (line[length++] == '\n')
-                break;
-        }
-
-        if (length == 0 && ended)
+        int status = cu_read_line(&reader);
+        if (status == 0)
             break;
 
-        line[length] = '\0';
+        if (status < 0) {
+            cu_line_reader_destroy(&reader);
 
-        char* cursor = line;
+            return status == -2 ? cu_error("cut", "out of memory")
+                                : cu_error("cut", name);
+        }
+
+        char* cursor = reader.line;
 
         unsigned long field   = 1;
         int           emitted = 0;
@@ -120,11 +110,17 @@ static int cut_fd(int fd, const char* name, char delimiter) {
             *end = '\0';
 
             if (selected_field(field)) {
-                if (emitted && cu_write_all(CU_STDOUT, &delimiter, 1) < 0)
-                    return 1;
+                if (emitted && cu_write_all(CU_STDOUT, &delimiter, 1) < 0) {
+                    cu_line_reader_destroy(&reader);
 
-                if (cu_write_all(CU_STDOUT, cursor, strlen(cursor)) < 0)
                     return 1;
+                }
+
+                if (cu_write_all(CU_STDOUT, cursor, strlen(cursor)) < 0) {
+                    cu_line_reader_destroy(&reader);
+
+                    return 1;
+                }
 
                 emitted = 1;
             }
@@ -138,24 +134,14 @@ static int cut_fd(int fd, const char* name, char delimiter) {
             ++field;
         }
 
-        if (cu_puts_fd(CU_STDOUT, "\n") < 0)
+        if (cu_puts_fd(CU_STDOUT, "\n") < 0) {
+            cu_line_reader_destroy(&reader);
+
             return 1;
-
-        if (!ended && length == sizeof line - 1) {
-            do {
-                char c;
-                long got = read(fd, &c, 1);
-                if (got < 0)
-                    return cu_error("cut", name);
-
-                if (got == 0 || c == '\n') {
-                    ended = 1;
-
-                    break;
-                }
-            } while (1);
         }
     }
+
+    cu_line_reader_destroy(&reader);
 
     return 0;
 }

@@ -16,6 +16,9 @@ namespace astia::arch::x86_64 {
         /// mask all 16 lines.
         static void remap();
 
+        /// Mask a single IRQ line (0..15); everything else is unchanged.
+        static void mask(u8 irq);
+
         /// Unmask a single IRQ line (0..15); everything else stays masked.
         static void unmask(u8 irq);
 

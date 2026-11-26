@@ -26,9 +26,9 @@ namespace astia::fs {
 
     class writable {
         public:
-        virtual ~writable()                                 = default;
+        virtual ~writable()                                                = default;
         virtual core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                                       core::cltoken token) = 0;
+                                       core::cltoken token, bool nonblock) = 0;
     };
 
     class pollable {

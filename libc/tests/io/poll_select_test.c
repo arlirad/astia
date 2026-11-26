@@ -7,6 +7,43 @@
 #include <stdio.h>
 #include <unistd.h>
 
+static int closed_descriptor_fails(int set_index) {
+    struct timeval immediate = {0, 0};
+    fd_set         read_set, write_set, except_set;
+    fd_set*        sets[3];
+
+    int result = -1;
+    int pipe_fds[2];
+
+    if (pipe(pipe_fds) != 0)
+        return -1;
+
+    FD_ZERO(&read_set);
+    FD_ZERO(&write_set);
+    FD_ZERO(&except_set);
+
+    sets[0] = &read_set;
+    sets[1] = &write_set;
+    sets[2] = &except_set;
+
+    FD_SET(pipe_fds[0], sets[set_index]);
+    FD_SET(pipe_fds[1], &write_set);
+
+    if (close(pipe_fds[0]) != 0)
+        goto out;
+
+    errno = 0;
+
+    if (select(pipe_fds[1] + 1, &read_set, &write_set, &except_set, &immediate) == -1 &&
+        errno == EBADF)
+        result = 0;
+
+out:
+    close(pipe_fds[1]);
+
+    return result;
+}
+
 static int duplicate_ready_sets_count(void) {
     struct timeval immediate = {0, 0};
     fd_set         read_set, write_set;
@@ -49,6 +86,11 @@ int main(void) {
 
     if (duplicate_ready_sets_count() != 0)
         return 7;
+
+    for (int set_index = 0; set_index < 3; ++set_index) {
+        if (closed_descriptor_fails(set_index) != 0)
+            return 8;
+    }
 
     {
         struct pollfd fd;

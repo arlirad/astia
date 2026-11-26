@@ -6,6 +6,7 @@ add_library(mod STATIC
         module_driver.cpp
         module.cpp
         module_image.cpp
+        module_ps2.cpp
         init.cpp
 )
 
