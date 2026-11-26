@@ -18,6 +18,7 @@ namespace astia::arch {
         };
 
         irq_binding    irq_bindings[16]{};
+        bool           line_masked[16]{};
         core::spinlock irq_lock;
         void (*eoi_observer)(u8 irq) = nullptr;
     } // namespace
@@ -52,6 +53,15 @@ namespace astia::arch {
 
     void host_test::set_eoi_observer(void (*observer)(u8 irq)) {
         eoi_observer = observer;
+    }
+
+    bool host_test::irq_masked(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        core::spinlock_guard guard(irq_lock);
+
+        return line_masked[irq];
     }
 
     bool host_test::irq_registered(u8 irq) {
@@ -115,7 +125,25 @@ namespace astia::arch {
         if (binding.handler == nullptr)
             return false;
 
-        binding.masked = true;
+        binding.masked   = true;
+        line_masked[irq] = true;
+
+        return true;
+    }
+
+    bool unmask_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        core::spinlock_guard guard(irq_lock);
+
+        irq_binding& binding = irq_bindings[irq];
+
+        if (binding.handler == nullptr)
+            return false;
+
+        binding.masked   = false;
+        line_masked[irq] = false;
 
         return true;
     }

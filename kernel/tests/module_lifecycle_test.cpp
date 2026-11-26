@@ -1,11 +1,11 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/core/resume_queue.hpp>
+#include <astia/dev/capabilities.hpp>
 #include <astia/module.hpp>
 #include <astia/resource_limits.hpp>
 
 #include "../src/mod/module.hpp"
 #include "support/interrupts_host.hpp"
-#include "support/ps2_irq_host.hpp"
 #include "support/test.hpp"
 #include <sys/mman.h>
 
@@ -66,6 +66,8 @@ namespace {
 
     observation* active_observation = nullptr;
 
+    astia::dev::irq_route lifecycle_route{1};
+
     int  lifecycle_api_mode              = 0;
     bool lifecycle_claim_result          = false;
     bool lifecycle_release_result        = false;
@@ -83,17 +85,17 @@ namespace {
             lifecycle_resident_result = astia::module::make_resident();
         }
         else if (lifecycle_api_mode == 1) {
-            lifecycle_claim_result = astia::module::ps2_claim_irq(lifecycle_irq_entry);
+            lifecycle_claim_result = lifecycle_route.claim(lifecycle_irq_entry);
         }
         else if (lifecycle_api_mode == 2) {
-            lifecycle_claim_result   = astia::module::ps2_claim_irq(lifecycle_irq_entry);
-            lifecycle_release_result = astia::module::ps2_release_irq();
+            lifecycle_claim_result   = lifecycle_route.claim(lifecycle_irq_entry);
+            lifecycle_release_result = lifecycle_route.release();
         }
 
         astia::arch::cpu::interrupt_enter();
 
         lifecycle_resident_in_interrupt = astia::module::make_resident();
-        lifecycle_claim_in_interrupt = astia::module::ps2_claim_irq(lifecycle_irq_entry);
+        lifecycle_claim_in_interrupt    = lifecycle_route.claim(lifecycle_irq_entry);
 
         astia::arch::cpu::interrupt_exit();
 
@@ -1217,7 +1219,7 @@ ASTIA_TEST(module_lifecycle_module_api_rejects_outside_context) {
     astia::mod::module_id         id{};
 
     ASTIA_CHECK(!astia::module::make_resident());
-    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+    ASTIA_CHECK(!lifecycle_route.claim(lifecycle_irq_entry));
 
     lifecycle_wait_started.store(false, std::memory_order_release);
     lifecycle_wait_release.store(false, std::memory_order_release);
@@ -1239,11 +1241,11 @@ ASTIA_TEST(module_lifecycle_module_api_rejects_outside_context) {
     }
 
     ASTIA_CHECK(!astia::module::make_resident());
-    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+    ASTIA_CHECK(!lifecycle_route.claim(lifecycle_irq_entry));
 
     astia::arch::cpu::interrupt_enter();
     ASTIA_CHECK(!astia::module::make_resident());
-    ASTIA_CHECK(!astia::module::ps2_claim_irq(lifecycle_irq_entry));
+    ASTIA_CHECK(!lifecycle_route.claim(lifecycle_irq_entry));
     astia::arch::cpu::interrupt_exit();
 
     lifecycle_wait_release.store(true, std::memory_order_release);
@@ -1323,7 +1325,7 @@ ASTIA_TEST(module_lifecycle_claim_route_guards_and_releases) {
     astia::arch::host_test::dispatch_irq(1);
     ASTIA_CHECK(!lifecycle_handler_ran);
 
-    ASTIA_CHECK(astia::module::ps2_release_irq());
+    ASTIA_CHECK(lifecycle_route.release());
     ASTIA_CHECK(astia::core::drain_resumes() == 1);
     ASTIA_CHECK(closing.done());
     ASTIA_CHECK(closing.value() != nullptr &&
@@ -1350,7 +1352,7 @@ ASTIA_TEST(module_lifecycle_claim_rollback_leaves_line_unowned) {
     ASTIA_CHECK(lifecycle_release_result);
     ASTIA_CHECK(!lifecycle_claim_in_interrupt);
     ASTIA_CHECK(!astia::arch::host_test::irq_registered(1));
-    ASTIA_CHECK(astia::dev::ps2::host_test::masked());
+    ASTIA_CHECK(astia::arch::host_test::irq_masked(1));
 
     ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
@@ -1392,7 +1394,7 @@ ASTIA_TEST(module_lifecycle_close_waiter_defers_from_guarded_route) {
 
     astia::arch::cpu::interrupt_enter();
 
-    const bool released = astia::module::ps2_release_irq();
+    const bool released = lifecycle_route.release();
 
     astia::arch::cpu::interrupt_exit();
 

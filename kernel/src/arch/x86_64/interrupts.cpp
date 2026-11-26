@@ -446,6 +446,26 @@ namespace astia::arch {
         return true;
     }
 
+    bool unmask_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        {
+            interrupt_spinlock_guard guard(irq_lock);
+
+            irq_binding& binding = irq_handlers[irq];
+
+            if (binding.handler == nullptr)
+                return false;
+
+            binding.masked = false;
+        }
+
+        x86_64::pic::unmask(irq);
+
+        return true;
+    }
+
     bool unregister_irq_handler(u8 irq) {
         if (irq >= 16)
             return false;
