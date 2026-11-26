@@ -72,6 +72,24 @@ if(ASTIA_NCURSES_BUILD STREQUAL "")
     set(ASTIA_NCURSES_BUILD "${CMAKE_BINARY_DIR}/ncurses" CACHE PATH
             "Cross ncurses build and package directory" FORCE)
 endif()
+set(ASTIA_OPENSSH_SOURCE "$ENV{OPENSSH_SOURCE}" CACHE PATH
+        "Pinned OpenSSH portable source tree")
+if(ASTIA_OPENSSH_SOURCE STREQUAL "")
+    set(ASTIA_OPENSSH_SOURCE "${CMAKE_SOURCE_DIR}/user/openssh" CACHE PATH
+            "Pinned OpenSSH portable source tree" FORCE)
+endif()
+set(ASTIA_OPENSSH_BUILD "$ENV{OPENSSH_BUILD}" CACHE PATH
+        "Cross OpenSSH build and output directory")
+if(ASTIA_OPENSSH_BUILD STREQUAL "")
+    set(ASTIA_OPENSSH_BUILD "${CMAKE_BINARY_DIR}/openssh" CACHE PATH
+            "Cross OpenSSH build and output directory" FORCE)
+endif()
+set(ASTIA_OPENSSH_SHELL "$ENV{OPENSSH_SHELL}" CACHE PATH
+        "Guest shell binary used by the OpenSSH command tests")
+if(ASTIA_OPENSSH_SHELL STREQUAL "")
+    set(ASTIA_OPENSSH_SHELL "${CMAKE_BINARY_DIR}/zsh/output/zsh" CACHE PATH
+            "Guest shell binary used by the OpenSSH command tests" FORCE)
+endif()
 
 set(ASTIA_VGA_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the Astia VGA launcher")
@@ -376,7 +394,9 @@ if(ASTIA_BUILD_TESTS)
             nvme_polling_module
             virtio_blk_module
             usb_module
-            rtl8139_module)
+            rtl8139_module
+            ps2_keyboard_module
+            astia_ps2_keyboard_iso)
         if(TARGET ${_astia_qemu_target})
             add_dependencies(astia_qemu_test_artifacts ${_astia_qemu_target})
         endif()
@@ -402,7 +422,10 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             usb_unit_target
-            rtl8139_unit_target)
+            rtl8139_unit_target
+            ps2_controller_unit_target
+            ps2_scancode_unit_target
+            ps2_keyboard_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -420,7 +443,10 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             usb_unit_target
-            rtl8139_unit_target)
+            rtl8139_unit_target
+            ps2_controller_unit_target
+            ps2_scancode_unit_target
+            ps2_keyboard_unit_target)
 
     add_test(NAME astia_module_host_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
@@ -657,6 +683,43 @@ if(ASTIA_BUILD_TESTS)
                 NANO_SMOKE_BUILD=${CMAKE_BINARY_DIR}/external/nano-smoke
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
 
+    astia_register_script_test(astia_openssh_port
+            "openssh;port;repository;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/openssh/tests/check-port.sh
+            TIMEOUT 120)
+    set(_astia_openssh_qemu_env
+            QEMU=${_astia_qemu}
+            OPENSSH_SOURCE=${ASTIA_OPENSSH_SOURCE}
+            OPENSSH_BUILD=${ASTIA_OPENSSH_BUILD}
+            ASTIA_SYSROOT=${_astia_sysroot}
+            ASTIA_CRT0=${_astia_crt0}
+            ASTIA_KERNEL=${_astia_kernel_runtime}
+            ASTIA_INITRD=${_astia_boot_initrd}
+            ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
+    if(NOT ASTIA_OPENSSH_SHELL STREQUAL "")
+        list(APPEND _astia_openssh_qemu_env
+                OPENSSH_SHELL_BINARY=${ASTIA_OPENSSH_SHELL})
+    endif()
+    astia_register_script_test(openssh_sshd_qemu
+            "openssh;sshd;qemu;external;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/openssh/run-qemu.sh
+            EXTERNAL TIMEOUT 600
+            ENV
+                ${_astia_openssh_qemu_env}
+                OPENSSH_QEMU_MODE=sshd
+                OPENSSH_QEMU_RUN=${CMAKE_BINARY_DIR}/external/openssh-sshd)
+    set_tests_properties(openssh_sshd_qemu PROPERTIES SKIP_RETURN_CODE 77)
+    astia_register_script_test(openssh_ssh_loopback_qemu
+            "openssh;ssh;loopback;qemu;external;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/toolchain/openssh/run-qemu.sh
+            EXTERNAL TIMEOUT 600
+            ENV
+                ${_astia_openssh_qemu_env}
+                OPENSSH_QEMU_MODE=loopback
+                OPENSSH_QEMU_RUN=${CMAKE_BINARY_DIR}/external/openssh-loopback)
+    set_tests_properties(openssh_ssh_loopback_qemu
+            PROPERTIES SKIP_RETURN_CODE 77)
+
     set(_astia_vga_env)
     list(APPEND _astia_vga_env ZSH_SOURCE=${ASTIA_ZSH_SOURCE})
     astia_register_script_test(astia_vga_graphical
@@ -721,6 +784,8 @@ if(ASTIA_BUILD_TESTS)
             astia_zsh_interactive_manual
             astia_nano_pty_smoke
             astia_ncurses_qemu_smoke
+            openssh_sshd_qemu
+            openssh_ssh_loopback_qemu
             astia_vga_graphical
             astia_vga_pvh_fallback
             astia_posix_batch
@@ -730,6 +795,7 @@ if(ASTIA_BUILD_TESTS)
             astia_kernel_smp_boot
             astia_kernel_scheduler_smp2
             astia_initrd_boot
+            astia_chroot
             astia_native_daemond_boot
             astia_native_daemond_service
             astia_native_daemond_failure

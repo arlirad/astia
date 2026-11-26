@@ -38,6 +38,21 @@ namespace astia::elf::loader {
     inline constexpr usize max_program_headers    = 64;
     inline constexpr usize max_init_array_entries = 64;
 
+    /// Why an ET_REL image is not loadable into the kernel direct map.
+    enum class relocatable_problem : u8 {
+        none,                    ///< Only direct-map-safe relocations.
+        not_relocatable,         ///< Not a well-formed ET_REL image.
+        incompatible_code_model, ///< R_X86_64_32/32S cannot address the image.
+        unsupported_relocation,  ///< Relocation type outside the module ABI.
+    };
+
+    /// Validate an ET_REL image's relocation contract before any memory is
+    /// mapped. Kernel modules are placed above 4 GiB through the direct map,
+    /// so 32-bit absolute relocations are rejected rather than applied with a
+    /// truncated address. Build modules with `-mcmodel=large`.
+    relocatable_problem audit_relocatable(span<const u8> bytes);
+    const char*         relocatable_problem_text(relocatable_problem problem);
+
     /// What kind of ELF image this is (from the header's e_type, after
     /// validating the ELF64/x86-64 identity).
     enum class kind : u8 {

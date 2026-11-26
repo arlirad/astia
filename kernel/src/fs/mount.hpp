@@ -27,6 +27,7 @@ namespace astia::fs {
         virtual long link(const char* old_path, const char* new_path);
         virtual file_type node_type(const char* path) const;
         virtual file_mode node_mode(const char* path) const;
+        virtual u64       node_inode(const char* path) const;
         virtual uid_t     node_uid(const char* path) const;
         virtual gid_t     node_gid(const char* path) const;
         virtual long      chmod(const char* path, file_permissions permissions);

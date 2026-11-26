@@ -35,8 +35,9 @@ toolchain/build-init-libc.sh
 
 ## Initialize pinned userspace sources
 
-The repository keeps clean upstream zsh, GNU nano, gnulib, and ncurses
-checkouts as pinned submodules. Initialize them after cloning:
+The repository keeps clean upstream zsh, GNU nano, gnulib, ncurses, and
+OpenSSH portable checkouts as pinned submodules. Initialize them after
+cloning:
 
 ```sh
 toolchain/init-userspace.sh
@@ -45,8 +46,9 @@ toolchain/init-userspace.sh
 The current pins are zsh `zsh-5.9.2`
 (`ddee3e7a751a4f03d5a1041fd44bb7af7bc0cebb`), nano `v8.6`
 (`326e4146b2267d8683a8eb3333aa49c9023d0dbf`), gnulib
-(`f05b5a23f6cef8833402a298d1576a0118912ac8`), and ncurses `v6_6_20251230`
-(`0096bd402c4a9c8f39bd7ed266e1b8920327e4d8`). To change a pin, check out a
+(`f05b5a23f6cef8833402a298d1576a0118912ac8`), ncurses `v6_6_20251230`
+(`0096bd402c4a9c8f39bd7ed266e1b8920327e4d8`), and OpenSSH portable `V_9_9_P2`
+(`d76b2675116617394cd355a3437b4963a562b64d`). To change a pin, check out a
 reviewed upstream tag or commit in the submodule and record the gitlink in the
 parent; never replace it with an unreviewed branch tip. Upstream source and
 license files remain in the submodules and are not copied into Astia. If the
@@ -80,6 +82,25 @@ particular, do not run the historical `patch-zsh-astia.sh` or
 their ASTIA branches bypass zsh's native fork handshake and signal wait
 protocol.  Native zsh expects the libc/kernel `fork`, `waitpid`, `sigsuspend`,
 process-group, and signal-restorer ABI directly.
+
+## Build OpenSSH (gated)
+
+The OpenSSH port follows the zsh/nano build model: a pinned checkout, an
+out-of-tree cross build against the Astia sysroot, and a dedicated test initrd.
+On current `main` the prerequisite gate stops before configure because the
+socket, resolver, `SCM_RIGHTS`, syslog, `chroot`, and saved-set-ID issues are
+still open. Run the gate directly to see the exact missing API list:
+
+```sh
+toolchain/build-openssh.sh
+```
+
+The script exits 3 while prerequisites are missing. Once the dependencies land
+it builds `ssh`, `sshd`, `sshd-session`, and `ssh-keygen` into
+`build/openssh/output` and records the exact configure flags in
+[`docs/openssh-port.md`](../docs/openssh-port.md). Do not treat the gated QEMU
+tests as passing ssh/sshd coverage: they register as external tests and skip
+with status 77 until the gate succeeds.
 
 ## Launch zsh in QEMU
 

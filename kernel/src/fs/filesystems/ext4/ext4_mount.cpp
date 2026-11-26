@@ -311,6 +311,12 @@ namespace astia::fs::filesystems {
         return lookup(path, node) ? vfs_mode(node) : file_mode{};
     }
 
+    u64 ext4_mount::node_inode(const char* path) const {
+        ext4::inode node;
+
+        return lookup(path, node) ? node.number : 0;
+    }
+
     uid_t ext4_mount::node_uid(const char* path) const {
         ext4::inode node;
 

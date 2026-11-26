@@ -7,6 +7,7 @@
 #include "module.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/atomic.hpp>
 #include <astia/core/completion.hpp>
@@ -42,10 +43,12 @@ namespace astia::mod {
         /// Refcounted close waiter. One reference belongs to the close
         /// coroutine and one to the slot registration, so a parked task may be
         /// destroyed while a wake delivery is in flight without freeing the
-        /// completion under the deliverer.
+        /// completion under the deliverer. A parked waiter is also linked into
+        /// the deferred-delivery list until a normal-context pump takes it.
         struct close_waiter {
             core::completion<module_error> completion{};
-            u32                            refs = 1;
+            u32                            refs          = 1;
+            close_waiter*                  next_deferred = nullptr;
         };
 
         struct registry_slot {
@@ -78,6 +81,8 @@ namespace astia::mod {
         void*          callback_owner  = nullptr;
         u32            execution_owner = 0;
 
+        close_waiter* deferred_waiters = nullptr;
+
         void* callback_context_owner() {
 #if defined(ASTIA_MODULE_HOST_TEST)
             return reinterpret_cast<void*>(static_cast<u64>(pthread_self()));
@@ -88,6 +93,28 @@ namespace astia::mod {
 
         bool owns_callback_context_locked() {
             return active != nullptr && callback_owner == callback_context_owner();
+        }
+
+        /// True when a close continuation must not be resumed from this call
+        /// stack: an interrupt handler, or a module entrypoint/exit callback.
+        /// The callback flag is global (any module executing anywhere), which
+        /// is intentionally conservative: only the scheduler's normal-context
+        /// pump may run teardown.
+        bool in_callback_boundary() {
+            if (arch::cpu::in_interrupt())
+                return true;
+
+            arch::interrupt_spinlock_guard guard(callback_lock);
+
+            return active != nullptr;
+        }
+
+        void park_waiter_locked(close_waiter* waiter) {
+            if (waiter == nullptr)
+                return;
+
+            waiter->next_deferred = deferred_waiters;
+            deferred_waiters      = waiter;
         }
 
         void retain_waiter(close_waiter* waiter) {
@@ -428,10 +455,11 @@ namespace astia::mod {
         ///
         /// Modules are ET_REL, so the loader always maps relocatably (fixed is
         /// never set). Frames are handed out 4 KiB-aligned, which satisfies any
-        /// section alignment a compiler actually emits (<= 4096). PVH boot
-        /// leaves the kernel on an identity map of physical memory, so the
-        /// returned physical address is directly usable — readable, writable
-        /// (for relocation), and executable.
+        /// section alignment a compiler actually emits (<= 4096). The image is
+        /// addressed through the kernel direct map, which every address space
+        /// shares, so module text stays executable while a process CR3 is
+        /// active. Never return the low identity alias: only [0, 1 GiB) is
+        /// identity-mapped in the kernel map and none of it is shared.
         void* image_map(void* context, u64 /*hint*/, usize size, usize align,
                         bool fixed) {
             using fa = mm::frame_allocator;
@@ -446,7 +474,7 @@ namespace astia::mod {
             if (phys == fa::invalid_frame)
                 return nullptr;
 
-            void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+            void* image = mm::kernel_frames().to_virt(phys);
 
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;
@@ -458,8 +486,9 @@ namespace astia::mod {
             using fa = mm::frame_allocator;
 
             usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+            u64   phys   = mm::kernel_frames().to_phys(address);
 
-            mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
+            mm::kernel_frames().release(phys, frames);
         }
 
         /// Backs the loader's undefined-symbol resolution with the linked
@@ -490,6 +519,10 @@ namespace astia::mod {
 
             if (image.data() == nullptr || image.size() == 0)
                 return module_error::invalid_argument;
+
+            if (elf::loader::audit_relocatable(image) !=
+                elf::loader::relocatable_problem::none)
+                return module_error::load_failed;
 
             if (options.dependencies.size() > max_module_dependencies)
                 return module_error::limit;
@@ -1328,6 +1361,8 @@ namespace astia::mod {
     }
 
     module_error release(module_id id) {
+        const bool must_defer = in_callback_boundary();
+
         close_waiter* waiter = nullptr;
 
         {
@@ -1343,12 +1378,58 @@ namespace astia::mod {
             --slot->module.active_refs;
 
             waiter = take_ready_waiter_locked(*slot);
+
+            if (waiter != nullptr && must_defer) {
+                park_waiter_locked(waiter);
+
+                waiter = nullptr;
+            }
         }
 
         if (waiter != nullptr)
             deliver_waiter(waiter, module_error::ok);
 
         return module_error::ok;
+    }
+
+    void service_module_waits() {
+        if (in_callback_boundary())
+            return;
+
+        while (true) {
+            close_waiter* waiter = nullptr;
+
+            {
+                arch::interrupt_spinlock_guard guard(registry_lock);
+
+                waiter = deferred_waiters;
+
+                if (waiter != nullptr) {
+                    deferred_waiters      = waiter->next_deferred;
+                    waiter->next_deferred = nullptr;
+                }
+            }
+
+            if (waiter == nullptr)
+                break;
+
+            deliver_waiter(waiter, module_error::ok);
+        }
+    }
+
+    module_id active_module_id() {
+        arch::interrupt_spinlock_guard guard(callback_lock);
+
+        // A lease belongs to the module whose entrypoint is executing on
+        // *this* thread. `active != nullptr` is not ownership: an interrupt or
+        // another CPU can run while some module is active, and binding a lease
+        // there would let the caller mark or protect the wrong image. Match the
+        // exit-handler boundary exactly, and reject interrupt context where no
+        // entrypoint can be running on this stack.
+        if (arch::cpu::in_interrupt() || !owns_callback_context_locked())
+            return {};
+
+        return active->id;
     }
 
     bool quiesced(module_id id) {

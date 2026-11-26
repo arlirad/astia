@@ -44,7 +44,7 @@ namespace astia::fs::filesystems {
         core::task<i64> readv(span<const buffer> buffers, u64 offset,
                               core::cltoken token) override;
         core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                               core::cltoken token) override;
+                               core::cltoken token, bool nonblock) override;
         core::task<i64> sync(core::cltoken token) override;
         core::task<i64> sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                      u32 flags, core::cltoken token) override;
@@ -160,6 +160,7 @@ namespace astia::fs::filesystems {
         long      link(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
+        u64       node_inode(const char* path) const override;
         uid_t     node_uid(const char* path) const override;
         gid_t     node_gid(const char* path) const override;
         long      chmod(const char* path, file_permissions permissions) override;

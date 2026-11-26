@@ -8,36 +8,28 @@
 
 static int grep_fd(int fd, const char* name, const char* pattern, int invert,
                    int numbered, int insensitive) {
-    char          line[4096];
+    cu_line_reader reader;
+
     unsigned long number  = 0;
     int           matched = 0;
 
+    cu_line_reader_init(&reader, fd);
+
     for (;;) {
-        long length   = 0;
-        int  complete = 0;
-
-        while (!complete && length < (long) sizeof line - 1) {
-            char c;
-            long count = read(fd, &c, 1);
-            if (count < 0)
-                return cu_error("grep", name);
-
-            if (count == 0) {
-                complete = 1;
-
-                break;
-            }
-
-            line[length++] = c;
-
-            if (c == '\n')
-                complete = 1;
-        }
-
-        if (length == 0 && complete)
+        int status = cu_read_line(&reader);
+        if (status == 0)
             break;
 
-        line[length] = '\0';
+        if (status < 0) {
+            cu_line_reader_destroy(&reader);
+
+            return status == -2 ? cu_error("grep", "out of memory")
+                                : cu_error("grep", name);
+        }
+
+        char* line = reader.line;
+
+        size_t length = reader.line_length;
 
         ++number;
 
@@ -72,37 +64,36 @@ static int grep_fd(int fd, const char* name, const char* pattern, int invert,
                 char prefix[32];
                 int  n = snprintf(prefix, sizeof prefix, "%lu:", number);
 
-                if (cu_write_all(CU_STDOUT, prefix, (size_t) n) < 0)
+                if (cu_write_all(CU_STDOUT, prefix, (size_t) n) < 0) {
+                    cu_line_reader_destroy(&reader);
+
                     return 2;
+                }
             }
 
             if (name != 0 && name[0] != '\0') {
-                if (cu_puts_fd(CU_STDOUT, name) < 0 || cu_puts_fd(CU_STDOUT, ":") < 0)
+                if (cu_puts_fd(CU_STDOUT, name) < 0 || cu_puts_fd(CU_STDOUT, ":") < 0) {
+                    cu_line_reader_destroy(&reader);
+
                     return 2;
+                }
             }
 
-            if (cu_write_all(CU_STDOUT, line, (size_t) length) < 0)
+            if (cu_write_all(CU_STDOUT, line, length) < 0) {
+                cu_line_reader_destroy(&reader);
+
                 return 2;
+            }
 
-            if (line[length - 1] != '\n' && cu_puts_fd(CU_STDOUT, "\n") < 0)
+            if (line[length - 1] != '\n' && cu_puts_fd(CU_STDOUT, "\n") < 0) {
+                cu_line_reader_destroy(&reader);
+
                 return 2;
-        }
-
-        if (!complete) {
-            do {
-                char c;
-                long count = read(fd, &c, 1);
-                if (count < 0)
-                    return cu_error("grep", name);
-
-                if (count == 0 || c == '\n') {
-                    complete = 1;
-
-                    break;
-                }
-            } while (1);
+            }
         }
     }
+
+    cu_line_reader_destroy(&reader);
 
     return matched ? 0 : 1;
 }

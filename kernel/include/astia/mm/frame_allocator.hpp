@@ -5,7 +5,8 @@
 #include <astia/mm/memory_map.hpp>
 
 namespace astia::mm {
-    using frame_access_fn = void* (*) (u64 physical);
+    using frame_access_fn   = void* (*) (u64 physical);
+    using frame_physical_fn = u64 (*)(const void* virtual_address);
 
     /// Modifiers for frame_allocator::alloc().
     enum class frame_flags : u32 {
@@ -52,7 +53,8 @@ namespace astia::mm {
         /// of the first frame, or invalid_frame on failure.
         u64 alloc(usize count = 1, frame_flags flags = frame_flags::none);
 
-        void configure_access(frame_access_fn access);
+        void configure_access(frame_access_fn   access,
+                              frame_physical_fn physical = nullptr);
 
         /// Kernel virtual address for direct access to a physical frame.
         /// Identity before paging; the direct map afterwards.  Used to
@@ -63,6 +65,13 @@ namespace astia::mm {
             return _access == nullptr
                        ? reinterpret_cast<void*>(static_cast<usize>(physical))
                        : _access(physical);
+        }
+
+        /// Physical address for a pointer previously returned by to_virt().
+        /// The inverse of to_virt(); identity when no access hook is set.
+        u64 to_phys(const void* address) const {
+            return _physical == nullptr ? reinterpret_cast<u64>(address)
+                                        : _physical(address);
         }
 
         /// Release `count` frames starting at physical address `frame`.
@@ -85,14 +94,15 @@ namespace astia::mm {
         void set_used(usize index, bool used);
         void mark_range(u64 base, u64 size, bool used);
 
-        core::spinlock  _lock{};
-        u64*            _bitmap          = nullptr;
-        u64             _bitmap_physical = 0;
-        frame_access_fn _access          = nullptr;
-        usize           _words           = 0;
-        usize           _frame_count     = 0;
-        usize           _free_count      = 0;
-        bool            _ready           = false;
+        core::spinlock    _lock{};
+        u64*              _bitmap          = nullptr;
+        u64               _bitmap_physical = 0;
+        frame_access_fn   _access          = nullptr;
+        frame_physical_fn _physical        = nullptr;
+        usize             _words           = 0;
+        usize             _frame_count     = 0;
+        usize             _free_count      = 0;
+        bool              _ready           = false;
     };
 
     /// The kernel's single physical frame allocator.

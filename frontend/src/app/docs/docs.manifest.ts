@@ -1355,5 +1355,19 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     syscallId: 77,
     synopsisKind: "public",
     synopsis: "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);",
+  },
+  {
+    slug: "syscall-78-chroot",
+    title: "chroot(2)",
+    group: "Syscall (2)",
+    summary: "Changes the calling process's filesystem root to the directory named by path. Only a process whose effective user ID is zero may call it. The path is resolved through the proces...",
+    sourcePath: "docs/2/proc/process/chroot.md",
+    contentKind: "markdown",
+    implementationPath: "kernel/src/proc/syscalls/process/chroot.cpp",
+    subsystem: "proc",
+    category: "process",
+    syscallId: 78,
+    synopsisKind: "public",
+    synopsis: "long astia_chroot(const char* path);",
   }
 ];

@@ -87,6 +87,10 @@ namespace astia::fs {
         /// This is deliberately separate from the generic file contracts.
         virtual const unix_socket_operations* unix_socket_capability() const;
 
+        virtual const char* device_name() const {
+            return nullptr;
+        }
+
         io::request_queue& pending() {
             return _pending;
         }
@@ -117,7 +121,7 @@ namespace astia::fs {
         core::task<i64> submit_readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token);
         core::task<i64> submit_writev(span<const buffer> buffers, u64 offset,
-                                      core::cltoken token);
+                                      core::cltoken token, bool nonblock);
 
         private:
         io::request_queue _pending{*this};

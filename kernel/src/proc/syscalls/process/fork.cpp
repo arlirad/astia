@@ -18,17 +18,19 @@
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
     struct fork
-        : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::sync> {
-        static i64 invoke(sys::syscall_trap trap) {
+        : sys::syscall_handler<fork, sys::syscall_id::fork, sys::syscall_mode::async> {
+        static core::task<i64> invoke(sys::syscall_trap trap) {
             auto* owner = current_process();
             if (owner == nullptr)
-                return -ESRCH;
+                co_return -ESRCH;
 
             const u64(&arguments)[sys::syscall_argument_count] = trap.arguments;
 
-            return proc::fork(arch::caller_image(trap.image, arguments[0], arguments[1],
-                                                 arguments[2], arguments[3], arguments[4],
-                                                 arguments[5], owner->tls_tp()));
+            auto result = co_await proc::fork(arch::caller_image(
+                trap.image, arguments[0], arguments[1], arguments[2], arguments[3],
+                arguments[4], arguments[5], owner->tls_tp()));
+
+            co_return result ? result.value : -errno_value(result.error);
         }
     };
 } // namespace astia::proc::syscalls

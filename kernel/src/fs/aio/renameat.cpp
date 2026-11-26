@@ -21,11 +21,11 @@ namespace astia::io::aio::operations {
             if (current == nullptr)
                 co_return -ESRCH;
 
-            long old_rc =
-                resolve_at(current, sqe.fd, old_path, old_resolved, sizeof old_resolved);
+            long old_rc    = resolve_at(current, sqe.fd, old_path, old_resolved,
+                                        sizeof old_resolved, false);
             i32  new_dirfd = sqe.length == 0 ? AT_FDCWD : static_cast<i32>(sqe.length);
             long new_rc    = resolve_at(current, new_dirfd, new_path, new_resolved,
-                                        sizeof new_resolved);
+                                        sizeof new_resolved, false);
 
             if (old_rc < 0)
                 co_return (i32) old_rc;

@@ -190,3 +190,36 @@ ASTIA_TEST(pty_master_write_counts_consumed_flow_control_bytes) {
 
     ASTIA_CHECK(terminal.master_write(&resume, 1) == 1);
 }
+
+ASTIA_TEST(pty_slave_tcflush_discards_selected_queues) {
+    astia::dev::pty terminal(7);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    ASTIA_CHECK(terminal.master_write("in", 2) == 2);
+    ASTIA_CHECK(terminal.write("out", 3, 0) == 3);
+
+    int selector = TCOFLUSH;
+
+    ASTIA_CHECK(terminal.ioctl(TCFLSH, &selector, sizeof selector) == 0);
+
+    char buffer[8]{};
+
+    ASTIA_CHECK(terminal.master_read(buffer, sizeof buffer) == 0);
+    ASTIA_CHECK(terminal.read(buffer, sizeof buffer, 0) == 2);
+    ASTIA_CHECK(memcmp(buffer, "in", 2) == 0);
+
+    ASTIA_CHECK(terminal.master_write("in", 2) == 2);
+    ASTIA_CHECK(terminal.write("out", 3, 0) == 3);
+
+    selector = TCIOFLUSH;
+
+    ASTIA_CHECK(terminal.ioctl(TCFLSH, &selector, sizeof selector) == 0);
+    ASTIA_CHECK(terminal.master_read(buffer, sizeof buffer) == 0);
+    ASTIA_CHECK(terminal.read(buffer, sizeof buffer, 0) == 0);
+
+    ASTIA_CHECK(terminal.write("ok", 2, 0) == 2);
+    ASTIA_CHECK(terminal.master_read(buffer, sizeof buffer) == 2);
+    ASTIA_CHECK(memcmp(buffer, "ok", 2) == 0);
+}

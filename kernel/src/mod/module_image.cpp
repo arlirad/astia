@@ -90,18 +90,10 @@ namespace astia::mod {
         }
 
         char       resolved[fs::path_max]{};
-        const long composed =
-            io::aio::dispatch::resolve_at(&caller, -1, path, resolved, sizeof resolved);
-        if (composed < 0) {
-            result.error = path_error(composed);
-
-            co_return result;
-        }
-
-        const long canonical =
-            fs::resolve_path(resolved, resolved, sizeof resolved, true);
-        if (canonical < 0) {
-            result.error = path_error(canonical);
+        const long resolved_rc = io::aio::dispatch::resolve_at(
+            &caller, -1, path, resolved, sizeof resolved, true);
+        if (resolved_rc < 0) {
+            result.error = path_error(resolved_rc);
 
             co_return result;
         }

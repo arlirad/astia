@@ -394,7 +394,7 @@ ASTIA_TEST(uart16550_overflow_drops_excess_and_recovers_after_flush) {
     ASTIA_CHECK(result[0] == 'o' && result[1] == 'k');
 }
 
-ASTIA_TEST(uart16550_rejects_invalid_and_unsupported_ioctl_requests) {
+ASTIA_TEST(uart16550_tcflsh_accepts_output_flush_and_rejects_invalid_requests) {
     fake_uart             fake;
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
@@ -413,12 +413,43 @@ ASTIA_TEST(uart16550_rejects_invalid_and_unsupported_ioctl_requests) {
 
     selector = TCOFLUSH;
 
-    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
 
     selector = TCIOFLUSH;
 
-    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(uart.ioctl(0x1234, nullptr, 0) == -ENOTTY);
+}
+
+ASTIA_TEST(uart16550_tcflsh_selects_input_and_output) {
+    fake_uart             fake;
+    astia::dev::pio_bus   bus = fake_bus(fake);
+    astia::dev::irq_line  irq;
+    astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
+    ASTIA_CHECK(uart.init_uart());
+    raw_mode(uart);
+
+    fake.push('a');
+    fake.push('b');
+    uart.irq();
+
+    int selector = TCOFLUSH;
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+
+    char result[8]{};
+
+    ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'a' && result[1] == 'b');
+
+    fake.push('c');
+    uart.irq();
+
+    selector = TCIOFLUSH;
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 }
 
 ASTIA_TEST(uart16550_tcflsh_reports_port_failure) {

@@ -386,4 +386,12 @@ namespace astia::dev {
     long pty::tty_speed(speed_t) {
         return 0;
     }
+
+    long pty::tty_discard_output() {
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+
+        _master_tail = _master_head;
+
+        return 0;
+    }
 } // namespace astia::dev

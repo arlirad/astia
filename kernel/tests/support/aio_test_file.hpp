@@ -48,8 +48,8 @@ namespace aio_test {
         }
 
         core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
-                               core::cltoken token) override {
-            return submit_writev(buffers, offset, token);
+                               core::cltoken token, bool nonblock) override {
+            return submit_writev(buffers, offset, token, nonblock);
         }
 
         long submit(::astia::io::request& request) override {
@@ -96,6 +96,22 @@ namespace aio_test {
             return 0;
         }
 
+        uid_t uid() const override {
+            return uid_value;
+        }
+
+        gid_t gid() const override {
+            return gid_value;
+        }
+
+        long chown(uid_t owner, gid_t group) override {
+            chown_called = true;
+            chown_uid    = owner;
+            chown_gid    = group;
+
+            return 0;
+        }
+
         fs::file_type type_           = fs::file_type::regular;
         long          submit_result   = 0;
         long          size_value      = 0;
@@ -103,6 +119,11 @@ namespace aio_test {
         long          sync_result     = 0;
         long          ioctl_result    = -ENOTTY;
         u32           poll_events     = 0;
+        uid_t         uid_value{};
+        gid_t         gid_value{};
+        bool          chown_called = false;
+        uid_t         chown_uid{};
+        gid_t         chown_gid{};
     };
 
     inline mm::shptr<fs::open_file> make_open_file(fake_file* file, u32 flags = 0) {

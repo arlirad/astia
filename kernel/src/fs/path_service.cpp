@@ -105,8 +105,37 @@ namespace astia::fs::path_service {
         return copy_string(buffer.data(), buffer.size(), candidate, -ENAMETOOLONG);
     }
 
+    bool within_root(const char* root, const char* path) {
+        if (root == nullptr || path == nullptr || root[0] != '/' || path[0] != '/')
+            return false;
+
+        if (root[1] == '\0')
+            return true;
+
+        u32 index = 0;
+
+        for (; root[index] != '\0'; ++index) {
+            if (path[index] != root[index])
+                return false;
+        }
+
+        return path[index] == '\0' || path[index] == '/';
+    }
+
     long resolve(const char* path, char* buffer, u32 capacity, bool follow_final) {
-        if (path == nullptr || buffer == nullptr || capacity == 0 || path[0] != '/')
+        return resolve_from("/", path, buffer, capacity, follow_final);
+    }
+
+    long resolve_from(const char* root, const char* path, char* buffer, u32 capacity,
+                      bool follow_final) {
+        if (root == nullptr || root[0] != '/' || path == nullptr || buffer == nullptr ||
+            capacity == 0 || path[0] != '/')
+            return -EINVAL;
+
+        const u32 root_length = length_of(root);
+
+        if (root_length == 0 || root_length >= path_max ||
+            (root_length > 1 && root[root_length - 1] == '/'))
             return -EINVAL;
 
         auto memory = mm::heap::alloc(sizeof(resolve_scratch));
@@ -122,7 +151,7 @@ namespace astia::fs::path_service {
         char(&target)[path_max]       = storage->target;
         char(&combined)[path_max * 2] = storage->combined;
 
-        u32 plen = 0, rlen = 1, links = 0;
+        u32 plen = 0, rlen = root_length, links = 0;
         u32 path_length = 0;
 
         while (path[path_length] != '\0') {
@@ -131,7 +160,11 @@ namespace astia::fs::path_service {
 
         const bool trailing_slash = path_length != 0 && path[path_length - 1] == '/';
 
-        result[0] = '/';
+        for (u32 i = 0; i < root_length; ++i) {
+            result[i] = root[i];
+        }
+
+        result[root_length] = '\0';
 
         for (u32 i = 0; path[i] != '\0'; ++i) {
             if (plen + 1 >= sizeof pending)
@@ -186,10 +219,10 @@ namespace astia::fs::path_service {
                 continue;
 
             if (string_equal(component, "..")) {
-                if (rlen > 1) {
+                if (rlen > root_length) {
                     --rlen;
 
-                    while (rlen > 1 && result[rlen - 1] != '/') {
+                    while (rlen > root_length && result[rlen - 1] != '/') {
                         --rlen;
                     }
 
@@ -197,7 +230,7 @@ namespace astia::fs::path_service {
                     // "/tmp", not "/tmp/". Leaving the slash makes the next
                     // component resolve as "//x" and the parent check fail
                     // against filesystems that match paths exactly.
-                    if (rlen > 1 && result[rlen - 1] == '/')
+                    if (rlen > root_length && result[rlen - 1] == '/')
                         --rlen;
 
                     result[rlen] = '\0';
@@ -233,25 +266,10 @@ namespace astia::fs::path_service {
                 if (n < 0)
                     return n;
 
-                u32 at = 0;
+                const u32 target_len = length_of(target);
 
-                if (target[0] != '/') {
-                    at = parent_len;
-
-                    for (u32 i = 0; i < at; ++i) {
-                        combined[i] = result[i];
-                    }
-
-                    if (at > 1 && combined[at - 1] != '/')
-                        combined[at++] = '/';
-                }
-
-                for (u32 i = 0; target[i] != '\0'; ++i) {
-                    if (at + i + 1 >= sizeof combined)
-                        return -ENAMETOOLONG;
-
-                    combined[at + i] = target[i];
-                }
+                if (target_len == 0)
+                    return -ENOENT;
 
                 u32 tail = 0;
 
@@ -259,17 +277,20 @@ namespace astia::fs::path_service {
                     ++tail;
                 }
 
-                const u32 target_len   = length_of(target);
-                const u32 combined_len = at + target_len + (tail ? tail + 1 : 0);
+                const u32 combined_len = target_len + (tail ? tail + 1 : 0);
 
                 if (combined_len >= sizeof combined)
                     return -ENAMETOOLONG;
 
+                for (u32 i = 0; i < target_len; ++i) {
+                    combined[i] = target[i];
+                }
+
                 if (tail != 0) {
-                    combined[at + target_len] = '/';
+                    combined[target_len] = '/';
 
                     for (u32 i = 0; i <= tail; ++i) {
-                        combined[at + target_len + 1 + i] = pending[i];
+                        combined[target_len + 1 + i] = pending[i];
                     }
                 }
                 else {
@@ -282,8 +303,18 @@ namespace astia::fs::path_service {
                     pending[i] = combined[i];
                 }
 
-                rlen      = 1;
-                result[0] = '/';
+                if (target[0] == '/') {
+                    rlen = root_length;
+
+                    for (u32 i = 0; i < root_length; ++i) {
+                        result[i] = root[i];
+                    }
+                }
+                else {
+                    rlen = parent_len;
+                }
+
+                result[rlen] = '\0';
             }
         }
 

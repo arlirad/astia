@@ -2,6 +2,7 @@
 
 #include "internal/file_port.h"
 #include "internal/process_port.h"
+#include "internal/socket_wire.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -740,9 +741,9 @@ long __astia_fio_readlinkat(int dirfd, const char* path, char* buffer, size_t ca
                     (uint32_t) capacity, 0, 0);
 }
 
-long __astia_fio_readdir(const char* path, uint64_t index, astia_dirent* out) {
-    return transact(OP_READDIR, (int32_t) index, (uint64_t) (uintptr_t) path, out,
-                    (uint32_t) sizeof *out, 0, 0);
+long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
+    return transact(OP_READDIR, fd, index, out, (uint32_t) sizeof *out,
+                    ASTIA_AIO_READDIR_FD, 0);
 }
 
 long __astia_fio_ioctl(int fd, uint64_t request, void* arg, size_t length) {
@@ -831,6 +832,24 @@ long __astia_fio_recvfrom(int fd, void* buf, size_t n, int flags, void* addr,
 
     return transact(OP_RECVFROM, fd, (uint64_t) (uintptr_t) addr, buf, (uint32_t) n, 0,
                     0);
+}
+
+long __astia_fio_sendmsg(int fd, const void* buf, size_t n,
+                         const struct __astia_socket_msghdr* header) {
+    if (n > UINT32_MAX || header == NULL)
+        return -EINVAL;
+
+    return transact(OP_SENDMSG, fd, (uint64_t) (uintptr_t) header, buf, (uint32_t) n,
+                    header->flags, 0);
+}
+
+long __astia_fio_recvmsg(int fd, void* buf, size_t n,
+                         struct __astia_socket_msghdr* header) {
+    if (n > UINT32_MAX || header == NULL)
+        return -EINVAL;
+
+    return transact(OP_RECVMSG, fd, (uint64_t) (uintptr_t) header, buf, (uint32_t) n,
+                    header->flags, 0);
 }
 
 long __astia_fio_dup(int fd) {

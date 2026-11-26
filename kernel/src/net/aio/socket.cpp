@@ -51,13 +51,9 @@ namespace astia::io::aio::operations {
             if (rc < 0 || !current)
                 co_return (i32)(rc < 0 ? rc : -ESRCH);
 
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd) {
-                if (!current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, handle))
-                    co_return fd;
-            }
+            const auto installed = current->allocate_descriptor(handle);
 
-            co_return -EMFILE;
+            co_return installed ? installed.value.value : -EMFILE;
         }
     };
 

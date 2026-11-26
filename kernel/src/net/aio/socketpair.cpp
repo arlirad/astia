@@ -32,27 +32,22 @@ namespace astia::io::aio::operations {
             if (rc < 0)
                 co_return (i32) rc;
 
-            i32 fds[2] = {-1, -1};
+            const auto first = current->allocate_descriptor(a);
+            if (!first)
+                co_return -EMFILE;
 
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds && fds[1] < 0; ++fd) {
-                if (fds[0] < 0 && !current->descriptor(fd_t{fd}) &&
-                    current->set_descriptor(fd_t{fd}, a))
-                    fds[0] = fd;
-                else if (fds[0] >= 0 && !current->descriptor(fd_t{fd}) &&
-                         current->set_descriptor(fd_t{fd}, b))
-                    fds[1] = fd;
-            }
-
-            if (fds[1] < 0) {
-                if (fds[0] >= 0)
-                    current->clear_descriptor(fd_t{fds[0]});
+            const auto second = current->allocate_descriptor(b);
+            if (!second) {
+                current->clear_descriptor(first.value);
 
                 co_return -EMFILE;
             }
 
+            i32 fds[2] = {first.value.value, second.value.value};
+
             if (!memory::copy_out(span<u8>::bytes(sqe.address, sqe.length), fds)) {
-                current->clear_descriptor(fd_t{fds[0]});
-                current->clear_descriptor(fd_t{fds[1]});
+                current->clear_descriptor(fd_t{first.value.value});
+                current->clear_descriptor(fd_t{second.value.value});
 
                 co_return -EFAULT;
             }
