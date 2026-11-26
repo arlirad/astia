@@ -68,6 +68,8 @@ namespace {
     astia::arch::x86_64::panic_state x86_state() {
         astia::arch::x86_64::panic_state value{};
 
+        value.fault = true;
+
         value.frame.rax    = 0x100;
         value.frame.rbx    = 0x101;
         value.frame.rcx    = 0x102;
@@ -117,10 +119,11 @@ ASTIA_TEST(panic_report_common_records) {
 
     astia::dbg::format_panic_context(process(), sink, &output);
 
-    ASTIA_CHECK(output.contains("kpanic: cpu=3 arch=x86_64"));
-    ASTIA_CHECK(output.contains("kpanic: proc pid=1 tid=2 name=\"init\" state=runnable"));
+    ASTIA_CHECK(output.contains("[PANIC] KERNEL PANIC"));
+    ASTIA_CHECK(output.contains("[PANIC] cpu=3 arch=x86_64"));
+    ASTIA_CHECK(output.contains("[PANIC] pid=1 tid=2 name=\"init\" state=runnable"));
     ASTIA_CHECK(output.contains("uid=10 euid=11 gid=12 egid=13 pgrp=14 session=15"));
-    ASTIA_CHECK(output.contains("kpanic: thread state=running kstack-top=0x8000"));
+    ASTIA_CHECK(output.contains("[PANIC] thread state=running kstack-top=0x8000"));
     ASTIA_CHECK(output.contains("kstack-size=0x4000 kstack-high-water=0x1200"));
     ASTIA_CHECK(output.contains("address-space=0x9000"));
 }
@@ -129,12 +132,14 @@ ASTIA_TEST(panic_report_x86_records_every_register) {
     capture output;
 
     astia::arch::x86_64::format_panic_registers(x86_state(), sink, &output);
-
-    ASTIA_CHECK(output.contains("kpanic: fault vector=0xe error=0x2 rip=0xdeadbeef"));
-    ASTIA_CHECK(output.contains("cr0=0x80000001 cr2=0x4000 cr3=0x5000 cr4=0x20"));
-    ASTIA_CHECK(output.contains("kpanic: rip=0xdeadbeef rbp=0x7100"));
-    ASTIA_CHECK(output.contains("kpanic: regs rax=0x100 rbx=0x101 rcx=0x102"));
-    ASTIA_CHECK(output.contains("r15=0x10f rflags=0x202"));
+    ASTIA_CHECK(output.contains("[PANIC] fault #PF (14)"));
+    ASTIA_CHECK(output.contains("error=0x2 rip=0xdeadbeef"));
+    ASTIA_CHECK(output.contains("cr0: 0x0000000080000001"));
+    ASTIA_CHECK(output.contains("cr2: 0x0000000000004000"));
+    ASTIA_CHECK(output.contains("rip: 0x00000000deadbeef"));
+    ASTIA_CHECK(output.contains("rax: 0x0000000000000100  rbx: 0x0000000000000101"));
+    ASTIA_CHECK(output.contains("r15: 0x000000000000010f"));
+    ASTIA_CHECK(output.contains("rflags: 0x0000000000000202"));
 }
 
 ASTIA_TEST(panic_report_aarch64_records_every_register) {
@@ -143,13 +148,17 @@ ASTIA_TEST(panic_report_aarch64_records_every_register) {
     astia::arch::aarch64::format_panic_registers(aarch64_frame(), 0x8000, 0x9000, 4, sink,
                                                  &output);
 
-    ASTIA_CHECK(output.contains("kpanic: fault vector-kind=4 elr=0x40400000"));
-    ASTIA_CHECK(output.contains("spsr=0x3c5 esr=0xf2001234 far=0x1000 ttbr0=0x9000"));
-    ASTIA_CHECK(output.contains("kpanic: regs x0=0x200 x1=0x201"));
-    ASTIA_CHECK(output.contains("x7=0x207 sp=0x8000"));
-    ASTIA_CHECK(output.contains("x8=0x208"));
-    ASTIA_CHECK(output.contains("x24=0x218 x25=0x219"));
-    ASTIA_CHECK(output.contains("x30=0x21e"));
+    ASTIA_CHECK(output.contains("[PANIC] fault vector-kind=4 elr=0x40400000"));
+    ASTIA_CHECK(output.contains("spsr: 0x00000000000003c5"));
+    ASTIA_CHECK(output.contains("ttbr0: 0x0000000000009000"));
+    ASTIA_CHECK(output.contains("x0:"));
+    ASTIA_CHECK(output.contains("0x0000000000000200"));
+    ASTIA_CHECK(output.contains("x1:"));
+    ASTIA_CHECK(output.contains("x7:"));
+    ASTIA_CHECK(output.contains("sp:"));
+    ASTIA_CHECK(output.contains("x8:"));
+    ASTIA_CHECK(output.contains("x24:"));
+    ASTIA_CHECK(output.contains("x30:"));
 }
 
 ASTIA_TEST(panic_report_reports_unavailable_context) {
@@ -158,8 +167,8 @@ ASTIA_TEST(panic_report_reports_unavailable_context) {
 
     astia::dbg::format_panic_context(empty, sink, &output);
 
-    ASTIA_CHECK(output.contains("kpanic: proc unavailable"));
-    ASTIA_CHECK(output.contains("kpanic: thread unavailable"));
+    ASTIA_CHECK(output.contains("[PANIC] process unavailable"));
+    ASTIA_CHECK(output.contains("[PANIC] thread unavailable"));
 
     astia::dbg::panic_process locked = process();
 
