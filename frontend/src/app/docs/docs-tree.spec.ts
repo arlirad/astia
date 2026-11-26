@@ -69,7 +69,7 @@ describe('docs tree', () => {
     expect(tree.map((node) => node.label)).toEqual([
       'Syscalls (2)',
       'Guide',
-      'Manual page',
+      'Design (7)',
       'Design note',
     ]);
     expect(tree.map((node) => countDocTreePages(node))).toEqual([6, 1, 1, 1]);
@@ -120,7 +120,7 @@ describe('docs tree', () => {
 
     expect(tree.map((node) => node.label)).toEqual([
       'Guide',
-      'Manual page',
+      'Design (7)',
       'Design note',
     ]);
   });
@@ -213,9 +213,11 @@ describe('docs tree', () => {
     expect(none).toEqual([]);
   });
 
-  it('matches pages by title, taxonomy, and summary text', () => {
+  it('matches pages by title, taxonomy, display group label, and summary text', () => {
     expect(pageMatches(PAGES[0], 'alpha')).toBeTrue();
     expect(pageMatches(PAGES[0], 'proc core')).toBeTrue();
+    expect(pageMatches(PAGES[7], 'design (7)')).toBeTrue();
+    expect(pageMatches(PAGES[7], 'manual page')).toBeFalse();
     expect(pageMatches(PAGES[0], 'missing')).toBeFalse();
   });
 

@@ -112,7 +112,7 @@ describe('DocsBrowser', () => {
       treeRows.map(
         (row) => row.querySelector('.docs-tree-label')?.textContent?.trim(),
       ),
-    ).toEqual(['Guide', 'Manual page', 'Design note']);
+    ).toEqual(['Guide', 'Design (7)', 'Design note']);
     expect(
       treeRows.map(
         (row) => row.querySelector('.docs-group-count')?.textContent?.trim(),
@@ -207,12 +207,13 @@ describe('DocsBrowser', () => {
 
     expect(element.querySelector('.docs-page-title')?.textContent).toContain('Manual');
     expect(element.querySelector('.doc-markdown')?.textContent).toContain('API reference.');
+    expect(element.querySelector('.docs-page-top')?.textContent).toContain('Design (7)');
 
     const open = rows(element).filter(
       (row) => row.getAttribute('aria-expanded') === 'true',
     );
     expect(open.length).toBe(1);
-    expect(open[0].textContent).toContain('Manual page');
+    expect(open[0].textContent).toContain('Design (7)');
 
     const selected = element.querySelector('.docs-index-link.is-active');
     expect(selected?.getAttribute('aria-selected')).toBe('true');
@@ -224,7 +225,7 @@ describe('DocsBrowser', () => {
     const input = element.querySelector<HTMLInputElement>('.docs-filter input');
 
     if (input) {
-      input.value = 'manual';
+      input.value = 'design (7)';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     }
     await settle(fixture);
@@ -234,6 +235,8 @@ describe('DocsBrowser', () => {
     expect(
       element.querySelectorAll('.docs-group-toggle[aria-expanded="true"]').length,
     ).toBe(1);
+    expect(element.querySelector('.docs-group-toggle[aria-expanded="true"]')?.textContent)
+      .toContain('Design (7)');
     expect(element.querySelector('.docs-count')?.textContent).toContain('1 pages');
 
     if (input) {

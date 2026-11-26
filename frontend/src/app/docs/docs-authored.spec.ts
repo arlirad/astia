@@ -1,6 +1,6 @@
 import { DOC_PAGES } from '../content';
 import { DocsMarkdownRenderer } from './docs-markdown';
-import type { DocPage } from './docs.model';
+import { docGroupLabel, type DocPage } from './docs.model';
 import {
   DEFAULT_DOCS_REPOSITORY_CONFIG,
   GitHubDocsSource,
@@ -66,6 +66,7 @@ describe('Authored documentation sources', () => {
       expect(page.aliases).toEqual([expected[1]]);
       expect(page.sourcePath).toBe(expected[2]);
       expect(page.title).toBe(expected[3]);
+      expect(docGroupLabel(page.group)).toBe('Design (7)');
       expect(page.contentKind).toBe('markdown');
     }
   });
