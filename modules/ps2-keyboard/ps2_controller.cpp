@@ -18,7 +18,7 @@ namespace astia::ps2 {
     }
 
     bool ps2_controller::read_status(u8& status) {
-        if (!_io->read_status(status)) {
+        if (!_io->read8(command_port, status)) {
             fail(ps2_error::timeout);
 
             return false;
@@ -55,7 +55,7 @@ namespace astia::ps2 {
 
             u8 ignored = 0;
 
-            if (!_io->read_data(ignored)) {
+            if (!_io->read8(data_port, ignored)) {
                 fail(ps2_error::timeout);
 
                 return false;
@@ -71,7 +71,7 @@ namespace astia::ps2 {
         if (!wait_input_empty())
             return false;
 
-        if (!_io->write_command(command)) {
+        if (!_io->write8(command_port, command)) {
             fail(ps2_error::timeout);
 
             return false;
@@ -84,7 +84,7 @@ namespace astia::ps2 {
         if (!wait_input_empty())
             return false;
 
-        if (!_io->write_data(data)) {
+        if (!_io->write8(data_port, data)) {
             fail(ps2_error::timeout);
 
             return false;
@@ -105,7 +105,7 @@ namespace astia::ps2 {
 
             u8 data = 0;
 
-            if (!_io->read_data(data)) {
+            if (!_io->read8(data_port, data)) {
                 fail(ps2_error::timeout);
 
                 return false;
@@ -142,7 +142,7 @@ namespace astia::ps2 {
 
             u8 data = 0;
 
-            if (!_io->read_data(data))
+            if (!_io->read8(data_port, data))
                 return fail(ps2_error::timeout);
 
             if ((status & status_aux_full) != 0)
@@ -175,7 +175,7 @@ namespace astia::ps2 {
 
             u8 data = 0;
 
-            if (!_io->read_data(data))
+            if (!_io->read8(data_port, data))
                 return fail(ps2_error::timeout);
 
             if ((status & status_aux_full) != 0)
@@ -521,7 +521,7 @@ namespace astia::ps2 {
 
             u8 data = 0;
 
-            if (!_io->read_data(data)) {
+            if (!_io->read8(data_port, data)) {
                 fail(ps2_error::timeout);
 
                 return false;
