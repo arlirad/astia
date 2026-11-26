@@ -23,37 +23,30 @@ static int compare_lines(const void* left, const void* right) {
 
 static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
                    size_t* capacity) {
-    char buffer[4096];
+    cu_line_reader reader;
+
+    cu_line_reader_init(&reader, fd);
 
     for (;;) {
-        size_t length = 0;
-        int    ended  = 0;
-
-        while (length < sizeof buffer - 1) {
-            long got = read(fd, buffer + length, 1);
-            if (got < 0)
-                return cu_error("sort", name);
-
-            if (got == 0) {
-                ended = 1;
-
-                break;
-            }
-
-            if (buffer[length++] == '\n')
-                break;
-        }
-
-        if (length == 0 && ended)
+        int status = cu_read_line(&reader);
+        if (status == 0)
             break;
 
-        buffer[length] = '\0';
+        if (status < 0) {
+            cu_line_reader_destroy(&reader);
 
-        char* line = (char*) malloc(length + 1);
-        if (line == 0)
+            return status == -2 ? cu_error("sort", "out of memory")
+                                : cu_error("sort", name);
+        }
+
+        char* line = (char*) malloc(reader.line_length + 1);
+        if (line == 0) {
+            cu_line_reader_destroy(&reader);
+
             return cu_error("sort", "out of memory");
+        }
 
-        memcpy(line, buffer, length + 1);
+        memcpy(line, reader.line, reader.line_length + 1);
 
         if (*count == *capacity) {
             size_t next = *capacity == 0 ? 16 : *capacity * 2;
@@ -61,6 +54,7 @@ static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
             char** grown = (char**) realloc(*lines, next * sizeof(char*));
             if (grown == 0) {
                 free(line);
+                cu_line_reader_destroy(&reader);
 
                 return cu_error("sort", "out of memory");
             }
@@ -70,22 +64,9 @@ static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
         }
 
         (*lines)[(*count)++] = line;
-
-        if (!ended && length == sizeof buffer - 1) {
-            do {
-                char c;
-                long got = read(fd, &c, 1);
-                if (got < 0)
-                    return cu_error("sort", name);
-
-                if (got == 0 || c == '\n') {
-                    ended = 1;
-
-                    break;
-                }
-            } while (1);
-        }
     }
+
+    cu_line_reader_destroy(&reader);
 
     return 0;
 }
