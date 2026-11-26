@@ -45,6 +45,45 @@ public sealed class InMemoryPackageRepositoryTests
     }
 
     [Fact]
+    public async Task Search_MatchesNameContainsAndSourceCommitPrefixOnly()
+    {
+        var repository = new InMemoryPackageRepository();
+        await repository.TryAddAsync(TestPackages.CreatePackage(name: "libc"), CancellationToken.None);
+
+        var nameContains = await repository.SearchAsync("IBC", CancellationToken.None);
+        var commitPrefix = await repository.SearchAsync(
+            TestPackages.CommitSha[..8],
+            CancellationToken.None);
+        var commitSubstring = await repository.SearchAsync(
+            TestPackages.CommitSha[8..16],
+            CancellationToken.None);
+        var provenanceOnly = await repository.SearchAsync(
+            "ci://pkgsrv/tests/42",
+            CancellationToken.None);
+
+        Assert.Equal("libc", Assert.Single(nameContains).Manifest.Name.Value);
+        Assert.Equal("libc", Assert.Single(commitPrefix).Manifest.Name.Value);
+        Assert.Empty(commitSubstring);
+        Assert.Empty(provenanceOnly);
+    }
+
+    [Fact]
+    public async Task Search_TreatsWildcardCharactersLiterally()
+    {
+        var repository = new InMemoryPackageRepository();
+        await repository.TryAddAsync(TestPackages.CreatePackage(name: "a_b"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(name: "ab"), CancellationToken.None);
+
+        var underscore = await repository.SearchAsync("_", CancellationToken.None);
+        var percent = await repository.SearchAsync("%", CancellationToken.None);
+        var literal = await repository.SearchAsync("a_b", CancellationToken.None);
+
+        Assert.Equal("a_b", Assert.Single(underscore).Manifest.Name.Value);
+        Assert.Empty(percent);
+        Assert.Equal("a_b", Assert.Single(literal).Manifest.Name.Value);
+    }
+
+    [Fact]
     public async Task Search_OrdersNumericVersionComponentsAndReleasesAfterPreReleases()
     {
         var repository = new InMemoryPackageRepository();

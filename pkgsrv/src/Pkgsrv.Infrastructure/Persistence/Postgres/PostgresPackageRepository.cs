@@ -277,8 +277,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
 
             source = source.Where(record =>
                 EF.Functions.ILike(record.Name, contains, "\\")
-                || EF.Functions.ILike(record.SourceCommit, prefix, "\\")
-                || EF.Functions.ILike(record.Provenance, contains, "\\"));
+                || EF.Functions.ILike(record.SourceCommit, prefix, "\\"));
         }
 
         return source

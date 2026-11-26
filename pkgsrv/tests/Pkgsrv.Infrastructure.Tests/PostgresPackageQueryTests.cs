@@ -16,6 +16,17 @@ public sealed class PostgresPackageQueryTests
 
         Assert.Contains("ILIKE", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ESCAPE", sql, StringComparison.OrdinalIgnoreCase);
+
+        var whereIndex = sql.IndexOf("WHERE", StringComparison.OrdinalIgnoreCase);
+        Assert.True(whereIndex >= 0);
+        var orderByIndex = sql.IndexOf("ORDER BY", whereIndex, StringComparison.OrdinalIgnoreCase);
+        Assert.True(orderByIndex > whereIndex);
+        var predicate = sql[whereIndex..orderByIndex];
+
+        Assert.Contains("Name", predicate, StringComparison.Ordinal);
+        Assert.Contains("SourceCommit", predicate, StringComparison.Ordinal);
+        Assert.DoesNotContain("Provenance", predicate, StringComparison.Ordinal);
+
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VersionMajor", sql, StringComparison.Ordinal);

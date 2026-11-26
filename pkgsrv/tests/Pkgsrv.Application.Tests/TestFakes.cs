@@ -130,7 +130,8 @@ internal sealed class TestRepository : IPackageRepository, IPackageIndex
 
         return _packages.Values
             .Where(package => string.IsNullOrWhiteSpace(search)
-                || package.Manifest.Name.Value.Contains(search, StringComparison.OrdinalIgnoreCase))
+                || package.Manifest.Name.Value.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || package.Manifest.Source.CommitSha.StartsWith(search, StringComparison.OrdinalIgnoreCase))
             .Select(package => new PackageIndexEntry(
                 package.Manifest,
                 package.State,
