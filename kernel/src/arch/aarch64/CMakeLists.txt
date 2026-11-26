@@ -2,9 +2,13 @@ if (ARCH STREQUAL "aarch64")
     add_library(arch_aarch64 OBJECT
             exception.S
             start.S
+            context.S
             gic.cpp
             page_map.cpp
+            entropy.cpp
+            panic_format.cpp
             timer.cpp
+            port.cpp
     )
     target_include_directories(arch_aarch64 PUBLIC
             ${ASTIA_KERNEL_SOURCE_DIR}/include)

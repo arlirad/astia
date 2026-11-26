@@ -6,8 +6,10 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
+using Pkgsrv.Application.Features.Packages.Download;
 using Pkgsrv.Application.Features.Packages.Get;
 using Pkgsrv.Application.Features.Packages.List;
+using Pkgsrv.Application.Features.Packages.Publish;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -64,7 +66,7 @@ public sealed class PackageEndpointHandlerTests
         {
             Handler = (_, _) => ValueTask.FromResult<object>(Array.Empty<PackageSummaryDto>())
         };
-        var accessor = new HeaderActorContextAccessor(new HttpContextAccessor
+        var accessor = new HttpTransportIdentityAccessor(new HttpContextAccessor
         {
             HttpContext = new DefaultHttpContext()
         });
@@ -242,6 +244,50 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
+    public async Task List_MapsMissingOrInvalidBearerToUnauthorized()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new TargetInvocationException(
+                new AuthenticationRequiredException(
+                    nameof(PackageAction.Read),
+                    "A bearer access token is required."))
+        };
+
+        var result = await PackageEndpointHandlers.ListAsync(
+            mediator,
+            CreateAccessor("anonymous"),
+            new TestPackageJsonCache(),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(401, problem.ProblemDetails.Status);
+        Assert.Equal("authorization.unauthenticated", problem.ProblemDetails.Extensions["code"]);
+    }
+
+    [Fact]
+    public async Task List_MapsVerifiedPermissionDenialToForbidden()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => throw new TargetInvocationException(
+                new AuthorizationDeniedException(
+                    nameof(PackageAction.Read),
+                    "Irva verified account lacks permission 'read'."))
+        };
+
+        var result = await PackageEndpointHandlers.ListAsync(
+            mediator,
+            CreateAccessor("verified-reader"),
+            new TestPackageJsonCache(),
+            CancellationToken.None);
+
+        var problem = Assert.IsType<ProblemHttpResult>(result);
+        Assert.Equal(403, problem.ProblemDetails.Status);
+        Assert.Equal("authorization.denied", problem.ProblemDetails.Extensions["code"]);
+    }
+
+    [Fact]
     public async Task Build_MapsScheduledSafeBuildToAccepted()
     {
         var mediator = new StubMediator
@@ -325,6 +371,55 @@ public sealed class PackageEndpointHandlerTests
     }
 
     [Fact]
+    public async Task Publish_ReturnsOkAndPassesActor()
+    {
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                new PublishPackageResult("widget", "1.2.3", TestPackages.ContentHashValue, "test-signature"))
+        };
+
+        var result = await PackageEndpointHandlers.PublishAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("publisher"),
+            CancellationToken.None);
+
+        var ok = Assert.IsType<Ok<PublishResponse>>(result);
+        Assert.Equal("test-signature", ok.Value!.Signature);
+        var command = Assert.IsType<PublishPackageCommand>(mediator.LastRequest);
+        Assert.Equal("publisher", command.Actor.ActorId);
+    }
+
+    [Fact]
+    public async Task Download_ReturnsBinaryContent()
+    {
+        var content = "artifact"u8.ToArray();
+        var mediator = new StubMediator
+        {
+            Handler = (_, _) => ValueTask.FromResult<object>(
+                new PackageDownloadResult(
+                    "widget",
+                    "1.2.3",
+                    TestPackages.ContentHashValue,
+                    content))
+        };
+
+        var result = await PackageEndpointHandlers.DownloadAsync(
+            "widget",
+            "1.2.3",
+            mediator,
+            CreateAccessor("reader"),
+            CancellationToken.None);
+        var response = await ExecuteAsync(result);
+
+        Assert.Equal(200, response.StatusCode);
+        Assert.Contains("application/octet-stream", response.ContentType, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("artifact", response.Body);
+    }
+
+    [Fact]
     public void RegistrationRequest_ExposesNoShellOrCommandField()
     {
         var propertyNames = typeof(RegisterPackageRequest)
@@ -365,23 +460,24 @@ public sealed class PackageEndpointHandlerTests
         string? roles = null,
         Guid? accountId = null)
     {
-        var httpContext = new DefaultHttpContext();
-        httpContext.Request.Headers[HeaderActorContextAccessor.ActorHeader] = actor;
+        var roleValues = string.IsNullOrWhiteSpace(roles)
+            ? Array.Empty<string>()
+            : roles.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        if (roles is not null)
+        return new StubActorContextAccessor(
+            AuthorizationContext.Create(actor, roleValues, accountId));
+    }
+
+    private sealed class StubActorContextAccessor : IActorContextAccessor
+    {
+        private readonly AuthorizationContext _actor;
+
+        public StubActorContextAccessor(AuthorizationContext actor)
         {
-            httpContext.Request.Headers[HeaderActorContextAccessor.RolesHeader] = roles;
+            _actor = actor;
         }
 
-        if (accountId is not null)
-        {
-            httpContext.Request.Headers[HeaderActorContextAccessor.AccountHeader] = accountId.Value.ToString();
-        }
-
-        return new HeaderActorContextAccessor(new HttpContextAccessor
-        {
-            HttpContext = httpContext
-        });
+        public AuthorizationContext GetCurrent() => _actor;
     }
 
     private static async Task<(int StatusCode, string ContentType, string Body)> ExecuteAsync(IResult result)

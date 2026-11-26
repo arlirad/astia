@@ -15,13 +15,13 @@
 #include "../../proc/proc.hpp"
 #include "aio.hpp"
 #include "memory.hpp"
+#include "ring_layout.hpp"
 
 namespace astia::io::aio::runner {
     struct detached_state;
 }
 
 namespace astia::io::aio::ring {
-
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
     inline constexpr u32 parked_slot_count =
         resource_limits::queue::aio_parked_operations;
@@ -67,42 +67,47 @@ namespace astia::io::aio::ring {
             oom_completion,
         };
 
-        bool                     used;
-        kind                     type                  = kind::operation;
-        bool                     done                  = false;
-        bool                     resuming              = false;
-        bool                     control               = false;
-        bool                     signal_interruptible  = false;
-        bool                     socket_accept         = false;
-        bool                     readiness             = false;
-        bool                     sleeping              = false;
-        bool                     timed                 = false;
-        bool                     poll_timed            = false;
-        bool                     sleep_absolute        = false;
-        bool                     sleep_ready           = false;
-        bool                     device_ready          = false;
-        u32                      poll_events           = 0;
-        u64                      sleep_deadline        = 0;
-        u64                      timeout_deadline      = 0;
-        u64                      poll_deadline         = 0;
-        u64                      sleep_remaining_user  = 0;
-        bool                     recvfrom_address      = false;
-        u64                      recvfrom_address_user = 0;
-        bool                     pending_cqe           = false;
-        u64                      pending_user_data     = 0;
-        i32                      pending_result        = 0;
-        i32                      fd;
-        mm::shptr<fs::open_file> handle;
-        mm::iovec                entries;
-        ::astia::io::operation*  operation = nullptr;
-        mm::uptr<core::clsource> cancel;
-        core::cltoken            token{};
-        u64                      generation = 0;
-        usize                    moved      = 0;
+        bool                      used;
+        kind                      type                  = kind::operation;
+        bool                      done                  = false;
+        bool                      resuming              = false;
+        bool                      control               = false;
+        bool                      signal_interruptible  = false;
+        bool                      socket_accept         = false;
+        bool                      readiness             = false;
+        bool                      sleeping              = false;
+        bool                      timed                 = false;
+        bool                      poll_timed            = false;
+        bool                      sleep_absolute        = false;
+        bool                      sleep_ready           = false;
+        bool                      device_ready          = false;
+        u32                       poll_events           = 0;
+        u64                       sleep_deadline        = 0;
+        u64                       timeout_deadline      = 0;
+        u64                       poll_deadline         = 0;
+        u64                       sleep_remaining_user  = 0;
+        bool                      recvfrom_address      = false;
+        u64                       recvfrom_address_user = 0;
+        bool                      socket_sendmsg        = false;
+        bool                      recvmsg               = false;
+        u64                       recvmsg_user          = 0;
+        bool                      pending_cqe           = false;
+        u64                       pending_user_data     = 0;
+        i32                       pending_result        = 0;
+        i32                       fd;
+        mm::shptr<fs::open_file>  handle;
+        mm::iovec                 entries;
+        ::astia::io::operation*   operation = nullptr;
+        mm::uptr<core::clsource>  cancel;
+        core::cltoken             token{};
+        mm::shptr<core::clsource> token_source;
+        u64                       generation = 0;
+        usize                     moved      = 0;
 
         void clear() {
             if (operation != nullptr)
                 operation->release_owner();
+
             operation             = nullptr;
             cancel                = {};
             used                  = false;
@@ -126,12 +131,16 @@ namespace astia::io::aio::ring {
             sleep_remaining_user  = 0;
             recvfrom_address      = false;
             recvfrom_address_user = 0;
+            socket_sendmsg        = false;
+            recvmsg               = false;
+            recvmsg_user          = 0;
             pending_cqe           = false;
             pending_user_data     = 0;
             pending_result        = 0;
             fd                    = 0;
             handle                = {};
             token                 = {};
+            token_source          = {};
             generation            = 0;
             moved                 = 0;
         }
@@ -149,16 +158,17 @@ namespace astia::io::aio::ring {
         bool                     used;
         mm::shptr<proc::process> owner;
         u64                      user_base;
-        u32                      sq_entries;
-        u32                      cq_entries;
+        ring_layout              layout;
         u32                      waiters;
         atomic<u32>              detached_ops;
         runner::detached_state*  detached_head;
+
         struct pending_detached_cqe {
             u64  user_data;
             i32  result;
             bool used;
         };
+
         pending_detached_cqe pending_detached[aio::kernel_ring_max_entries];
         bool                 detached_reclaim;
         atomic<bool>         reclaiming;
@@ -166,6 +176,8 @@ namespace astia::io::aio::ring {
         u32                  notify_signaled;
         u32                  pool_index;
         bool                 kernel_buffers;
+        atomic<u64>          armed_mask;
+        atomic<u64>          signal_mask;
         parked_op            park[parked_slot_count];
         parked_cleanup       cleanup;
         alignas(mm::page_size) u8 map[mapping_pages * mm::page_size];
@@ -189,10 +201,75 @@ namespace astia::io::aio::ring {
 
     bool cq_post(astia_rings* ring, u64 user_data, i32 result);
     bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result);
-    void cq_retrigger(ring_slot& slot, astia_rings* ring);
+    bool cq_has_capacity(const ring_slot& slot, const astia_rings* ring, u32 count);
+    void cq_retrigger(ring_slot& slot);
 
     u64  ready_generation();
     void note_device_ready(const fs::file* device);
+
+    /// Parked deadlines are tracked as a per-ring bitmask so the timer tick
+    /// can skip rings with no armed sleep/timeout/poll operation.  The global
+    /// bitmap makes the idle tick O(1).
+    inline atomic<u64> g_armed_ring_bitmap{0};
+
+    inline bool any_armed() {
+        return g_armed_ring_bitmap.load(memory_order::acquire) != 0;
+    }
+
+    inline u64 armed_ring_bitmap() {
+        return g_armed_ring_bitmap.load(memory_order::acquire);
+    }
+
+    inline u64 armed_mask(const ring_slot& slot) {
+        return const_cast<ring_slot&>(slot).armed_mask.load(memory_order::acquire);
+    }
+
+    inline void note_armed(ring_slot& slot, u32 park_index) {
+        if (park_index >= parked_slot_count)
+            return;
+
+        const u64 bit      = u64{1} << park_index;
+        const u64 previous = slot.armed_mask.fetch_or(bit, memory_order::acq_rel);
+
+        if (previous == 0)
+            g_armed_ring_bitmap.fetch_or(u64{1} << slot.pool_index,
+                                         memory_order::acq_rel);
+    }
+
+    inline void clear_armed(ring_slot& slot, u32 park_index) {
+        if (park_index >= parked_slot_count)
+            return;
+
+        const u64 bit      = u64{1} << park_index;
+        const u64 previous = slot.armed_mask.fetch_and(~bit, memory_order::acq_rel);
+
+        if (previous == bit)
+            g_armed_ring_bitmap.fetch_and(~(u64{1} << slot.pool_index),
+                                          memory_order::acq_rel);
+    }
+
+    void clear_all_armed(ring_slot& slot);
+
+    inline u64 signal_mask(const ring_slot& slot) {
+        return const_cast<ring_slot&>(slot).signal_mask.load(memory_order::acquire);
+    }
+
+    inline void note_signalable(ring_slot& slot, u32 park_index) {
+        if (park_index < parked_slot_count)
+            slot.signal_mask.fetch_or(u64{1} << park_index, memory_order::acq_rel);
+    }
+
+    inline void clear_signalable(ring_slot& slot, u32 park_index) {
+        if (park_index < parked_slot_count)
+            slot.signal_mask.fetch_and(~(u64{1} << park_index), memory_order::acq_rel);
+    }
+
+    inline void clear_all_signalable(ring_slot& slot) {
+        slot.signal_mask.store(0, memory_order::release);
+    }
+
+    /// Snapshot the ring indices owned by one process for signal delivery.
+    u32  owner_ring_indices(proc::process* owner, u8* out, u32 capacity);
     void clear_waiter_hint(const ring_slot& slot, u32 park_index);
     void publish_waiter_hint(const ring_slot& slot, u32 park_index, const fs::file* key);
     void snapshot_waiters(const fs::file* key,
@@ -200,5 +277,4 @@ namespace astia::io::aio::ring {
 
     long setup(u32 entries, u32 flags, astia_rings** out);
     long destroy(astia_rings* ring);
-
 } // namespace astia::io::aio::ring

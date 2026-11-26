@@ -104,6 +104,11 @@ fi
 files=()
 while IFS= read -r -d '' path; do
     case "$path" in
+        third_party/*)
+            # Imported sources keep their upstream formatting; see
+            # third_party/README.md.
+            continue
+            ;;
         *.cpp|*.c|*.h|*.hpp)
             [[ -f "$path" ]] && files+=("$path")
             ;;

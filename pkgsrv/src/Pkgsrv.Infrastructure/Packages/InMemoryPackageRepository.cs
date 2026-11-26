@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
@@ -29,6 +30,43 @@ public sealed class InMemoryPackageRepository : IPackageRepository, IPackageInde
         if (!_packages.ContainsKey(package.Key))
         {
             throw new InvalidOperationException($"Package {package.Key} does not exist in the store.");
+        }
+
+        _packages[package.Key] = package;
+        return Task.CompletedTask;
+    }
+
+    public Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+
+        if (!_packages.ContainsKey(package.Key))
+        {
+            throw new InvalidOperationException($"Package {package.Key} does not exist in the store.");
+        }
+
+        _packages[package.Key] = package;
+        return Task.CompletedTask;
+    }
+
+    public Task MarkPublishedAsync(
+        Package package,
+        DateTimeOffset publishedAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+
+        if (!_packages.ContainsKey(package.Key))
+        {
+            throw new InvalidOperationException($"Package {package.Key} does not exist in the store.");
+        }
+
+        if (package.State != PackageState.BuildRequested
+            || !package.Manifest.IsPublishable)
+        {
+            throw new PackageConflictException(
+                package.Key.ToString(),
+                $"Package {package.Key} is not eligible for publication.");
         }
 
         _packages[package.Key] = package;
@@ -74,7 +112,6 @@ public sealed class InMemoryPackageRepository : IPackageRepository, IPackageInde
         }
 
         return package.Manifest.Name.Value.Contains(search, StringComparison.OrdinalIgnoreCase)
-            || package.Manifest.Source.CommitSha.StartsWith(search, StringComparison.OrdinalIgnoreCase)
-            || package.Manifest.Provenance.Value.Contains(search, StringComparison.OrdinalIgnoreCase);
+            || package.Manifest.Source.CommitSha.StartsWith(search, StringComparison.OrdinalIgnoreCase);
     }
 }

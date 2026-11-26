@@ -13,6 +13,7 @@ namespace astia::proc::syscalls {
                           sys::user_ptr<u8> argument0, sys::user_ptr<u8> argument1,
                           sys::user_ptr<u8> stack_base, u64 stack_size) {
             auto* owner = current_process();
+
             if (owner == nullptr ||
                 !detail::valid_thread_start(entry.address(), stack_top) ||
                 !argument0.validate() || (!argument1.null() && !argument1.validate()) ||
@@ -20,11 +21,12 @@ namespace astia::proc::syscalls {
                  !detail::valid_thread_stack_metadata(stack_base.address(), stack_size,
                                                       stack_top)))
                 return -EFAULT;
+
             auto value = owner->create_thread(
                 entry.address(), stack_top, argument0.address(), argument1.address(),
                 true, stack_base.address(), static_cast<usize>(stack_size));
+
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }
     };
-
 } // namespace astia::proc::syscalls

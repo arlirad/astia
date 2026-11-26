@@ -76,7 +76,7 @@ enum { IO_MAX_ENTRIES = 4096 };
    values are a read-only capacity contract: exceeding the ring pool returns
    -ENFILE, and exhausting one ring's parked-operation queue posts -EBUSY. */
 enum {
-    ASTIA_AIO_MAX_RING_SLOTS        = 4,
+    ASTIA_AIO_MAX_RING_SLOTS        = 16,
     ASTIA_AIO_MAX_RING_ENTRIES      = 64,
     ASTIA_AIO_MAX_PARKED_OPERATIONS = 64,
     ASTIA_AIO_MAX_OPERATION_BYTES   = 0x7ffff000,
@@ -237,6 +237,20 @@ typedef struct astia_sockaddr {
     uint8_t  data[120];
 } astia_sockaddr;
 
+typedef struct astia_cmsghdr {
+    uint64_t cmsg_len;
+    int32_t  cmsg_level;
+    int32_t  cmsg_type;
+} astia_cmsghdr;
+
+typedef struct astia_msghdr {
+    void*    control;
+    uint32_t controllen;
+    uint32_t flags;
+    uint32_t msg_flags;
+    uint32_t resv;
+} astia_msghdr;
+
 typedef struct astia_reg_buf {
     uint64_t addr;
     uint32_t len;
@@ -248,6 +262,8 @@ ASTIA_STATIC_ASSERT(sizeof(astia_iovec) == 16, "iovec ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_stat) == 128, "stat ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_spawn) == 40, "spawn ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_sockaddr) == 128, "sockaddr ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_cmsghdr) == 16, "cmsghdr ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_msghdr) == 24, "msghdr ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_reg_buf) == 16, "reg_buf ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_rings) == 64, "rings header ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_sq_ring) == 128, "sq ring ABI");
@@ -311,6 +327,8 @@ enum {
     OP_LINKAT         = 39,
     OP_FTRUNCATE      = 40,
     OP_GETSOCKOPT     = 41,
+    OP_SENDMSG        = 42,
+    OP_RECVMSG        = 43,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */
@@ -335,6 +353,16 @@ enum {
     ASTIA_O_NONBLOCK = 0x0800,
 };
 
+/* OP_SENDMSG / OP_RECVMSG: BSD/Linux ancillary-data wire values. */
+enum {
+    ASTIA_SCM_RIGHTS       = 1,
+    ASTIA_SCM_CREDENTIALS  = 2,
+    ASTIA_MSG_CTRUNC       = 0x08,
+    ASTIA_MSG_DONTWAIT     = 0x40,
+    ASTIA_MSG_EOR          = 0x80,
+    ASTIA_MSG_CMSG_CLOEXEC = 0x40000000,
+};
+
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
 enum {
     SOCK_STREAM    = 1,
@@ -352,6 +380,13 @@ enum {
 
 /* OP_STATX: preserve the final directory entry instead of following it. */
 enum { STATX_NOFOLLOW = 1u << 0 };
+
+/* OP_READDIR op_flags.  By default sqe.offset points at the pathname and
+   the entry index is in sqe.fd (the legacy path form).  With this flag
+   sqe.fd is an open directory descriptor and sqe.offset is the index, so
+   the stream reads through the handle opened by opendir() instead of
+   resolving a caller-held path again. */
+enum { ASTIA_AIO_READDIR_FD = 1u << 0 };
 
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */
 enum { UNLINKAT_REMOVEDIR = 1u << 0 };
@@ -556,6 +591,7 @@ static inline uint32_t astia_sq_space(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
     uint32_t       head = __atomic_load_n(&sq->head, __ATOMIC_ACQUIRE);
+
     return sq->entries - (tail - head);
 }
 
@@ -564,8 +600,10 @@ static inline uint32_t astia_sq_space(astia_rings* r) {
 static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
+
     if (tail - __atomic_load_n(&sq->head, __ATOMIC_ACQUIRE) >= sq->entries)
         return NULL;
+
     return &astia_rings_sqes(r)[tail & sq->mask];
 }
 
@@ -574,12 +612,14 @@ static inline astia_sqe* astia_sqe_slot(astia_rings* r) {
 static inline void astia_sq_publish(astia_rings* r, uint32_t n) {
     astia_sq_ring* sq   = astia_rings_sq(r);
     uint32_t       tail = __atomic_load_n(&sq->tail, __ATOMIC_RELAXED);
+
     __atomic_store_n(&sq->tail, tail + n, __ATOMIC_RELEASE);
 }
 
 /* Unreaped completions available right now. */
 static inline uint32_t astia_cq_ready(astia_rings* r) {
     astia_cq_ring* cq = astia_rings_cq(r);
+
     return __atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE) -
            __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
 }
@@ -587,9 +627,11 @@ static inline uint32_t astia_cq_ready(astia_rings* r) {
 /* Oldest un-reaped completion, or NULL. */
 static inline astia_cqe* astia_cq_peek(astia_rings* r) {
     astia_cq_ring* cq = astia_rings_cq(r);
+
     if (__atomic_load_n(&cq->tail, __ATOMIC_ACQUIRE) ==
         __atomic_load_n(&cq->head, __ATOMIC_RELAXED))
         return NULL;
+
     return &astia_rings_cqes(r)[cq->head & cq->mask];
 }
 
@@ -597,7 +639,9 @@ static inline astia_cqe* astia_cq_peek(astia_rings* r) {
 static inline void astia_cq_consume(astia_rings* r, uint32_t n) {
     astia_cq_ring* cq   = astia_rings_cq(r);
     uint32_t       head = __atomic_load_n(&cq->head, __ATOMIC_RELAXED);
+
     __atomic_store_n(&cq->head, head + n, __ATOMIC_RELEASE);
+
     if (n != 0)
         __atomic_store_n(&cq->notify_ack,
                          __atomic_load_n(&cq->notify_generation, __ATOMIC_ACQUIRE),

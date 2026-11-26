@@ -171,7 +171,7 @@ entry point is published in a `.note.Xen` ELF note, which QEMU reads when
 the Linux boot protocol needs a bzImage, so neither fits a small 64-bit
 kernel.) QEMU enters `_start` in 32-bit protected mode; `src/boot/virt/boot.S`
 sets up identity and higher-half page tables, switches to long mode and
-calls `kmain()` in the linked-high image.
+calls `kmain_entry()` in the linked-high image.
 
 The initrd must contain `/sbin/init` unless an alternate path is selected.
 After the filesystem and scheduler are ready, the production kernel launches

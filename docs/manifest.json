@@ -297,7 +297,7 @@
         "subsystem": "proc",
         "category": "process",
         "sourcePath": "docs/2/proc/process/execve.md",
-        "source": "libc/src/unistd.c",
+        "source": "libc/src/sys/unistd.c",
         "synopsisKind": "public",
         "synopsis": "int execve(const char* path, char* const argv[], char* const envp[]);"
       },
@@ -309,7 +309,7 @@
         "subsystem": "proc",
         "category": "signal",
         "sourcePath": "docs/2/proc/signal/sigsuspend.md",
-        "source": "libc/src/signal.c",
+        "source": "libc/src/process/signal.c",
         "synopsisKind": "public",
         "synopsis": "int sigsuspend(const sigset_t* mask);"
       },
@@ -876,6 +876,78 @@
         "subsystem": "dl",
         "category": "dl",
         "sourcePath": "docs/2/dl/dlunmap.md"
+      },
+      {
+        "id": 73,
+        "name": "modopen",
+        "slug": "syscall-73-modopen",
+        "title": "modopen(2)",
+        "source": "kernel/src/mod/syscalls/modopen.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_modopen(const char* path, uint32_t flags, astia_module_id* out);",
+        "subsystem": "mod",
+        "category": "mod",
+        "sourcePath": "docs/2/mod/modopen.md"
+      },
+      {
+        "id": 74,
+        "name": "modls",
+        "slug": "syscall-74-modls",
+        "title": "modls(2)",
+        "source": "kernel/src/mod/syscalls/modls.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_modls(astia_module_record* records, uint32_t capacity, astia_module_list_info* info);",
+        "subsystem": "mod",
+        "category": "mod",
+        "sourcePath": "docs/2/mod/modls.md"
+      },
+      {
+        "id": 75,
+        "name": "modstat",
+        "slug": "syscall-75-modstat",
+        "title": "modstat(2)",
+        "source": "kernel/src/mod/syscalls/modstat.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_modstat(const astia_module_id* id, astia_module_stat* out);",
+        "subsystem": "mod",
+        "category": "mod",
+        "sourcePath": "docs/2/mod/modstat.md"
+      },
+      {
+        "id": 76,
+        "name": "modclose",
+        "slug": "syscall-76-modclose",
+        "title": "modclose(2)",
+        "source": "kernel/src/mod/syscalls/modclose.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_modclose(const astia_module_id* id);",
+        "subsystem": "mod",
+        "category": "mod",
+        "sourcePath": "docs/2/mod/modclose.md"
+      },
+      {
+        "id": 77,
+        "name": "getrandom",
+        "slug": "syscall-77-getrandom",
+        "title": "getrandom(2)",
+        "subsystem": "proc",
+        "category": "core",
+        "sourcePath": "docs/2/proc/core/getrandom.md",
+        "source": "kernel/src/proc/syscalls/getrandom.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);"
+      },
+      {
+        "id": 78,
+        "name": "chroot",
+        "slug": "syscall-78-chroot",
+        "title": "chroot(2)",
+        "subsystem": "proc",
+        "category": "process",
+        "sourcePath": "docs/2/proc/process/chroot.md",
+        "source": "kernel/src/proc/syscalls/process/chroot.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_chroot(const char* path);"
       }
     ]
   },

@@ -7,7 +7,6 @@
 #include "aio.hpp"
 
 namespace astia::io::aio::memory {
-
     inline bool user_span_ok_for(proc::process* owner, span<u8> range);
 
     template <typename T>
@@ -17,6 +16,7 @@ namespace astia::io::aio::memory {
 
         public:
         constexpr validated_user_ptr() = default;
+
         T* get() const {
             return reinterpret_cast<T*>(_address);
         }
@@ -27,6 +27,7 @@ namespace astia::io::aio::memory {
 
         private:
         explicit validated_user_ptr(u64 address) : _address(address) {}
+
         u64 _address = 0;
     };
 
@@ -47,7 +48,9 @@ namespace astia::io::aio::memory {
                                                      usize          count = 1) const {
             if (count > (~usize{0} / sizeof(T)))
                 return error_t::erange;
+
             const span<u8> range = span<u8>::bytes(_address, sizeof(T) * count);
+
             return user_span_ok_for(owner, range)
                        ? optional<validated_user_ptr<T>>(validated_user_ptr<T>(_address))
                        : optional<validated_user_ptr<T>>(error_t::efault);
@@ -59,6 +62,7 @@ namespace astia::io::aio::memory {
 
     inline bool user_span_ok_for(proc::process* owner, span<u8> range) {
         const auto& adapter = user_memory();
+
         return adapter.user_span_ok != nullptr && adapter.user_span_ok(owner, range);
     }
 
@@ -72,6 +76,7 @@ namespace astia::io::aio::memory {
 
     inline bool user_span_writable_ok_for(proc::process* owner, span<u8> range) {
         const auto& adapter = user_memory();
+
         return adapter.user_span_writable_ok != nullptr &&
                adapter.user_span_writable_ok(owner, range);
     }
@@ -82,6 +87,7 @@ namespace astia::io::aio::memory {
 
     inline bool kernel_span_ok(span<u8> range) {
         const auto& adapter = user_memory();
+
         return adapter.kernel_span_ok != nullptr && adapter.kernel_span_ok(range);
     }
 
@@ -89,6 +95,7 @@ namespace astia::io::aio::memory {
                                   ::astia::io::direction direction, mm::iovec& out,
                                   bool allow_kernel_buffer = false) {
         const auto& adapter = user_memory();
+
         return adapter.pin_user_span == nullptr
                    ? -ENOMEM
                    : adapter.pin_user_span(owner, range, direction, out,
@@ -97,6 +104,7 @@ namespace astia::io::aio::memory {
 
     inline bool copy_in(proc::process* owner, void* destination, span<u8> source) {
         const auto& adapter = user_memory();
+
         return adapter.copy_in != nullptr && adapter.copy_in(owner, destination, source);
     }
 
@@ -107,6 +115,7 @@ namespace astia::io::aio::memory {
     inline bool copy_in_string(proc::process* owner, span<char> destination,
                                span<u8> source) {
         const auto& adapter = user_memory();
+
         return adapter.copy_in_string != nullptr &&
                adapter.copy_in_string(owner, destination, source);
     }
@@ -122,6 +131,7 @@ namespace astia::io::aio::memory {
     inline bool copy_out_for(proc::process* owner, span<u8> destination,
                              const void* source) {
         const auto& adapter = user_memory();
+
         return adapter.copy_out != nullptr &&
                adapter.copy_out(owner, destination, source);
     }
@@ -132,7 +142,7 @@ namespace astia::io::aio::memory {
 
     inline bool realtime_now(u64& sec, u64& nsec) {
         const auto& adapter = user_memory();
+
         return adapter.realtime_now != nullptr && adapter.realtime_now(sec, nsec);
     }
-
 } // namespace astia::io::aio::memory

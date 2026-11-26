@@ -8,7 +8,6 @@
 #include "io.hpp"
 
 namespace astia::arch::x86_64 {
-
     extern "C" {
     void astia_syscall_entry();
     }
@@ -59,13 +58,18 @@ namespace astia::arch::x86_64 {
         void enable_sse() {
             u64 cr0 = 0;
             u64 cr4 = 0;
+
             asm volatile("mov %%cr0, %0" : "=r"(cr0));
+
             cr0 &= ~(1ull << 2); // EM: no x87 emulation
             cr0 |= (1ull << 1);  // MP: monitor co-processor
+
             asm volatile("mov %0, %%cr0" : : "r"(cr0) : "memory");
             asm volatile("mov %%cr4, %0" : "=r"(cr4));
+
             cr4 |= (1ull << 9);  // OSFXSR: enable FXSAVE/FXRSTOR + SSE
             cr4 |= (1ull << 10); // OSXMMEXCPT: unmasked #XM
+
             asm volatile("mov %0, %%cr4" : : "r"(cr4) : "memory");
             asm volatile("fninit");
         }
@@ -73,25 +77,30 @@ namespace astia::arch::x86_64 {
 
     bool init_gdt_tss_cpu(u32 cpu_index) {
         constexpr usize kernel_stack_bytes = 16 * 1024;
+
         if (cpu_index >= max_cpus)
             return false;
+
         auto stack = mm::heap::alloc(kernel_stack_bytes);
-        if (!stack) {
+        if (!stack)
             return false;
-        }
+
         kernel_stack[cpu_index]          = stack.value;
         task_state[cpu_index]            = tss{};
         task_state[cpu_index].iomap_base = sizeof(tss);
 
-        auto* cpu_gdt    = gdt[cpu_index];
-        cpu_gdt[0]       = 0;
-        cpu_gdt[1]       = 0x00AF9A000000FFFFull;
-        cpu_gdt[2]       = 0x00AF92000000FFFFull;
-        cpu_gdt[3]       = 0x00AFF2000000FFFFull;
-        cpu_gdt[4]       = 0x00AFFA000000FFFFull;
+        auto* cpu_gdt = gdt[cpu_index];
+
+        cpu_gdt[0] = 0;
+        cpu_gdt[1] = 0x00AF9A000000FFFFull;
+        cpu_gdt[2] = 0x00AF92000000FFFFull;
+        cpu_gdt[3] = 0x00AFF2000000FFFFull;
+        cpu_gdt[4] = 0x00AFFA000000FFFFull;
+
         const u64 access = 0x89ull << 40;
         const u64 base   = reinterpret_cast<u64>(&task_state[cpu_index]);
-        cpu_gdt[5]       = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
+
+        cpu_gdt[5] = (sizeof(tss) - 1) | ((base & 0xFFFFFFu) << 16) | access |
                      (((sizeof(tss) - 1) >> 16) & 0xFu) << 48 |
                      ((base >> 24) & 0xFFull) << 56;
         cpu_gdt[6] = base >> 32;
@@ -100,23 +109,27 @@ namespace astia::arch::x86_64 {
         descriptor[cpu_index].base  = reinterpret_cast<u64>(cpu_gdt);
         task_state[cpu_index].rsp0 =
             reinterpret_cast<u64>(kernel_stack[cpu_index]) + kernel_stack_bytes;
+
         astia_load_gdt_tss(&descriptor[cpu_index], tss_selector);
 
         // GS is reserved for the small CPU-local anchor.  Keeping this out
         // of the process/TLS machinery means the scheduler can identify the
         // current CPU before user mode exists.
-        constexpr u32 msr_gs_base               = 0xC0000101;
+        constexpr u32 msr_gs_base = 0xC0000101;
+
         cpu_locals[cpu_index].index             = cpu_index;
         cpu_locals[cpu_index].syscall_stack_top = task_state[cpu_index].rsp0;
         cpu_locals[cpu_index].syscall_saved_r12 = 0;
         cpu_locals[cpu_index].interrupt_depth   = 0;
         cpu_locals[cpu_index].should_yield      = 0;
+
         wrmsr(msr_gs_base, reinterpret_cast<u64>(&cpu_locals[cpu_index]));
 
         constexpr u32 msr_efer  = 0xC0000080;
         constexpr u32 msr_star  = 0xC0000081;
         constexpr u32 msr_lstar = 0xC0000082;
         constexpr u32 msr_fmask = 0xC0000084;
+
         // SYSCALL enable (SCE) plus NX execution-disable (NXE): page_map
         // emits PTE bit 63 for page_flags::no_execute, and bit 63 is a
         // *reserved* bit until NXE is on — mmap marks its pages NX.
@@ -125,6 +138,7 @@ namespace astia::arch::x86_64 {
         wrmsr(msr_lstar, reinterpret_cast<u64>(&astia_syscall_entry));
         wrmsr(msr_fmask, (1ull << 8) | (1ull << 9) | (1ull << 10));
         enable_sse();
+
         return true;
     }
 
@@ -136,8 +150,8 @@ namespace astia::arch::x86_64 {
         const u32 index = ::astia::arch::cpu::current_index();
         if (index >= max_cpus)
             return;
+
         task_state[index].rsp0              = stack_top;
         cpu_locals[index].syscall_stack_top = stack_top;
     }
-
 } // namespace astia::arch::x86_64

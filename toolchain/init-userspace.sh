@@ -6,12 +6,20 @@ nano_path=$root/user/nano
 nano_version=8.6
 nano_url=https://ftp.gnu.org/gnu/nano/nano-8.6.tar.xz
 nano_sha256=f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619
+openssh_version=V_9_9_P2
+openssh_commit=d76b2675116617394cd355a3437b4963a562b64d
 cache=${ASTIA_USERSPACE_CACHE:-$root/build/userspace/cache}
 archive=$cache/nano-$nano_version.tar.xz
 
 git -C "$root" submodule update --init --recursive user/zsh
 git -C "$root" submodule update --init --recursive user/gnulib
 git -C "$root" submodule update --init --recursive user/ncurses
+git -C "$root" submodule update --init --recursive user/openssh
+openssh_actual=$(git -C "$root/user/openssh" rev-parse HEAD)
+if [ "$openssh_actual" != "$openssh_commit" ]; then
+    echo "openssh: expected $openssh_version ($openssh_commit), found $openssh_actual" >&2
+    exit 1
+fi
 
 if timeout 45 git -C "$root" submodule update --init user/nano; then
     exit 0

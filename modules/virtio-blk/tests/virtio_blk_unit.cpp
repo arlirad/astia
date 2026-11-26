@@ -8,11 +8,14 @@
 int main() {
     using namespace astia_virtio_blk;
     static_assert(astia::mm::page_size == astia::mm::page_size);
+
     assert(max_transfer == astia::mm::page_size * 2u);
     assert(page_count(0) == 0);
     assert(page_count(astia::mm::page_size) == 1);
     assert(page_count(astia::mm::page_size + 1u) == 2);
+
     uint8_t header[16]{};
+
     encode_header(header, request_out, 7);
     assert(header[0] == 1 && header[1] == 0 && header[8] == 7 && header[9] == 0);
     encode_header(header, request_flush, 0);
@@ -31,5 +34,6 @@ int main() {
     assert(completion_length_ok(request_out, 512, 1));
     assert(completion_length_ok(request_flush, 0, 1));
     assert(request_state::submitted != request_state::canceled);
+
     return 0;
 }

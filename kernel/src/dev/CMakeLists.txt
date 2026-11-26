@@ -36,4 +36,4 @@ target_include_directories(dev PUBLIC
         ${ASTIA_KERNEL_SOURCE_DIR}/include
 )
 
-target_link_libraries(dev PUBLIC libcore arch_${ARCH} sys hw)
+target_link_libraries(dev PUBLIC libcore crypto arch_${ARCH} sys hw)

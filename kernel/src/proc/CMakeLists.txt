@@ -3,6 +3,7 @@ add_library(proc STATIC
         ${ASTIA_PROC_SYSCALL_SOURCES}
         cwd_context.cpp
         task_run.cpp
+        panic_report.cpp
         proc.cpp
         process.cpp
         exec.cpp
@@ -25,4 +26,4 @@ target_include_directories(proc PUBLIC
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs
 )
 
-target_link_libraries(proc PUBLIC libcore core mm arch_${ARCH} fs elf ipc)
+target_link_libraries(proc PUBLIC libcore core crypto mm arch_${ARCH} fs elf ipc)

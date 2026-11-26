@@ -29,7 +29,7 @@ reaped by userspace by advancing the CQ head, without a syscall.
 - `-EINVAL`: Entries is zero, entries is greater than 64, or flags contains a bit other than zero.
 - `-ENOMEM`: The kernel cannot create the userspace alias for the ring mapping.
 - `-ESRCH`: The caller has no address space in which the ring alias can be mapped.
-- `-ENFILE`: All four kernel ring slots are already in use.
+- `-ENFILE`: All sixteen kernel ring slots are already in use.
 
 ## NOTES
 

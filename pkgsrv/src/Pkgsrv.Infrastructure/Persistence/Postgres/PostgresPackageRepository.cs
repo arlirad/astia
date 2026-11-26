@@ -119,6 +119,98 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         }
     }
 
+    public async Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+
+        await using var context = await _contextFactory
+            .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var name = package.Key.Name.Value;
+        var version = package.Key.Version.ToString();
+        var signatureStatus = (int)package.Manifest.Signature.Status;
+        var signatureAlgorithm = package.Manifest.Signature.Algorithm;
+        var signatureValue = package.Manifest.Signature.Value;
+
+        var affected = await context.Packages
+            .Where(record => record.Name == name
+                && record.Version == version
+                && record.State == (int)PackageState.BuildRequested)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(record => record.SignatureStatus, signatureStatus)
+                    .SetProperty(record => record.SignatureAlgorithm, signatureAlgorithm)
+                    .SetProperty(record => record.SignatureValue, signatureValue),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (affected == 0)
+        {
+            throw new PackageConflictException(
+                package.Key.ToString(),
+                $"Package {package.Key} signature could not be persisted because the persisted state changed.");
+        }
+    }
+
+    public async Task MarkPublishedAsync(
+        Package package,
+        DateTimeOffset publishedAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(package);
+
+        await using var context = await _contextFactory
+            .CreateDbContextAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var name = package.Key.Name.Value;
+        var version = package.Key.Version.ToString();
+        var contentHash = package.Manifest.ContentHash.Value;
+        var signatureStatus = (int)PackageSignatureStatus.Signed;
+        var signatureAlgorithm = package.Manifest.Signature.Algorithm;
+        var signatureValue = package.Manifest.Signature.Value;
+        var state = (int)PackageState.Published;
+
+        var affected = await context.Packages
+            .Where(record => record.Name == name
+                && record.Version == version
+                && record.State == (int)PackageState.BuildRequested
+                && record.SignatureStatus == signatureStatus
+                && record.ContentHash == contentHash
+                && record.SignatureAlgorithm == signatureAlgorithm
+                && record.SignatureValue == signatureValue)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(record => record.State, state)
+                    .SetProperty(record => record.PublishedAt, publishedAt),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (affected == 1)
+        {
+            return;
+        }
+
+        var current = await context.Packages
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                record => record.Name == name && record.Version == version,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (current is { State: (int)PackageState.Published, PublishedAt: not null }
+            && current.SignatureStatus == signatureStatus
+            && string.Equals(current.ContentHash, contentHash, StringComparison.Ordinal)
+            && string.Equals(current.SignatureAlgorithm, signatureAlgorithm, StringComparison.Ordinal)
+            && string.Equals(current.SignatureValue, signatureValue, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        throw new PackageConflictException(
+            package.Key.ToString(),
+            $"Package {package.Key} could not be marked published because its persisted state, hash, or signature changed.");
+    }
+
     public async Task AcknowledgeDomainEventsAsync(
         PackageKey key,
         IReadOnlyCollection<IDomainEvent> publishedEvents,
@@ -185,8 +277,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
 
             source = source.Where(record =>
                 EF.Functions.ILike(record.Name, contains, "\\")
-                || EF.Functions.ILike(record.SourceCommit, prefix, "\\")
-                || EF.Functions.ILike(record.Provenance, contains, "\\"));
+                || EF.Functions.ILike(record.SourceCommit, prefix, "\\"));
         }
 
         return source

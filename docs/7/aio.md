@@ -124,10 +124,10 @@ draining requires no syscall.
 ## CAPACITY CONTRACT
 
 The kernel uses fixed storage for AIO rings and parked operations. The public
-header exposes the read-only limits `ASTIA_AIO_MAX_RING_SLOTS` (four rings),
+header exposes the read-only limits `ASTIA_AIO_MAX_RING_SLOTS` (sixteen rings),
 `ASTIA_AIO_MAX_RING_ENTRIES` (64 SQ entries),
 `ASTIA_AIO_MAX_PARKED_OPERATIONS` (64 parked operations per ring), and
-`ASTIA_AIO_MAX_OPERATION_BYTES`. A fifth ring fails with `-ENFILE`; when a
+`ASTIA_AIO_MAX_OPERATION_BYTES`. A seventeenth ring fails with `-ENFILE`; when a
 ring's parked-operation queue is full, the submitted operation completes with
 `-EBUSY`. These are policy and queue capacities, not CPU-topology limits, and
 are not dynamically expanded.

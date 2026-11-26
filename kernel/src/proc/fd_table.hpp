@@ -7,7 +7,6 @@
 #include <astia/resource_limits.hpp>
 
 namespace astia::proc {
-
     inline constexpr u32 max_process_fds =
         resource_limits::policy::process_file_descriptors;
 
@@ -26,6 +25,8 @@ namespace astia::proc {
         bool           clear(fd_t fd);
         void           clear_all();
         void           close_on_exec();
+        optional<fd_t> allocate(const mm::shptr<fs::open_file>& file, u32 flags = 0,
+                                u32 maximum = max_process_fds);
         optional<fd_t> duplicate(fd_t old_fd);
         optional<fd_t> duplicate(fd_t old_fd, fd_t minimum, u32 flags);
         optional<fd_t> duplicate(fd_t old_fd, fd_t minimum, u32 flags, u32 maximum);
@@ -36,8 +37,8 @@ namespace astia::proc {
             mm::shptr<fs::open_file> file;
             u32                      flags = 0;
         };
+
         entry                  _entries[max_process_fds];
         mutable core::spinlock _lock;
     };
-
 } // namespace astia::proc

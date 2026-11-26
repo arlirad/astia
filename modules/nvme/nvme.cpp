@@ -1,3 +1,5 @@
+#include <astia/atomic.hpp>
+#include <astia/core/name.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/device_file.hpp>
 #include <astia/dev/driver.hpp>
@@ -11,7 +13,6 @@
 #include "nvme_protocol.hpp"
 
 namespace {
-
     constexpr unsigned queue_depth        = 16;
     constexpr unsigned timeout_spins      = 4000000;
     constexpr unsigned admin_identify     = 0x06;
@@ -59,6 +60,7 @@ namespace {
         unsigned long long        capability      = 0;
         unsigned                  doorbell_stride = 4;
         unsigned                  namespace_count = 0;
+        char                      path_base[32]{};
         namespace_device          namespaces[max_namespaces]{};
         unsigned short            admin_sq_tail     = 0;
         unsigned short            admin_cq_head     = 0;
@@ -75,7 +77,7 @@ namespace {
         bool                      quiesce_safe      = true;
         bool                      release_pending   = false;
         volatile bool             interrupt_pending = false;
-        volatile bool             servicing_async   = false;
+        bool                      servicing_async   = false;
         unsigned                  interrupts_seen   = 0;
         astia::module::msix_route msix_route{};
         async_request             async_requests[max_async_requests]{};
@@ -100,6 +102,7 @@ namespace {
 
         void doorbell(unsigned queue, bool completion_queue, unsigned short value) {
             const unsigned index = queue * 2 + (completion_queue ? 1 : 0);
+
             write32(0x1000 + index * doorbell_stride, value);
         }
 
@@ -108,8 +111,10 @@ namespace {
                 const bool observed = (read32(0x1c) & 1) != 0;
                 if (observed == ready)
                     return !reject_fatal || (read32(0x1c) & csts_fatal) == 0;
+
                 asm volatile("pause");
             }
+
             return false;
         }
 
@@ -127,26 +132,37 @@ namespace {
             admin_cid         = 1;
             io_cid            = 1;
             interrupt_pending = false;
-            dma* queues[]     = {&admin_sq, &admin_cq, &io_sq, &io_cq};
+
+            dma* queues[] = {&admin_sq, &admin_cq, &io_sq, &io_cq};
+
             for (dma* queue : queues) {
                 if (!static_cast<bool>(*queue))
                     continue;
+
                 auto* bytes         = static_cast<volatile unsigned char*>(queue->data());
                 const uint64_t size = queue->pages() * astia::mm::page_size;
-                for (uint64_t i = 0; i < size; ++i)
+
+                for (uint64_t i = 0; i < size; ++i) {
                     bytes[i] = 0;
+                }
             }
         }
 
         bool controller_reset() {
             if (registers == nullptr)
                 return false;
+
             write32(0x14, 0);
+
             if (!wait_ready(false, false))
                 return false;
+
             reset_queue_state();
+
             started = false;
+
             astia::module::log("nvme", fatal() ? "controller fatal" : "controller reset");
+
             return true;
         }
 
@@ -154,6 +170,7 @@ namespace {
             for (async_request& pending : async_requests) {
                 if (!pending.used)
                     continue;
+
                 if (!pending.completed) {
                     pending.result    = result;
                     pending.completed = true;
@@ -165,7 +182,9 @@ namespace {
             for (async_request& pending : async_requests) {
                 if (!pending.used || !pending.completed)
                     continue;
+
                 pending.hardware_done = true;
+
                 if (pending.request != nullptr &&
                     pending.request->device_state() != nullptr)
                     pending.request->wake();
@@ -175,36 +194,49 @@ namespace {
         bool recover_controller() {
             if (recovering)
                 return false;
+
             recovering = true;
+
             fail_async_requests(-5);
+
             const bool interrupts = msix_active;
             const bool masked =
                 !interrupts || astia::module::pci_msix_disable(&msix_route);
             const bool reset = masked && controller_reset();
             if (reset)
                 acknowledge_async_hardware();
+
             const bool ready      = reset && reset_and_enable();
             const bool identified = ready && identify();
             const bool queues     = identified && create_io_queues();
             const bool enabled =
                 queues && (!interrupts || (astia::module::pci_msix_enable(&msix_route) &&
                                            astia::module::pci_msix_unmask(&msix_route)));
+
             recovering = false;
+
             if (!masked || !enabled) {
                 started = false;
+
                 astia::module::log("nvme", "controller recovery failed");
+
                 return false;
             }
+
             started = true;
+
             astia::module::log("nvme", "controller recovery ok");
+
             return true;
         }
 
         void abort_controller() {
             if (recovering) {
                 started = false;
+
                 return;
             }
+
             if (!recover_controller())
                 started = false;
         }
@@ -229,239 +261,345 @@ namespace {
             if (admin_sq.allocate() && admin_cq.allocate() && io_sq.allocate() &&
                 io_cq.allocate() && identify_page.allocate())
                 return true;
+
             admin_sq.release();
             admin_cq.release();
             io_sq.release();
             io_cq.release();
             identify_page.release();
+
             return false;
         }
 
         bool reset_and_enable() {
             doorbell_stride = 4u << static_cast<unsigned>((capability >> 32) & 0xf);
+
             if ((read32(0x14) & 1) != 0)
                 write32(0x14, 0);
+
             if (!wait_ready(false, false))
                 return false;
+
             if (!nvme_protocol::valid_queue_depth(
                     queue_depth, static_cast<unsigned>((capability & 0xffffu) + 1u)))
                 return false;
+
             write32(0x24, (queue_depth - 1) << 16 | (queue_depth - 1));
             set_address(0x28, admin_sq.physical());
             set_address(0x30, admin_cq.physical());
             write32(0x14, (4u << 20) | (6u << 16) | 1u);
+
             return wait_ready(true);
         }
 
         void submit_admin(command& value, unsigned long long data) {
-            value.dword[6]         = static_cast<unsigned>(data);
-            value.dword[7]         = static_cast<unsigned>(data >> 32);
-            auto* entries          = static_cast<command*>(admin_sq.data());
+            value.dword[6] = static_cast<unsigned>(data);
+            value.dword[7] = static_cast<unsigned>(data >> 32);
+
+            auto* entries = static_cast<command*>(admin_sq.data());
+
             entries[admin_sq_tail] = value;
             admin_sq_tail =
                 static_cast<unsigned short>((admin_sq_tail + 1) % queue_depth);
+
             doorbell(0, false, admin_sq_tail);
         }
 
         unsigned poll_admin() {
             auto* entries = static_cast<volatile completion*>(admin_cq.data());
+
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
                 const unsigned dw3 = entries[admin_cq_head].dword[3];
+
                 if (((dw3 >> 16) & 1) == admin_cq_phase) {
                     const unsigned status = (dw3 >> 17) & 0x7ff;
+
                     admin_cq_head =
                         static_cast<unsigned short>((admin_cq_head + 1) % queue_depth);
                     if (admin_cq_head == 0)
                         admin_cq_phase ^= 1;
+
                     doorbell(0, true, admin_cq_head);
+
                     return status;
                 }
+
                 asm volatile("pause");
             }
+
             abort_controller();
+
             return ~0u;
         }
 
         bool identify_namespace(namespace_device& value) {
             auto* data = static_cast<unsigned char*>(identify_page.data());
-            for (unsigned i = 0; i < astia::mm::page_size; ++i)
+
+            for (unsigned i = 0; i < astia::mm::page_size; ++i) {
                 data[i] = 0;
+            }
+
             command identify_value{};
+
             identify_value.dword[0] =
                 admin_identify | (static_cast<unsigned>(admin_cid++) << 16);
             identify_value.dword[1] = value.id;
+
             submit_admin(identify_value, identify_page.physical());
+
             if (poll_admin() != 0)
                 return false;
+
             const unsigned long long size = *reinterpret_cast<unsigned long long*>(data);
             const unsigned           format = data[26] & 0xf;
+
             if (size == 0 || format >= 16)
                 return false;
+
             const unsigned exponent = data[128 + format * 4 + 2];
+
             if (exponent < 9 || exponent > 12)
                 return false;
+
             const unsigned bytes = 1u << exponent;
+
             if (size > ~uint64_t{0} / bytes)
                 return false;
+
             value.owner      = this;
             value.size       = size;
             value.block_size = bytes;
+
             return true;
         }
 
-        bool make_path(namespace_device& value) {
-            constexpr char prefix[]      = "/dev/nvme0n";
-            unsigned       prefix_length = 0;
-            while (prefix[prefix_length] != '\0') {
-                value.path[prefix_length] = prefix[prefix_length];
-                ++prefix_length;
+        bool format_path(char* out, unsigned capacity, unsigned id) const {
+            unsigned base_length = 0;
+
+            while (path_base[base_length] != '\0') {
+                ++base_length;
             }
+
+            if (base_length == 0)
+                return false;
+
             unsigned char digits[10]{};
             unsigned      count = 0;
-            unsigned      id    = value.id;
+
             do {
                 digits[count++] = static_cast<unsigned char>('0' + id % 10);
                 id /= 10;
             } while (id != 0 && count < sizeof(digits));
-            if (id != 0 || prefix_length + count + 1 > sizeof(value.path))
+
+            if (id != 0 || base_length + count + 2 > capacity)
                 return false;
-            for (unsigned i = 0; i < count; ++i)
-                value.path[prefix_length + i] = static_cast<char>(digits[count - i - 1]);
-            value.path[prefix_length + count] = '\0';
+
+            for (unsigned i = 0; i < base_length; ++i) {
+                out[i] = path_base[i];
+            }
+
+            out[base_length] = 'n';
+
+            for (unsigned i = 0; i < count; ++i) {
+                out[base_length + 1 + i] = static_cast<char>(digits[count - i - 1]);
+            }
+
+            out[base_length + count + 1] = '\0';
+
             return true;
+        }
+
+        bool make_path(namespace_device& value) {
+            return format_path(value.path, sizeof(value.path), value.id);
         }
 
         bool identify() {
             auto* data = static_cast<unsigned char*>(identify_page.data());
-            for (unsigned i = 0; i < astia::mm::page_size; ++i)
+
+            for (unsigned i = 0; i < astia::mm::page_size; ++i) {
                 data[i] = 0;
+            }
+
             command identify_controller{};
+
             identify_controller.dword[0] =
                 admin_identify | (static_cast<unsigned>(admin_cid++) << 16);
             identify_controller.dword[10] = 1;
+
             submit_admin(identify_controller, identify_page.physical());
+
             if (poll_admin() != 0)
                 return false;
+
             const unsigned max_namespace_id = *reinterpret_cast<unsigned*>(data + 516);
             if (max_namespace_id == 0)
                 return false;
 
             namespace_count = 0;
+
             unsigned cursor = 0;
-            for (;;) {
-                for (unsigned i = 0; i < astia::mm::page_size; ++i)
+
+            while (true) {
+                for (unsigned i = 0; i < astia::mm::page_size; ++i) {
                     data[i] = 0;
+                }
+
                 command list{};
+
                 list.dword[0] =
                     admin_identify | (static_cast<unsigned>(admin_cid++) << 16);
                 list.dword[1]  = cursor;
                 list.dword[10] = 2;
+
                 submit_admin(list, identify_page.physical());
+
                 if (poll_admin() != 0)
                     return false;
+
                 unsigned ids[astia::mm::page_size / sizeof(unsigned)]{};
                 unsigned entries  = 0;
                 unsigned previous = cursor;
+
                 for (; entries < astia::mm::page_size / sizeof(unsigned); ++entries) {
                     const unsigned id = *reinterpret_cast<unsigned*>(data + entries * 4);
                     if (id == 0)
                         break;
+
                     if (id <= previous || id > max_namespace_id ||
                         namespace_count + entries >= max_namespaces)
                         return false;
+
                     ids[entries] = id;
                     previous     = id;
                 }
+
                 for (unsigned i = 0; i < entries; ++i) {
                     namespace_device& value = namespaces[namespace_count++];
-                    value                   = {};
-                    value.id                = ids[i];
+
+                    value    = {};
+                    value.id = ids[i];
+
                     if (!identify_namespace(value) || !make_path(value))
                         return false;
+
                     cursor = value.id;
                 }
+
                 if (entries < astia::mm::page_size / sizeof(unsigned))
                     break;
+
                 if (cursor == 0)
                     return false;
             }
+
             return namespace_count != 0;
         }
 
         bool flush(namespace_device& value) {
             if (!started || value.owner != this)
                 return false;
+
             command request{};
+
             request.dword[0] = io_flush | (static_cast<unsigned>(io_cid++) << 16);
             request.dword[1] = value.id;
+
             submit_io(request);
+
             return poll_io() == 0;
         }
 
         bool create_io_queues() {
             command cq{};
+
             cq.dword[0] = admin_create_io_cq | (static_cast<unsigned>(admin_cid++) << 16);
             cq.dword[10] = 1 | ((queue_depth - 1) << 16);
             cq.dword[11] =
                 1 | (msix_active ? (2u | (msix_route.table_index() << 16)) : 0);
+
             submit_admin(cq, io_cq.physical());
+
             if (poll_admin() != 0)
                 return false;
+
             command sq{};
+
             sq.dword[0] = admin_create_io_sq | (static_cast<unsigned>(admin_cid++) << 16);
             sq.dword[10] = 1 | ((queue_depth - 1) << 16);
             sq.dword[11] = 1 | (1u << 16);
+
             submit_admin(sq, io_sq.physical());
+
             return poll_admin() == 0;
         }
 
         int submit_async(namespace_device& value, astia::io::request& request) {
             if (quiescing || !started)
                 return -19;
+
             if (request.direction() != astia::io::direction::input &&
                 request.direction() != astia::io::direction::output)
                 return -22;
+
             if (!valid_transfer(value, request.buffer(), request.length(),
                                 request.offset()))
                 return -22;
+
             for (async_request& pending : async_requests) {
                 if (pending.used)
                     continue;
+
                 pending = {};
+
                 if (!pending.bounce.allocate(nvme_protocol::page_count(request.length())))
                     return -12;
+
                 pending.used          = true;
                 pending.request       = &request;
                 pending.hardware_done = false;
+
                 request.poll_interval_ns(1000000);
                 request.timeout_ns(1000000);
-                pending.cid      = io_cid++;
+
+                pending.cid = io_cid++;
+
                 const bool write = request.direction() == astia::io::direction::output;
                 if (write) {
                     auto* source = static_cast<const unsigned char*>(request.buffer());
                     auto* target = static_cast<unsigned char*>(pending.bounce.data());
-                    for (unsigned i = 0; i < request.length(); ++i)
+
+                    for (unsigned i = 0; i < request.length(); ++i) {
                         target[i] = source[i];
+                    }
                 }
+
                 command command_value{};
+
                 command_value.dword[0] = (write ? io_write : io_read) |
                                          (static_cast<unsigned>(pending.cid) << 16);
                 command_value.dword[1] = value.id;
+
                 if (!set_prp(command_value, pending.bounce.physical(),
                              request.length())) {
                     pending.bounce.release();
+
                     pending = {};
+
                     return -22;
                 }
+
                 command_value.dword[10] =
                     static_cast<unsigned>(request.offset() / value.block_size);
                 command_value.dword[11] =
                     static_cast<unsigned>((request.offset() / value.block_size) >> 32);
                 command_value.dword[12] =
                     (write ? (1u << 30) : 0) | (request.length() / value.block_size - 1);
+
                 submit_io(command_value);
+
                 return 0;
             }
+
             return -16;
         }
 
@@ -471,26 +609,34 @@ namespace {
                     pending.canceled  = true;
                     pending.result    = -125;
                     pending.completed = true;
+
                     if (!retain)
                         pending.request = nullptr;
                     else if (pending.request->device_state() != nullptr)
                         pending.request->wake();
+
                     return 0;
                 }
             }
+
             return -2;
         }
 
         int poll_async(astia::io::request& request) {
             if (quiescing)
                 return 0;
+
             service_async();
-            for (async_request& pending : async_requests)
+
+            for (async_request& pending : async_requests) {
                 if (pending.used && pending.request == &request) {
                     if (request.timeout_expired())
                         request.timeout_expired(false);
+
                     return 0;
                 }
+            }
+
             return 0;
         }
 
@@ -499,86 +645,122 @@ namespace {
                 if (!pending.used || pending.request != &request || !pending.completed ||
                     !pending.hardware_done)
                     continue;
+
                 result = pending.result;
+
                 pending.bounce.release();
+
                 pending = {};
+
                 if (release_pending)
                     release();
+
                 return true;
             }
+
             return false;
         }
 
         void service_async() {
             if (quiescing || recovering)
                 return;
-            if (__atomic_exchange_n(&servicing_async, true, __ATOMIC_ACQUIRE))
+
+            if (astia::atomic_ref<bool>(servicing_async)
+                    .exchange(true, astia::memory_order::acquire))
                 return;
+
             struct service_guard {
-                volatile bool& busy;
+                bool& busy;
+
                 ~service_guard() {
-                    __atomic_store_n(&busy, false, __ATOMIC_RELEASE);
+                    astia::atomic_ref<bool>(busy).store(false,
+                                                        astia::memory_order::release);
                 }
             } guard{servicing_async};
+
             auto* entries = static_cast<volatile completion*>(io_cq.data());
-            for (;;) {
+
+            while (true) {
                 unsigned dw3 = entries[io_cq_head].dword[3];
+
                 for (unsigned spin = 0; ((dw3 >> 16) & 1) != io_cq_phase && spin < 100000;
                      ++spin) {
                     asm volatile("pause");
+
                     dw3 = entries[io_cq_head].dword[3];
                 }
+
                 if (((dw3 >> 16) & 1) != io_cq_phase)
                     return;
-                const unsigned short cid   = static_cast<unsigned short>(dw3 & 0xffff);
-                async_request*       found = nullptr;
-                for (async_request& pending : async_requests)
+
+                const unsigned short cid = static_cast<unsigned short>(dw3 & 0xffff);
+
+                async_request* found = nullptr;
+
+                for (async_request& pending : async_requests) {
                     if (pending.used && pending.cid == cid) {
                         found = &pending;
+
                         break;
                     }
+                }
+
                 if (found == nullptr)
                     return;
+
                 const unsigned status = (dw3 >> 17) & 0x7ff;
+
                 if (!found->canceled && found->request != nullptr && !found->completed) {
                     long result =
                         status == 0 ? static_cast<long>(found->request->length()) : -5;
+
                     if (status == 0 &&
                         found->request->direction() == astia::io::direction::input) {
                         auto* destination =
                             static_cast<unsigned char*>(found->request->buffer());
                         auto* source =
                             static_cast<const unsigned char*>(found->bounce.data());
-                        for (unsigned i = 0; i < found->request->length(); ++i)
+
+                        for (unsigned i = 0; i < found->request->length(); ++i) {
                             destination[i] = source[i];
+                        }
                     }
+
                     found->result        = result;
                     found->completed     = true;
                     found->hardware_done = true;
+
                     if (found->request->device_state() != nullptr)
                         found->request->wake();
                 }
+
                 if (found->canceled) {
                     found->hardware_done = true;
+
                     if (found->request != nullptr) {
                         if (found->request->device_state() != nullptr)
                             found->request->wake();
                     }
                     else {
                         found->bounce.release();
+
                         *found = {};
                     }
                 }
+
                 io_cq_head = static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
                 if (io_cq_head == 0)
                     io_cq_phase ^= 1;
+
                 doorbell(1, true, io_cq_head);
             }
         }
 
         static void msix_interrupt(void* context) {
-            auto* value              = static_cast<controller*>(context);
+            auto* value = static_cast<controller*>(context);
+
             value->interrupt_pending = true;
+
             ++value->interrupts_seen;
             value->service_async();
         }
@@ -589,83 +771,112 @@ namespace {
 #else
             if (!astia::module::pci_msix_request(pci, msix_interrupt, this, &msix_route))
                 return false;
+
             if (!astia::module::pci_msix_program(&msix_route)) {
                 astia::module::pci_msix_release(&msix_route);
+
                 return false;
             }
+
             if (!astia::module::pci_msix_enable(&msix_route)) {
                 astia::module::pci_msix_release(&msix_route);
+
                 return false;
             }
+
             msix_active = true;
+
             return true;
 #endif
         }
 
         bool start() {
             quiescing = false;
-            if (!astia::module::pci_enable_bus_master(pci)) {
+
+            if (!astia::module::pci_enable_bus_master(pci))
                 return false;
-            }
-            if (!astia::module::pci_map_bar(pci, 0)) {
+
+            if (!astia::module::pci_map_bar(pci, 0))
                 return false;
-            }
-            if (!astia::module::pci_disable_msix(*pci)) {
+
+            if (!astia::module::pci_disable_msix(*pci))
                 return false;
-            }
+
             registers = reinterpret_cast<volatile unsigned char*>(
                 astia::module::pci_bar_mapped(pci, 0));
             capability = read64(0);
+
             if (((capability >> 48) & 0xf) != 0)
                 return false;
+
             if (!allocate_queues())
                 return false;
+
             if (!reset_and_enable())
                 return false;
+
             if (!identify())
                 return false;
+
             if (!setup_msix()) {
                 (void) astia::module::pci_disable_msix(*pci);
                 astia::module::log("nvme", "polling fallback");
             }
+
             if (!create_io_queues())
                 return false;
+
             if (msix_active) {
                 if (!astia::module::pci_msix_unmask(&msix_route))
                     return false;
+
                 astia::module::log("nvme", "msix enabled");
             }
+
             started = true;
+
             astia::module::log_u64("nvme", "namespace count", namespace_count);
             astia::module::log_u64("nvme", "namespace blocks", namespaces[0].size);
+
             return true;
         }
 
         void submit_io(command& value) {
-            auto* entries       = static_cast<command*>(io_sq.data());
+            auto* entries = static_cast<command*>(io_sq.data());
+
             entries[io_sq_tail] = value;
             io_sq_tail = static_cast<unsigned short>((io_sq_tail + 1) % queue_depth);
+
             doorbell(1, false, io_sq_tail);
         }
 
         unsigned poll_io() {
             auto* entries = static_cast<volatile completion*>(io_cq.data());
+
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
                 const unsigned dw3 = entries[io_cq_head].dword[3];
+
                 if (((dw3 >> 16) & 1) == io_cq_phase) {
                     const unsigned status = (dw3 >> 17) & 0x7ff;
+
                     io_cq_head =
                         static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
                     if (io_cq_head == 0)
                         io_cq_phase ^= 1;
+
                     doorbell(1, true, io_cq_head);
+
                     return status;
                 }
+
                 if (interrupt_pending)
                     interrupt_pending = false;
+
                 asm volatile("pause");
             }
+
             abort_controller();
+
             return ~0u;
         }
 
@@ -673,39 +884,57 @@ namespace {
                   unsigned long long offset) {
             if (!valid_transfer(value, buffer, length, offset))
                 return -5;
+
             astia::u64               physical = 0;
             astia::module::user_pin* token    = nullptr;
+
             if (!astia::module::pin_user_write(buffer, length, &physical, &token))
                 return -14;
-            dma        bounce;
+
+            dma bounce;
+
             const bool direct = nvme_protocol::fits_one_page(physical, length);
             if (!direct) {
                 astia::module::unpin(token);
+
                 token = nullptr;
+
                 if (!bounce.allocate(nvme_protocol::page_count(length)))
                     return -12;
+
                 physical = bounce.physical();
             }
-            command              request{};
+
+            command request{};
+
             const unsigned short cid = io_cid++;
-            request.dword[0]         = io_read | (static_cast<unsigned>(cid) << 16);
-            request.dword[1]         = value.id;
+
+            request.dword[0] = io_read | (static_cast<unsigned>(cid) << 16);
+            request.dword[1] = value.id;
+
             if (!set_prp(request, physical, length)) {
                 if (token != nullptr)
                     astia::module::unpin(token);
+
                 return -22;
             }
+
             request.dword[10] = static_cast<unsigned>(offset / value.block_size);
             request.dword[11] = static_cast<unsigned>((offset / value.block_size) >> 32);
             request.dword[12] = length / value.block_size - 1;
+
             submit_io(request);
+
             const unsigned status = poll_io();
             long           result = status == 0 ? static_cast<long>(length) : -5;
+
             if (!direct && result > 0 &&
                 !astia::module::copy_out(buffer, length, bounce.data()))
                 result = -14;
+
             if (token != nullptr)
                 astia::module::unpin(token);
+
             return result;
         }
 
@@ -713,64 +942,95 @@ namespace {
                    unsigned long long offset) {
             if (!valid_transfer(value, const_cast<void*>(buffer), length, offset))
                 return -22;
+
             astia::u64               physical = 0;
             astia::module::user_pin* token    = nullptr;
+
             if (!astia::module::pin_user_read(buffer, length, &physical, &token))
                 return -14;
-            dma        bounce;
+
+            dma bounce;
+
             const bool direct = nvme_protocol::fits_one_page(physical, length);
             if (!direct) {
                 astia::module::unpin(token);
+
                 token = nullptr;
+
                 if (!bounce.allocate(nvme_protocol::page_count(length)))
                     return -12;
+
                 auto* source = static_cast<const unsigned char*>(buffer);
                 auto* target = static_cast<unsigned char*>(bounce.data());
-                for (unsigned i = 0; i < length; ++i)
+
+                for (unsigned i = 0; i < length; ++i) {
                     target[i] = source[i];
+                }
+
                 physical = bounce.physical();
             }
-            command              request{};
+
+            command request{};
+
             const unsigned short cid = io_cid++;
-            request.dword[0]         = io_write | (static_cast<unsigned>(cid) << 16);
-            request.dword[1]         = value.id;
+
+            request.dword[0] = io_write | (static_cast<unsigned>(cid) << 16);
+            request.dword[1] = value.id;
+
             if (!set_prp(request, physical, length)) {
                 if (token != nullptr)
                     astia::module::unpin(token);
+
                 return -22;
             }
+
             request.dword[10] = static_cast<unsigned>(offset / value.block_size);
             request.dword[11] = static_cast<unsigned>((offset / value.block_size) >> 32);
             request.dword[12] = (1u << 30) | (length / value.block_size - 1);
+
             submit_io(request);
+
             const unsigned status = poll_io();
+
             if (token != nullptr)
                 astia::module::unpin(token);
+
             return status == 0 ? static_cast<long>(length) : -5;
         }
 
         void quiesce() {
             if (quiescing)
                 return;
+
             quiescing    = true;
             quiesce_safe = true;
+
             if (registers != nullptr && (read32(0x14) & 1) != 0) {
                 write32(0x14, 0);
+
                 quiesce_safe = wait_ready(false);
             }
+
             if (msix_active) {
                 quiesce_safe =
                     astia::module::pci_msix_release(&msix_route) == 0 && quiesce_safe;
                 msix_active = false;
             }
-            while (__atomic_load_n(&servicing_async, __ATOMIC_ACQUIRE))
+
+            while (astia::atomic_ref<bool>(servicing_async)
+                       .load(astia::memory_order::acquire)) {
                 asm volatile("pause");
+            }
+
             fail_async_requests(-19);
             acknowledge_async_hardware();
+
             for (async_request& pending : async_requests) {
                 if (!pending.used || pending.request != nullptr || !quiesce_safe)
                     continue;
+
                 pending.bounce.release();
+
                 pending = {};
             }
         }
@@ -778,19 +1038,26 @@ namespace {
         void release() {
             if (!quiesce_safe) {
                 release_pending = true;
+
                 return;
             }
-            for (const async_request& pending : async_requests)
+
+            for (const async_request& pending : async_requests) {
                 if (pending.used) {
                     release_pending = true;
+
                     return;
                 }
+            }
+
             release_pending = false;
+
             admin_sq.release();
             admin_cq.release();
             io_sq.release();
             io_cq.release();
             identify_page.release();
+
             registers       = nullptr;
             started         = false;
             namespace_count = 0;
@@ -806,9 +1073,11 @@ namespace {
     controller device;
 
     bool known(const char* value, const char* expected, unsigned length) {
-        for (unsigned i = 0; i < length; ++i)
+        for (unsigned i = 0; i < length; ++i) {
             if (value[i] != expected[i])
                 return false;
+        }
+
         return true;
     }
 
@@ -834,10 +1103,14 @@ namespace {
                 return valid;
             if (request.device_state() == this) {
                 _value.owner->poll_async(request);
+
                 long result = 0;
+
                 if (!_value.owner->complete_async(request, result))
                     return 0;
+
                 request.device_state(nullptr);
+
                 return result;
             }
             if (request.device_state() != nullptr)
@@ -846,6 +1119,7 @@ namespace {
             const int result = _value.owner->submit_async(_value, request);
             if (result < 0) {
                 request.device_state(nullptr);
+
                 return result;
             }
             return 0;
@@ -858,15 +1132,20 @@ namespace {
     class nvme_group final : public astia::dev::device {
         public:
         nvme_group() : device("nvme", astia::dev::dv_sync) {}
+
         bool add(const astia::mm::shptr<namespace_block>& value) {
             if (!value || _count == max_namespaces)
                 return false;
+
             _blocks[_count++] = value;
+
             return true;
         }
+
         long read(void*, astia::u32, astia::u64) override {
             return -19;
         }
+
         long write(const void*, astia::u32, astia::u64) override {
             return -30;
         }
@@ -891,11 +1170,20 @@ namespace {
         bool probe_pci(astia::hw::pci_device& value) {
             if (device.started)
                 return false;
+
             device.pci = &value;
+
+            if (device.path_base[0] == '\0' &&
+                !astia::core::name_number_increment(
+                    device.path_base, sizeof device.path_base, "/dev/nvme%"))
+                return false;
+
             if (!device.start()) {
                 device.stop();
+
                 return false;
             }
+
             return true;
         }
 
@@ -904,142 +1192,165 @@ namespace {
             return pci != nullptr && match_pci(pci->device());
         }
 
-        bool probe(const astia::hw::device_info& info) override {
-            astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+        astia::core::task<astia::i64> probe(const astia::hw::device_info& info) override {
+            astia::u64 token = astia::atomic_ref<astia::u64>(_teardown_token)
+                                   .load(astia::memory_order::acquire);
             const astia::u64 state = teardown_state(token);
             if (state == teardown_complete &&
-                !__atomic_compare_exchange_n(&_teardown_token, &token,
-                                             teardown_word(teardown_generation(token), 0),
-                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return {};
+                !astia::atomic_ref<astia::u64>(_teardown_token)
+                     .compare_exchange_strong(
+                         token, teardown_word(teardown_generation(token), 0),
+                         astia::memory_order::acq_rel, astia::memory_order::acquire))
+                co_return -ENODEV;
             if (state != 0 && state != teardown_complete)
-                return {};
+                co_return -ENODEV;
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
-                return {};
+                co_return -ENODEV;
             auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
             if (stable == nullptr || !probe_pci(*stable))
-                return {};
+                co_return -ENODEV;
             auto group = astia::mm::share<nvme_group>();
             if (!group) {
                 device.stop();
-                return {};
+
+                co_return -ENODEV;
             }
             for (astia::u32 i = 0; i < device.namespace_count; ++i) {
                 auto block = astia::mm::share<namespace_block>(device.namespaces[i]);
+
                 if (!block || !group->add(block)) {
                     rollback_probe();
-                    return {};
+
+                    co_return -ENODEV;
                 }
+
                 astia::mm::shptr<astia::dev::device> owner = block;
                 auto file = astia::mm::share<astia::dev::device_file>(owner);
                 if (!file) {
                     rollback_probe();
-                    return {};
+
+                    co_return -ENODEV;
                 }
+
                 if (astia::fs::register_device(device.namespaces[i].path, file) < 0) {
                     rollback_probe();
-                    return {};
+
+                    co_return -ENODEV;
                 }
+
                 _files[i] = file;
+
                 ++_file_count;
             }
             _product = group;
-            return true;
+            co_return 0;
+        }
+
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
+        }
+
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
         }
 
         astia::hw::product_handle publish(const astia::hw::device_info&) override {
             return _product;
         }
 
-        void remove(const astia::hw::device_info&) override {
-            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
+            astia::u64 expected = astia::atomic_ref<astia::u64>(_teardown_token)
+                                      .load(astia::memory_order::acquire);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
                     ? 1
                     : teardown_generation(expected) + 1;
             const astia::u64 state = teardown_state(expected);
             if (state != 0 && state != teardown_complete)
-                return;
-            if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
-                                             teardown_word(generation, teardown_claiming),
-                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return;
+                co_return astia::error_t::enone;
+            if (!astia::atomic_ref<astia::u64>(_teardown_token)
+                     .compare_exchange_strong(
+                         expected, teardown_word(generation, teardown_claiming),
+                         astia::memory_order::acq_rel, astia::memory_order::acquire))
+                co_return astia::error_t::enone;
             unregister_nodes();
             for (astia::u32 i = 0; i < _file_count; ++i)
                 if (_files[i])
                     (void) _files[i]->arm_quiescence_handler(quiescence_callback, this,
                                                              generation);
-            __atomic_store_n(&_teardown_token,
-                             teardown_word(generation, teardown_waiting),
-                             __ATOMIC_RELEASE);
+            astia::atomic_ref<astia::u64>(_teardown_token)
+                .store(teardown_word(generation, teardown_waiting),
+                       astia::memory_order::release);
             finish_remove(generation);
+            co_return astia::error_t::enone;
         }
 
-        bool selftest() override {
+        astia::core::task<bool> selftest() override {
             char first[512]{};
             char second[512]{};
             if (!device.started || device.namespace_count < 2)
-                return false;
-            const int first_read = astia::module::read_registered_async(
-                "/dev/nvme0n1", first, sizeof first, 0);
-            const int second_read = astia::module::read_registered_async(
-                "/dev/nvme0n2", second, sizeof second, 0);
-            if (first_read != 0 || second_read != 0)
-                return false;
+                co_return false;
+            if (device.read(device.namespaces[0], first, sizeof first, 0) !=
+                    sizeof first ||
+                device.read(device.namespaces[1], second, sizeof second, 0) !=
+                    sizeof second)
+                co_return false;
             astia::module::log("nvme", device.msix_active ? "async completion"
                                                           : "async polling fallback");
             char write_sector[512]{};
             for (unsigned i = 0; i < sizeof write_sector; ++i)
                 write_sector[i] = static_cast<char>("NVME_WRITE_FUA_OK"[i % 17] ^ i);
-            if (astia::module::write_registered_async(
-                    "/dev/nvme0n1", write_sector, sizeof write_sector, sizeof first) != 0)
-                return false;
+            if (device.write(device.namespaces[0], write_sector, sizeof write_sector,
+                             sizeof first) != sizeof write_sector)
+                co_return false;
             if (!device.flush(device.namespaces[0]))
-                return false;
+                co_return false;
             char reopened[512]{};
-            if (astia::module::read_registered_async("/dev/nvme0n1", reopened,
-                                                     sizeof reopened, sizeof first) != 0)
-                return false;
+            if (device.read(device.namespaces[0], reopened, sizeof reopened,
+                            sizeof first) != sizeof reopened)
+                co_return false;
             for (unsigned i = 0; i < sizeof reopened; ++i)
                 if (reopened[i] != write_sector[i])
-                    return false;
+                    co_return false;
             astia::module::log("nvme", "write flush reopen ok");
             if (!device.recover_controller())
-                return false;
+                co_return false;
             char reset_first[512]{};
             char reset_second[512]{};
-            if (astia::module::read_registered_async(
-                    "/dev/nvme0n1", reset_first, sizeof reset_first, sizeof first) != 0 ||
-                astia::module::read_registered_async("/dev/nvme0n2", reset_second,
-                                                     sizeof reset_second, 0) != 0)
-                return false;
+            if (device.read(device.namespaces[0], reset_first, sizeof reset_first,
+                            sizeof first) != sizeof reset_first ||
+                device.read(device.namespaces[1], reset_second, sizeof reset_second, 0) !=
+                    sizeof reset_second)
+                co_return false;
             for (unsigned i = 0; i < sizeof reset_first; ++i)
                 if (reset_first[i] != write_sector[i])
-                    return false;
+                    co_return false;
             if (!known(reset_second, "ASTIA_NVME_NAMESPACE_002", 24))
-                return false;
+                co_return false;
             astia::module::log("nvme", "reset recovery persistence ok");
             char invalid[513]{};
-            if (astia::module::read_registered_async("/dev/nvme0n1", invalid,
-                                                     sizeof invalid, 0) >= 0 ||
-                astia::module::write_registered_async("/dev/nvme0n1", invalid,
-                                                      sizeof invalid, 0) >= 0 ||
-                astia::module::read_registered_async("/dev/nvme0n3", invalid,
-                                                     sizeof first, 0) >= 0)
-                return false;
+            char missing_path[32]{};
+            if (!device.format_path(missing_path, sizeof missing_path, 250))
+                co_return false;
+            auto missing_read = co_await astia::module::read_registered(
+                missing_path, invalid, sizeof first, 0);
+            if (device.read(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
+                device.write(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
+                (missing_read && missing_read.value >= 0))
+                co_return false;
             astia::module::log("nvme", "reset recovery error path");
             if (!known(first, "ASTIA_NVME_FIXTURE_SECTOR_000", 29) ||
                 !known(second, "ASTIA_NVME_NAMESPACE_002", 24))
-                return false;
+                co_return false;
             if (device.msix_active && device.interrupts_seen == 0)
-                return false;
+                co_return false;
             astia::module::log("nvme", "namespace 1 ok");
             astia::module::log("nvme", "namespace 2 ok");
             astia::module::log("nvme", device.msix_active ? "msix interrupt path"
                                                           : "polling fallback");
             astia::module::log("nvme", "known sector ok");
-            return true;
+            co_return true;
         }
 
         private:
@@ -1067,69 +1378,96 @@ namespace {
         }
 
         bool all_files_quiescent() const {
-            for (astia::u32 i = 0; i < _file_count; ++i)
+            for (astia::u32 i = 0; i < _file_count; ++i) {
                 if (_files[i] && !_files[i]->quiescent())
                     return false;
+            }
+
             return true;
         }
 
         void finish_remove(astia::u64 generation) {
-            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
-            for (;;) {
+            astia::u64 expected = astia::atomic_ref<astia::u64>(_teardown_token)
+                                      .load(astia::memory_order::acquire);
+
+            while (true) {
                 if (teardown_generation(expected) != generation)
                     return;
+
                 if (teardown_state(expected) == 3) {
                     if ((expected & teardown_retry) != 0)
                         return;
+
                     const astia::u64 desired = expected | teardown_retry;
-                    if (__atomic_compare_exchange_n(&_teardown_token, &expected, desired,
-                                                    false, __ATOMIC_ACQ_REL,
-                                                    __ATOMIC_ACQUIRE))
+
+                    if (astia::atomic_ref<astia::u64>(_teardown_token)
+                            .compare_exchange_strong(expected, desired,
+                                                     astia::memory_order::acq_rel,
+                                                     astia::memory_order::acquire))
                         return;
+
                     continue;
                 }
+
                 if (teardown_state(expected) != teardown_waiting)
                     return;
-                if (__atomic_compare_exchange_n(&_teardown_token, &expected,
-                                                teardown_word(generation, 3), false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+
+                if (astia::atomic_ref<astia::u64>(_teardown_token)
+                        .compare_exchange_strong(expected, teardown_word(generation, 3),
+                                                 astia::memory_order::acq_rel,
+                                                 astia::memory_order::acquire))
                     break;
             }
+
             if (!all_files_quiescent()) {
-                astia::u64 observed = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
-                for (;;) {
+                astia::u64 observed = astia::atomic_ref<astia::u64>(_teardown_token)
+                                          .load(astia::memory_order::acquire);
+
+                while (true) {
                     if (teardown_generation(observed) != generation ||
                         teardown_state(observed) != 3)
                         return;
+
                     const bool retry = (observed & teardown_retry) != 0;
-                    if (__atomic_compare_exchange_n(
-                            &_teardown_token, &observed,
-                            teardown_word(generation, teardown_waiting, retry), false,
-                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+
+                    if (astia::atomic_ref<astia::u64>(_teardown_token)
+                            .compare_exchange_strong(
+                                observed,
+                                teardown_word(generation, teardown_waiting, retry),
+                                astia::memory_order::acq_rel,
+                                astia::memory_order::acquire)) {
                         if (retry)
                             finish_remove(generation);
+
                         break;
                     }
                 }
+
                 return;
             }
+
             device.stop();
-            for (astia::u32 i = 0; i < _file_count; ++i)
+
+            for (astia::u32 i = 0; i < _file_count; ++i) {
                 _files[i] = {};
+            }
+
             _file_count = 0;
             _product    = {};
-            __atomic_store_n(&_teardown_token,
-                             teardown_word(generation, teardown_complete),
-                             __ATOMIC_RELEASE);
+
+            astia::atomic_ref<astia::u64>(_teardown_token)
+                .store(teardown_word(generation, teardown_complete),
+                       astia::memory_order::release);
         }
 
         void unregister_nodes() {
-            for (astia::u32 i = 0; i < _file_count; ++i)
+            for (astia::u32 i = 0; i < _file_count; ++i) {
                 if (_files[i]) {
                     _files[i]->detach();
                     (void) astia::fs::unregister_device(device.namespaces[i].path,
                                                         _files[i]);
                 }
+            }
         }
 
         void rollback_probe() {
@@ -1140,13 +1478,22 @@ namespace {
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
         astia::u32                                _file_count     = 0;
-        volatile astia::u64                       _teardown_token = 0;
+        astia::u64                                _teardown_token = 0;
     };
 
     nvme_driver driver;
 }
 
 int module_main() {
-    return astia::hw::drivers().register_driver(driver) ? 0 : -22;
+    astia::hw::driver_handle handle{};
+
+    return astia::hw::drivers().register_driver(
+               driver, handle, astia::hw::kernel_owner,
+               astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+                   astia::hw::driver_resource_msix |
+                   astia::hw::driver_resource_device_file |
+                   astia::hw::driver_resource_async) == 0
+               ? 0
+               : -22;
 }
 #endif

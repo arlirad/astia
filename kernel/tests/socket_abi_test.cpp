@@ -13,4 +13,8 @@ ASTIA_TEST(socket_option_abi_has_posix_socket_names) {
     ASTIA_CHECK(SOL_SOCKET == 1);
     ASTIA_CHECK(SO_SNDBUF != SO_RCVBUF);
     ASTIA_CHECK(OP_GETSOCKOPT > OP_FTRUNCATE);
+    ASTIA_CHECK(OP_SENDMSG > OP_GETSOCKOPT);
+    ASTIA_CHECK(OP_RECVMSG > OP_SENDMSG);
+    ASTIA_CHECK(sizeof(astia_cmsghdr) == 16);
+    ASTIA_CHECK(sizeof(astia_msghdr) == 24);
 }

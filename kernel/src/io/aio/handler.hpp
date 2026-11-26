@@ -9,7 +9,6 @@
 #include <type_traits>
 
 namespace astia::io::aio {
-
     namespace ring {
         struct ring_slot;
     }
@@ -57,7 +56,9 @@ namespace astia::io::aio {
         linkat         = OP_LINKAT,
         ftruncate      = OP_FTRUNCATE,
         getsockopt     = OP_GETSOCKOPT,
-        count          = OP_GETSOCKOPT + 1,
+        sendmsg        = OP_SENDMSG,
+        recvmsg        = OP_RECVMSG,
+        count          = OP_RECVMSG + 1,
     };
 
     inline constexpr u32 opcode_count = static_cast<u32>(opcode::count);
@@ -84,12 +85,15 @@ namespace astia::io::aio {
             requires(std::is_integral_v<T> && !std::is_same_v<T, bool>)
         aio_result(T value) noexcept
             : _state(state::complete), _value(static_cast<i32>(value)) {}
+
         template <typename T>
             requires(std::is_enum_v<T> && !std::is_same_v<T, error_t>)
         aio_result(T value) noexcept
             : _state(state::complete), _value(static_cast<i32>(value)) {}
+
         aio_result(error_t error) noexcept
             : _state(state::complete), _value(static_cast<i32>(-errno_value(error))) {}
+
         aio_result(bool) = delete;
 
         static const aio_result retry;
@@ -98,6 +102,7 @@ namespace astia::io::aio {
         state kind() const noexcept {
             return _state;
         }
+
         i32 value() const noexcept {
             return _value;
         }
@@ -126,6 +131,7 @@ namespace astia::io::aio {
                                             astia_sqe sqe, core::cltoken token) noexcept {
             static_assert(Derived::opcode_value == Opcode);
             static_assert(valid_opcode(Opcode));
+
             return Derived::invoke(slot, ring, sqe, token);
         }
 
@@ -135,17 +141,25 @@ namespace astia::io::aio {
     constexpr bool validate_manifest(const operation_descriptor* entries, usize count) {
         if (entries == nullptr || count != opcode_count)
             return false;
+
         bool seen[opcode_count]{};
+
         for (usize i = 0; i < count; ++i) {
             const operation_descriptor& entry = entries[i];
-            const u32                   value = static_cast<u32>(entry.operation);
+
+            const u32 value = static_cast<u32>(entry.operation);
+
             if (!valid_opcode(entry.operation) || entry.invoke == nullptr || seen[value])
                 return false;
+
             seen[value] = true;
         }
-        for (bool present : seen)
+
+        for (bool present : seen) {
             if (!present)
                 return false;
+        }
+
         return true;
     }
 
@@ -155,5 +169,4 @@ namespace astia::io::aio {
     consteval bool valid_descriptors(const operation_descriptor (&entries)[N]) {
         return validate_manifest(entries, N);
     }
-
 } // namespace astia::io::aio

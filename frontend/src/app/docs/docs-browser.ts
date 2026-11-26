@@ -9,7 +9,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import type { DocPage, DocsLoadStatus } from './docs.model';
+import { docGroupLabel, type DocPage, type DocsLoadStatus } from './docs.model';
 import {
   buildDocTree,
   countDocTreePages,
@@ -209,6 +209,10 @@ export class DocsBrowser {
       default:
         return;
     }
+  }
+
+  protected groupLabel(page: DocPage): string {
+    return docGroupLabel(page.group);
   }
 
   protected taxonomyLabel(page: DocPage): string {

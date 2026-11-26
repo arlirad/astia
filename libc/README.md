@@ -24,3 +24,30 @@ macro individually and in combination.  It also verifies that request
 macros remain visible, that no derived `__USE_*`, `__GLIBC__`,
 `__header_inline`, or `__UBCLIBC__` macros appear, and that
 unconditional APIs such as `strdup` and `fileno` still compile.
+
+## Local syslog
+
+`include/syslog.h` implements `openlog`, `closelog`, `syslog`, `vsyslog`,
+and `setlogmask` for daemons that have detached from their controlling
+terminal.  The only sink is `/dev/console`: records are formatted as one
+bounded line, `<PRI>ident[pid]: message`, with the standard BSD/Linux
+facility and priority values.  The console serializes writes with kernel
+console output, so records can interleave with kernel messages but not
+with other syslog records.
+
+`openlog` copies the identifier (truncated to 63 bytes), the facility, and
+the option mask.  `LOG_PID` adds `[pid]`, `LOG_PERROR` duplicates the
+record to stderr, and `LOG_NDELAY` opens the console immediately instead
+of on the first record.  `LOG_CONS`, `LOG_ODELAY`, and `LOG_NOWAIT` are
+documented no-ops.  `setlogmask` starts at `LOG_UPTO(LOG_DEBUG)`;
+`setlogmask(0)` leaves the mask unchanged.  `%m` expands to
+`strerror(errno)` in the shared `snprintf` formatter.
+
+The sink is opened lazily and closed by `closelog`; a failed open is
+reported once on stderr (when available) and never aborts the process.
+Writing is serialized by a spin lock, children reset that lock through
+`pthread_atfork`, and `exec` naturally starts from the default state.  A
+record longer than `ASTIA_SYSLOG_RECORD_MAX` (1024 bytes) is truncated
+with a trailing `...` marker rather than split across lines.  The state is
+per process, so a forked daemon keeps logging to the same console unless
+it calls `openlog` again.

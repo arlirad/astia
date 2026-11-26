@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 
 #if defined(__SANITIZE_THREAD__)
@@ -24,7 +25,6 @@ extern "C" void __tsan_release(void const*);
 #endif
 
 namespace astia::core {
-
     /// Minimal test-and-set spinlock.
     ///
     /// Frames are handed out from every CPU once SMP comes up, so the
@@ -41,10 +41,12 @@ namespace astia::core {
         /// One attempt at taking the lock; false if another CPU holds it.
         /// Panic paths use this to bound how long they wait.
         bool try_lock() {
-            if (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
+            if (astia::atomic_ref<bool>(_flag).exchange(true,
+                                                        astia::memory_order::acquire))
                 return false;
-            }
+
             ASTIA_TSAN_ACQUIRE(&_flag);
+
             return true;
         }
 
@@ -56,7 +58,7 @@ namespace astia::core {
 
         void unlock() {
             ASTIA_TSAN_RELEASE(&_flag);
-            __atomic_store_n(&_flag, false, __ATOMIC_RELEASE);
+            astia::atomic_ref<bool>(_flag).store(false, astia::memory_order::release);
         }
 
         private:
@@ -69,6 +71,7 @@ namespace astia::core {
         explicit spinlock_guard(spinlock& lock) : _lock(&lock) {
             _lock->lock();
         }
+
         ~spinlock_guard() {
             if (_lock != nullptr)
                 _lock->unlock();
@@ -80,6 +83,7 @@ namespace astia::core {
         void unlock() {
             if (_lock != nullptr) {
                 _lock->unlock();
+
                 _lock = nullptr;
             }
         }
@@ -87,7 +91,6 @@ namespace astia::core {
         private:
         spinlock* _lock;
     };
-
 } // namespace astia::core
 
 #undef ASTIA_TSAN_ACQUIRE

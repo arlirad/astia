@@ -7,5 +7,6 @@ namespace astia::core {
 int main() {
     if (astia::core::initialize_resume_queues != nullptr)
         astia::core::initialize_resume_queues();
+
     return astia_test::run_all();
 }

@@ -1,6 +1,7 @@
 using Pkgsrv.Application.Errors;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Features.Packages.RequestBuild;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.TestSupport;
@@ -13,7 +14,7 @@ public sealed class CacheInvalidationOnMutationTests
     public async Task Register_PublicationFailure_InvalidatesCommittedMutation()
     {
         var repository = new TestRepository();
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateRegistrationHandler(
             repository,
             new ThrowingEventPublisher(),
@@ -25,6 +26,9 @@ public sealed class CacheInvalidationOnMutationTests
                 CancellationToken.None));
 
         Assert.Equal(1, invalidator.Calls);
+        Assert.Equal(
+            PackageCacheInvalidationScope.Package,
+            Assert.Single(invalidator.Invalidations).Scope);
         Assert.NotNull(await repository.FindAsync(
             PackageKey.Create("widget", "1.2.3"),
             CancellationToken.None));
@@ -34,7 +38,7 @@ public sealed class CacheInvalidationOnMutationTests
     public async Task Register_AcknowledgementFailure_InvalidatesCommittedMutation()
     {
         var repository = new TestRepository { ThrowOnAcknowledge = true };
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateRegistrationHandler(
             repository,
             new TestEventPublisher(),
@@ -53,7 +57,7 @@ public sealed class CacheInvalidationOnMutationTests
     {
         var repository = new TestRepository();
         await repository.TryAddAsync(TestPackages.CreatePackage(), CancellationToken.None);
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateRegistrationHandler(
             repository,
             new TestEventPublisher(),
@@ -74,7 +78,7 @@ public sealed class CacheInvalidationOnMutationTests
         var package = TestPackages.CreatePackage();
         await repository.TryAddAsync(package, CancellationToken.None);
         package.AcknowledgeDomainEvents(package.PeekDomainEvents());
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateBuildHandler(
             repository,
             new TestBuildSandbox(),
@@ -97,7 +101,7 @@ public sealed class CacheInvalidationOnMutationTests
         var package = TestPackages.CreatePackage();
         await repository.TryAddAsync(package, CancellationToken.None);
         package.AcknowledgeDomainEvents(package.PeekDomainEvents());
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateBuildHandler(
             repository,
             new TestBuildSandbox(),
@@ -119,7 +123,7 @@ public sealed class CacheInvalidationOnMutationTests
         var package = TestPackages.CreatePackage();
         await repository.TryAddAsync(package, CancellationToken.None);
         package.AcknowledgeDomainEvents(package.PeekDomainEvents());
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateBuildHandler(
             repository,
             new ThrowingBuildSandbox(),
@@ -142,7 +146,7 @@ public sealed class CacheInvalidationOnMutationTests
         var package = TestPackages.CreatePackage();
         await repository.TryAddAsync(package, CancellationToken.None);
         package.AcknowledgeDomainEvents(package.PeekDomainEvents());
-        var invalidator = new RecordingPackageCacheInvalidator();
+        var invalidator = new RecordingPackageCacheInvalidationNotifier();
         var handler = CreateBuildHandler(
             repository,
             new TestBuildSandbox(),
@@ -160,7 +164,7 @@ public sealed class CacheInvalidationOnMutationTests
     private static RegisterPackageCommandHandler CreateRegistrationHandler(
         TestRepository repository,
         IDomainEventPublisher publisher,
-        RecordingPackageCacheInvalidator invalidator) =>
+        RecordingPackageCacheInvalidationNotifier invalidator) =>
         new(
             repository,
             new TestSourceAllowlist(),
@@ -173,7 +177,7 @@ public sealed class CacheInvalidationOnMutationTests
         TestRepository repository,
         Pkgsrv.Application.Interfaces.Builds.IBuildSandbox buildSandbox,
         IDomainEventPublisher publisher,
-        RecordingPackageCacheInvalidator invalidator) =>
+        RecordingPackageCacheInvalidationNotifier invalidator) =>
         new(
             repository,
             buildSandbox,

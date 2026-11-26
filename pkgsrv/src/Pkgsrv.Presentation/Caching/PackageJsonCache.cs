@@ -22,7 +22,8 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
     private readonly IMemoryCache _cache;
     private readonly PackageJsonCacheOptions _options;
     private readonly IIrvaAuthorization _authorization;
-    private long _generation;
+    private long _listGeneration;
+    private long _packageGeneration;
 
     public PackageJsonCache(
         IMemoryCache cache,
@@ -40,13 +41,18 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         Func<CancellationToken, Task<PackageListResponse>> load,
         CancellationToken cancellationToken)
     {
-        await AuthorizeAsync(actor, PackageAction.Read, null, cancellationToken)
+        var verifiedActor = await AuthorizeAsync(actor, PackageAction.Read, null, cancellationToken)
             .ConfigureAwait(false);
 
-        var generation = CurrentGeneration();
-        var key = $"pkgsrv:json:{generation}:list:{ActorKey(actor)}:{NormalizeSearch(search)}";
+        var generation = CurrentListGeneration();
+        var key = $"pkgsrv:json:{generation}:list:{ActorKey(verifiedActor)}:{NormalizeSearch(search)}";
 
-        return await GetOrCreateAsync(key, generation, load, cancellationToken)
+        return await GetOrCreateAsync(
+                key,
+                generation,
+                CurrentListGeneration,
+                load,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -65,22 +71,49 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         }
 
         var key = PackageKey.Create(name, version);
-        await AuthorizeAsync(actor, PackageAction.Read, key, cancellationToken)
+        var verifiedActor = await AuthorizeAsync(actor, PackageAction.Read, key, cancellationToken)
             .ConfigureAwait(false);
 
-        var generation = CurrentGeneration();
-        var cacheKey = $"pkgsrv:json:{generation}:package:{ActorKey(actor)}:{key.Name.Value}@{key.Version}";
+        var generation = CurrentPackageGeneration();
+        var cacheKey = $"pkgsrv:json:{generation}:package:{ActorKey(verifiedActor)}:{key.Name.Value}@{key.Version}";
 
-        return await GetOrCreateAsync(cacheKey, generation, load, cancellationToken)
+        return await GetOrCreateAsync(
+                cacheKey,
+                generation,
+                CurrentPackageGeneration,
+                load,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public void InvalidateAfterMutation()
+    public void Invalidate(PackageCacheInvalidation invalidation)
     {
-        Interlocked.Increment(ref _generation);
+        ArgumentNullException.ThrowIfNull(invalidation);
+
+        switch (invalidation.Scope)
+        {
+            case PackageCacheInvalidationScope.All:
+                Interlocked.Increment(ref _listGeneration);
+                Interlocked.Increment(ref _packageGeneration);
+                break;
+            case PackageCacheInvalidationScope.List:
+                Interlocked.Increment(ref _listGeneration);
+                break;
+            case PackageCacheInvalidationScope.Package:
+                Interlocked.Increment(ref _listGeneration);
+                Interlocked.Increment(ref _packageGeneration);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(invalidation),
+                    invalidation.Scope,
+                    "Unknown package cache invalidation scope.");
+        }
     }
 
-    private async Task AuthorizeAsync(
+    public void InvalidateAfterMutation() => Invalidate(PackageCacheInvalidation.All);
+
+    private async Task<AuthorizationContext> AuthorizeAsync(
         AuthorizationContext actor,
         PackageAction action,
         PackageKey? package,
@@ -89,16 +122,15 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         var authorization = await _authorization
             .AuthorizeAsync(actor, action, package, cancellationToken)
             .ConfigureAwait(false);
+        authorization.EnsureAuthorized(action.ToString());
 
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(action.ToString(), authorization.Reason);
-        }
+        return authorization.VerifiedContext ?? actor;
     }
 
     private async Task<string> GetOrCreateAsync<TResponse>(
         string key,
         long generation,
+        Func<long> currentGeneration,
         Func<CancellationToken, Task<TResponse>> load,
         CancellationToken cancellationToken)
     {
@@ -110,7 +142,7 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         var response = await load(cancellationToken).ConfigureAwait(false);
         var json = JsonSerializer.Serialize(response, SerializerOptions);
 
-        if (CurrentGeneration() == generation)
+        if (currentGeneration() == generation)
         {
             _cache.Set(
                 key,
@@ -125,7 +157,9 @@ public sealed class PackageJsonCache : IPackageJsonCache, IPackageCacheInvalidat
         return json;
     }
 
-    private long CurrentGeneration() => Interlocked.Read(ref _generation);
+    private long CurrentListGeneration() => Interlocked.Read(ref _listGeneration);
+
+    private long CurrentPackageGeneration() => Interlocked.Read(ref _packageGeneration);
 
     private static string NormalizeSearch(string? search)
     {

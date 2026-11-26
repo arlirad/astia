@@ -2,7 +2,9 @@
 #include <astia/arch/interrupt_frame.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
+#include <astia/dbg/panic_report.hpp>
 #include <astia/log.hpp>
 
 #include "../../dbg/stacktrace.hpp"
@@ -27,7 +29,9 @@
 //     (absent, disabled, or x2APIC mode) the PIT remains the tick source
 //     with IRQ0 unmasked. Either way the PIC stays remapped and otherwise
 //     fully masked until a driver needs a line.
-//   - Fatal exceptions dump vector/error/RIP (and CR2 for #PF) over uart16550
+//   - Fatal exceptions hand their interrupt frame to the shared panic report:
+//     every GPR, the control registers, vector/error, and a frame trace over
+//     uart16550
 //     and end the boot through debug_exit, so a crash under QEMU is a
 //     readable report instead of a triple fault.
 //
@@ -35,7 +39,6 @@
 // on purpose: init_interrupts() returns with interrupts still masked.
 
 namespace astia::arch {
-
     u64 interrupt_stack_pointer(const interrupt_frame* frame) {
         return frame == nullptr ? 0 : frame->rsp;
     }
@@ -44,6 +47,7 @@ namespace astia::arch {
                                 u64 info, u64 context) {
         if (frame == nullptr)
             return;
+
         frame->rdi = signo;
         frame->rsi = info;
         frame->rdx = context;
@@ -52,7 +56,6 @@ namespace astia::arch {
     }
 
     namespace {
-
         extern "C" const u64 isr_stub_table[256];
 
         /// Saved register frame. Field order = isr_common's push order in
@@ -68,12 +71,14 @@ namespace astia::arch {
             u32 offset_high;
             u32 reserved;
         } __attribute__((packed));
+
         static_assert(sizeof(idt_entry) == 16);
 
         struct idt_pointer {
             u16 limit;
             u64 base;
         } __attribute__((packed));
+
         static_assert(sizeof(idt_pointer) == 10);
 
         constexpr u64 kernel_code_selector = 0x08; // boot_gdt ring0 code segment
@@ -88,10 +93,21 @@ namespace astia::arch {
         timer_hook   tick_hook        = nullptr;
         timer_source current_source   = timer_source::pit; // flipped by init_interrupts()
 
-        // One handler per PIC line; null = line claimed by nobody, in
-        // which case the dispatch only EOIs (a latched edge with no
-        // owner is acknowledged and forgotten).
-        irq_handler irq_handlers[16]{};
+        // One binding per PIC line; null handler = line claimed by nobody,
+        // in which case the dispatch only EOIs (a latched edge with no
+        // owner is acknowledged and forgotten). A guarded binding enters
+        // through the module's callback guard before touching module text.
+        struct irq_binding {
+            irq_handler        handler   = nullptr;
+            irq_callback_enter enter     = nullptr;
+            irq_callback_leave leave     = nullptr;
+            void*              context   = nullptr;
+            bool               masked    = false;
+            u32                in_flight = 0;
+        };
+
+        irq_binding    irq_handlers[16]{};
+        core::spinlock irq_lock;
 
         constexpr u32 first_device_vector = 50;
         constexpr u32 last_device_vector  = 254;
@@ -118,7 +134,7 @@ namespace astia::arch {
         /// This module's log source.
         using logs = astia::log::context<"arch">;
 
-        [[noreturn]] void fatal_exception(const interrupt_frame& regs) {
+        [[noreturn]] void fatal_exception(const interrupt_frame& frame) {
             static const char* const names[32] = {
                 "#DE", "#DB", "NMI", "#BP", "#OF", "#BR", "#UD", "#NM",
                 "#DF", "res", "#TS", "#NP", "#SS", "#GP", "#PF", "res",
@@ -126,41 +142,37 @@ namespace astia::arch {
                 "res", "res", "res", "res", "res", "res", "#SX", "res",
             };
 
-            const char* name = regs.vector < 32 ? names[regs.vector] : "unknown";
-            if (regs.vector == 14) { // #PF: the faulting address is the useful part
-                u64 cr2;
-                asm volatile("mov %%cr2, %0" : "=r"(cr2));
-                logs::error("exception %s vec=%llx err=%llx rip=%llx cr2=%llx", name,
-                            regs.vector, regs.error, regs.rip, cr2);
-            }
-            else {
-                logs::error("exception %s vec=%llx err=%llx rip=%llx", name, regs.vector,
-                            regs.error, regs.rip);
-            }
+            const char* name = frame.vector < 32 ? names[frame.vector] : "unknown";
 
-            dbg::stacktrace(regs.rbp, regs.rip);
+            dbg::panic_process process{};
+
+            proc::panic_snapshot(process);
+
+            dbg::report_panic(process, name, &frame);
 
             dev::debug_exit(1);
-            for (;;) {
+
+            while (true) {
                 cpu::halt();
             }
         }
-
     } // namespace
 
     bool register_user_fault_handler(user_fault_handler handler) {
-        if (handler == nullptr || page_fault_resolver != nullptr) {
+        if (handler == nullptr || page_fault_resolver != nullptr)
             return false;
-        }
+
         page_fault_resolver = handler;
+
         return true;
     }
 
     bool register_user_fault_signal_handler(user_fault_signal_handler handler) {
-        if (handler == nullptr || page_fault_signal_handler != nullptr) {
+        if (handler == nullptr || page_fault_signal_handler != nullptr)
             return false;
-        }
+
         page_fault_signal_handler = handler;
+
         return true;
     }
 
@@ -175,17 +187,20 @@ namespace astia::arch {
             interrupt_scope() {
                 cpu::interrupt_enter();
             }
+
             ~interrupt_scope() {
                 cpu::interrupt_exit();
             }
         } scope;
 
         const u64 vector = frame->vector;
-
         if (vector == 3) { // #BP: software int3 (debugger, boot selftest)
-            __atomic_fetch_add(&breakpoint_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(breakpoint_count)
+                .fetch_add(1, astia::memory_order::relaxed);
+
             return;
         }
+
         if (vector < 32) {
             // Ring-3 page faults get one repair offer first: the
             // process layer resolves copy-on-write faults (fork's
@@ -193,79 +208,141 @@ namespace astia::arch {
             // kernel faults, every other exception — stay fatal.
             if (vector == 14 && page_fault_resolver != nullptr && (frame->cs & 3) != 0) {
                 u64 cr2;
+
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
+
                 if (page_fault_resolver(cr2, (frame->error & 2) != 0)) {
                     return; // repaired: the faulting instruction re-runs
                 }
             }
+
             if (vector == 14 && page_fault_signal_handler != nullptr &&
                 (frame->cs & 3) != 0) {
                 u64 cr2;
+
                 asm volatile("mov %%cr2, %0" : "=r"(cr2));
-                if (page_fault_signal_handler(frame, cr2, frame->error)) {
+
+                if (page_fault_signal_handler(frame, cr2, frame->error))
                     return;
-                }
             }
+
             fatal_exception(*frame); // [[noreturn]]
         }
+
         if (vector == pic::irq_base) { // IRQ0: PIT tick (fallback source)
-            __atomic_fetch_add(&tick_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(tick_count).fetch_add(1, astia::memory_order::relaxed);
             pic::eoi(vector);
-            if (tick_hook != nullptr) {
+
+            if (tick_hook != nullptr)
                 tick_hook();
-            }
+
             return;
         }
+
         if (vector == lapic::timer_vector) { // LAPIC timer tick (primary source)
-            __atomic_fetch_add(&tick_count, 1, __ATOMIC_RELAXED);
+            astia::atomic_ref<u64>(tick_count).fetch_add(1, astia::memory_order::relaxed);
             lapic::eoi();
-            if (tick_hook != nullptr) {
+
+            if (tick_hook != nullptr)
                 tick_hook();
-            }
+
             return;
         }
+
         if (vector == lapic::reschedule_vector) {
             x86_64::smp::request_local_reschedule_from_interrupt();
             lapic::eoi();
+
             return;
         }
+
         if (vector >= pic::irq_base && vector < pic::irq_base + 16) {
             // Driver-owned lines: service first, EOI after, so the 8259
             // sees the next edge only once the device has been drained.
-            const auto irq = static_cast<u8>(vector - pic::irq_base);
-            if (irq_handlers[irq] != nullptr) {
-                irq_handlers[irq]();
+            const auto         irq     = static_cast<u8>(vector - pic::irq_base);
+            irq_handler        handler = nullptr;
+            irq_callback_enter enter   = nullptr;
+            irq_callback_leave leave   = nullptr;
+            void*              context = nullptr;
+
+            {
+                interrupt_spinlock_guard guard(irq_lock);
+
+                irq_binding& binding = irq_handlers[irq];
+
+                if (binding.handler != nullptr && !binding.masked) {
+                    handler = binding.handler;
+                    enter   = binding.enter;
+                    leave   = binding.leave;
+                    context = binding.context;
+
+                    ++binding.in_flight;
+                }
             }
+
+            if (handler != nullptr) {
+                const bool entered = enter == nullptr || enter(context);
+                if (entered)
+                    handler();
+
+                if (entered && leave != nullptr)
+                    leave(context);
+
+                {
+                    interrupt_spinlock_guard guard(irq_lock);
+
+                    irq_binding& binding = irq_handlers[irq];
+
+                    if (binding.in_flight != 0)
+                        --binding.in_flight;
+                }
+            }
+
             pic::eoi(vector);
+
             return;
         }
+
         if (vector >= first_device_vector && vector <= last_device_vector) {
             interrupt_vector_handler handler = nullptr;
             void*                    context = nullptr;
-            u32                      owner   = 0;
+
+            u32 owner = 0;
+
             {
                 interrupt_spinlock_guard guard(vector_lock);
-                vector_slot&             slot = vector_slots[vector];
-                owner                         = slot.owner;
+
+                vector_slot& slot = vector_slots[vector];
+
+                owner = slot.owner;
+
                 if (owner != 0 && !slot.masked && slot.handler != nullptr) {
                     handler = slot.handler;
                     context = slot.context;
+
                     ++slot.in_flight;
                 }
             }
+
             if (owner != 0) {
                 if (handler != nullptr)
                     handler(context);
+
                 if (handler != nullptr) {
                     interrupt_spinlock_guard guard(vector_lock);
-                    vector_slot&             slot = vector_slots[vector];
+
+                    vector_slot& slot = vector_slots[vector];
+
                     if (slot.owner == owner && slot.in_flight != 0)
                         --slot.in_flight;
                 }
+
                 lapic::eoi();
             }
+
             return;
         }
+
         // Spurious LAPIC vector 0xFF and anything else without an owner: no
         // source, no EOI (a spurious interrupt must not be acknowledged).
     }
@@ -277,7 +354,8 @@ namespace astia::arch {
 
     bool init_interrupts() {
         for (usize i = 0; i < 256; ++i) {
-            const u64 handler  = isr_stub_table[i];
+            const u64 handler = isr_stub_table[i];
+
             idt[i].offset_low  = static_cast<u16>(handler & 0xffff);
             idt[i].selector    = static_cast<u16>(kernel_code_selector);
             idt[i].ist         = 0; // no TSS/IST yet; runs on the current stack
@@ -291,9 +369,11 @@ namespace astia::arch {
             static_cast<u16>(sizeof(idt) - 1),
             reinterpret_cast<u64>(&idt[0]),
         };
+
         asm volatile("lidt %0" : : "m"(pointer));
 
         x86_64::pic::remap();
+
         if (x86_64::lapic::start(tick_hz)) {
             current_source      = timer_source::lapic;
             vector_router_ready = true;
@@ -303,19 +383,22 @@ namespace astia::arch {
             // unmasked line.
             x86_64::pit::start(tick_hz);
             x86_64::pic::unmask(0);
+
             vector_router_ready = false;
         }
+
         return true; // interrupts stay masked: see cpu::interrupts()
     }
 
     void load_interrupts() {
         const idt_pointer pointer{static_cast<u16>(sizeof(idt) - 1),
                                   reinterpret_cast<u64>(&idt[0])};
+
         asm volatile("lidt %0" : : "m"(pointer));
     }
 
     u64 timer_ticks() {
-        return __atomic_load_n(&tick_count, __ATOMIC_RELAXED);
+        return astia::atomic_ref<u64>(tick_count).load(astia::memory_order::relaxed);
     }
 
     u32 timer_hz() {
@@ -323,63 +406,135 @@ namespace astia::arch {
     }
 
     bool register_irq_handler(u8 irq, irq_handler handler) {
-        if (irq >= 16 || handler == nullptr || irq_handlers[irq] != nullptr) {
+        return register_irq_handler(irq, handler, nullptr, nullptr, nullptr);
+    }
+
+    bool register_irq_handler(u8 irq, irq_handler handler, irq_callback_enter enter,
+                              irq_callback_leave leave, void* context) {
+        if (irq >= 16 || handler == nullptr || (enter == nullptr) != (leave == nullptr))
             return false;
+
+        interrupt_spinlock_guard guard(irq_lock);
+
+        irq_binding& binding = irq_handlers[irq];
+
+        if (binding.handler != nullptr)
+            return false;
+
+        binding = {handler, enter, leave, context, false, 0};
+
+        return true;
+    }
+
+    bool mask_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        {
+            interrupt_spinlock_guard guard(irq_lock);
+
+            irq_binding& binding = irq_handlers[irq];
+
+            if (binding.handler == nullptr)
+                return false;
+
+            binding.masked = true;
         }
-        irq_handlers[irq] = handler;
+
+        x86_64::pic::mask(irq);
+
+        return true;
+    }
+
+    bool unregister_irq_handler(u8 irq) {
+        if (irq >= 16)
+            return false;
+
+        interrupt_spinlock_guard guard(irq_lock);
+
+        irq_binding& binding = irq_handlers[irq];
+
+        if (binding.in_flight != 0)
+            return false;
+
+        binding = {};
+
         return true;
     }
 
     bool register_interrupt_vector(interrupt_vector_handler handler, void* context,
                                    interrupt_vector& route) {
         route = {};
+
         if (!vector_router_ready || handler == nullptr || !x86_64::lapic::msi_available())
             return false;
+
         interrupt_spinlock_guard guard(vector_lock);
+
         for (u32 vector = first_device_vector; vector <= last_device_vector; ++vector) {
             vector_slot& slot = vector_slots[vector];
+
             if (slot.owner != 0)
                 continue;
+
             u32 owner = next_vector_owner++;
             if (owner == 0)
                 owner = next_vector_owner++;
+
             slot  = {handler, context, owner, true, x86_64::lapic::id(), 0};
             route = {vector, owner};
+
             return true;
         }
+
         return false;
     }
 
     bool unregister_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
+
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot&             slot = vector_slots[route.vector];
+
+        vector_slot& slot = vector_slots[route.vector];
+
         if (slot.owner != route.owner || slot.in_flight != 0)
             return false;
+
         slot = {};
+
         return true;
     }
 
     bool mask_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
+
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot&             slot = vector_slots[route.vector];
+
+        vector_slot& slot = vector_slots[route.vector];
+
         if (slot.owner != route.owner)
             return false;
+
         slot.masked = true;
+
         return true;
     }
 
     bool unmask_interrupt_vector(interrupt_vector route) {
         if (!route.valid() || route.vector > 255)
             return false;
+
         interrupt_spinlock_guard guard(vector_lock);
-        vector_slot&             slot = vector_slots[route.vector];
+
+        vector_slot& slot = vector_slots[route.vector];
+
         if (slot.owner != route.owner)
             return false;
+
         slot.masked = false;
+
         return true;
     }
 
@@ -387,13 +542,18 @@ namespace astia::arch {
         if (!route.valid() || route.vector < first_device_vector ||
             route.vector > last_device_vector || !x86_64::lapic::msi_available())
             return false;
+
         interrupt_spinlock_guard guard(vector_lock);
-        const vector_slot&       slot = vector_slots[route.vector];
+
+        const vector_slot& slot = vector_slots[route.vector];
+
         if (slot.owner != route.owner)
             return false;
+
         message.address_low  = 0xFEE00000u | ((slot.destination & 0xffu) << 12);
         message.address_high = 0;
         message.data         = route.vector;
+
         return true;
     }
 
@@ -402,15 +562,16 @@ namespace astia::arch {
     }
 
     u64 breakpoint_hits() {
-        return __atomic_load_n(&breakpoint_count, __ATOMIC_RELAXED);
+        return astia::atomic_ref<u64>(breakpoint_count)
+            .load(astia::memory_order::relaxed);
     }
 
     bool register_timer_hook(timer_hook hook) {
-        if (tick_hook != nullptr && tick_hook != hook) {
+        if (tick_hook != nullptr && tick_hook != hook)
             return false;
-        }
+
         tick_hook = hook;
+
         return true;
     }
-
 } // namespace astia::arch

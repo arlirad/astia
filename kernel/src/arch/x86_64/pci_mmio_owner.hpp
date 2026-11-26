@@ -6,7 +6,6 @@
 #include "pci_mmio_policy.hpp"
 
 namespace astia::arch::x86_64 {
-
     inline constexpr u32 pci_mmio_owner_capacity = resource_limits::policy::pci_resources;
 
     void pci_mmio_owner_configure(u64 alias_floor, pci_mmio_va_limits limits);
@@ -18,5 +17,4 @@ namespace astia::arch::x86_64 {
     mmio_reserve_result pci_mmio_owner_reserve_generic(u64 base, u64 mapped_bytes,
                                                        u64 virtual_address);
     void pci_mmio_owner_release_generic(u64 virtual_address, u64 mapped_bytes);
-
 } // namespace astia::arch::x86_64

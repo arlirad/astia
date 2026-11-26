@@ -6,7 +6,6 @@
 #include "../../filesystem.hpp"
 
 namespace astia::fs::filesystems {
-
     inline constexpr u32   tmpfs_max_entries = 32;
     inline constexpr usize tmpfs_max_pages   = 16;
 
@@ -25,15 +24,19 @@ namespace astia::fs::filesystems {
         optional<readable&> as_readable() override {
             return *this;
         }
+
         optional<writable&> as_writable() override {
             return *this;
         }
+
         optional<mappable&> as_mappable() override {
             return *this;
         }
+
         optional<truncatable&> as_truncatable() override {
             return *this;
         }
+
         optional<syncable&> as_syncable() override {
             return *this;
         }
@@ -41,67 +44,85 @@ namespace astia::fs::filesystems {
         core::task<i64> readv(span<const buffer> buffers, u64 offset,
                               core::cltoken token) override;
         core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                               core::cltoken token) override;
+                               core::cltoken token, bool nonblock) override;
         core::task<i64> sync(core::cltoken token) override;
         core::task<i64> sync_mapping(mm::phys_region* mapping, u64 offset, u64 length,
                                      u32 flags, core::cltoken token) override;
         long            size() const override;
-        u64             inode() const override {
+
+        u64 inode() const override {
             core::spinlock_guard guard(_lock);
             return _inode;
         }
+
         u32 nlink() const override {
             core::spinlock_guard guard(_lock);
             return _nlink;
         }
+
         void add_link() {
             core::spinlock_guard guard(_lock);
+
             ++_nlink;
         }
+
         void drop_link() {
             core::spinlock_guard guard(_lock);
+
             if (_nlink != 0)
                 --_nlink;
         }
+
         file_mode mode() const override {
             core::spinlock_guard guard(_lock);
             return _mode;
         }
+
         uid_t uid() const override {
             core::spinlock_guard guard(_lock);
             return _uid;
         }
+
         gid_t gid() const override {
             core::spinlock_guard guard(_lock);
             return _gid;
         }
+
         long chmod(file_permissions permissions) override {
             core::spinlock_guard guard(_lock);
             _mode = _mode.chmod(permissions);
             return 0;
         }
+
         long chown(uid_t owner, gid_t group) override {
             core::spinlock_guard guard(_lock);
             _uid = owner;
             _gid = group;
             return 0;
         }
+
         u64 mtime_sec() const override {
             core::spinlock_guard guard(_lock);
             return _mtime_sec;
         }
+
         u64 mtime_nsec() const override {
             core::spinlock_guard guard(_lock);
             return _mtime_nsec;
         }
+
         long touch(u64 sec, u64 nsec) override;
+
         void set_mode(file_mode mode) {
             core::spinlock_guard guard(_lock);
+
             _mode = mode;
         }
+
         mm::phys_region* memory_region() override {
             return _storage;
         }
+
         core::task<i64> truncate(u64 length, core::cltoken token) override;
 
         private:
@@ -139,6 +160,7 @@ namespace astia::fs::filesystems {
         long      link(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
+        u64       node_inode(const char* path) const override;
         uid_t     node_uid(const char* path) const override;
         gid_t     node_gid(const char* path) const override;
         long      chmod(const char* path, file_permissions permissions) override;
@@ -148,6 +170,7 @@ namespace astia::fs::filesystems {
 
         private:
         file_type node_type_unlocked(const char* path) const;
+
         struct entry {
             bool                  used      = false;
             bool                  directory = false;
@@ -157,6 +180,7 @@ namespace astia::fs::filesystems {
             char                  path[path_max]{};
             mm::shptr<tmpfs_file> target;
         };
+
         entry _entries[tmpfs_max_entries]{};
         // rename/link run entirely under _namespace_lock and share this
         // scratch so their 4096-byte working path stays off the kernel stack.
@@ -171,13 +195,15 @@ namespace astia::fs::filesystems {
         const char* name() const override {
             return "tmpfs";
         }
+
         fs::mount* mount(const char* source) const override;
-        bool       owns_mount() const override {
+
+        bool owns_mount() const override {
             return true;
         }
+
         void destroy_mount(fs::mount* value) const override {
             delete static_cast<tmpfs_mount*>(value);
         }
     };
-
 } // namespace astia::fs::filesystems

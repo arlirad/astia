@@ -1,4 +1,5 @@
 using Pkgsrv.Application.Contracts;
+using Pkgsrv.Application.Features.Packages.Publish;
 
 namespace Pkgsrv.Presentation.Contracts;
 
@@ -94,4 +95,17 @@ public sealed record BuildResponse(
         result.Status,
         result.Detail,
         result.Executed);
+}
+
+public sealed record PublishResponse(
+    string Name,
+    string Version,
+    string ContentHash,
+    string Signature)
+{
+    public static PublishResponse From(PublishPackageResult result) => new(
+        result.Name,
+        result.Version,
+        result.ContentHash,
+        result.Signature);
 }

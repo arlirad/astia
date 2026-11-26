@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::mm {
-
     enum class mapping_flags : u64 {
         none          = 0,
         present       = 1ull << 0,
@@ -96,5 +95,4 @@ namespace astia::mm {
         usize          _mapped   = 0;
         bool           _finished = false;
     };
-
 } // namespace astia::mm

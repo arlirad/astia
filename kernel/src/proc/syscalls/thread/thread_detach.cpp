@@ -17,18 +17,17 @@
 
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
-
     struct thread_detach
         : sys::syscall_handler<thread_detach, sys::syscall_id::thread_detach,
                                sys::syscall_mode::sync> {
         static i64 invoke(u32 tid) {
             auto* owner = current_process();
-            if (owner == nullptr) {
+            if (owner == nullptr)
                 return -ESRCH;
-            }
+
             auto target = owner->thread_by_tid(tid);
+
             return target ? target->detach() : -ESRCH;
         }
     };
-
 } // namespace astia::proc::syscalls

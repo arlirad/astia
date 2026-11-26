@@ -105,10 +105,11 @@ public sealed class SafetyAdapterTests
     }
 
     [Fact]
-    public async Task PendingIrvaAdapter_DefaultsToDenyWithoutClientIntegration()
+    public async Task PendingIrvaAdapter_MissingBearerIsAuthenticationRequired()
     {
-        var adapter = new PendingIrvaClientAuthorizationAdapter(
-            new PendingIrvaClientAuthorizationBoundary());
+        var boundary = new PendingIrvaClientAuthorizationBoundary(
+            new StubTransportIdentity(TransportIdentity.ForRequest(null)));
+        var adapter = new IrvaClientAuthorizationAdapter(boundary);
 
         var result = await adapter.AuthorizeAsync(
             TestPackages.Actor,
@@ -117,14 +118,37 @@ public sealed class SafetyAdapterTests
             CancellationToken.None);
 
         Assert.False(result.IsAllowed);
-        Assert.Contains("pending", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(AuthorizationFailure.AuthenticationRequired, result.Failure);
+        Assert.Contains("bearer", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PendingIrvaAdapter_BearerTokenIsUnavailableAndDenied()
+    {
+        var boundary = new PendingIrvaClientAuthorizationBoundary(
+            new StubTransportIdentity(TransportIdentity.ForRequest("access-token")));
+        var adapter = new IrvaClientAuthorizationAdapter(boundary);
+
+        var result = await adapter.AuthorizeAsync(
+            TestPackages.Actor,
+            PackageAction.Read,
+            null,
+            CancellationToken.None);
+
+        Assert.False(result.IsAllowed);
+        Assert.Equal(AuthorizationFailure.Unavailable, result.Failure);
+        Assert.Contains("disabled", result.Reason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task IrvaAdapter_ForwardsVerifiedBoundaryDecisions()
     {
-        var boundary = new StubBoundary(IrvaClientAuthorizationResponse.Allowed("verified"));
-        var adapter = new PendingIrvaClientAuthorizationAdapter(boundary);
+        var verified = AuthorizationContext.Create(
+            "alice",
+            accountId: Guid.Parse("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
+        var boundary = new StubBoundary(
+            IrvaClientAuthorizationResponse.Allowed(verified, "verified"));
+        var adapter = new IrvaClientAuthorizationAdapter(boundary);
 
         var result = await adapter.AuthorizeAsync(
             TestPackages.Actor,
@@ -134,13 +158,14 @@ public sealed class SafetyAdapterTests
 
         Assert.True(result.IsAllowed);
         Assert.Equal("verified", result.Reason);
+        Assert.Equal(verified, result.VerifiedContext);
         Assert.Equal("build", boundary.LastPermission);
     }
 
     [Fact]
     public async Task IrvaAdapter_ForwardsDeniedBoundaryDecisions()
     {
-        var adapter = new PendingIrvaClientAuthorizationAdapter(
+        var adapter = new IrvaClientAuthorizationAdapter(
             new StubBoundary(IrvaClientAuthorizationResponse.Denied("not permitted")));
 
         var result = await adapter.AuthorizeAsync(
@@ -150,6 +175,7 @@ public sealed class SafetyAdapterTests
             CancellationToken.None);
 
         Assert.False(result.IsAllowed);
+        Assert.Equal(AuthorizationFailure.Forbidden, result.Failure);
         Assert.Equal("not permitted", result.Reason);
     }
 
@@ -199,6 +225,23 @@ public sealed class SafetyAdapterTests
         {
             LastPermission = permission;
             return Task.FromResult(_response);
+        }
+    }
+
+    private sealed class StubTransportIdentity : ITransportIdentityAccessor
+    {
+        private TransportIdentity _identity;
+
+        public StubTransportIdentity(TransportIdentity identity)
+        {
+            _identity = identity;
+        }
+
+        public TransportIdentity GetCurrent() => _identity;
+
+        public void SetVerifiedIdentity(AuthorizationContext actor)
+        {
+            _identity = _identity.WithVerifiedActor(actor);
         }
     }
 }

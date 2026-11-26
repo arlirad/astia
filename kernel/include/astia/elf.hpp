@@ -27,7 +27,6 @@
 // are likewise rejected.
 
 namespace astia::elf::loader {
-
     /// ELF identification bytes required by the System V ELF format.
     inline constexpr u8 elf_magic[] = {0x7f, 'E', 'L', 'F'};
 
@@ -35,9 +34,24 @@ namespace astia::elf::loader {
     inline constexpr usize elf_ident_size = 16;
 
     /// Fixed caps used by the loader's stack-backed metadata tables.
-    inline constexpr usize max_sections           = 320;
+    inline constexpr usize max_sections           = 640;
     inline constexpr usize max_program_headers    = 64;
     inline constexpr usize max_init_array_entries = 64;
+
+    /// Why an ET_REL image is not loadable into the kernel direct map.
+    enum class relocatable_problem : u8 {
+        none,                    ///< Only direct-map-safe relocations.
+        not_relocatable,         ///< Not a well-formed ET_REL image.
+        incompatible_code_model, ///< R_X86_64_32/32S cannot address the image.
+        unsupported_relocation,  ///< Relocation type outside the module ABI.
+    };
+
+    /// Validate an ET_REL image's relocation contract before any memory is
+    /// mapped. Kernel modules are placed above 4 GiB through the direct map,
+    /// so 32-bit absolute relocations are rejected rather than applied with a
+    /// truncated address. Build modules with `-mcmodel=large`.
+    relocatable_problem audit_relocatable(span<const u8> bytes);
+    const char*         relocatable_problem_text(relocatable_problem problem);
 
     /// What kind of ELF image this is (from the header's e_type, after
     /// validating the ELF64/x86-64 identity).
@@ -152,7 +166,8 @@ namespace astia::elf::loader {
 
     /// Identify an ELF image's kind from its header, validating the ELF64
     /// little-endian x86-64 identity. Returns kind::none for anything else.
-    kind        kind_of(span<const u8> bytes);
+    kind kind_of(span<const u8> bytes);
+
     inline kind kind_of(const void* bytes, usize len) {
         return kind_of(span<const u8>(static_cast<const u8*>(bytes), len));
     }
@@ -163,7 +178,8 @@ namespace astia::elf::loader {
     /// `module_main` symbol. Requires `env::map` and `env::unmap`; failed
     /// loads release the mapped block, while successful loads transfer
     /// ownership to the caller.
-    bool        load_relocatable(span<const u8> bytes, const env& e, image& out);
+    bool load_relocatable(span<const u8> bytes, const env& e, image& out);
+
     inline bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
         return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e,
                                 out);
@@ -176,7 +192,8 @@ namespace astia::elf::loader {
     /// load_bias. Requires `env::map` and `env::unmap`; failed loads release
     /// the mapped span, while successful loads transfer ownership to the
     /// caller.
-    bool        load_executable(span<const u8> bytes, const env& e, image& out);
+    bool load_executable(span<const u8> bytes, const env& e, image& out);
+
     inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
         return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e,
                                out);
@@ -190,9 +207,9 @@ namespace astia::elf::loader {
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
-    bool        load(span<const u8> bytes, const env& e, image& out);
+    bool load(span<const u8> bytes, const env& e, image& out);
+
     inline bool load(const void* bytes, usize len, const env& e, image& out) {
         return load(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
     }
-
 } // namespace astia::elf::loader

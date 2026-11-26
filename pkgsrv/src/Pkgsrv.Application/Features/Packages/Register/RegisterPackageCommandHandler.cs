@@ -20,7 +20,7 @@ public sealed class RegisterPackageCommandHandler
     private readonly IIrvaAuthorization _authorization;
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
-    private readonly IPackageCacheInvalidator? _cacheInvalidator;
+    private readonly IPackageCacheInvalidationNotifier? _cacheNotifier;
 
     public RegisterPackageCommandHandler(
         IPackageRepository repository,
@@ -28,14 +28,14 @@ public sealed class RegisterPackageCommandHandler
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
         ISystemClock clock,
-        IPackageCacheInvalidator? cacheInvalidator = null)
+        IPackageCacheInvalidationNotifier? cacheNotifier = null)
     {
         _repository = repository;
         _sourceAllowlist = sourceAllowlist;
         _authorization = authorization;
         _eventPublisher = eventPublisher;
         _clock = clock;
-        _cacheInvalidator = cacheInvalidator;
+        _cacheNotifier = cacheNotifier;
     }
 
     public async ValueTask<RegisterPackageResult> Handle(
@@ -57,11 +57,7 @@ public sealed class RegisterPackageCommandHandler
             PackageAction.Publish,
             null,
             cancellationToken).ConfigureAwait(false);
-
-        if (!authorization.IsAllowed)
-        {
-            throw new AuthorizationDeniedException(nameof(PackageAction.Publish), authorization.Reason);
-        }
+        authorization.EnsureAuthorized(nameof(PackageAction.Publish));
 
         var source = PackageSource.Create(request.SourceUrl, request.SourceCommit);
 
@@ -93,7 +89,14 @@ public sealed class RegisterPackageCommandHandler
             throw new PackageConflictException(package.Key.ToString());
         }
 
-        _cacheInvalidator?.InvalidateAfterMutation();
+        if (_cacheNotifier is not null)
+        {
+            await _cacheNotifier
+                .NotifyAsync(
+                    PackageCacheInvalidation.ForPackage(package.Key),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
 
         var domainEvents = package.PeekDomainEvents();
         await _eventPublisher.PublishAsync(

@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia::proc {
-
     using user_layout_policy = arch::user_layout_policy;
 
     inline constexpr u32 user_virtual_address_bits =
@@ -53,5 +52,4 @@ namespace astia::proc {
     static_assert(user_ring_slot_span != 0 &&
                   (user_ring_base % user_ring_slot_span) == 0);
     static_assert(user_ring_base + user_ring_slot_span <= user_address_limit);
-
 } // namespace astia::proc

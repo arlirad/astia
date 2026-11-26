@@ -69,7 +69,7 @@ describe('docs tree', () => {
     expect(tree.map((node) => node.label)).toEqual([
       'Syscalls (2)',
       'Guide',
-      'Manual page',
+      'Design (7)',
       'Design note',
     ]);
     expect(tree.map((node) => countDocTreePages(node))).toEqual([6, 1, 1, 1]);
@@ -120,7 +120,7 @@ describe('docs tree', () => {
 
     expect(tree.map((node) => node.label)).toEqual([
       'Guide',
-      'Manual page',
+      'Design (7)',
       'Design note',
     ]);
   });
@@ -213,10 +213,43 @@ describe('docs tree', () => {
     expect(none).toEqual([]);
   });
 
-  it('matches pages by title, taxonomy, and summary text', () => {
+  it('matches pages by title, taxonomy, display group label, and summary text', () => {
     expect(pageMatches(PAGES[0], 'alpha')).toBeTrue();
     expect(pageMatches(PAGES[0], 'proc core')).toBeTrue();
+    expect(pageMatches(PAGES[7], 'design (7)')).toBeTrue();
+    expect(pageMatches(PAGES[7], 'manual page')).toBeTrue();
     expect(pageMatches(PAGES[0], 'missing')).toBeFalse();
+  });
+
+  it('matches pages by every visible group and taxonomy label', () => {
+    const searchPages: readonly DocPage[] = [
+      page('syscall-read', 'read(2)', SYSCALL, {
+        subsystem: 'fs',
+        category: 'fs',
+        syscallId: 0,
+      }),
+      page('manual-tmpfile', 'tmpfile(3)', 'Manual page'),
+      page('design-boot', 'boot flow', 'Design note'),
+    ];
+    const filtered = (query: string) =>
+      filterDocTree(buildDocTree(searchPages), (candidate) =>
+        pageMatches(candidate, query),
+      );
+
+    expect(pageMatches(searchPages[0], 'syscalls')).toBeTrue();
+    expect(pageMatches(searchPages[0], 'syscall (2)')).toBeTrue();
+    expect(pageMatches(searchPages[1], 'manual')).toBeTrue();
+    expect(pageMatches(searchPages[2], 'design')).toBeTrue();
+    expect(pageMatches(searchPages[1], 'syscalls')).toBeFalse();
+
+    expect(filtered('syscalls').map((node) => node.label)).toEqual(['Syscalls (2)']);
+    expect(filtered('syscalls').map((node) => countDocTreePages(node))).toEqual([1]);
+    expect(filtered('manual').map((node) => node.label)).toEqual(['Design (7)']);
+    expect(filtered('manual').map((node) => countDocTreePages(node))).toEqual([1]);
+    expect(filtered('design').map((node) => node.label)).toEqual([
+      'Design (7)',
+      'Design note',
+    ]);
   });
 
   it('exposes the full ancestor chain for deep links and filtering', () => {

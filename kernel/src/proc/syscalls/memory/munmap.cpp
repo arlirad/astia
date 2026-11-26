@@ -4,6 +4,7 @@
 #include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/layout.hpp>
+#include <astia/core/task.hpp>
 #include <astia/fs.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
@@ -18,24 +19,23 @@
 
 #include <syscall.hpp>
 namespace astia::proc::syscalls {
-
-    struct munmap
-        : sys::syscall_handler<munmap, sys::syscall_id::munmap, sys::syscall_mode::sync> {
-        static i64 invoke(u64 addr, i64 len) {
+    struct munmap : sys::syscall_handler<munmap, sys::syscall_id::munmap,
+                                         sys::syscall_mode::async> {
+        static core::task<i64> invoke(u64 addr, i64 len) {
             auto* process = current_process();
-            if (process == nullptr) {
-                return -ESRCH;
-            }
-            if (len <= 0) {
-                return -EINVAL;
-            }
+            if (process == nullptr)
+                co_return -ESRCH;
+
+            if (len <= 0)
+                co_return -EINVAL;
+
             const u64 length = static_cast<u64>(len);
+
             if (addr >= astia::arch::kernel_base ||
-                length > astia::arch::kernel_base - addr) {
-                return -EINVAL;
-            }
-            return process->unmap(addr, static_cast<usize>(length));
+                length > astia::arch::kernel_base - addr)
+                co_return -EINVAL;
+
+            co_return process->unmap(addr, static_cast<usize>(length));
         }
     };
-
 } // namespace astia::proc::syscalls

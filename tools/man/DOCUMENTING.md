@@ -21,7 +21,7 @@ man-page blocks to syscall handlers. The authored documentation is:
 
 ```text
 docs/2/<subsystem>/<category>/<canonical>.md
-                             71 public syscall pages, IDs 0..70
+                             77 public syscall pages, IDs 0..76
 docs/2/fs/<canonical>.md     fs pages
 docs/2/abi/<canonical>.md    public ABI pages
 docs/7/<name>.md             seven subsystem overviews
@@ -85,7 +85,7 @@ the code block in the authored page.
 
 `docs/manifest.json` contains no Markdown bodies. It is the authority for:
 
-- exact public IDs `0..70` and canonical names;
+- exact public IDs `0..76` and canonical names;
 - stable slugs of the form `syscall-<id>-<name-with-dashes>`;
 - source handler paths, including expected shared paths;
 - category and `public`/`raw` synopsis kind;
@@ -199,7 +199,7 @@ distinct pages and must both remain present.
 
 New syscall-specific documentation takes precedence over fallback metadata.
 The section 3 API metadata is intentionally maintained against
-`libc/include/{fcntl.h,unistd.h,sys/stat.h}` and `libc/src/{unistd.c,stat.c}`;
+`libc/include/{fcntl.h,unistd.h,sys/stat.h}` and `libc/src/{sys/unistd.c,fs/stat.c}`;
 it must not imply POSIX behavior that the current native implementation does
 not provide.
 

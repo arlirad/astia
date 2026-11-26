@@ -6,7 +6,6 @@
 #include <astia/mm/shptr.hpp>
 
 namespace astia::proc {
-
     struct shared_futex_mapping {
         mm::phys_region*                    backing = nullptr;
         mm::shptr<mm::phys_region_identity> identity;
@@ -16,11 +15,14 @@ namespace astia::proc {
 
         void release() {
             mm::phys_region* region = backing;
-            backing                 = nullptr;
-            identity                = {};
-            word                    = nullptr;
+
+            backing  = nullptr;
+            identity = {};
+            word     = nullptr;
+
             if (region != nullptr)
                 region->release_range(page, 1);
+
             page   = 0;
             offset = 0;
         }
@@ -32,6 +34,7 @@ namespace astia::proc {
         write = 1u << 1,
         exec  = 1u << 2
     };
+
     enum class map_flags : u32 {
         none      = 0,
         shared    = 0x01,
@@ -40,6 +43,7 @@ namespace astia::proc {
         anonymous = 0x20,
         stack     = 0x20000
     };
+
     inline constexpr u32 valid_map_protection_bits =
         static_cast<u32>(map_protection::read) | static_cast<u32>(map_protection::write) |
         static_cast<u32>(map_protection::exec);
@@ -59,9 +63,11 @@ namespace astia::proc {
     constexpr map_flags operator&(map_flags a, map_flags b) {
         return static_cast<map_flags>(static_cast<u32>(a) & static_cast<u32>(b));
     }
+
     constexpr bool has(map_protection v, map_protection f) {
         return (v & f) != map_protection::none;
     }
+
     constexpr bool has(map_flags v, map_flags f) {
         return (v & f) != map_flags::none;
     }
@@ -92,7 +98,10 @@ namespace astia::proc {
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.
         bool pending = false;
-        bool stack   = false;
+        /// A pending node that munmap is tearing down.  It keeps its range
+        /// reserved while the page tables are removed in bounded batches.
+        bool unloading = false;
+        bool stack     = false;
         /// A lazy region whose untouched pages fault in zeroed on first
         /// access; kept on the VMA so clones inherit the same behaviour.
         bool             demand_zero  = false;
@@ -109,12 +118,13 @@ namespace astia::proc {
         u64 size() const {
             return pages * mm::phys_region::frame_size;
         }
+
         u64 end() const {
             return base + size();
         }
+
         bool covers(u64 addr) const {
             return addr >= base && addr < end();
         }
     };
-
 } // namespace astia::proc

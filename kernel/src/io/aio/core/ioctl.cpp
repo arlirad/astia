@@ -5,17 +5,15 @@
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
-
     namespace {
-
         bool has_parked(const ring_slot& slot) {
             for (u32 i = 0; i < parked_operation_slots; ++i) {
                 if (slot.park[i].used && !slot.park[i].done)
                     return true;
             }
+
             return false;
         }
-
     } // namespace
 
     struct ioctl : handler<ioctl, opcode::ioctl> {
@@ -29,12 +27,14 @@ namespace astia::io::aio::operations {
                wake-up path retries it after the parked operation posts. */
             if (has_parked(slot))
                 co_return aio_result::retry;
+
             // ioctl implementations expect a stable kernel object and
             // may both read and write it.  Decode the ABI'sqe typed
             // requests here instead of passing a caller pointer into a
             // device (which was both a TOCTOU and kernel-pointer bug).
             usize expected = 0;
             bool  input = false, output = false;
+
             if (sqe.offset == TCGETS || sqe.offset == TCSETS || sqe.offset == TCSETSW ||
                 sqe.offset == TCSETSF) {
                 expected = sizeof(struct termios);
@@ -61,33 +61,53 @@ namespace astia::io::aio::operations {
             else if (sqe.offset == TIOCSCTTY) {
                 expected = 0;
             }
+            else if (sqe.offset == TIOCGNAME) {
+                expected = sizeof(struct astia_tty_name);
+                output   = true;
+            }
             else {
                 co_return -ENOTTY;
             }
+
             const auto argument = memory::user_ptr<u8>(sqe.address).validate(expected);
+
             if (sqe.length != expected || !argument)
                 co_return -EFAULT;
+
             mm::shptr<fs::open_file> handle = file_for(sqe.fd);
             if (!handle)
                 co_return -EBADF;
+
             astia::atomic_thread_fence(astia::memory_order::seq_cst);
-            alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
+
+            constexpr usize ioctl_storage_size =
+                sizeof(struct termios) > sizeof(struct astia_tty_name)
+                    ? sizeof(struct termios)
+                    : sizeof(struct astia_tty_name);
+
+            alignas(8) u8 ioctl_storage[ioctl_storage_size]{};
+
             if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
                 co_return -EFAULT;
+
             void* kernel_arg =
                 expected == 0 ? nullptr : static_cast<void*>(ioctl_storage);
+
             long rc = handle->ioctl(sqe.offset, kernel_arg, expected);
+
             if (rc >= 0 && sqe.offset == TIOCSCTTY)
                 rc = proc::acquire_controlling_terminal(handle);
+
             if (rc >= 0 && output &&
                 !memory::copy_out(argument.value.bytes(expected), ioctl_storage))
                 co_return -EFAULT;
+
             astia::atomic_thread_fence(astia::memory_order::seq_cst);
+
             co_return static_cast<i32>(rc);
         }
     };
 
     [[gnu::used, gnu::section("astia_aio_handlers")]]
     extern const operation_descriptor ioctl_descriptor = ioctl::descriptor;
-
 } // namespace astia::io::aio::operations

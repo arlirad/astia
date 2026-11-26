@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 typedef unsigned int wint_t;
+
 typedef struct {
     unsigned char pending;
 } mbstate_t;

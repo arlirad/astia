@@ -15,9 +15,11 @@ namespace astia::arch {
     void cpu::interrupts() {
         interrupts_open = true;
     }
+
     void cpu::nointerrupts() {
         interrupts_open = false;
     }
+
     bool cpu::check_interrupts() {
         return interrupts_open;
     }
@@ -39,7 +41,6 @@ namespace astia::dev {
 } // namespace astia::dev
 
 namespace {
-
     constexpr astia::u16 fake_base = 0x3F8;
 
     struct fake_uart {
@@ -57,7 +58,9 @@ namespace {
         void push(astia::u8 byte) {
             if (head - tail == rx_capacity)
                 return;
+
             rx[head & (rx_capacity - 1)] = byte;
+
             ++head;
         }
 
@@ -68,12 +71,15 @@ namespace {
 
     astia::u8 fake_read8(void* context, astia::u16 port) {
         auto& fake = *static_cast<fake_uart*>(context);
+
         switch (port - fake_base) {
         case 0:
             if ((fake.lcr & 0x80) != 0)
                 return fake.divisor_lo;
+
             if (fake.head == fake.tail)
                 return 0;
+
             return fake.rx[(fake.tail++) & (fake_uart::rx_capacity - 1)];
         case 1:
             return (fake.lcr & 0x80) != 0 ? fake.divisor_hi : fake.ier;
@@ -105,28 +111,34 @@ namespace {
 
     void fake_write8(void* context, astia::u16 port, astia::u8 value) {
         auto& fake = *static_cast<fake_uart*>(context);
+
         switch (port - fake_base) {
         case 0:
             if ((fake.lcr & 0x80) != 0)
                 fake.divisor_lo = value;
             else if ((fake.mcr & 0x10) != 0)
                 fake.push(value);
+
             break;
         case 1:
             if ((fake.lcr & 0x80) != 0)
                 fake.divisor_hi = value;
             else
                 fake.ier = value;
+
             break;
         case 2:
             if ((value & 0x02) != 0)
                 fake.head = fake.tail = 0;
+
             break;
         case 3:
             fake.lcr = value;
+
             break;
         case 4:
             fake.mcr = value;
+
             break;
         default:
             break;
@@ -152,15 +164,17 @@ namespace {
 
     void raw_mode(astia::dev::uart16550& uart) {
         struct termios value {};
+
         ASTIA_CHECK(uart.ioctl(TCGETS, &value, sizeof(value)) == 0);
+
         value.c_iflag     = 0;
         value.c_oflag     = 0;
         value.c_lflag     = 0;
         value.c_cc[VMIN]  = 1;
         value.c_cc[VTIME] = 0;
+
         ASTIA_CHECK(uart.ioctl(TCSETS, &value, sizeof(value)) == 0);
     }
-
 } // namespace
 
 ASTIA_TEST(uart16550_tcflsh_drains_receive_fifo_before_software_input) {
@@ -168,16 +182,20 @@ ASTIA_TEST(uart16550_tcflsh_drains_receive_fifo_before_software_input) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
     fake.push('a');
     fake.push('b');
+
     int selector = TCIFLUSH;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(fake.empty());
 
     char result[4]{};
+
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 
     fake.push('z');
@@ -191,6 +209,7 @@ ASTIA_TEST(uart16550_tcflsh_discards_delivered_input_then_accepts_new_input) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
@@ -201,9 +220,12 @@ ASTIA_TEST(uart16550_tcflsh_discards_delivered_input_then_accepts_new_input) {
     fake.push('d');
 
     int selector = TCIFLUSH;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(fake.empty());
+
     char result[4]{};
+
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 
     fake.push('n');
@@ -219,6 +241,7 @@ ASTIA_TEST(uart16550_tcsetsf_drains_receive_fifo) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
@@ -226,11 +249,15 @@ ASTIA_TEST(uart16550_tcsetsf_drains_receive_fifo) {
     uart.irq();
     fake.push('a');
     fake.push('b');
+
     struct termios value {};
+
     ASTIA_CHECK(uart.ioctl(TCGETS, &value, sizeof(value)) == 0);
     ASTIA_CHECK(uart.ioctl(TCSETSF, &value, sizeof(value)) == 0);
     ASTIA_CHECK(fake.empty());
+
     char result[4]{};
+
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 
     fake.push('o');
@@ -245,10 +272,13 @@ ASTIA_TEST(uart16550_termios_round_trip_preserves_state) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
 
     struct termios next {};
+
     ASTIA_CHECK(uart.ioctl(TCGETS, &next, sizeof(next)) == 0);
+
     next.c_iflag      = ICRNL | IXON | IGNCR;
     next.c_oflag      = OPOST;
     next.c_cflag      = CS7 | CREAD | PARENB;
@@ -258,23 +288,31 @@ ASTIA_TEST(uart16550_termios_round_trip_preserves_state) {
     next.c_cc[VMIN]   = 4;
     next.c_cc[VTIME]  = 2;
     next.c_ispeed = next.c_ospeed = B9600;
+
     ASTIA_CHECK(uart.ioctl(TCSETS, &next, sizeof(next)) == 0);
     ASTIA_CHECK(fake.divisor_lo == 12);
 
     struct termios got {};
+
     ASTIA_CHECK(uart.ioctl(TCGETS, &got, sizeof(got)) == 0);
     ASTIA_CHECK(got.c_iflag == next.c_iflag && got.c_oflag == next.c_oflag &&
                 got.c_cflag == next.c_cflag && got.c_lflag == next.c_lflag);
     ASTIA_CHECK(got.c_line == next.c_line && got.c_ispeed == next.c_ispeed &&
                 got.c_ospeed == next.c_ospeed);
-    for (astia::u32 i = 0; i < NCCS; ++i)
+
+    for (astia::u32 i = 0; i < NCCS; ++i) {
         ASTIA_CHECK(got.c_cc[i] == next.c_cc[i]);
+    }
 
     struct termios bad = next;
-    bad.c_line         = 1;
+
+    bad.c_line = 1;
+
     ASTIA_CHECK(uart.ioctl(TCSETS, &bad, sizeof(bad)) == -EINVAL);
+
     bad          = next;
     bad.c_ospeed = B115200;
+
     ASTIA_CHECK(uart.ioctl(TCSETS, &bad, sizeof(bad)) == -EINVAL);
     ASTIA_CHECK(uart.ioctl(TCGETS, &got, sizeof(got)) == 0);
     ASTIA_CHECK(got.c_line == next.c_line && got.c_ispeed == next.c_ispeed &&
@@ -286,19 +324,24 @@ ASTIA_TEST(uart16550_fifo_preserves_byte_order) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
     astia::u8 payload[32]{};
+
     for (astia::u32 i = 0; i < sizeof(payload); ++i) {
         payload[i] = static_cast<astia::u8>(i * 7 + 3);
+
         fake.push(payload[i]);
     }
+
     ASTIA_CHECK(fake.head - fake.tail == sizeof(payload));
     uart.irq();
     ASTIA_CHECK(fake.empty());
 
     char result[sizeof(payload)]{};
+
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) ==
                 static_cast<long>(sizeof(result)));
     ASTIA_CHECK(memcmp(result, payload, sizeof(payload)) == 0);
@@ -309,27 +352,38 @@ ASTIA_TEST(uart16550_overflow_drops_excess_and_recovers_after_flush) {
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
     raw_mode(uart);
 
     for (astia::u32 round = 0; round < 40; ++round) {
-        for (astia::u32 i = 0; i < 32; ++i)
+        for (astia::u32 i = 0; i < 32; ++i) {
             fake.push(static_cast<astia::u8>(round * 32 + i));
+        }
+
         uart.irq();
     }
+
     char result[2048]{};
     long count = uart.read(result, sizeof(result), 0);
+
     ASTIA_CHECK(count == 1023);
-    for (long i = 0; i < count; ++i)
+
+    for (long i = 0; i < count; ++i) {
         ASTIA_CHECK(static_cast<astia::u8>(result[i]) ==
                     static_cast<astia::u8>(i & 0xFF));
+    }
 
     for (astia::u32 round = 0; round < 40; ++round) {
-        for (astia::u32 i = 0; i < 32; ++i)
+        for (astia::u32 i = 0; i < 32; ++i) {
             fake.push(static_cast<astia::u8>(round * 32 + i));
+        }
+
         uart.irq();
     }
+
     int selector = TCIFLUSH;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 
@@ -340,29 +394,70 @@ ASTIA_TEST(uart16550_overflow_drops_excess_and_recovers_after_flush) {
     ASTIA_CHECK(result[0] == 'o' && result[1] == 'k');
 }
 
-ASTIA_TEST(uart16550_rejects_invalid_and_unsupported_ioctl_requests) {
+ASTIA_TEST(uart16550_tcflsh_accepts_output_flush_and_rejects_invalid_requests) {
     fake_uart             fake;
     astia::dev::pio_bus   bus = fake_bus(fake);
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
     ASTIA_CHECK(uart.init_uart());
 
     int selector = TCIFLUSH;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, nullptr, sizeof(selector)) == -EINVAL);
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector) - 1) == -EINVAL);
+
     selector = 99;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -EINVAL);
+
     selector = TCOFLUSH;
-    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+
     selector = TCIOFLUSH;
-    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -ENOSYS);
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(uart.ioctl(0x1234, nullptr, 0) == -ENOTTY);
+}
+
+ASTIA_TEST(uart16550_tcflsh_selects_input_and_output) {
+    fake_uart             fake;
+    astia::dev::pio_bus   bus = fake_bus(fake);
+    astia::dev::irq_line  irq;
+    astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
+    ASTIA_CHECK(uart.init_uart());
+    raw_mode(uart);
+
+    fake.push('a');
+    fake.push('b');
+    uart.irq();
+
+    int selector = TCOFLUSH;
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+
+    char result[8]{};
+
+    ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 2);
+    ASTIA_CHECK(result[0] == 'a' && result[1] == 'b');
+
+    fake.push('c');
+    uart.irq();
+
+    selector = TCIOFLUSH;
+
+    ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
+    ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
 }
 
 ASTIA_TEST(uart16550_tcflsh_reports_port_failure) {
     astia::dev::pio_bus   bus;
     astia::dev::irq_line  irq;
     astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
-    int                   selector = TCIFLUSH;
+
+    int selector = TCIFLUSH;
+
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == -EIO);
 }

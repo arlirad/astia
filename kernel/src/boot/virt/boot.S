@@ -7,7 +7,7 @@
  * i386 images and refuses x86-64 ones).
  *
  * QEMU enters _start in 32-bit protected mode. We install identity and
- * higher-half maps, switch to long mode and call kmain().
+ * higher-half maps, switch to long mode and call kmain_entry().
  *
  * Everything in this file lives in the .boot.* sections, which the linker
  * script keeps *identity-linked* (VMA == physical address): the 32-bit code
@@ -163,12 +163,13 @@ long_mode:
 
     /* QEMU's PVH option ROM (pc-bios/optionrom/pvh_main.c) jumps into the
      * kernel with %ebx = paddr of the hvm_start_info and %ecx = entry.
-     * %ebx is untouched by the 32-bit setup above, so hand it to kmain as
-     * its first argument. kmain links into the higher half, so a rel32 call
-     * from this identity-mapped address would not reach: load it absolutely. */
+     * %ebx is untouched by the 32-bit setup above, so hand it to kmain_entry
+     * as its first argument. kmain_entry links into the higher half, so a
+     * rel32 call from this identity-mapped address would not reach: load it
+     * absolutely. */
     movl %ebx, %edi
     cld
-    movabs $kmain, %rax
+    movabs $kmain_entry, %rax
     call *%rax
 
 1:  hlt

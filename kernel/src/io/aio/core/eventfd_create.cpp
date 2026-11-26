@@ -3,9 +3,7 @@
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
-
     namespace {
-
         class eventfd_file final : public fs::file,
                                    public fs::readable,
                                    public fs::writable,
@@ -16,9 +14,11 @@ namespace astia::io::aio::operations {
             optional<fs::readable&> as_readable() override {
                 return *this;
             }
+
             optional<fs::writable&> as_writable() override {
                 return *this;
             }
+
             optional<fs::pollable&> as_pollable() override {
                 return *this;
             }
@@ -32,9 +32,10 @@ namespace astia::io::aio::operations {
                                   core::cltoken token) override {
                 return submit_readv(buffers, offset, token);
             }
+
             core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
-                                   core::cltoken token) override {
-                return submit_writev(buffers, offset, token);
+                                   core::cltoken token, bool nonblock) override {
+                return submit_writev(buffers, offset, token, nonblock);
             }
 
             long read_ready(void* buffer, u32 length, u64) override {
@@ -55,13 +56,15 @@ namespace astia::io::aio::operations {
                 if (add == UINT64_MAX)
                     return -EINVAL;
                 u64 old = _value.load(astia::memory_order::relaxed);
-                for (;;) {
+                while (true) {
                     if (UINT64_MAX - old < add)
                         return _nonblock ? -EAGAIN : 0;
+
                     if (_value.compare_exchange_strong(old, old + add,
                                                        astia::memory_order::release,
                                                        astia::memory_order::relaxed)) {
                         io_device_ready_context(this);
+
                         return sizeof(u64);
                     }
                 }
@@ -94,7 +97,6 @@ namespace astia::io::aio::operations {
             astia::atomic<u64> _value;
             bool               _nonblock;
         };
-
     } // namespace
 
     struct eventfd_create : handler<eventfd_create, opcode::eventfd_create> {
@@ -104,13 +106,17 @@ namespace astia::io::aio::operations {
             if ((sqe.op_flags & ~(ASTIA_EFD_NONBLOCK | ASTIA_EFD_CLOEXEC)) != 0 ||
                 sqe.offset == UINT64_MAX)
                 co_return -EINVAL;
+
             proc::process* current = proc::current_process();
             if (!current)
                 co_return -ESRCH;
+
             mm::shptr<eventfd_file> event(
                 new eventfd_file(sqe.offset, (sqe.op_flags & ASTIA_EFD_NONBLOCK) != 0));
+
             if (!event)
                 co_return -ENOMEM;
+
             const u32 status_flags =
                 sqe.op_flags & ASTIA_EFD_NONBLOCK
                     ? static_cast<u32>(fs::open_file_status_flags::nonblock)
@@ -118,12 +124,16 @@ namespace astia::io::aio::operations {
             const u32 descriptor_flags = sqe.op_flags & ASTIA_EFD_CLOEXEC
                                              ? static_cast<u32>(ASTIA_FD_CLOEXEC)
                                              : 0u;
-            auto      handle           = mm::share<fs::open_file>(
+
+            auto handle = mm::share<fs::open_file>(
                 event, static_cast<fs::open_file_status_flags>(status_flags));
-            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd)
+
+            for (i32 fd = 3; fd < (i32) proc::max_process_fds; ++fd) {
                 if (!current->descriptor(fd_t{fd}) &&
                     current->set_descriptor(fd_t{fd}, handle, descriptor_flags))
                     co_return fd;
+            }
+
             co_return -EMFILE;
         }
     };
@@ -131,5 +141,4 @@ namespace astia::io::aio::operations {
     [[gnu::used, gnu::section("astia_aio_handlers")]]
     extern const operation_descriptor eventfd_create_descriptor =
         eventfd_create::descriptor;
-
 } // namespace astia::io::aio::operations

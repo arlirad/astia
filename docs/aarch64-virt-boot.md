@@ -6,10 +6,11 @@ a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
 driver model, a full generic IRQ subsystem, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
 boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, a bounded
-five-tick EL1 physical-timer PPI 30 proof, and a fixed-capacity IRQ-context
-deadline queue, but it does not expose an SPI/device IRQ subsystem, a
-scheduler tick service, thread sleep/wake, or a dynamically sized or general
-timer queue.
+five-tick EL1 physical-timer PPI 30 proof, a fixed-capacity IRQ-context
+deadline queue, and a bounded two-context scheduler whose sleeper is woken by
+that timer through the deadline queue. It does not expose an SPI/device IRQ
+subsystem, the generic process/thread graph, preemption of a running context,
+SMP, or a dynamically sized or general timer queue.
 
 ## Target and boundary
 
@@ -26,9 +27,13 @@ cmake --build kernel/build/aarch64 --target astiakrn
 `arch/aarch64`, `plat/aarch64-virt`, and `boot/aarch64-virt`. It returns before
 the generic full-kernel target graph, so x86 source composition and target
 behavior are unchanged. The minimal `arch_aarch64` target owns the stage start
-assembly (`kernel/src/arch/aarch64/start.S`) and is linked into the production
-boot target. The C++ entry symbol is `astia_aarch64_early_main`, not the generic
-`kmain`. QEMU virt device code remains under `kernel/src/plat/aarch64-virt/`.
+assembly (`kernel/src/arch/aarch64/start.S`), the real context switch
+(`kernel/src/arch/aarch64/context.S`), and the architecture port
+(`kernel/src/arch/aarch64/port.cpp`), and is linked into the production boot
+target. The stage scheduler (`kernel/src/boot/aarch64-virt/scheduler.cpp`) is
+part of `astiakrn`. The C++ entry symbol is `astia_aarch64_early_main`, not the
+generic `kmain`. QEMU virt device code remains under
+`kernel/src/plat/aarch64-virt/`.
 
 The stage does exactly this:
 
@@ -65,16 +70,27 @@ The stage does exactly this:
     spin, mask IRQs, and verify exactly five timer interrupts were
     acknowledged, handled, completed, and returned from, with deadline A and
     B each fired once in that order, C canceled, and no pending deadlines.
-14. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
+14. With IRQs masked, create two statically allocated kernel contexts, arm a
+    second bounded five-tick timer window, unmask IRQs, and enter the
+    stage scheduler. Context A sleeps on a deadline at +20 ms; context B
+    yields while A is blocked. The PPI 30 handler dispatches the deadline
+    before `EOIR`/`DIR`, moves A back to the runnable queue exactly once,
+    and the IRQ exit consumes the reschedule request and switches to A. A
+    records that it resumed only after its deadline and retires; B observes
+    A finished and retires; the boot context resumes. The stage verifies one
+    sleep, one deadline wake, no wake without a deadline, two starts and
+    retires, and no pending deadlines.
+15. Execute a deliberate `brk #0x1234`, report the synchronous BRK64
     exception through the C++ fatal reporter, and halt through PSCI
     `SYSTEM_OFF`.
 
-Explicit non-goals: scheduler, full virtual-memory management, user address
-spaces, cache maintenance policy, a full generic IRQ subsystem, SPI or device
-IRQ dispatch, a generic timer abstraction, a scheduler tick service or timer
-queue, other PPI/SPI drivers, external device interrupts, modules, userspace,
-SMP, secondary redistributors, PSCI CPU bring-up, initrd, ACPI, and full
-generic-kernel boot.
+Explicit non-goals: the generic process/thread graph and heap, preemption of
+a running context beyond the cooperative IRQ-exit handoff, SMP and secondary
+CPUs, full virtual-memory management, user address spaces, cache maintenance
+policy, a full generic IRQ subsystem, SPI or device IRQ dispatch, a generic
+timer abstraction, a dynamically sized or general timer queue, other PPI/SPI
+drivers, external device interrupts, modules, userspace, secondary
+redistributors, PSCI CPU bring-up, initrd, ACPI, and full generic-kernel boot.
 
 ## Direct ELF boot contract
 
@@ -819,12 +835,95 @@ deadline policy inside the timer handler, not a general timer subsystem.
   fire exactly once each across the five-tick window with no pending
   deadlines.
 
-Explicit timer non-goals: repeating timers beyond the fixed five-tick proof,
+Explicit timer non-goals: repeating timers beyond the fixed five-tick proofs,
 `CNTV*` virtual timers, EL2/EL3 timers, a dynamically sized or general timer
-queue or timer wheel, scheduler handoff, thread sleep/wake, deadline
-priorities or priority inheritance, SMP, broadcast timers, CPU hotplug/PSCI
-timer state, `WFI`-based idle, and SPI registration. The local table is
-intentionally SGI/PPI-only.
+queue or timer wheel, deadline priorities or priority inheritance, SMP,
+broadcast timers, CPU hotplug/PSCI timer state, `WFI`-based idle, and SPI
+registration. The local table is intentionally SGI/PPI-only.
+
+## Boot-CPU scheduler proof
+
+The stage now has a bounded scheduler for the boot CPU. It is not the generic
+`proc::scheduler`: that graph is built on `mm::shptr`, the heap, processes,
+address spaces, and the generic IRQ subsystem, none of which exist for
+AArch64 yet. The stage scheduler is architecture-neutral policy plus a real
+AArch64 context switch, deliberately limited to two contexts and the PPI 30
+handoff.
+
+### Context and switch
+
+`kernel/src/arch/aarch64/context.hpp` defines the saved image:
+`x19`-`x28`, `x29`/FP, `x30`/LR, `SP`, and `PSTATE.DAIF`. The set follows the
+AAPCS64 callee-saved rules (Arm DDI 0487, §5.1.1): a normal call preserves
+only `x19`-`x28` and `SP`, with `x29`/`x30` carrying the frame pointer and
+return address. `context_switch` in `context.S` saves the old image and
+restores the next one, including `SP` and `DAIF`, then `RET`s to the saved
+`LR`. A fresh context saves interrupts masked, puts the entry point and
+argument in `x19`/`x20`, points `LR` at `astia_aarch64_context_bootstrap`,
+and starts with its 16 KiB static stack top.
+
+The scheduler masks before every switch, so the restored `DAIF` never opens
+the gate behind the scheduler's back. The logical gate is reopened after the
+switch by the suspended `interrupt_guard` or by the bootstrap; the scheduler
+is therefore a cooperative handoff, not an interrupt-window change.
+
+FP/SIMD state is deliberately absent. The kernel is built with
+`-mgeneral-regs-only` and no kernel path executes an FP/SIMD instruction, so
+there is no `q0`-`q31`/`FPSR`/`FPCR` state to save. Any later kernel FP use
+must either extend the context or leave `CPACR_EL1.FPEN` trapping EL1 access.
+
+### Static allocation
+
+`kernel/src/boot/aarch64-virt/scheduler.cpp` owns four context slots (two are
+used) and a 16 KiB stack per slot in `.bss`. There is no heap, no `mm::shptr`,
+and no dynamic thread record in this stage; `scheduler_policy.hpp` is pure
+data so the selection, deadline, and duplicate-wake rules are host-testable.
+The boot proof uses context A and context B only; the other slots are
+capacity, not a general thread facility.
+
+### Timer-to-scheduler handoff
+
+The timer handler calls `notify_timer_tick()` after `dispatch_due()` and
+before the timer is re-armed and before `EOIR`/`DIR`. That delivers the
+registered arch timer hook, which is the scheduler's `timer_tick`. A sleeping
+context is armed in the existing deadline table by `scheduler::sleep_until`;
+the deadline callback owns the request lifetime, and the queue clears the
+entry before invoking it. The callback moves the record to `runnable` and
+increments its wake count exactly once; `timer_tick` is a catch-up safety net
+that only wakes records whose deadline has passed and that are still
+sleeping. A wake without a deadline is rejected and counted as spurious.
+
+The timer IRQ entry calls `cpu::interrupt_enter()`, dispatches and completes
+the interrupt, then `cpu::interrupt_exit()`. The outermost exit converts the
+pending reschedule request into `should_yield`; `reschedule_from_irq()` at the
+IRQ exit consumes it and performs the context switch while the exception frame
+stays on the interrupted stack. `ERET` restores the interrupted context once
+the scheduler returns to it, so dispatch-before-`EOIR`/`DIR` ordering is
+unchanged.
+
+### Boot proof and non-goals
+
+The stage arms a second five-tick window after the deadline proof. Context A
+sleeps until +20 ms; context B runs and yields while A is blocked. The tick at
+the deadline wakes A, the IRQ exit switches to A, and A records that its wake
+time is at or after the deadline. A then retires, B observes A finished and
+retires, and the boot context resumes to verify: two starts, two retires, one
+sleep, one wake, one deadline wake, zero spurious wakes, no pending deadlines,
+and exactly five timer interrupts in each window.
+
+Scheduler non-goals for this stage: the generic `proc::scheduler` and thread
+objects, heap allocation, more than the static pool, priority/CFS policy,
+preemption of a running context beyond the IRQ-exit handoff, SMP and
+secondary CPUs, affinity/migration, FP/SIMD context save, user contexts, and
+`WFI`-based idle.
+
+### Specification provenance (context and PSTATE)
+
+The context and switch were written against Arm DDI 0487 M.d:
+§5.1.1 (AAPCS64 callee-saved registers and SP), §D1.3 (PSTATE.DAIF masks),
+§D17.2 (exception entry/return and `ERET`), and the `DAIF`/`SPSR_EL1` register
+descriptions. The GIC/timer provenance below covers the PPI 30 delivery and
+`EOIR`/`DIR` completion rules.
 
 ### Specification provenance (GICv3/IRQ)
 
@@ -900,6 +999,11 @@ cmake --build kernel/build-tests --target astia_aarch64_gic_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_gic_test$' \
   --output-on-failure
 
+# Focused scheduler policy test (host)
+cmake --build kernel/build-tests --target astia_aarch64_scheduler_test
+ctest --test-dir kernel/build-tests -R '^astia_aarch64_scheduler_test$' \
+  --output-on-failure
+
 # x86 page-map regression (device is a documented no-op)
 cmake --build kernel/build-tests --target astia_page_map_test
 ctest --test-dir kernel/build-tests -R '^astia_page_map_test$' \
@@ -919,8 +1023,11 @@ reserved self-SGI ID, the local registration marker and IDs, the timer PPI
 diagnostics, the exactly-once `deadline: fired-a=1 fired-b=1 fired-c=0`
 proof, the `DEADLINE OK` ordering between `TIMER TICK OK` and
 `EXCEPTION SYNC`, and `CNTP_CTL_EL0` state, both handlers'
-`IAR1`/`EOIR1`/`DIR` values, the five-tick timer-handled proof, the IRQ
-returns, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
+`IAR1`/`EOIR1`/`DIR` values, two five-tick timer-handled windows, the IRQ
+returns, the scheduler's context/sleep/start/retire/wake diagnostics, the
+exactly-once `sched: A woke ... wake-count=0x00000001` line with its wake
+time at or after the deadline, `sched: spurious-wakes=0x00000000`, the
+`SCHEDULER OK` marker, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
 `FAR_EL1`, and the clean exception halt. It runs QEMU with
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
@@ -928,7 +1035,7 @@ describes GICv3 rather than QEMU's default GICv2.
 Kernel CI (x86_64) (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
 pipeline. The full host CTest suite includes the exception frame/vector layout
-test and the GICv3 policy test.
+test, the GICv3 policy test, and the scheduler policy test.
 
 ## Provenance
 
@@ -953,12 +1060,18 @@ lift must be recorded here with the exact source and rework.
   stubs. There is no recovery, no user fault handling, and no FIQ/SError
   dispatch.
 - No external SPI, other PPI, or device driver interrupts. The only timer is
-  a bounded five-tick re-arm of the 10 ms interval on PPI 30; it has a
-  fixed-capacity eight-entry deadline table but no scheduler binding,
-  dynamically sized or general timer queue, or virtual timer. The local
-  dispatch table is a fixed boot-CPU SGI/PPI foundation, not a generic IRQ
-  subsystem: no SPI dispatch, no dynamic registration, no per-CPU tables, and
-  no scheduler interaction.
+  a bounded five-tick re-arm of the 10 ms interval on PPI 30 in each window;
+  its fixed-capacity eight-entry deadline table now drives the stage
+  scheduler's sleep/wake, but it is still not a dynamically sized or general
+  timer queue, a timer wheel, or the generic scheduler tick service. The
+  local dispatch table is a fixed boot-CPU SGI/PPI foundation, not a generic
+  IRQ subsystem: no SPI dispatch, no dynamic registration, and no per-CPU
+  tables.
+- The scheduler is the bounded stage scheduler, not `proc::scheduler`: four
+  static contexts, two used, a 16 KiB stack each, no heap, no process/thread
+  objects, no priority policy, and no migration. Switch points are the
+  cooperative `yield` and the IRQ-exit handoff; a running context is not
+  time-sliced by the tick.
 - No SMP, secondary redistributor wake, or PSCI CPU bring-up. The
   redistributor scan is bounded to the boot CPU's matching frame.
 - The GIC path requires a single-security-state GIC (`GICD_CTLR.DS == 1`) at

@@ -6,107 +6,218 @@
 #include <stdlib.h>
 #include <string.h>
 
+struct child_list {
+    char** names;
+    size_t count;
+    size_t capacity;
+};
+
 static char* child_path(const char* parent, const char* name) {
     size_t parent_len = __builtin_strlen(parent);
     size_t name_len   = __builtin_strlen(name);
     int    slash      = parent_len != 0 && parent[parent_len - 1] != '/';
-    char*  result     = malloc(parent_len + (size_t) slash + name_len + 1);
+
+    char* result = malloc(parent_len + (size_t) slash + name_len + 1);
     if (result == 0)
         return 0;
+
     __builtin_memcpy(result, parent, parent_len);
+
     if (slash)
         result[parent_len++] = '/';
+
     __builtin_memcpy(result + parent_len, name, name_len + 1);
+
     return result;
 }
 
-static int remove_path(const char* path, int recursive) {
-    struct stat info;
-    if (lstat(path, &info) < 0)
-        return -1;
-    if (!S_ISDIR(info.st_mode))
-        return unlink(path);
-    if (!recursive) {
-        errno = EISDIR;
-        return -1;
+static void free_children(struct child_list* children) {
+    for (size_t index = 0; index < children->count; ++index) {
+        free(children->names[index]);
     }
+
+    free(children->names);
+
+    children->names    = 0;
+    children->count    = 0;
+    children->capacity = 0;
+}
+
+static int append_child(struct child_list* children, const char* name) {
+    if (children->count == children->capacity) {
+        size_t next_capacity = children->capacity == 0 ? 8 : children->capacity * 2;
+
+        char** grown = realloc(children->names, next_capacity * sizeof *grown);
+        if (grown == 0)
+            return -1;
+
+        children->names    = grown;
+        children->capacity = next_capacity;
+    }
+
+    size_t length = __builtin_strlen(name);
+
+    char* copy = malloc(length + 1);
+    if (copy == 0)
+        return -1;
+
+    __builtin_memcpy(copy, name, length + 1);
+
+    children->names[children->count++] = copy;
+
+    return 0;
+}
+
+static int collect_children(const char* path, struct child_list* children) {
     DIR*           directory = opendir(path);
     struct dirent* entry;
-    int            status = 0;
+
+    int status = 0;
+
     if (directory == 0)
         return -1;
+
     for (;;) {
         errno = 0;
         entry = readdir(directory);
         if (entry == 0) {
             if (errno != 0)
                 status = -1;
+
             break;
         }
-        char* child;
+
         if (__builtin_strcmp(entry->d_name, ".") == 0 ||
             __builtin_strcmp(entry->d_name, "..") == 0)
             continue;
-        child = child_path(path, entry->d_name);
-        if (child == 0 || remove_path(child, recursive) < 0)
+
+        if (append_child(children, entry->d_name) < 0)
             status = -1;
-        free(child);
+
         if (status < 0)
             break;
     }
+
     closedir(directory);
+
+    return status;
+}
+
+static int remove_path(const char* path, int recursive) {
+    struct stat info;
+
+    if (lstat(path, &info) < 0)
+        return -1;
+
+    if (!S_ISDIR(info.st_mode))
+        return unlink(path);
+
+    if (!recursive) {
+        errno = EISDIR;
+
+        return -1;
+    }
+
+    struct child_list children = {0};
+
+    if (collect_children(path, &children) < 0) {
+        free_children(&children);
+
+        return -1;
+    }
+
+    int status = 0;
+
+    for (size_t index = 0; index < children.count; ++index) {
+        char* child = child_path(path, children.names[index]);
+
+        if (child == 0 || remove_path(child, recursive) < 0)
+            status = -1;
+
+        free(child);
+
+        if (status < 0)
+            break;
+    }
+
+    free_children(&children);
+
     if (status < 0)
         return -1;
+
     return rmdir(path);
 }
 
 static int protected_operand(const char* path) {
     size_t end = __builtin_strlen(path);
-    while (end != 0 && path[end - 1] == '/')
+
+    while (end != 0 && path[end - 1] == '/') {
         --end;
+    }
+
     if (end == 0)
         return 1;
+
     size_t start = end;
-    while (start != 0 && path[start - 1] != '/')
+
+    while (start != 0 && path[start - 1] != '/') {
         --start;
+    }
+
     return (end - start == 1 && path[start] == '.') ||
            (end - start == 2 && path[start] == '.' && path[start + 1] == '.');
 }
 
 int main(int argc, char** argv) {
     cu_args args;
+
     cu_args_init(&args, argc, argv);
-    int         force     = 0;
-    int         recursive = 0;
-    int         status    = 0;
-    int         operands  = 0;
+
+    int force     = 0;
+    int recursive = 0;
+    int status    = 0;
+    int operands  = 0;
+
     const char* path;
+
     while ((path = cu_args_next(&args)) != 0) {
         if (cu_is_help(path))
             return cu_help("rm", "[-f] [-r] FILE...",
                            "Remove files or directories recursively.");
+
         if (cu_is_version(path))
             return cu_version("rm");
+
         if (args.options && cu_arg_is(path, "-f", "--force")) {
             force = 1;
+
             continue;
         }
+
         if (args.options &&
             (cu_arg_is(path, "-r", "--recursive") || cu_arg_is(path, "-R", 0))) {
             recursive = 1;
+
             continue;
         }
+
         if (args.options && path[0] == '-')
             return cu_error("rm", "unknown option");
+
         ++operands;
+
         if (protected_operand(path)) {
             status |= cu_error("rm", "refusing to remove . or ..");
+
             continue;
         }
+
         if (remove_path(path, recursive) < 0 && !(force && errno == ENOENT))
             status |= cu_error("rm", path);
     }
+
     if (operands == 0 && !force)
         return cu_usage("rm", "[-f] FILE...");
+
     return status;
 }

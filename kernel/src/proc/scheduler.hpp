@@ -1,11 +1,11 @@
 #pragma once
 
-#include "process.hpp"
 #include <astia/arch/platform.hpp>
 #include <astia/resource_limits.hpp>
 
-namespace astia::proc::scheduler {
+#include "process.hpp"
 
+namespace astia::proc::scheduler {
     inline constexpr u32 max_cpu_count      = arch::platform::max_cpu_count;
     inline constexpr u32 run_queue_capacity = resource_limits::queue::scheduler_runnable;
     inline constexpr u32 run_queue_rebalance_slack = 1;
@@ -38,7 +38,7 @@ namespace astia::proc::scheduler {
     bool migrate(thread* value, u32 cpu_index);
     bool wake(thread* value);
     void tick();
+    bool runnable_ready();
     void yield();
     bool ready();
-
 } // namespace astia::proc::scheduler

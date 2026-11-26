@@ -1,0 +1,72 @@
+name: Commit attribution
+
+on:
+  pull_request:
+    branches:
+      - main
+  merge_group:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  commit-attribution:
+    name: commit-attribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38
+        with:
+          python-version: "3.12"
+
+      - name: Load trusted checker and fixtures from base
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          trusted="$RUNNER_TEMP/attribution-trusted"
+          fail() {
+            printf 'commit attribution: error: %s\n' "$*" >&2
+            exit 2
+          }
+          mkdir -p "$trusted/.github/scripts"
+          git show "${BASE_SHA}:.github/scripts/check_attribution.py" \
+            > "$trusted/.github/scripts/check_attribution.py" ||
+            fail "cannot load trusted checker from ${BASE_SHA}"
+          git show "${BASE_SHA}:.github/scripts/test_attribution.py" \
+            > "$trusted/.github/scripts/test_attribution.py" ||
+            fail "cannot load trusted fixtures from ${BASE_SHA}"
+          test -s "$trusted/.github/scripts/check_attribution.py" ||
+            fail "trusted checker from ${BASE_SHA} is empty"
+          test -s "$trusted/.github/scripts/test_attribution.py" ||
+            fail "trusted fixtures from ${BASE_SHA} are empty"
+          python3 -m py_compile \
+            "$trusted/.github/scripts/check_attribution.py" \
+            "$trusted/.github/scripts/test_attribution.py" ||
+            fail "trusted files from ${BASE_SHA} do not compile"
+
+      - name: Self-test trusted attribution checker
+        run: python3 "$RUNNER_TEMP/attribution-trusted/.github/scripts/check_attribution.py" --self-test
+
+      - name: Test trusted attribution checker
+        run: python3 "$RUNNER_TEMP/attribution-trusted/.github/scripts/test_attribution.py"
+
+      - name: Check commit attribution
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'push' && github.event.before || '' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.sha || github.event_name == 'push' && github.event.after || github.sha }}
+        run: python3 "$RUNNER_TEMP/attribution-trusted/.github/scripts/check_attribution.py"

@@ -12,7 +12,6 @@ namespace astia::proc {
 }
 
 namespace astia::io::aio {
-
     inline constexpr u32 kernel_ring_max_entries = ASTIA_AIO_MAX_RING_ENTRIES;
     static_assert(ASTIA_AIO_MAX_RING_SLOTS == resource_limits::abi::aio_ring_slots);
     static_assert(ASTIA_AIO_MAX_RING_ENTRIES == resource_limits::abi::aio_ring_entries);
@@ -50,5 +49,4 @@ namespace astia::io::aio {
     void io_poll_tick();
     void io_exec_process(proc::process* owner);
     void io_exit_process(proc::process* owner);
-
 } // namespace astia::io::aio

@@ -3,10 +3,9 @@
 #include <astia/common.hpp>
 
 namespace astia::resource_limits {
-
     namespace abi {
         inline constexpr u32   syscall_table_capacity        = 128;
-        inline constexpr u32   aio_ring_slots                = 4;
+        inline constexpr u32   aio_ring_slots                = 16;
         inline constexpr u32   aio_ring_entries              = 64;
         inline constexpr u32   aio_parked_operations         = 64;
         inline constexpr usize aio_operation_bytes           = 0x7ffff000;
@@ -50,5 +49,4 @@ namespace astia::resource_limits {
         inline constexpr usize frame_slot_bytes = 2048;
         inline constexpr u32   frame_slots      = 32;
     }
-
 } // namespace astia::resource_limits

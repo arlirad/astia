@@ -2,6 +2,8 @@
 
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
+#include <astia/dev/input_platform.hpp>
 #include <astia/hw/pci.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
@@ -10,7 +12,6 @@
 #include <astia/net.hpp>
 
 namespace astia::module {
-
     using net_device     = net::netdev;
     using netdev         = net::netdev;
     using net_tx_request = net::tx_request;
@@ -31,12 +32,15 @@ namespace astia::module {
         bool unmask();
         bool disable();
         bool release();
+
         bool active() const {
             return _vector.valid();
         }
+
         u32 table_index() const {
             return _table_index;
         }
+
         bool registered() const {
             return _registered;
         }
@@ -55,50 +59,72 @@ namespace astia::module {
         bool                   _enabled         = false;
     };
 
-    bool        pci_enable_bus_master(hw::pci_device& device);
+    bool pci_enable_bus_master(hw::pci_device& device);
+
     inline bool pci_enable_bus_master(hw::pci_device* device) {
         return device != nullptr && module::pci_enable_bus_master(*device);
     }
-    bool        pci_disable_bus_master(hw::pci_device& device);
+
+    bool pci_disable_bus_master(hw::pci_device& device);
+
     inline bool pci_disable_bus_master(hw::pci_device* device) {
         return device != nullptr && module::pci_disable_bus_master(*device);
     }
-    bool        pci_disable_msix(hw::pci_device& device);
+
+    bool pci_disable_msix(hw::pci_device& device);
+
     inline bool pci_disable_msix(hw::pci_device* device) {
         return device != nullptr && pci_disable_msix(*device);
     }
-    bool        pci_restore_msix(hw::pci_device& device, u16 original_control);
+
+    bool pci_restore_msix(hw::pci_device& device, u16 original_control);
+
     inline bool pci_restore_msix(hw::pci_device* device, u16 original_control) {
         return device != nullptr && pci_restore_msix(*device, original_control);
     }
-    bool        pci_map_bar(hw::pci_device& device, u8 index);
+
+    bool pci_map_bar(hw::pci_device& device, u8 index);
+
     inline bool pci_map_bar(hw::pci_device* device, u8 index) {
         return device != nullptr && module::pci_map_bar(*device, index);
     }
-    bool        pci_unmap_bar(hw::pci_device& device, u8 index);
+
+    bool pci_unmap_bar(hw::pci_device& device, u8 index);
+
     inline bool pci_unmap_bar(hw::pci_device* device, u8 index) {
         return device != nullptr && module::pci_unmap_bar(*device, index);
     }
-    u64        pci_bar_mapped(const hw::pci_device& device, u8 index);
+
+    u64 pci_bar_mapped(const hw::pci_device& device, u8 index);
+
     inline u64 pci_bar_mapped(const hw::pci_device* device, u8 index) {
         return device == nullptr ? 0 : pci_bar_mapped(*device, index);
     }
-    u64        pci_bar_size(const hw::pci_device& device, u8 index);
+
+    u64 pci_bar_size(const hw::pci_device& device, u8 index);
+
     inline u64 pci_bar_size(const hw::pci_device* device, u8 index) {
         return device == nullptr ? 0 : pci_bar_size(*device, index);
     }
-    u32        pci_read32(const hw::pci_device& device, u16 offset);
+
+    u32 pci_read32(const hw::pci_device& device, u16 offset);
+
     inline u32 pci_read32(const hw::pci_device* device, u16 offset) {
         return device == nullptr ? ~u32{0} : module::pci_read32(*device, offset);
     }
-    u16        pci_read16(const hw::pci_device& device, u16 offset);
+
+    u16 pci_read16(const hw::pci_device& device, u16 offset);
+
     inline u16 pci_read16(const hw::pci_device* device, u16 offset) {
         return device == nullptr ? ~u16{0} : module::pci_read16(*device, offset);
     }
-    bool        pci_write16(const hw::pci_device& device, u16 offset, u16 value);
+
+    bool pci_write16(const hw::pci_device& device, u16 offset, u16 value);
+
     inline bool pci_write16(const hw::pci_device* device, u16 offset, u16 value) {
         return device != nullptr && module::pci_write16(*device, offset, value);
     }
+
     bool pci_msix_request(hw::pci_device* device, arch::interrupt_vector_handler handler,
                           void* context, msix_route* route);
     bool pci_msix_program(msix_route* route);
@@ -118,9 +144,11 @@ namespace astia::module {
 
         bool acquire(void* address, u32 length, io::direction direction);
         void release();
+
         bool valid() const {
             return static_cast<bool>(_value);
         }
+
         u64 physical() const {
             return _value ? _value->physical() : 0;
         }
@@ -134,12 +162,38 @@ namespace astia::module {
     bool pin_user_write(void* address, u32 length, u64* physical, user_pin** token);
     bool pin_user_read(const void* address, u32 length, u64* physical, user_pin** token);
     void unpin(user_pin* token);
-    int  read_registered_async(const char* path, void* buffer, u32 length, u64 offset);
-    int  write_registered_async(const char* path, const void* buffer, u32 length,
-                                u64 offset);
+    core::task<i64> read_registered(const char* path, void* buffer, u32 length,
+                                    u64 offset);
+    core::task<i64> write_registered(const char* path, const void* buffer, u32 length,
+                                     u64 offset);
 
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);
     int  callback_context();
 
+    /// The narrow PS/2 port window the platform exposes to the keyboard
+    /// module; only ports 0x60/0x64 are addressable.
+    const dev::ps2_port_window& ps2_platform_ports();
+
+    /// Claim IRQ1 for the calling module. The kernel resolves and holds the
+    /// module itself and binds a guarded route, so the image cannot be closed
+    /// while the line is claimed. Refuses outside module entrypoint context or
+    /// when the line already has an owner.
+    bool ps2_claim_irq(arch::irq_handler handler);
+
+    /// Unmask PIC IRQ1 after the guarded claim is in place.
+    bool ps2_unmask_irq();
+
+    /// Mask IRQ1 and retry clearing the guarded claim, so a failed module
+    /// bring-up cannot leave a handler pointing into an image that is about to
+    /// be torn down. Returns false in interrupt context if a dispatch is still
+    /// in flight; normal-context callers retry to completion.
+    bool ps2_release_irq();
+
+    /// Permanently mark the calling module non-unloadable. Only valid while
+    /// the module owns its entrypoint context.
+    bool make_resident();
+
+    /// Forward one layout-mapped byte to the ttv0 input path.
+    bool tty_input_write(u8 byte);
 } // namespace astia::module

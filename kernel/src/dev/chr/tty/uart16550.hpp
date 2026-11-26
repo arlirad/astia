@@ -16,7 +16,7 @@
 //
 // Two faces of the same port:
 //   - polled_putc(): the polled console primitive, byte at a time.
-//     It works from the first instruction of kmain — before any init
+//     It works from the first instruction of kmain_entry — before any init
 //     step, with the interrupt gate closed — because it touches
 //     nothing but THR/LSR.  Panic dumps and early boot logs live here.
 //   - The ring face: fds STDIN/STDOUT/STDERR are bound to the port by
@@ -38,7 +38,6 @@ namespace astia::fs {
 }
 
 namespace astia::dev {
-
     /// One 16550 UART as a terminal device.  Static storage only —
     /// constant-initialized and never destroyed, hence no virtual
     /// destructor.
@@ -111,5 +110,4 @@ namespace astia::dev {
     /// Polled final marker for boot harnesses; does not depend on the async
     /// descriptor/ring path being drainable.
     void uart16550_console_puts(const char* text);
-
 } // namespace astia::dev

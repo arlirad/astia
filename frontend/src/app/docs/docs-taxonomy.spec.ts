@@ -7,22 +7,24 @@ import { DOC_SYSCALLS_KEY } from './docs-tree';
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 
 const SUBSYSTEM_COUNTS: Readonly<Record<string, number>> = {
-  proc: 40,
+  proc: 42,
   fs: 6,
   abi: 25,
   dl: 2,
+  mod: 4,
 };
 
 const CATEGORY_COUNTS: Readonly<Record<string, number>> = {
-  core: 9,
+  core: 10,
   ipc: 1,
   memory: 2,
-  process: 18,
+  process: 19,
   signal: 4,
   thread: 6,
   fs: 6,
   abi: 25,
   dl: 2,
+  mod: 4,
 };
 
 const row = (element: HTMLElement, key: string): HTMLElement | null =>
@@ -78,7 +80,7 @@ describe('DocsBrowser taxonomy', () => {
   }
 
   it('derives exact taxonomy counts and renders them in the tree without filter controls', () => {
-    expect(SYSCALL_PAGES.length).toBe(73);
+    expect(SYSCALL_PAGES.length).toBe(79);
     const subsystems = new Map<string, number>();
     const categories = new Map<string, number>();
     for (const page of SYSCALL_PAGES) {
@@ -102,10 +104,10 @@ describe('DocsBrowser taxonomy', () => {
     expect(topLevel.map(rowLabel)).toEqual([
       'Syscalls (2)',
       'Guide',
-      'Manual page',
+      'Design (7)',
       'Design note',
     ]);
-    expect(topLevel.map(rowCount)).toEqual(['73', '6', '7', '17']);
+    expect(topLevel.map(rowCount)).toEqual(['79', '6', '7', '17']);
     expect(topLevel[0].getAttribute('aria-expanded')).toBe('false');
     expect(topLevel[0].getAttribute('aria-setsize')).toBe('4');
     expect(topLevel[0].getAttribute('aria-posinset')).toBe('1');
@@ -116,7 +118,26 @@ describe('DocsBrowser taxonomy', () => {
     );
   });
 
-  it('nests proc, fs, abi, and dl under one expandable Syscalls node', () => {
+  it('filters the seven section-7 overview pages by their displayed group label', async () => {
+    const { fixture, element } = render();
+    const input = element.querySelector<HTMLInputElement>('.docs-filter input');
+
+    if (input) {
+      input.value = 'design (7)';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    await settle(fixture);
+
+    expect(element.querySelectorAll('[role="treeitem"][aria-level="1"]').length).toBe(1);
+    expect(rowLabel(row(element, 'group:Manual page')!)).toBe('Design (7)');
+    expect(rowCount(row(element, 'group:Manual page')!)).toBe('7');
+    expect(row(element, 'group:Manual page')?.getAttribute('aria-expanded')).toBe('true');
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(7);
+    expect(element.querySelector('.docs-count')?.textContent).toContain('7 pages');
+    expect(row(element, 'group:Design note')).toBeNull();
+  });
+
+  it('nests proc, fs, abi, dl, and mod under one expandable Syscalls node', () => {
     const { fixture, element } = render();
     const syscalls = row(element, DOC_SYSCALLS_KEY);
 
@@ -124,7 +145,7 @@ describe('DocsBrowser taxonomy', () => {
     expect(syscalls?.getAttribute('aria-level')).toBe('1');
     expect(syscalls?.getAttribute('aria-expanded')).toBe('false');
     expect(rowLabel(syscalls!)).toBe('Syscalls (2)');
-    expect(rowCount(syscalls!)).toBe('73');
+    expect(rowCount(syscalls!)).toBe('79');
 
     syscalls?.click();
     fixture.detectChanges();
@@ -133,8 +154,8 @@ describe('DocsBrowser taxonomy', () => {
     const subsystems = [
       ...element.querySelectorAll<HTMLElement>('[data-tree-key^="taxonomy:"][aria-level="2"]'),
     ];
-    expect(subsystems.map(rowLabel)).toEqual(['proc', 'fs', 'abi', 'dl']);
-    expect(subsystems.map(rowCount)).toEqual(['40', '6', '25', '2']);
+    expect(subsystems.map(rowLabel)).toEqual(['proc', 'fs', 'abi', 'dl', 'mod']);
+    expect(subsystems.map(rowCount)).toEqual(['41', '6', '25', '2', '4']);
     for (const subsystem of subsystems) {
       expect(subsystem.getAttribute('aria-expanded')).toBe('false');
     }
@@ -155,7 +176,7 @@ describe('DocsBrowser taxonomy', () => {
       'signal',
       'thread',
     ]);
-    expect(categories.map(rowCount)).toEqual(['9', '1', '2', '18', '4', '6']);
+    expect(categories.map(rowCount)).toEqual(['9', '1', '2', '19', '4', '6']);
     for (const category of categories) {
       expect(category.getAttribute('aria-level')).toBe('3');
       expect(category.getAttribute('aria-expanded')).toBe('false');
@@ -165,9 +186,9 @@ describe('DocsBrowser taxonomy', () => {
     row(element, 'taxonomy:proc/process')?.click();
     fixture.detectChanges();
 
-    expect(element.querySelectorAll('.docs-index-link').length).toBe(18);
+    expect(element.querySelectorAll('.docs-index-link').length).toBe(19);
     expect(row(element, 'page:syscall-70-uname')?.getAttribute('aria-level')).toBe('4');
-    expect(row(element, 'page:syscall-70-uname')?.getAttribute('aria-setsize')).toBe('18');
+    expect(row(element, 'page:syscall-70-uname')?.getAttribute('aria-setsize')).toBe('19');
 
     row(element, 'taxonomy:fs')?.click();
     fixture.detectChanges();

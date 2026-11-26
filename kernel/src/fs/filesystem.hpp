@@ -3,7 +3,6 @@
 #include "mount.hpp"
 
 namespace astia::fs {
-
     inline constexpr u32 invalid_filesystem_slot = ~u32{0};
 
     struct filesystem_registration {
@@ -22,9 +21,11 @@ namespace astia::fs {
         public:
         virtual const char*       name() const                    = 0;
         virtual astia::fs::mount* mount(const char* source) const = 0;
-        virtual bool              owns_mount() const {
+
+        virtual bool owns_mount() const {
             return false;
         }
+
         virtual void destroy_mount(astia::fs::mount*) const {}
     };
 
@@ -35,5 +36,4 @@ namespace astia::fs {
     long mount_type(const char* type, const char* target, const char* source = nullptr);
     /// Remove a non-root mount after all handles and child mounts are gone.
     long unmount_type(const char* target);
-
 } // namespace astia::fs

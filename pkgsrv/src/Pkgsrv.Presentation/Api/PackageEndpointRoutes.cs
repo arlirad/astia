@@ -31,6 +31,16 @@ public static class PackageEndpointRoutes
             (string name, string version, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
                 PackageEndpointHandlers.RequestBuildAsync(name, version, mediator, actors, cancellationToken));
 
+        packages.MapPost(
+            "/{name}/{version}/publish",
+            (string name, string version, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
+                PackageEndpointHandlers.PublishAsync(name, version, mediator, actors, cancellationToken));
+
+        packages.MapGet(
+            "/{name}/{version}/download",
+            (string name, string version, IMediator mediator, IActorContextAccessor actors, CancellationToken cancellationToken) =>
+                PackageEndpointHandlers.DownloadAsync(name, version, mediator, actors, cancellationToken));
+
         return endpoints;
     }
 }

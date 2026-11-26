@@ -11,6 +11,13 @@ public interface IPackageRepository
 
     Task UpdateAsync(Package package, CancellationToken cancellationToken);
 
+    Task UpdateSignatureAsync(Package package, CancellationToken cancellationToken);
+
+    Task MarkPublishedAsync(
+        Package package,
+        DateTimeOffset publishedAt,
+        CancellationToken cancellationToken);
+
     Task AcknowledgeDomainEventsAsync(
         PackageKey key,
         IReadOnlyCollection<IDomainEvent> publishedEvents,
@@ -24,6 +31,11 @@ public sealed record PackageIndexEntry(
 
 public interface IPackageIndex
 {
+    /// <summary>
+    /// Searches indexed fields only: package name contains and source commit prefix,
+    /// both case-insensitive. Provenance and other metadata are not search fields.
+    /// A null or whitespace value returns the full bounded, deterministically ordered list.
+    /// </summary>
     Task<IReadOnlyList<PackageIndexEntry>> SearchAsync(
         string? search,
         CancellationToken cancellationToken);

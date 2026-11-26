@@ -10,7 +10,8 @@ set(ASTIA_TYPED_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/blk/blkdev.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/chr/chrdev.hpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/driver.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/driver.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/strings.hpp)
 set(ASTIA_TYPED_HEADER_OBJECTS)
 foreach(ASTIA_TYPED_HEADER IN LISTS ASTIA_TYPED_HEADERS)
     get_filename_component(ASTIA_TYPED_HEADER_NAME ${ASTIA_TYPED_HEADER} NAME)

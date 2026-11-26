@@ -11,7 +11,6 @@
 // without taking responsibility for deleting it.
 
 namespace astia::mm {
-
     struct shcontrol {
         atomic<u32> refs;
         void*       value;
@@ -29,20 +28,25 @@ namespace astia::mm {
 
         template <typename U>
             requires requires(U* value) { static_cast<T*>(value); }
+
         explicit shptr(U* value) {
             acquire(value, &destroy_owned<U>);
         }
 
         static shptr borrowed(T* value) {
             shptr result;
+
             result.acquire(value, nullptr);
+
             return result;
         }
 
         template <typename U>
         static shptr adopt(U* value, void (*destroy)(void*)) {
             shptr result;
+
             result.acquire(value, destroy);
+
             return result;
         }
 
@@ -52,6 +56,7 @@ namespace astia::mm {
 
         template <typename U>
             requires requires(U* value) { static_cast<T*>(value); }
+
         shptr(const shptr<U>& other) : _control(other._control) {
             retain();
         }
@@ -59,9 +64,12 @@ namespace astia::mm {
         shptr& operator=(const shptr& other) {
             if (this != &other) {
                 release();
+
                 _control = other._control;
+
                 retain();
             }
+
             return *this;
         }
 
@@ -69,8 +77,11 @@ namespace astia::mm {
             requires requires(U* value) { static_cast<T*>(value); }
         shptr& operator=(const shptr<U>& other) {
             release();
+
             _control = other._control;
+
             retain();
+
             return *this;
         }
 
@@ -80,6 +91,7 @@ namespace astia::mm {
 
         template <typename U>
             requires requires(U* value) { static_cast<T*>(value); }
+
         shptr(shptr<U>&& other) noexcept : _control(other._control) {
             other._control = nullptr;
         }
@@ -87,9 +99,11 @@ namespace astia::mm {
         shptr& operator=(shptr&& other) noexcept {
             if (this != &other) {
                 release();
+
                 _control       = other._control;
                 other._control = nullptr;
             }
+
             return *this;
         }
 
@@ -107,6 +121,7 @@ namespace astia::mm {
         T& operator*() const {
             return *get();
         }
+
         explicit operator bool() const {
             return get() != nullptr;
         }
@@ -123,13 +138,17 @@ namespace astia::mm {
         void acquire(U* value, void (*destroy)(void*)) {
             if (value == nullptr)
                 return;
+
             shcontrol* control = new (std::nothrow) shcontrol;
             if (control == nullptr) {
                 if (destroy != nullptr)
                     destroy(value);
+
                 return;
             }
+
             control->refs.store(1, memory_order::relaxed);
+
             control->value   = static_cast<T*>(value);
             control->owned   = value;
             control->destroy = destroy;
@@ -137,24 +156,24 @@ namespace astia::mm {
         }
 
         void retain() {
-            if (_control != nullptr) {
+            if (_control != nullptr)
                 (void) _control->refs.fetch_add(1, memory_order::relaxed);
-            }
         }
 
         void release() {
-            if (_control == nullptr) {
+            if (_control == nullptr)
                 return;
-            }
+
             shcontrol* control = _control;
-            _control           = nullptr;
+
+            _control = nullptr;
+
             if (control->refs.fetch_sub(1, memory_order::acq_rel) == 1) {
-                if (control->destroy != nullptr) {
+                if (control->destroy != nullptr)
                     control->destroy(control->owned);
-                }
+
                 delete control;
             }
         }
     };
-
 } // namespace astia::mm

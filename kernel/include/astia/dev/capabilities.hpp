@@ -1,10 +1,10 @@
 #pragma once
 
+#include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
 
 namespace astia::dev {
-
     struct pio_reader {
         using read8_callback  = u8 (*)(void*, u16);
         using read16_callback = u16 (*)(void*, u16);
@@ -52,21 +52,27 @@ namespace astia::dev {
         bool write8(u16 port, u8 value) const {
             if (write8_fn == nullptr)
                 return false;
+
             write8_fn(context, port, value);
+
             return true;
         }
 
         bool write16(u16 port, u16 value) const {
             if (write16_fn == nullptr)
                 return false;
+
             write16_fn(context, port, value);
+
             return true;
         }
 
         bool write32(u16 port, u32 value) const {
             if (write32_fn == nullptr)
                 return false;
+
             write32_fn(context, port, value);
+
             return true;
         }
     };
@@ -96,6 +102,7 @@ namespace astia::dev {
         constexpr bool readable() const {
             return reader.valid();
         }
+
         constexpr bool writable() const {
             return writer.valid();
         }
@@ -103,18 +110,23 @@ namespace astia::dev {
         optional<u8> read8(u16 port) const {
             return reader.read8(port);
         }
+
         optional<u16> read16(u16 port) const {
             return reader.read16(port);
         }
+
         optional<u32> read32(u16 port) const {
             return reader.read32(port);
         }
+
         bool write8(u16 port, u8 value) const {
             return writer.write8(port, value);
         }
+
         bool write16(u16 port, u16 value) const {
             return writer.write16(port, value);
         }
+
         bool write32(u16 port, u32 value) const {
             return writer.write32(port, value);
         }
@@ -123,6 +135,7 @@ namespace astia::dev {
     class io_port {
         public:
         constexpr io_port() = default;
+
         constexpr io_port(const pio_bus& bus, u16 base) : _bus(&bus), _base(base) {}
 
         optional<u8> read8(u32 offset) const {
@@ -179,6 +192,7 @@ namespace astia::dev {
 
         constexpr u32 port(u32 offset) const {
             const u32 result = static_cast<u32>(_base) + offset;
+
             return result <= 0xffff ? result : none;
         }
 
@@ -189,18 +203,31 @@ namespace astia::dev {
     using irq_handler = void (*)();
 
     struct irq_claimable {
-        using callback = bool (*)(void*, irq_handler);
+        using callback         = bool (*)(void*, irq_handler);
+        using guarded_callback = bool (*)(void*, irq_handler, arch::irq_callback_enter,
+                                          arch::irq_callback_leave, void*);
 
-        void*    context  = nullptr;
-        callback claim_fn = nullptr;
+        void*            context          = nullptr;
+        callback         claim_fn         = nullptr;
+        guarded_callback guarded_claim_fn = nullptr;
 
         constexpr bool valid() const {
             return claim_fn != nullptr;
         }
 
+        constexpr bool guarded() const {
+            return guarded_claim_fn != nullptr;
+        }
+
         bool claim(irq_handler handler) const {
             return handler != nullptr && claim_fn != nullptr &&
                    claim_fn(context, handler);
+        }
+
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return handler != nullptr && guarded_claim_fn != nullptr &&
+                   guarded_claim_fn(context, handler, enter, leave, guard_context);
         }
     };
 
@@ -220,16 +247,19 @@ namespace astia::dev {
     };
 
     struct irq_line {
-        using claim_callback  = irq_claimable::callback;
-        using unmask_callback = irq_unmaskable::callback;
+        using claim_callback         = irq_claimable::callback;
+        using guarded_claim_callback = irq_claimable::guarded_callback;
+        using unmask_callback        = irq_unmaskable::callback;
 
         irq_claimable  claimable;
         irq_unmaskable unmaskable;
 
         constexpr irq_line() = default;
         constexpr irq_line(void* context, claim_callback claim_fn,
-                           unmask_callback unmask_fn)
-            : claimable{context, claim_fn}, unmaskable{context, unmask_fn} {}
+                           unmask_callback        unmask_fn,
+                           guarded_claim_callback guarded_claim_fn = nullptr)
+            : claimable{context, claim_fn, guarded_claim_fn},
+              unmaskable{context, unmask_fn} {}
 
         constexpr bool valid() const {
             return claimable.valid() && unmaskable.valid();
@@ -238,15 +268,22 @@ namespace astia::dev {
         constexpr bool claimable_valid() const {
             return claimable.valid();
         }
+
         constexpr bool unmaskable_valid() const {
             return unmaskable.valid();
         }
+
         bool claim(irq_handler handler) const {
             return claimable.claim(handler);
         }
+
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return claimable.claim_guarded(handler, enter, leave, guard_context);
+        }
+
         bool unmask() const {
             return unmaskable.unmask();
         }
     };
-
 } // namespace astia::dev

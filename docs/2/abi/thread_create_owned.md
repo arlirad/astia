@@ -16,10 +16,8 @@ Returns the new thread ID or a negative errno.
 
 ## ERRORS
 
-- `-EFAULT`: Start is inaccessible userspace memory.
-- `-EINVAL`: Entry or stack parameters are invalid.
+- `-EFAULT`: The entry point, stack parameters, or argument pointer is invalid, or start is inaccessible userspace memory, or there is no current process.
 - `-EAGAIN`: Thread resources are exhausted.
-- `-ESRCH`: There is no current process.
 
 ## NOTES
 

@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// Lowest virtual address of the kernel's address space, provided by the
     /// selected arch (src/arch/<arch>/layout.cpp): the start of the canonical
     /// higher half on x86_64 (0xFFFF800000000000). Also the base of the
@@ -33,5 +32,4 @@ namespace astia::arch {
     /// while `physical < direct_map_limit`. x86_64: one PML4 slot (512 GiB);
     /// 0 when the arch has no direct map.
     extern const u64 direct_map_limit;
-
 } // namespace astia::arch

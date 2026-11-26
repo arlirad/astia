@@ -8,7 +8,6 @@
 // periodically at the requested rate.
 
 namespace astia::arch::x86_64 {
-
     class lapic {
         public:
         static constexpr u32 timer_vector      = 48; // past the PIC's 32..47
@@ -31,5 +30,4 @@ namespace astia::arch::x86_64 {
         static bool init_sipi(u32 apic_id, u8 vector);
         static bool init_sipi_all(u8 vector);
     };
-
 } // namespace astia::arch::x86_64

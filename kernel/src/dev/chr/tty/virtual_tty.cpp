@@ -1,11 +1,11 @@
 #include "virtual_tty.hpp"
 
-#include "../../../sys/aio.hpp"
 #include <astia/api/errno.h>
 #include <astia/fs.hpp>
 
-namespace astia::dev {
+#include "../../../sys/aio.hpp"
 
+namespace astia::dev {
     long virtual_tty::write(const void* buf, u32 len, u64 off) {
         return (_backend != nullptr || console_backend_available())
                    ? tty::write(buf, len, off)
@@ -14,16 +14,20 @@ namespace astia::dev {
 
     u32 virtual_tty::poll(u32 events, u32 flags) {
         u32 result = tty::poll(events, flags);
+
         if (_backend == nullptr && !console_backend_available())
             result &= ~static_cast<u32>(POLLOUT);
+
         return result;
     }
 
     bool virtual_tty::inject_input(u8 byte) {
-        const bool ready = tty_receive(byte);
-        if (ready)
+        const tty_input_result result = tty_receive(byte);
+
+        if (result == tty_input_result::ready)
             tty_input_ready();
-        return ready;
+
+        return result == tty_input_result::ready;
     }
 
     void virtual_tty::bind_ready_file(fs::file* file) {
@@ -46,5 +50,4 @@ namespace astia::dev {
     long virtual_tty::tty_speed(speed_t speed) {
         return speed <= B115200 ? 0 : -EINVAL;
     }
-
 } // namespace astia::dev

@@ -42,7 +42,6 @@
  */
 
 namespace astia::sys {
-
     template <typename T>
     class validated_user_ptr;
     template <typename T>
@@ -74,12 +73,15 @@ namespace astia::sys {
 
         public:
         constexpr validated_user_span() = default;
+
         T* get() const {
             return reinterpret_cast<T*>(address_);
         }
+
         span<T> view() const {
             return span<T>(get(), length_ / sizeof(T));
         }
+
         span<u8> bytes() const {
             return span<u8>::bytes(address_, length_);
         }
@@ -87,6 +89,7 @@ namespace astia::sys {
         private:
         validated_user_span(u64 address, usize length)
             : address_(address), length_(length) {}
+
         u64   address_ = 0;
         usize length_  = 0;
     };
@@ -95,18 +98,22 @@ namespace astia::sys {
     class user_span {
         public:
         constexpr user_span() = default;
+
         constexpr user_span(u64 address, usize count)
             : address_(address), count_(count) {}
 
         constexpr u64 address() const {
             return address_;
         }
+
         constexpr usize count() const {
             return count_;
         }
+
         constexpr span<u8> bytes() const {
             return span<u8>::bytes(address_, sizeof(T) * count_);
         }
+
         optional<validated_user_span<T>> validate() const;
 
         private:
@@ -122,21 +129,26 @@ namespace astia::sys {
 
         public:
         constexpr validated_user_ptr() = default;
+
         constexpr u64 address() const {
             return address_;
         }
+
         T* get() const {
             return reinterpret_cast<T*>(address_);
         }
+
         span<T> view(usize count = 1) const {
             return span<T>(get(), count);
         }
+
         span<u8> bytes(usize count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
 
         private:
         explicit validated_user_ptr(u64 address) : address_(address) {}
+
         u64 address_;
     };
 
@@ -147,21 +159,27 @@ namespace astia::sys {
     class user_ptr {
         public:
         constexpr user_ptr() = default;
+
         explicit constexpr user_ptr(u64 address) : address_(address) {}
 
         constexpr u64 address() const {
             return address_;
         }
+
         constexpr bool null() const {
             return address_ == 0;
         }
+
         constexpr span<u8> bytes(usize count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
+
         constexpr span<u8> string() const {
             static_assert(sizeof(T) == 1, "string pointers must point to bytes");
+
             return span<u8>::string(address_);
         }
+
         optional<validated_user_ptr<T>> validate(usize count = 1) const;
         optional<validated_user_ptr<T>> validate_for(proc::process* owner,
                                                      usize          count = 1) const;
@@ -179,34 +197,36 @@ namespace astia::sys {
     /// space.  A zero length is vacuously valid; a null base with nonzero
     /// length is not.
     inline bool user_span_ok_for(proc::process* owner, span<u8> range) {
-        if (range.length() == 0) {
+        if (range.length() == 0)
             return true;
-        }
+
         const u64 base = range.address();
-        if (base == 0) {
+        if (base == 0)
             return false;
-        }
+
         auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+
         if (space == nullptr || !space->attached()) {
             return true; // kernel client: kernel pointers, as before
         }
-        if (!space->valid_user_range(base, range.length())) {
+
+        if (!space->valid_user_range(base, range.length()))
             return false;
-        }
-        if (space->validate(base, range.length(), mm::access::read)) {
+
+        if (space->validate(base, range.length(), mm::access::read))
             return true;
-        }
+
         const u64 first = base & ~mm::page_mask;
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
+
         for (u64 page = first;; page += mm::page_size) {
             if (!space->user_accessible(page)) {
-                if (!owner->cow_fault(page, false) || !space->user_accessible(page)) {
+                if (!owner->cow_fault(page, false) || !space->user_accessible(page))
                     return false;
-                }
             }
-            if (page == last) {
+
+            if (page == last)
                 return true;
-            }
         }
     }
 
@@ -215,50 +235,53 @@ namespace astia::sys {
     }
 
     inline bool kernel_span_ok(span<u8> range) {
-        if (range.empty()) {
+        if (range.empty())
             return true;
-        }
+
         const u64 base = range.address();
+
         return base >= arch::kernel_base && range.length() - 1 <= ~u64{0} - base;
     }
 
     inline bool user_span_writable_ok_for(proc::process* owner, span<u8> range) {
-        if (range.length() == 0) {
+        if (range.length() == 0)
             return true;
-        }
+
         const u64 base = range.address();
-        if (base == 0) {
+        if (base == 0)
             return false;
-        }
+
         auto* space = owner == nullptr ? nullptr : &owner->memory_space();
-        if (space == nullptr || !space->attached()) {
+
+        if (space == nullptr || !space->attached())
             return true;
-        }
-        if (!space->valid_user_range(base, range.length())) {
+
+        if (!space->valid_user_range(base, range.length()))
             return false;
-        }
-        if (space->validate(base, range.length(), mm::access::write)) {
+
+        if (space->validate(base, range.length(), mm::access::write))
             return true;
-        }
+
         const u64 first = base & ~mm::page_mask;
         const u64 last  = (base + range.length() - 1) & ~mm::page_mask;
+
         for (u64 page = first;; page += mm::page_size) {
             if (!space->user_accessible(page) || !space->writable(page)) {
-                if (!owner->cow_fault(page, true) || !space->writable(page)) {
+                if (!owner->cow_fault(page, true) || !space->writable(page))
                     return false;
-                }
             }
-            if (page == last) {
+
+            if (page == last)
                 return true;
-            }
         }
     }
 
     inline bool user_code_ptr_ok_for(proc::process* owner, u64 address) {
-        if (address == 0) {
+        if (address == 0)
             return false;
-        }
+
         auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+
         return space == nullptr || !space->attached() ||
                (space->valid_user_range(address, 1) &&
                 space->executable(address & ~mm::page_mask));
@@ -278,8 +301,10 @@ namespace astia::sys {
                                                               usize count) const {
         if (count > (~usize{0} / sizeof(T)))
             return error_t::erange;
+
         if (!user_span_ok_for(owner, bytes(count)))
             return error_t::efault;
+
         return validated_user_ptr<T>(address_);
     }
 
@@ -294,15 +319,16 @@ namespace astia::sys {
                 return user_ptr<T>(raw);
             }
         };
-
     } // namespace detail
 
     template <typename T>
     optional<validated_user_span<T>> user_span<T>::validate() const {
         if (count_ > (~usize{0} / sizeof(T)))
             return error_t::erange;
+
         if (!user_span_ok(bytes()))
             return error_t::efault;
+
         return validated_user_span<T>(address_, sizeof(T) * count_);
     }
 
@@ -320,9 +346,9 @@ namespace astia::sys {
     inline long pin_user_span_for(proc::process* owner, span<u8> range,
                                   io::direction direction, mm::iovec& out,
                                   bool allow_kernel_buffer = false) {
-        if (range.empty()) {
+        if (range.empty())
             return 0;
-        }
+
         if (owner == nullptr || !owner->memory_space().attached()) {
             // Kernel client: kernel memory, which cannot be unmapped.  This
             // is the one range the kernel owns rather than the caller, and
@@ -333,12 +359,13 @@ namespace astia::sys {
                        ? 0
                        : -ENOMEM;
         }
-        if (allow_kernel_buffer && kernel_span_ok(range)) {
+
+        if (allow_kernel_buffer && kernel_span_ok(range))
             return out.append_kernel(reinterpret_cast<void*>(range.address()),
                                      range.length())
                        ? 0
                        : -ENOMEM;
-        }
+
         return owner->pin_user(range.address(), range.length(),
                                direction == io::direction::input, out);
     }
@@ -358,53 +385,68 @@ namespace astia::sys {
         // Besides avoiding a meaningless source dereference, this keeps the
         // page walk below from turning an empty range into address-1.  Empty
         // optional output slots are valid and must be a no-op.
-        if (destination.empty()) {
+        if (destination.empty())
             return true;
-        }
-        if (!user_span_writable_ok_for(owner, destination)) {
+
+        if (!user_span_writable_ok_for(owner, destination))
             return false;
-        }
+
         // A forked child's private writable mappings are read-only until the
         // child writes them.  This copy is performed in ring 0, so hardware
         // cannot enter the ring-3 page-fault path if the destination still
         // carries that CoW protection.  Resolve each page explicitly before
         // taking the user address as a writable pointer.
         auto* space = owner == nullptr ? nullptr : &owner->memory_space();
+
         if (space != nullptr && space->attached()) {
             const u64 first = destination.address() & ~mm::page_mask;
             const u64 last =
                 (destination.address() + destination.length() - 1) & ~mm::page_mask;
+
             for (u64 page = first;; page += mm::page_size) {
-                if (!space->writable(page)) {
+                if (!space->writable(page))
                     return false;
-                }
+
                 if (page == last)
                     break;
             }
-            const auto* from   = static_cast<const u8*>(source);
-            usize       copied = 0;
+
+            const auto* from = static_cast<const u8*>(source);
+
+            usize copied = 0;
+
             while (copied < destination.length()) {
                 const u64 address = destination.address() + copied;
                 const u64 page    = address & ~mm::page_mask;
-                auto*     target =
+
+                auto* target =
                     static_cast<u8*>(mm::kernel_frames().to_virt(space->translate(page)));
                 if (target == nullptr)
                     return false;
+
                 const usize within = static_cast<usize>(address - page);
                 usize       chunk  = mm::page_size - within;
+
                 if (chunk > destination.length() - copied)
                     chunk = destination.length() - copied;
-                for (usize i = 0; i < chunk; ++i)
+
+                for (usize i = 0; i < chunk; ++i) {
                     target[within + i] = from[copied + i];
+                }
+
                 copied += chunk;
             }
+
             return true;
         }
+
         auto*       to   = reinterpret_cast<u8*>(destination.address());
         const auto* from = static_cast<const u8*>(source);
+
         for (usize i = 0; i < destination.length(); ++i) {
             to[i] = from[i];
         }
+
         return true;
     }
 
@@ -414,14 +456,16 @@ namespace astia::sys {
 
     /// Copy in from a validated user range into the kernel.
     inline bool copy_in(void* destination, span<u8> source) {
-        if (!user_span_ok(source)) {
+        if (!user_span_ok(source))
             return false;
-        }
+
         auto*       to   = static_cast<u8*>(destination);
         const auto* from = reinterpret_cast<const u8*>(source.address());
+
         for (usize i = 0; i < source.length(); ++i) {
             to[i] = from[i];
         }
+
         return true;
     }
 
@@ -436,42 +480,48 @@ namespace astia::sys {
     /// the capacity bound.
     inline bool copy_in_string(span<char> destination, span<u8> source) {
         const usize capacity = destination.size();
-        if (capacity == 0 || source.null()) {
+
+        if (capacity == 0 || source.null())
             return false;
-        }
+
         proc::process* owner = proc::current_process();
         auto*          space = owner == nullptr ? nullptr : &owner->memory_space();
         const auto*    from  = reinterpret_cast<const u8*>(source.address());
-        u64            byte  = source.address();
+
+        u64 byte = source.address();
+
         if (space == nullptr ||
             !space->attached()) { // kernel client: bounded straight copy
             for (usize i = 0; i < capacity; ++i) {
                 destination.data()[i] = static_cast<char>(from[i]);
-                if (destination.data()[i] == '\0') {
+
+                if (destination.data()[i] == '\0')
                     return true;
-                }
             }
+
             return false;
         }
-        if (!space->valid_user_range(byte, 1)) {
+
+        if (!space->valid_user_range(byte, 1))
             return false;
-        }
-        if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1))) {
+
+        if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1)))
             return false;
-        }
+
         for (usize i = 0; i < capacity; ++i, ++byte) {
-            if (!space->valid_user_range(byte, 1)) {
+            if (!space->valid_user_range(byte, 1))
                 return false;
-            }
+
             if ((byte & mm::page_mask) == 0 &&
-                !user_span_ok_for(owner, span<u8>::bytes(byte, 1))) {
+                !user_span_ok_for(owner, span<u8>::bytes(byte, 1)))
                 return false;
-            }
+
             destination.data()[i] = static_cast<char>(from[i]);
-            if (destination.data()[i] == '\0') {
+
+            if (destination.data()[i] == '\0')
                 return true;
-            }
         }
+
         return false; // no terminator within capacity
     }
 
@@ -482,5 +532,4 @@ namespace astia::sys {
     inline bool copy_in_string(span<char> destination, validated_user_ptr<char> source) {
         return copy_in_string(destination, user_ptr<char>(source.address()));
     }
-
 } // namespace astia::sys

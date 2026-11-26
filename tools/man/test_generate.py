@@ -54,8 +54,8 @@ class GenerateTest(unittest.TestCase):
         'sigaction': 'kernel/src/proc/syscalls/signal/sigaction.cpp',
         'sigprocmask': 'kernel/src/proc/syscalls/signal/sigprocmask.cpp',
         'thread_create2': 'kernel/src/proc/syscalls/thread/thread_create2.cpp',
-        'execve': 'libc/src/unistd.c',
-        'sigsuspend': 'libc/src/signal.c',
+        'execve': 'libc/src/sys/unistd.c',
+        'sigsuspend': 'libc/src/process/signal.c',
         'getpgrp': 'kernel/src/proc/syscalls/getpgrp.cpp',
         'setpgid': 'kernel/src/proc/syscalls/setpgid.cpp',
         'setsid': 'kernel/src/proc/syscalls/setsid.cpp',
@@ -103,6 +103,12 @@ class GenerateTest(unittest.TestCase):
         'uname': 'kernel/src/proc/syscalls/process/uname.cpp',
         'dlmap': 'kernel/src/dl/syscalls/dlmap.cpp',
         'dlunmap': 'kernel/src/dl/syscalls/dlunmap.cpp',
+        'modopen': 'kernel/src/mod/syscalls/modopen.cpp',
+        'modls': 'kernel/src/mod/syscalls/modls.cpp',
+        'modstat': 'kernel/src/mod/syscalls/modstat.cpp',
+        'modclose': 'kernel/src/mod/syscalls/modclose.cpp',
+        'getrandom': 'kernel/src/proc/syscalls/getrandom.cpp',
+        'chroot': 'kernel/src/proc/syscalls/process/chroot.cpp',
     }
     EXPECTED_TAXONOMY = {
         'io_setup': ('fs', 'fs'),
@@ -177,6 +183,10 @@ class GenerateTest(unittest.TestCase):
         'fchdir': ('abi', 'abi'),
         'uname': ('proc', 'process'),
         'dlmap': ('dl', 'dl'), 'dlunmap': ('dl', 'dl'),
+        'modopen': ('mod', 'mod'), 'modls': ('mod', 'mod'),
+        'modstat': ('mod', 'mod'), 'modclose': ('mod', 'mod'),
+        'getrandom': ('proc', 'core'),
+        'chroot': ('proc', 'process'),
     }
     EXPECTED_SHARED_SOURCES = {
         'kernel/include/astia/api/syscalls.h': 26,
@@ -210,7 +220,7 @@ class GenerateTest(unittest.TestCase):
         }
         self.assertEqual([(page["id"], page["name"]) for page in docs.section2], canonical)
         self.assertEqual(docs.section2[0]["id"], 0)
-        self.assertEqual(docs.section2[-1]["id"], 72)
+        self.assertEqual(docs.section2[-1]["id"], 78)
         slugs = [page["slug"] for page in docs.section2]
         self.assertEqual(len(slugs), len(set(slugs)))
         for page in docs.section2:
@@ -275,8 +285,8 @@ class GenerateTest(unittest.TestCase):
         shared = {source: count for source, count in counts.items() if count > 1}
         self.assertEqual(shared, self.EXPECTED_SHARED_SOURCES)
         self.assertEqual(set(counts), set(self.EXPECTED_SOURCES.values()))
-        self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 40)
-        self.assertEqual(len(docs.section2), 73)
+        self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 46)
+        self.assertEqual(len(docs.section2), 79)
 
     def test_section7_authored_pages_and_aliases_are_exact(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
@@ -325,11 +335,12 @@ class GenerateTest(unittest.TestCase):
             Counter({
                 ("abi", "abi"): 25,
                 ("dl", "dl"): 2,
+                ("mod", "mod"): 4,
                 ("fs", "fs"): 6,
-                ("proc", "core"): 9,
+                ("proc", "core"): 10,
                 ("proc", "ipc"): 1,
                 ("proc", "memory"): 2,
-                ("proc", "process"): 18,
+                ("proc", "process"): 19,
                 ("proc", "signal"): 4,
                 ("proc", "thread"): 6,
             }),
@@ -345,6 +356,7 @@ class GenerateTest(unittest.TestCase):
                 "abi",
                 "dl",
                 "fs",
+                "mod",
                 "proc",
                 "proc/core",
                 "proc/ipc",
@@ -354,7 +366,7 @@ class GenerateTest(unittest.TestCase):
                 "proc/thread",
             },
         )
-        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 73)
+        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 79)
 
     def test_manifest_has_no_markdown_bodies(self):
         manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
@@ -386,7 +398,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("FD_CLOEXEC", execve)
         self.assertIn("null path returns EINVAL", execve)
         self.assertIn("ENAMETOOLONG", execve)
-        self.assertIn("libc/src/unistd.c", execve)
+        self.assertIn("libc/src/sys/unistd.c", execve)
         self.assertIn("exec_loader.cpp", execve)
         waitpid = (REPO_ROOT / "docs/2/proc/process/waitpid.md").read_text()
         self.assertIn("astia_waitpid_options", waitpid)
@@ -401,7 +413,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Never returns 0", sigsuspend)
         self.assertIn("errno to EINTR", sigsuspend)
         self.assertIn("EAGAIN", sigsuspend)
-        self.assertIn("libc/src/signal.c", sigsuspend)
+        self.assertIn("libc/src/process/signal.c", sigsuspend)
 
     def test_generator_exports_authored_markdown_verbatim(self):
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
@@ -422,7 +434,7 @@ class GenerateTest(unittest.TestCase):
             )
             manifest = json.loads((root / "section2/manifest.json").read_text())
             docs = docs_manifest.load_authored_docs(REPO_ROOT)
-            self.assertEqual(manifest["count"], 73)
+            self.assertEqual(manifest["count"], 79)
             for page in docs.section2:
                 exported = (root / "section2" / f"{page['slug']}.md").read_text()
                 authored = (REPO_ROOT / page["sourcePath"]).read_text()
@@ -481,22 +493,23 @@ class GenerateTest(unittest.TestCase):
             parser = IndexParser()
             parser.feed((root / "site/index.html").read_text())
             expected = {
-                "core": 9,
+                "core": 10,
                 "ipc": 1,
                 "memory": 2,
-                "process": 18,
+                "process": 19,
                 "signal": 4,
                 "thread": 6,
             }
             for category, count in expected.items():
                 self.assertEqual(parser.parents[category], ("proc",), category)
                 self.assertEqual(parser.links[category], count, category)
-            self.assertEqual(sum(expected.values()), 40)
+            self.assertEqual(sum(expected.values()), 42)
             self.assertEqual(parser.parents["proc"], ())
             self.assertEqual(parser.parents["fs"], ())
             self.assertEqual(parser.parents["abi"], ())
             self.assertEqual(parser.links["fs"], 6)
             self.assertEqual(parser.links["abi"], 25)
+            self.assertEqual(parser.links["mod"], 4)
 
     def test_export_fallback_source_paths_follow_the_taxonomy_layout(self):
         with tempfile.TemporaryDirectory() as temporary:

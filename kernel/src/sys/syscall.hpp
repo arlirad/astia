@@ -12,7 +12,6 @@
 #include <type_traits>
 
 namespace astia::sys {
-
     inline constexpr u32 syscall_table_capacity =
         resource_limits::abi::syscall_table_capacity;
 
@@ -91,6 +90,12 @@ namespace astia::sys {
         uname                 = 70,
         dlmap                 = 71,
         dlunmap               = 72,
+        modopen               = 73,
+        modls                 = 74,
+        modstat               = 75,
+        modclose              = 76,
+        getrandom             = 77,
+        chroot                = 78,
     };
 
     /// How many registers the ABI hands every trap — and so the most
@@ -134,7 +139,6 @@ namespace astia::sys {
     void invoke_exit_hook(arch::syscall_return& image, i64 result);
 
     namespace detail {
-
         template <usize... I>
         struct index_sequence {};
 
@@ -217,6 +221,7 @@ namespace astia::sys {
                           [[maybe_unused]] arch::syscall_return& image) {
                 const auto indices =
                     typename make_index_sequence<sizeof...(Args)>::type{};
+
                 return call_arguments(function, arguments, indices);
             }
 
@@ -239,6 +244,7 @@ namespace astia::sys {
                 syscall_trap trap{{arguments[0], arguments[1], arguments[2], arguments[3],
                                    arguments[4], arguments[5]},
                                   image};
+
                 return call_arguments(function, trap, arguments, indices);
             }
 
@@ -262,6 +268,7 @@ namespace astia::sys {
             static bool check(const u64 (&arguments)[syscall_argument_count]) {
                 const auto indices =
                     typename make_index_sequence<sizeof...(Args)>::type{};
+
                 return valid_arguments<Args...>(arguments, indices);
             }
         };
@@ -271,10 +278,10 @@ namespace astia::sys {
             static bool check(const u64 (&arguments)[syscall_argument_count]) {
                 const auto indices =
                     typename make_index_sequence<sizeof...(Args)>::type{};
+
                 return valid_arguments<Args...>(arguments, indices);
             }
         };
-
     } // namespace detail
 
     enum class syscall_mode : u8 {
@@ -290,15 +297,19 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static i64                  thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                                          arch::syscall_return& image) {
+
+        static i64 thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                         arch::syscall_return& image) {
             using function = decltype(&Impl::invoke);
             static_assert(
                 detail::typed_sync_handler<function>::value,
                 "sync syscall handlers must return i64 from invoke(typed arguments)");
+
             const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
+
             if (!detail::decoded_arguments_valid<function>::check(arguments))
                 return -EFAULT;
+
             return static_cast<i64>(
                 detail::typed_invoker<function>::call(&Impl::invoke, arguments, image));
         }
@@ -309,6 +320,7 @@ namespace astia::sys {
         static constexpr syscall_descriptor descriptor{Id, &thunk, nullptr};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
         inline static const syscall_descriptor* const registration{&descriptor};
+
         // clang does not emit a `used` static data member of a class template;
         // a used function that odr-uses it forces the section entry out.
         [[gnu::used]] static void keep_registration() {
@@ -321,15 +333,19 @@ namespace astia::sys {
         using syscall_descriptor_marker = void;
 
         static constexpr syscall_id id = Id;
-        static core::task<i64>      thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
-                                          arch::syscall_return& image) {
+
+        static core::task<i64> thunk(u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
+                                     arch::syscall_return& image) {
             using function = decltype(&Impl::invoke);
             static_assert(detail::typed_task_handler<function>::value,
                           "async syscall handlers must return core::task<i64> from "
-                               "invoke(typed arguments)");
+                          "invoke(typed arguments)");
+
             const u64 arguments[syscall_argument_count]{a0, a1, a2, a3, a4, a5};
+
             if (!detail::decoded_arguments_valid<function>::check(arguments))
                 return core::task<i64>(error_t::efault);
+
             return detail::typed_invoker<function>::call(&Impl::invoke, arguments, image);
         }
 
@@ -339,6 +355,7 @@ namespace astia::sys {
         static constexpr syscall_descriptor descriptor{Id, nullptr, &thunk};
         [[gnu::used, gnu::section("astia_syscall_handlers")]]
         inline static const syscall_descriptor* const registration{&descriptor};
+
         // clang does not emit a `used` static data member of a class template;
         // a used function that odr-uses it forces the section entry out.
         [[gnu::used]] static void keep_registration() {
@@ -347,22 +364,22 @@ namespace astia::sys {
     };
 
     namespace detail {
-
         template <typename... Descriptors>
         consteval bool valid_descriptor_ids() {
             constexpr syscall_id
                 ids[sizeof...(Descriptors) == 0 ? 1 : sizeof...(Descriptors)] = {
                     Descriptors::id...};
+
             for (u32 i = 0; i < sizeof...(Descriptors); ++i) {
-                if (static_cast<u32>(ids[i]) >= syscall_table_capacity) {
+                if (static_cast<u32>(ids[i]) >= syscall_table_capacity)
                     return false;
-                }
+
                 for (u32 j = i + 1; j < sizeof...(Descriptors); ++j) {
-                    if (ids[i] == ids[j]) {
+                    if (ids[i] == ids[j])
                         return false;
-                    }
                 }
             }
+
             return true;
         }
 
@@ -384,24 +401,25 @@ namespace astia::sys {
                 (typed_sync_handler<decltype(&Descriptor::invoke)>::value ||
                  typed_task_handler<decltype(&Descriptor::invoke)>::value);
         };
-
     } // namespace detail
 
     namespace detail {
-
         template <typename Descriptor>
         bool dispatch_descriptor(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4,
                                  u64 a5, arch::syscall_return& image, i64& result,
                                  task_runner run) {
             const auto& entry = Descriptor::descriptor;
+
             if (entry.id != id)
                 return false;
+
             if (entry.sync != nullptr)
                 result = entry.sync(a0, a1, a2, a3, a4, a5, image);
             else if (entry.async != nullptr)
                 result = run(entry.async(a0, a1, a2, a3, a4, a5, image));
             else
                 result = -ENOSYS;
+
             return true;
         }
 
@@ -410,13 +428,14 @@ namespace astia::sys {
                                   u64 a5, arch::syscall_return& image, i64& result,
                                   task_runner run) {
             bool dispatched = false;
+
             ((dispatched =
                   dispatched || dispatch_descriptor<Descriptors>(id, a0, a1, a2, a3, a4,
                                                                  a5, image, result, run)),
              ...);
+
             return dispatched;
         }
-
     } // namespace detail
 
     template <typename... Descriptors>
@@ -425,6 +444,7 @@ namespace astia::sys {
         static_assert(
             detail::valid_descriptor_ids<Descriptors...>(),
             "syscall descriptor IDs must be unique and within ABI table capacity");
+
         static_assert((detail::valid_descriptor_interface<Descriptors>::value && ...),
                       "syscall descriptors must expose a CRTP handler interface");
 
@@ -433,6 +453,7 @@ namespace astia::sys {
             return true;
 
         result = -ENOSYS;
+
         return false;
     }
 
@@ -441,13 +462,16 @@ namespace astia::sys {
     i64 dispatch(syscall_id id, u64 a0, u64 a1, u64 a2, u64 a3, u64 a4, u64 a5,
                  arch::syscall_return& image);
 
+#if defined(ASTIA_MODULE_HOST_TEST)
+    /// Host-test hook: publish one handler without section discovery.
+    bool register_descriptor(const syscall_descriptor* entry);
+#endif
+
     /// Validate the link-time descriptor set: unique IDs, in range, non-null.
     bool validate_registry();
-
 } // namespace astia::sys
 
 namespace astia {
-
     /// The ABI's call number is an unchecked register; map it into the
     /// dispatcher's domain before anything casts it.  Numbers outside the
     /// table are absent calls, not a different syscall.
@@ -456,9 +480,9 @@ namespace astia {
         static optional<sys::syscall_id> from(i64 raw) {
             if (raw < 0 || static_cast<u64>(raw) >= sys::syscall_table_capacity)
                 return optional<sys::syscall_id>(error_t::enosys);
+
             return optional<sys::syscall_id>(
                 static_cast<sys::syscall_id>(static_cast<u32>(raw)));
         }
     };
-
 } // namespace astia

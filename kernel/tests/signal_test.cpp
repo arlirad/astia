@@ -9,6 +9,7 @@
 
 ASTIA_TEST(signal_state_queues_and_masks_signals) {
     astia::signal_state state;
+
     ASTIA_CHECK(state.send(astia::signal_number::int_));
     ASTIA_CHECK(state.send(astia::signal_number::term));
     state.block(astia::signal_bit(astia::signal_number::int_));
@@ -20,6 +21,7 @@ ASTIA_TEST(signal_state_queues_and_masks_signals) {
 
 ASTIA_TEST(signal_state_sigwait_consumes_only_matching_signal) {
     astia::signal_state state;
+
     ASTIA_CHECK(state.send(astia::signal_number::int_));
     ASTIA_CHECK(state.send(astia::signal_number::usr1));
     ASTIA_CHECK(state.take_matching(astia::signal_bit(astia::signal_number::usr1)) ==
@@ -42,6 +44,7 @@ ASTIA_TEST(signal_state_fork_inherits_dispositions_without_pending) {
     child.inherit_dispositions_from(parent);
 
     const auto inherited_handler = child.disposition(astia::signal_number::usr1);
+
     ASTIA_CHECK(inherited_handler.action == astia::signal_action::handler);
     ASTIA_CHECK(inherited_handler.handler == handler);
     ASTIA_CHECK(inherited_handler.restorer == 0x12);
@@ -163,6 +166,7 @@ ASTIA_TEST(signal_state_sigwait_restores_mask_and_preserves_pending_signal) {
 
 ASTIA_TEST(signal_state_default_sigchld_does_not_interrupt_waiters) {
     astia::signal_state state;
+
     ASTIA_CHECK(state.send(astia::signal_number::chld));
     ASTIA_CHECK(!state.has_unblocked_interrupting());
     ASTIA_CHECK(state.send(astia::signal_number::alrm));
@@ -171,12 +175,14 @@ ASTIA_TEST(signal_state_default_sigchld_does_not_interrupt_waiters) {
 
 ASTIA_TEST(signal_state_alarm_respects_ignore_and_block_mask) {
     astia::signal_state state;
+
     ASTIA_CHECK(state.disposition(astia::signal_number::alrm,
                                   {astia::signal_action::ignore, nullptr}));
     ASTIA_CHECK(state.send(astia::signal_number::alrm));
     ASTIA_CHECK(!state.has_unblocked_interrupting());
 
     astia::signal_state blocked;
+
     blocked.block(astia::signal_bit(astia::signal_number::alrm));
     ASTIA_CHECK(blocked.send(astia::signal_number::alrm));
     ASTIA_CHECK(!blocked.has_unblocked_interrupting());
@@ -190,6 +196,32 @@ ASTIA_TEST(signal_permission_matches_process_credentials) {
     ASTIA_CHECK(astia::proc::signal_permission(1, 1, 0, 1));
     ASTIA_CHECK(astia::proc::signal_permission(0, 1, 0, 1));
     ASTIA_CHECK(astia::proc::signal_permission(1, 0, 0, 0));
+}
+
+ASTIA_TEST(signal_audience_filters_group_members) {
+    using astia::proc::signal_audience;
+    using astia::proc::signal_audience_status;
+
+    signal_audience empty;
+
+    ASTIA_CHECK(empty.status() == signal_audience_status::none);
+
+    signal_audience denied;
+
+    ASTIA_CHECK(!denied.admit(1, 1, 0, 0));
+    ASTIA_CHECK(denied.status() == signal_audience_status::denied);
+
+    signal_audience mixed;
+
+    ASTIA_CHECK(mixed.admit(1, 1, 1, 1));
+    ASTIA_CHECK(!mixed.admit(1, 1, 0, 0));
+    ASTIA_CHECK(mixed.status() == signal_audience_status::allowed);
+
+    signal_audience root;
+
+    ASTIA_CHECK(root.admit(0, 0, 1, 1));
+    ASTIA_CHECK(root.admit(0, 0, 0, 0));
+    ASTIA_CHECK(root.status() == signal_audience_status::allowed);
 }
 
 ASTIA_TEST(signal_numbers_are_unique_and_sigaio_occupies_id16) {
@@ -211,13 +243,18 @@ ASTIA_TEST(signal_numbers_are_unique_and_sigaio_occupies_id16) {
         astia::signal_number::io,   astia::signal_number::pwr,
         astia::signal_number::sys,
     };
+
     bool assigned[astia::signal_count]{};
+
     for (const auto identifier : identifiers) {
         const auto value = static_cast<astia::u8>(identifier);
+
         ASTIA_CHECK(value > 0 && value < astia::signal_count);
         ASTIA_CHECK(!assigned[value]);
+
         assigned[value] = true;
     }
+
     ASTIA_CHECK(assigned[16]);
     ASTIA_CHECK(!assigned[0]);
 }
@@ -255,6 +292,7 @@ ASTIA_TEST(signal_state_catches_and_masks_sigaio) {
 
 ASTIA_TEST(signal_state_protects_uncatchable_signals) {
     astia::signal_state state;
+
     ASTIA_CHECK(!state.disposition(astia::signal_number::kill,
                                    {astia::signal_action::ignore, nullptr}));
     ASTIA_CHECK(!state.disposition(astia::signal_number::stop,
@@ -272,7 +310,9 @@ ASTIA_TEST(signal_disposition_preserves_handler_mask_and_restorer) {
                                               0x1357u, 0x2468u};
 
     ASTIA_CHECK(state.disposition(signal, installed));
+
     const auto observed = state.disposition(signal);
+
     ASTIA_CHECK(observed.action == astia::signal_action::handler);
     ASTIA_CHECK(observed.handler == handler);
     ASTIA_CHECK(observed.mask == 0x2468u);
@@ -292,6 +332,7 @@ ASTIA_TEST(signal_default_actions_match_posix_categories) {
 
 ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
     const auto info = astia::proc::make_siginfo(11, 0, 1, 42, 1000, 7, 0x1234);
+
     ASTIA_CHECK(info.signo == 11);
     ASTIA_CHECK(info.errno_value == 0);
     ASTIA_CHECK(info.code == 1);
@@ -301,11 +342,15 @@ ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
     ASTIA_CHECK(info.addr == 0x1234);
 
     const auto* bytes = reinterpret_cast<const astia::u8*>(&info);
-    bool        covered[sizeof(astia_siginfo_t)]{};
-    const auto  cover = [&covered](astia::usize offset, astia::usize length) {
-        for (astia::usize i = 0; i < length; ++i)
+
+    bool covered[sizeof(astia_siginfo_t)]{};
+
+    const auto cover = [&covered](astia::usize offset, astia::usize length) {
+        for (astia::usize i = 0; i < length; ++i) {
             covered[offset + i] = true;
+        }
     };
+
     cover(offsetof(astia_siginfo_t, signo), sizeof(info.signo));
     cover(offsetof(astia_siginfo_t, errno_value), sizeof(info.errno_value));
     cover(offsetof(astia_siginfo_t, code), sizeof(info.code));
@@ -313,8 +358,10 @@ ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
     cover(offsetof(astia_siginfo_t, uid), sizeof(info.uid));
     cover(offsetof(astia_siginfo_t, status), sizeof(info.status));
     cover(offsetof(astia_siginfo_t, addr), sizeof(info.addr));
-    for (astia::usize i = 0; i < sizeof(astia_siginfo_t); ++i)
+
+    for (astia::usize i = 0; i < sizeof(astia_siginfo_t); ++i) {
         ASTIA_CHECK(covered[i] || bytes[i] == 0);
+    }
 }
 
 ASTIA_TEST(x86_64_signal_abi_keeps_register_order_and_frame_size) {

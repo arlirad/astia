@@ -8,9 +8,7 @@
 // its own line (see interrupts.cpp).
 
 namespace astia::arch::x86_64 {
-
     namespace {
-
         constexpr u16 master_command_port = 0x20;
         constexpr u16 master_data_port    = 0x21;
         constexpr u16 slave_command_port  = 0xA0;
@@ -23,7 +21,6 @@ namespace astia::arch::x86_64 {
         constexpr u8 icw4_8086_mode        = 0x01;
         constexpr u8 all_irqs_masked       = 0xFF;
         constexpr u8 end_of_interrupt      = 0x20;
-
     } // namespace
 
     void pic::remap() {
@@ -39,17 +36,24 @@ namespace astia::arch::x86_64 {
         outb(slave_data_port, all_irqs_masked);  // OCW1: all slave IRQs masked
     }
 
+    void pic::mask(u8 irq) {
+        const u16 port = irq < slave_irq_offset ? master_data_port : slave_data_port;
+        const u8  bit  = static_cast<u8>(1u << (irq & 7));
+
+        outb(port, static_cast<u8>(inb(port) | bit));
+    }
+
     void pic::unmask(u8 irq) {
         const u16 port = irq < slave_irq_offset ? master_data_port : slave_data_port;
         const u8  bit  = static_cast<u8>(1u << (irq & 7));
+
         outb(port, static_cast<u8>(inb(port) & static_cast<u8>(~bit)));
     }
 
     void pic::eoi(u64 vector) {
-        if (vector >= irq_base + slave_irq_offset) {
+        if (vector >= irq_base + slave_irq_offset)
             outb(slave_command_port, end_of_interrupt);
-        }
+
         outb(master_command_port, end_of_interrupt);
     }
-
 } // namespace astia::arch::x86_64

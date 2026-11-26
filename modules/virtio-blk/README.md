@@ -3,8 +3,8 @@
 `virtio_blk.cpp` is a bounded x86-64 ET_REL module for modern virtio-blk-pci
 devices. It scans the PCI capability chain, maps common, notify, and device
 configuration regions, negotiates `VIRTIO_F_VERSION_1` and
-`VIRTIO_BLK_F_FLUSH`, and registers `/dev/vblk0` through the typed C++ block
-device contract.
+`VIRTIO_BLK_F_FLUSH`, and registers `/dev/vblk<N>` (starting at
+`/dev/vblk0`) through the typed C++ block device contract.
 
 The driver uses one split virtqueue backed by contiguous DMA memory and bounce
 buffers for reads and writes. Reads and writes are limited to two

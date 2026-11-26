@@ -10,9 +10,15 @@ public static class ApiErrorMapper
 {
     public static bool IsMapped(Exception exception) =>
         Unwrap(exception) is ValidationFailedException
+            or AuthenticationRequiredException
             or AuthorizationDeniedException
+            or AuthorizationUnavailableException
             or PackageNotFoundException
             or PackageConflictException
+            or PackageArtifactNotFoundException
+            or PackagePublishException
+            or PackageNotPublishedException
+            or PackageSignatureInvalidException
             or SourceNotAllowedException
             or DomainException;
 
@@ -23,11 +29,21 @@ public static class ApiErrorMapper
         return unwrapped switch
         {
             ValidationFailedException validation => ValidationProblem(validation),
+            AuthenticationRequiredException unauthenticated => Problem(
+                401,
+                "Authentication required",
+                unauthenticated.Message,
+                unauthenticated.Code),
             AuthorizationDeniedException denied => Problem(
                 403,
                 "Authorization denied",
                 denied.Message,
                 denied.Code),
+            AuthorizationUnavailableException unavailable => Problem(
+                503,
+                "Authorization unavailable",
+                unavailable.Message,
+                unavailable.Code),
             PackageNotFoundException notFound => Problem(
                 404,
                 "Package not found",
@@ -38,6 +54,26 @@ public static class ApiErrorMapper
                 "Package conflict",
                 conflict.Message,
                 conflict.Code),
+            PackageArtifactNotFoundException artifact => Problem(
+                404,
+                "Package artifact not found",
+                artifact.Message,
+                artifact.Code),
+            PackagePublishException publish => Problem(
+                409,
+                "Package not publishable",
+                publish.Message,
+                publish.Code),
+            PackageNotPublishedException notPublished => Problem(
+                409,
+                "Package not published",
+                notPublished.Message,
+                notPublished.Code),
+            PackageSignatureInvalidException signature => Problem(
+                409,
+                "Package signature invalid",
+                signature.Message,
+                signature.Code),
             SourceNotAllowedException source => Problem(
                 422,
                 "Source not allowed",

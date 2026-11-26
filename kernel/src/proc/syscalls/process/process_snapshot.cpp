@@ -14,8 +14,8 @@ namespace astia::proc::syscalls {
             if (output.address() > static_cast<u64>(INT64_MAX) || capacity < 0 ||
                 capacity > ASTIA_PROCESS_SNAPSHOT_MAX)
                 return -EINVAL;
+
             return proc::process_snapshot(output.address(), static_cast<u32>(capacity));
         }
     };
-
 } // namespace astia::proc::syscalls

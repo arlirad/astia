@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia {
-
     /// Kernel error codes in the POSIX errno tradition, lower-cased to match
     /// the project's snake_case naming rule. The numeric values are stable so
     /// they can later cross the syscall boundary.
@@ -34,6 +33,7 @@ namespace astia {
         e2big,      ///< Argument or vector exceeds a fixed contract.
         enfile,     ///< Kernel-wide finite resource table is full.
         ecanceled,  ///< Operation was cancelled before it completed.
+        epipe,      ///< Write to a pipe or socket with no reader.
     };
 
     /// Convert to the negative errno form used by the VFS and syscall seam.
@@ -89,7 +89,10 @@ namespace astia {
             return -ENFILE;
         case error_t::ecanceled:
             return -ECANCELED;
+        case error_t::epipe:
+            return -EPIPE;
         }
+
         return -EIO;
     }
 
@@ -146,8 +149,10 @@ namespace astia {
             return "too many open files in system";
         case error_t::ecanceled:
             return "operation cancelled";
+        case error_t::epipe:
+            return "broken pipe";
         }
+
         return "unknown error";
     }
-
 } // namespace astia

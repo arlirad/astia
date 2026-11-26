@@ -47,4 +47,6 @@ public sealed class PackageRecord
     public DateTimeOffset RegisteredAt { get; set; }
 
     public DateTimeOffset? BuildRequestedAt { get; set; }
+
+    public DateTimeOffset? PublishedAt { get; set; }
 }

@@ -11,8 +11,8 @@ namespace astia::proc::syscalls {
                                sys::syscall_mode::sync> {
         static i64 invoke() {
             auto* self = current_thread();
+
             return self == nullptr ? -ESRCH : (self->cancellation_pending() ? 1 : 0);
         }
     };
-
 } // namespace astia::proc::syscalls

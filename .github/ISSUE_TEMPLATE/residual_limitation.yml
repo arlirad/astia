@@ -1,6 +1,6 @@
 name: Residual risk or limitation
 description: Track a known limitation, deferred risk, or follow-up that outlives the current change.
-title: "[residual] "
+labels: ["residual"]
 body:
   - type: markdown
     attributes:

@@ -220,10 +220,39 @@ def analyze(args, source, line_filter):
     return source, result.returncode, output
 
 
+def filter_chunks(line_filter, budget):
+    """Split the line filter so each invocation stays under the argument limit.
+
+    Linux rejects a single argv entry larger than MAX_ARG_STRLEN (128 KiB), and
+    a whitespace-wide change can produce a filter well above that. Each chunk is
+    a complete, valid filter; running a translation unit once per chunk yields
+    the same diagnostics as one run with the unsplit filter.
+    """
+    chunks = []
+    current = []
+    size = 2
+    for entry in line_filter:
+        encoded = len(json.dumps(entry, separators=(",", ":")).encode("utf-8")) + 1
+        if current and size + encoded > budget:
+            chunks.append(current)
+            current = []
+            size = 2
+        current.append(entry)
+        size += encoded
+    if current or not chunks:
+        chunks.append(current)
+    return chunks
+
+
 def run_units(args, units, line_filter):
     failure = False
+    chunks = filter_chunks(line_filter, args.line_filter_budget)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(analyze, args, unit, line_filter) for unit in units]
+        futures = [
+            pool.submit(analyze, args, unit, chunk)
+            for chunk in chunks
+            for unit in units
+        ]
         for future in concurrent.futures.as_completed(futures):
             source, code, output = future.result()
             if output.strip():
@@ -241,11 +270,17 @@ def main():
     parser.add_argument("--clang-tidy", required=True)
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--timeout", type=int, default=120)
+    parser.add_argument("--line-filter-budget", type=int, default=90000)
     args = parser.parse_args()
     args.root = str(pathlib.Path(args.root).resolve())
     if not pathlib.Path(args.build).is_absolute():
         args.build = str((pathlib.Path(args.root) / args.build).resolve())
-    if args.jobs < 1 or args.timeout < 1 or not CONFIG.is_file():
+    if (
+        args.jobs < 1
+        or args.timeout < 1
+        or args.line_filter_budget < 256
+        or not CONFIG.is_file()
+    ):
         print("clang-tidy: invalid settings or missing trusted config", file=sys.stderr)
         return 1
     normalized_build = None
@@ -310,7 +345,9 @@ def main():
         return run_units(
             args,
             [smoke],
-            line_filter_entries(args.root, "kernel/src/kmain.cpp", [[1, max(lines, 1)]]),
+            line_filter_entries(
+                args.root, "kernel/src/kmain.cpp", [[1, max(lines, 1)]]
+            ),
         )
     sources = []
     missing_sources = []
