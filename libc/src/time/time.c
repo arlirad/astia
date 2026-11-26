@@ -1,3 +1,5 @@
+#include "internal/time_calc.h"
+#include "internal/time_names.h"
 #include "internal/time_port.h"
 #include <sys/time.h>
 
@@ -7,17 +9,15 @@
 #include <string.h>
 #include <time.h>
 
-/* Days from 1970-01-01.  The era decomposition keeps negative timestamps
- * correct without relying on implementation-defined division rounding. */
-static int64_t days_from_civil(int year, unsigned month, unsigned day) {
-    int      y   = year - (month <= 2);
-    int      era = (y >= 0 ? y : y - 399) / 400;
-    unsigned yoe = (unsigned) (y - era * 400);
-    unsigned doy = (153 * (month + (month > 2 ? (unsigned) -3 : 9)) + 2) / 5 + day - 1;
-    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-
-    return (int64_t) era * 146097 + (int64_t) doe - 719468;
-}
+const char* const __astia_time_weekday_names[7]      = {"Sun", "Mon", "Tue", "Wed",
+                                                        "Thu", "Fri", "Sat"};
+const char* const __astia_time_weekday_full_names[7] = {
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+const char* const __astia_time_month_names[12] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+const char* const __astia_time_month_full_names[12] = {
+    "January", "February", "March",     "April",   "May",      "June",
+    "July",    "August",   "September", "October", "November", "December"};
 
 static void civil_from_days(int64_t days, int* year, unsigned* month, unsigned* day) {
     int64_t z   = days + 719468;
@@ -225,8 +225,8 @@ struct tm* gmtime_r(const time_t* timer, struct tm* result) {
     if (result->tm_wday < 0)
         result->tm_wday += 7;
 
-    result->tm_yday =
-        (int) (days_from_civil(year, month, day) - days_from_civil(year, 1, 1));
+    result->tm_yday  = (int) (__astia_time_days_from_civil(year, month, day) -
+                              __astia_time_days_from_civil(year, 1, 1));
     result->tm_isdst = 0;
 
     return result;
@@ -276,7 +276,8 @@ time_t mktime(struct tm* value) {
         year++;
     }
 
-    days   = days_from_civil(year, (unsigned) month + 1, 1) + value->tm_mday - 1;
+    days =
+        __astia_time_days_from_civil(year, (unsigned) month + 1, 1) + value->tm_mday - 1;
     result = days * 86400 + value->tm_hour * 3600 + value->tm_min * 60 + value->tm_sec;
 
     (void) gmtime_r(&result, value);
@@ -330,12 +331,8 @@ static size_t append_embedded(char* dst, size_t cap, size_t at, const char* form
     return append_text(dst, cap, at, text);
 }
 
-static int is_leap_year(int64_t year) {
-    return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-}
-
 static int64_t iso_weeks_in_year(int64_t year, int jan1_weekday) {
-    if (jan1_weekday == 4 || (jan1_weekday == 3 && is_leap_year(year)))
+    if (jan1_weekday == 4 || (jan1_weekday == 3 && __astia_time_is_leap_year(year)))
         return 53;
 
     return 52;
@@ -346,15 +343,6 @@ static int64_t century_of(int64_t year) {
 }
 
 size_t strftime(char* dst, size_t cap, const char* format, const struct tm* value) {
-    static const char* const weekdays[]      = {"Sun", "Mon", "Tue", "Wed",
-                                                "Thu", "Fri", "Sat"};
-    static const char* const weekdays_long[] = {
-        "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
-    static const char* const months[]      = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    static const char* const months_long[] = {
-        "January", "February", "March",     "April",   "May",      "June",
-        "July",    "August",   "September", "October", "November", "December"};
     int64_t year;
     int64_t iso_wday;
     int64_t jan1_wday;
@@ -379,7 +367,7 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
     iso_year  = year;
     week      = ((int64_t) value->tm_yday - iso_wday + 11) / 7;
     if (week < 1) {
-        int64_t previous_length = is_leap_year(year - 1) ? 366 : 365;
+        int64_t previous_length = __astia_time_is_leap_year(year - 1) ? 366 : 365;
         int64_t previous_jan1   = ((jan1_wday - 1 - previous_length) % 7 + 7) % 7 + 1;
 
         iso_year = year - 1;
@@ -411,20 +399,21 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
 
         switch (format[i]) {
         case 'a':
-            at = append_text(dst, cap, at, weekdays[value->tm_wday]);
+            at = append_text(dst, cap, at, __astia_time_weekday_names[value->tm_wday]);
 
             break;
         case 'A':
-            at = append_text(dst, cap, at, weekdays_long[value->tm_wday]);
+            at = append_text(dst, cap, at,
+                             __astia_time_weekday_full_names[value->tm_wday]);
 
             break;
         case 'b':
         case 'h':
-            at = append_text(dst, cap, at, months[value->tm_mon]);
+            at = append_text(dst, cap, at, __astia_time_month_names[value->tm_mon]);
 
             break;
         case 'B':
-            at = append_text(dst, cap, at, months_long[value->tm_mon]);
+            at = append_text(dst, cap, at, __astia_time_month_full_names[value->tm_mon]);
 
             break;
         case 'C':
