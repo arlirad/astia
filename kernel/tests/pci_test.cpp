@@ -1,3 +1,4 @@
+#include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
@@ -129,19 +130,27 @@ namespace {
     unsigned mmio_maps   = 0;
     unsigned mmio_unmaps = 0;
 
-    class capture_driver final : public astia::hw::driver {
+    class capture_driver final {
         public:
-        const char* name() const override {
-            return "capture";
-        }
-        bool match(const astia::hw::device_info&) const override {
+        bool match(const astia::hw::device_info&) const {
             return true;
         }
-        bool probe(const astia::hw::device_info& value) override {
+        astia::i64 probe(const astia::hw::device_info& value) {
             const auto* pci = astia::hw::pci_device_info::get(value);
             if (pci != nullptr)
                 captured = pci->device();
-            return pci != nullptr;
+            return pci != nullptr ? 0 : -ENODEV;
+        }
+        astia::i64 start(const astia::hw::device_info&) {
+            return 0;
+        }
+        void                      stop(const astia::hw::device_info&) {}
+        void                      remove(const astia::hw::device_info&) {}
+        astia::hw::product_handle publish(const astia::hw::device_info&) {
+            return {};
+        }
+        bool selftest() {
+            return true;
         }
 
         astia::hw::pci_device captured{};
@@ -267,7 +276,12 @@ namespace astia::arch {
 } // namespace astia::arch
 
 ASTIA_TEST(pci_enumeration_discovers_bar_geometry) {
-    ASTIA_CHECK(astia::hw::drivers().register_driver(capture));
+    astia::hw::driver_handle capture_handle{};
+    ASTIA_CHECK(
+        astia::hw::drivers().register_driver(
+            astia::hw::make_driver_descriptor(capture, "capture", astia::hw::kernel_owner,
+                                              astia::hw::driver_resource_mmio),
+            capture_handle) == 0);
     ASTIA_CHECK(astia::hw::pci_enumerate() == 1);
 
     const auto& first = capture.captured.bars[0];

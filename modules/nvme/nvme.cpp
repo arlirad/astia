@@ -876,12 +876,8 @@ namespace {
         astia::u32                        _count = 0;
     };
 
-    class nvme_driver final : public astia::hw::driver {
+    class nvme_driver final {
         public:
-        const char* name() const override {
-            return "nvme";
-        }
-
         bool match_pci(const astia::hw::pci_device& value) const {
             return value.class_code == 1 && value.subclass == 8 &&
                    value.programming_interface == 2 && value.bar_count != 0 &&
@@ -899,60 +895,66 @@ namespace {
             return true;
         }
 
-        bool match(const astia::hw::device_info& info) const override {
+        bool match(const astia::hw::device_info& info) const {
             const auto* pci = astia::hw::pci_device_info::get(info);
             return pci != nullptr && match_pci(pci->device());
         }
 
-        bool probe(const astia::hw::device_info& info) override {
+        astia::i64 probe(const astia::hw::device_info& info) {
             astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 state = teardown_state(token);
             if (state == teardown_complete &&
                 !__atomic_compare_exchange_n(&_teardown_token, &token,
                                              teardown_word(teardown_generation(token), 0),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return {};
+                return -ENODEV;
             if (state != 0 && state != teardown_complete)
-                return {};
+                return -ENODEV;
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
-                return {};
+                return -ENODEV;
             auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
             if (stable == nullptr || !probe_pci(*stable))
-                return {};
+                return -ENODEV;
             auto group = astia::mm::share<nvme_group>();
             if (!group) {
                 device.stop();
-                return {};
+                return -ENODEV;
             }
             for (astia::u32 i = 0; i < device.namespace_count; ++i) {
                 auto block = astia::mm::share<namespace_block>(device.namespaces[i]);
                 if (!block || !group->add(block)) {
                     rollback_probe();
-                    return {};
+                    return -ENODEV;
                 }
                 astia::mm::shptr<astia::dev::device> owner = block;
                 auto file = astia::mm::share<astia::dev::device_file>(owner);
                 if (!file) {
                     rollback_probe();
-                    return {};
+                    return -ENODEV;
                 }
                 if (astia::fs::register_device(device.namespaces[i].path, file) < 0) {
                     rollback_probe();
-                    return {};
+                    return -ENODEV;
                 }
                 _files[i] = file;
                 ++_file_count;
             }
             _product = group;
-            return true;
+            return 0;
         }
 
-        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+        astia::i64 start(const astia::hw::device_info&) {
+            return 0;
+        }
+
+        void stop(const astia::hw::device_info&) {}
+
+        astia::hw::product_handle publish(const astia::hw::device_info&) {
             return _product;
         }
 
-        void remove(const astia::hw::device_info&) override {
+        void remove(const astia::hw::device_info&) {
             astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
@@ -976,7 +978,7 @@ namespace {
             finish_remove(generation);
         }
 
-        bool selftest() override {
+        bool selftest() {
             char first[512]{};
             char second[512]{};
             if (!device.started || device.namespace_count < 2)
@@ -1147,6 +1149,12 @@ namespace {
 }
 
 int module_main() {
-    return astia::hw::drivers().register_driver(driver) ? 0 : -22;
+    astia::hw::driver_handle handle{};
+    const auto               descriptor = astia::hw::make_driver_descriptor(
+        driver, "nvme", astia::hw::kernel_owner,
+        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+            astia::hw::driver_resource_msix | astia::hw::driver_resource_device_file |
+            astia::hw::driver_resource_async);
+    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -22;
 }
 #endif
