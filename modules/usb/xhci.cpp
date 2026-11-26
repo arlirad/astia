@@ -1,5 +1,6 @@
 #include "xhci.hpp"
 
+#include <astia/core/task.hpp>
 #include <astia/mm/dma_buffer.hpp>
 #include <astia/module.hpp>
 
@@ -895,14 +896,13 @@ namespace astia::usb::xhci {
     }
 }
 
-int module_main() {
+astia::core::task<void> module_main() {
     astia::hw::driver_handle handle{};
 
-    return astia::hw::drivers().register_driver(
-               astia::usb::xhci::driver, handle, astia::hw::kernel_owner,
-               astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
-                   astia::hw::driver_resource_msix | astia::hw::driver_resource_async) ==
-                   0
-               ? 0
-               : -19;
+    co_return astia::hw::drivers().register_driver(
+        astia::usb::xhci::driver, handle, astia::hw::kernel_owner,
+        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+            astia::hw::driver_resource_msix | astia::hw::driver_resource_async) == 0
+        ? astia::error_t::enone
+        : astia::error_t::eio;
 }

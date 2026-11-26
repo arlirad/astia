@@ -1,3 +1,4 @@
+#include <astia/core/task.hpp>
 namespace kernel_fixture {
     int add(int left, int right);
     int bias();
@@ -18,6 +19,8 @@ namespace {
     }
 }
 
-int module_main() {
-    return kernel_fixture::add(20, 22) + kernel_fixture::bias() + constructor_value;
+astia::core::task<void> module_main() {
+    (void) (kernel_fixture::add(20, 22) + kernel_fixture::bias() + constructor_value);
+
+    co_return astia::error_t::enone;
 }

@@ -64,10 +64,20 @@ namespace astia::mod {
                 return;
             }
 
-            int rc = 0;
+            const auto run_error = run_boot(id);
 
-            if (run(id, rc) != module_error::ok)
-                rc = -1;
+            int rc = run_error == module_error::ok ? 0 : -1;
+
+            if (run_error != module_error::ok) {
+                if (name != nullptr)
+                    logs::error("%s failed to run (%s)", name,
+                                run_error == module_error::would_block
+                                    ? "suspended before scheduler"
+                                    : "entry rejected");
+                else
+                    logs::error("module %llu failed to run",
+                                static_cast<unsigned long long>(i));
+            }
 
             if (name != nullptr)
                 logs::info("%s rc=%d", name, rc);
@@ -139,7 +149,7 @@ namespace astia::mod {
             const span<const u8> image(static_cast<const u8*>(data),
                                        static_cast<usize>(m.size));
 
-            if (elf::loader::kind_of(image) != elf::loader::kind::none) {
+            if (elf::loader::kind_of(image) == elf::loader::kind::relocatable) {
                 load_and_run(image, nullptr, i);
                 continue;
             }

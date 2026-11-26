@@ -58,16 +58,19 @@ endif()
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER}
-                -O2 -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                -O2 -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-unwind-tables
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                 -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                -DASTIA_MODULE_ET_REL=1
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp -o ${ASTIA_VIRTIO_BLK_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/resume_queue.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp

@@ -543,6 +543,23 @@ namespace astia::core {
         struct promise_type {
             task_link link{};
 
+#if defined(ASTIA_MODULE_ET_REL)
+            // A loadable module must not instantiate its own copy of the
+            // kernel frame pool: the pool is per-image state and would add
+            // frame_slot_bytes * frame_slot_count bytes of .bss to every
+            // module. Module frames come from the kernel allocator instead.
+            static void* operator new(usize size) noexcept {
+                return ::operator new(size);
+            }
+
+            static void* operator new(usize size, const std::nothrow_t&) noexcept {
+                return ::operator new(size, std::nothrow);
+            }
+
+            static void operator delete(void* value) noexcept {
+                ::operator delete(value);
+            }
+#else
             static void* operator new(usize size) noexcept {
                 return allocate_frame(size);
             }
@@ -554,7 +571,7 @@ namespace astia::core {
             static void operator delete(void* value) noexcept {
                 release_frame(value);
             }
-
+#endif
             static task get_return_object_on_allocation_failure() noexcept {
                 return task(error_t::enomem);
             }

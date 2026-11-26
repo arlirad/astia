@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <thread>
 
 extern unsigned char fixture_dyn_blob[];
 extern unsigned int  fixture_dyn_blob_len;
@@ -29,6 +30,18 @@ namespace {
     using astia::mod::module_id;
     using astia::mod::module_info;
     using astia::mod::module_load_options;
+
+    template <typename T>
+    T run_task_sync(astia::core::task<T> task) {
+        task.resume();
+
+        while (!task.done()) {
+            std::this_thread::yield();
+            task.resume();
+        }
+
+        return *task.value();
+    }
 
     void set_root(bool root) {
         (void) astia::proc::current_process()->seteuid(root ? 0u : 1u);
@@ -101,7 +114,7 @@ namespace {
                 }
 
                 if (infos[i].running)
-                    (void) astia::mod::exit(id);
+                    (void) run_task_sync(astia::mod::exit(id));
 
                 if (infos[i].resident)
                     (void) astia::mod::clear_resident_for_test(id);
@@ -389,10 +402,7 @@ ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
     ASTIA_CHECK(stat.dependent_count == 1);
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_UNLOADABLE) == 0);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(provider, result) == module_error::ok);
-    ASTIA_CHECK(result == 17);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(provider)) == module_error::ok);
     ASTIA_CHECK(call_modstat(provider, &stat) == 0);
     ASTIA_CHECK(stat.state == ASTIA_MODULE_STATE_RUNNING);
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_RUNNING) != 0);
@@ -417,10 +427,7 @@ ASTIA_TEST(module_syscall_modclose_rejects_running_resident_and_waits_drain) {
     module_id running{};
 
     ASTIA_CHECK(load_test_module(running, named("running")) == module_error::ok);
-
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(running, result) == module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(running)) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, running) == -EBUSY);
 
     module_load_options resident = named("resident-close");

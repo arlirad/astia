@@ -31,28 +31,46 @@ never spin while a device completion is outstanding.
 
 ## Entry point and loading
 
-Every loadable ET_REL object defines:
+Every loadable ET_REL object defines the C++ coroutine:
 
 ```cpp
-int module_main();
+astia::core::task<void> module_main();
 ```
 
 The loader resolves its exact Itanium C++ symbol `_Z11module_mainv`. The
-return type is `int`; it is not encoded in that symbol name. The loader
-validates, relocates, and registers the image without calling the entrypoint.
-Running marks the image running, invokes every validated `.init_array`
-function in array order, then calls the entrypoint synchronously. A negative
-result is a module error convention; the loader logs it but does not
-reinterpret it as an exception or coroutine failure. Exit invokes validated
-`.fini_array` functions in reverse order and clears the running state.
+return type is not encoded in that symbol name; the synchronous `int
+module_main()` form is no longer a valid module ABI and is rejected at load.
+ET_REL images carry many COMDAT function sections, so the loader accepts up
+to 640 section headers.
+The entrypoint reports success by returning `astia::error_t::enone` through the
+task result; any other error fails the run and is mapped onto
+`module_error`. Module builds compile `core::task<void>` against the kernel
+allocator rather than the in-kernel frame pool, so an ET_REL image does not
+embed a private copy of the pool.
+`load_image` relocates and registers the image without calling the entrypoint.
+`run(id)` is a `core::task<module_error>`: it marks one execution slot
+busy, pins one active reference for the whole continuation, invokes every
+validated `.init_array` function in array order synchronously, then
+`co_await`s `module_main()`. The entry may suspend once a scheduler exists; no
+registry, callback, or IRQ lock is held across that suspension. `exit(id)` is
+also a task: it runs atexit/CXA handlers and validated `.fini_array` functions
+in reverse order synchronously, then clears the running state so teardown can
+be followed by `unload(id)` or the task-shaped `close(id)`.
 
-Module entrypoints are not `astia::core::task` functions; the loader does not
-await or resume them. The loader bounds both constructor arrays, treats an
-unsuffixed array section as priority 65535, sorts numeric
-`.init_array.N`/`.fini_array.N` sections in ascending priority, and retains
-section-table order for ties. Each non-null entry must point into an allocated
-executable section; unsupported pre-initialization or legacy constructor
-sections are rejected.
+`run_boot(id)` is the boot-only synchronous driver used before the
+scheduler exists. It starts the run task and requires the entry to complete
+without a real suspension; a module that suspends during boot is reported as
+`would_block` and rolled back.
+
+Constructor/destructor arrays and atexit/CXA handlers remain plain function
+pointers. They run synchronously inside the run/exit task and must not yield or
+call a task wait. Callback context (the active module used by atexit
+registration) is kept on the executing thread for the continuation; a module
+entry must not migrate threads while it still has callback context installed.
+
+There is no legacy synchronous entry adapter and no pointer-based lifecycle
+surface. Stable `module_id` handles and the task-shaped lifecycle are the only
+module ABI.
 
 ## Lifetime and references
 

@@ -1,3 +1,4 @@
+#include <astia/core/task.hpp>
 #include <astia/dev/capabilities.hpp>
 #include <astia/dev/tty_input.hpp>
 #include <astia/log.hpp>
@@ -48,10 +49,6 @@ namespace {
         return "unknown";
     }
 
-    int error_code(ps2_error error) {
-        return -32 - static_cast<int>(error);
-    }
-
     void irq_entry() {
         keyboard.irq();
     }
@@ -61,16 +58,16 @@ namespace {
         (void) controller.disable_keyboard();
     }
 
-    int fail(ps2_error error) {
+    astia::error_t fail(ps2_error error) {
         shutdown();
         logs::info("unavailable");
         logs::info("%s", error_text(error));
 
-        return error_code(error);
+        return astia::error_t::eio;
     }
 } // namespace
 
-int module_main() {
+astia::core::task<void> module_main() {
     logs::info("resident module loaded");
 
     input_ports = astia::dev::claim_io_window(ps2_controller::data_port,
@@ -80,7 +77,7 @@ int module_main() {
         logs::info("unavailable");
         logs::info("window denied");
 
-        return -22;
+        co_return astia::error_t::einval;
     }
 
     controller.attach(input_ports);
@@ -88,24 +85,24 @@ int module_main() {
     ps2_error result = controller.initialize();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     result = keyboard.initialize();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     result = controller.drain();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     // PIC IRQ1 is still masked; enable the controller source before any
     // route can point at this image.
     result = controller.enable_interrupt();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     // The kernel owns the module reference behind this route and marks the
     // caller resident itself; there is no module-side lifetime object.
@@ -114,7 +111,7 @@ int module_main() {
         logs::info("unavailable");
         logs::info("irq claim failed");
 
-        return -16;
+        co_return astia::error_t::ebusy;
     }
 
     if (!astia::module::make_resident()) {
@@ -123,7 +120,7 @@ int module_main() {
         logs::info("unavailable");
         logs::info("resident transition failed");
 
-        return -21;
+        co_return astia::error_t::eperm;
     }
 
     logs::info("ready irq=1");
@@ -135,8 +132,8 @@ int module_main() {
         logs::info("unavailable");
         logs::info("irq unmask failed");
 
-        return -5;
+        co_return astia::error_t::eio;
     }
 
-    return 0;
+    co_return astia::error_t::enone;
 }

@@ -1,3 +1,5 @@
+#include <astia/core/resume_queue.hpp>
+#include <astia/core/task.hpp>
 #include <astia/elf.hpp>
 
 #include "test.hpp"
@@ -38,6 +40,8 @@ extern unsigned char module_priority_fini_trailing_dot_blob[];
 extern unsigned int  module_priority_fini_trailing_dot_blob_len;
 extern unsigned char module_lifecycle_reloc32_blob[];
 extern unsigned int  module_lifecycle_reloc32_blob_len;
+extern unsigned char module_sync_entry_blob[];
+extern unsigned int  module_sync_entry_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
@@ -66,8 +70,15 @@ namespace kernel_fixture {
 }
 
 namespace {
-    ASTIA_NO_SANITIZE_FUNCTION int invoke_module_entry(void* entry) {
-        return reinterpret_cast<int (*)()>(entry)();
+    ASTIA_NO_SANITIZE_FUNCTION astia::error_t invoke_module_entry(void* entry) {
+        using entry_fn = astia::core::task<void> (*)();
+        auto task      = reinterpret_cast<entry_fn>(entry)();
+
+        while (!task.done()) {
+            task.resume();
+        }
+
+        return task.error();
     }
 
     ASTIA_NO_SANITIZE_FUNCTION void
@@ -148,6 +159,15 @@ namespace {
             target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::add);
         else if (std::strcmp(name, "_ZN14kernel_fixture4biasEv") == 0)
             target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::bias);
+        else if (std::strcmp(name, "_Znwm") == 0)
+            target = reinterpret_cast<std::uintptr_t>(
+                static_cast<void* (*) (astia::usize)>(&::operator new));
+        else if (std::strcmp(name, "_ZdlPv") == 0)
+            target = reinterpret_cast<std::uintptr_t>(
+                static_cast<void (*)(void*)>(&::operator delete));
+        else if (std::strcmp(name, "_ZN5astia4core13cancel_resumeENSt7__n486116"
+                                   "coroutine_handleIvEEy") == 0)
+            target = reinterpret_cast<std::uintptr_t>(&astia::core::cancel_resume);
 
         if (target == 0)
             return 0;
@@ -267,7 +287,7 @@ namespace {
 
     // Map a fixed-capacity copy of a fixture we can corrupt per test.
     struct blob_copy {
-        unsigned char data[16384];
+        unsigned char data[65536];
         astia::usize  len;
 
         blob_copy(const unsigned char* src, astia::usize n) : data{}, len(n) {
@@ -767,11 +787,8 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     ASTIA_CHECK(a.unmapped == 0);
 
     if (img.entry != nullptr) {
-        // counter starts at 40 (.data), module_main does counter += 2 then
-        // returns kernel_add(counter, 0) == 42.
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 42);
-        ASTIA_CHECK(invoke_module_entry(img.entry) ==
-                    44); // module-local state persists across calls
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
     }
 
     munmap(mem, cap);
@@ -813,7 +830,7 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     }
 
     if (img.entry != nullptr)
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 49);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
 
     for (size_t i = img.fini_count; i != 0; --i) {
         if (img.fini_array[i - 1] != nullptr)
@@ -823,7 +840,7 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     ASTIA_CHECK(img.fini_count != 0);
 
     if (img.entry != nullptr)
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 141);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
 
     munmap(mem, cap);
 }
@@ -1127,6 +1144,12 @@ ASTIA_TEST(elf_relocatable_rejects_duplicate_entry_definitions) {
 
         ASTIA_CHECK(copied);
     }
+
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_synchronous_entry_abi) {
+    blob_copy buf(module_sync_entry_blob, module_sync_entry_blob_len);
 
     ASTIA_CHECK(!load_relocatable_fixture(buf));
 }

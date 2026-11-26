@@ -19,6 +19,8 @@ _ZN5astia3dev9irq_route6unmaskEv
 _ZN5astia3dev9irq_route7releaseEv
 _ZN5astia3dev15tty_input_writeEh
 _ZN5astia3dev15claim_io_windowEtt
+_Znwm
+_ZdlPv
 memcpy
 memset
 memmove'

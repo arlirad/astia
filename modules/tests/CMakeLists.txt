@@ -39,10 +39,13 @@ add_custom_command(
                 -ffreestanding -fno-pic -fno-pie -fno-exceptions -fno-rtti
                 -fno-threadsafe-statics -fno-stack-protector -fno-omit-frame-pointer
                 -mcmodel=large -fno-asynchronous-unwind-tables
+                -DASTIA_MODULE_ET_REL=1
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/typed_block_module.cpp
                 -o ${ASTIA_TYPED_MODULE_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/typed_block_module.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/resume_queue.hpp
                 ${ASTIA_TYPED_HEADERS}
         VERBATIM)
 add_custom_target(astia_typed_module ALL DEPENDS ${ASTIA_TYPED_MODULE_OBJECT})
@@ -58,6 +61,7 @@ add_custom_command(
                 -ffreestanding -fno-pic -fno-pie -fno-exceptions -fno-rtti
                 -fno-threadsafe-statics -fno-stack-protector -fno-omit-frame-pointer
                 -mcmodel=large -fno-asynchronous-unwind-tables
+                -DASTIA_MODULE_ET_REL=1
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/arch_context_module.cpp

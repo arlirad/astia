@@ -1,7 +1,7 @@
 # NVMe loadable module
 
 `nvme.cpp` is compiled as an x86-64 C++ ET_REL module and copied into the QEMU
-initrd. The `mod` init step loads and runs its `int module_main()` entrypoint
+initrd. The `mod` init step loads and awaits its `astia::core::task<void> module_main()` entrypoint
 before PCI enumeration. The module registers its typed PCI driver through
 `astia::hw::drivers().register_driver`; the typed driver owns its shared
 block-device group and exposes stable namespace paths such as

@@ -31,9 +31,9 @@ namespace astia::proc {
 namespace astia::mod {
 #ifdef ASTIA_MODULE_HOST_TEST
     namespace host_test {
-        int  invoke_entry(int (*entry)());
-        void invoke_initializer(elf::loader::init_fn initializer);
-        void invoke_finalizer(elf::loader::init_fn finalizer);
+        core::task<void> invoke_entry(core::task<void> (*entry)());
+        void             invoke_initializer(elf::loader::init_fn initializer);
+        void             invoke_finalizer(elf::loader::init_fn finalizer);
     }
 #endif
 
@@ -161,8 +161,7 @@ namespace astia::mod {
             execution_guard() : _owned(begin_execution()) {}
 
             ~execution_guard() {
-                if (_owned)
-                    end_execution();
+                release();
             }
 
             execution_guard(const execution_guard&)            = delete;
@@ -172,8 +171,62 @@ namespace astia::mod {
                 return _owned;
             }
 
+            void release() {
+                if (_owned) {
+                    end_execution();
+
+                    _owned = false;
+                }
+            }
+
             private:
             bool _owned;
+        };
+
+        /// Installs the atexit/CXA callback owner for one module execution.
+        /// The execution gate serialises runs, so a process-global owner is
+        /// sufficient; a task-shaped entry must stay on the thread that owns
+        /// the context while it may register exit handlers.
+        class callback_scope {
+            public:
+            callback_scope() = default;
+
+            explicit callback_scope(loaded_module* target) {
+                install(target);
+            }
+
+            ~callback_scope() {
+                restore();
+            }
+
+            callback_scope(const callback_scope&)            = delete;
+            callback_scope& operator=(const callback_scope&) = delete;
+
+            void install(loaded_module* target) {
+                arch::interrupt_spinlock_guard guard(callback_lock);
+
+                _previous       = active;
+                _previous_owner = callback_owner;
+                active          = target;
+                callback_owner  = callback_context_owner();
+                _installed      = true;
+            }
+
+            void restore() {
+                if (!_installed)
+                    return;
+
+                arch::interrupt_spinlock_guard guard(callback_lock);
+
+                active         = _previous;
+                callback_owner = _previous_owner;
+                _installed     = false;
+            }
+
+            private:
+            loaded_module* _previous       = nullptr;
+            void*          _previous_owner = nullptr;
+            bool           _installed      = false;
         };
 
         bool published(module_state state) {
@@ -260,18 +313,6 @@ namespace astia::mod {
             }
         }
 
-        bool id_from_pointer_locked(const loaded_module* module, module_id& id) {
-            for (registry_slot& slot : slots) {
-                if (&slot.module == module && slot.state != module_state::free) {
-                    id = slot.module.id;
-
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         module_error pin_dependencies_locked(module_id             self,
                                              span<const module_id> dependencies) {
             if (dependencies.size() > max_module_dependencies)
@@ -322,6 +363,84 @@ namespace astia::mod {
 
             return waiter;
         }
+
+        /// Owns one run/exit execution for the whole task lifetime. The
+        /// constructor installs the callback context; `finish()` performs the
+        /// terminal accounting, while destruction rolls a suspended entry back
+        /// to `loaded` and releases its active reference exactly once.
+        class execution_session {
+            public:
+            execution_session(loaded_module* target, bool entry_active)
+                : _target(target), _callback(target), _entry_active(entry_active) {}
+
+            ~execution_session() {
+                finish(false, true);
+            }
+
+            execution_session(const execution_session&)            = delete;
+            execution_session& operator=(const execution_session&) = delete;
+
+            /// Successful entry completion: the module stays running.
+            void complete_run() {
+                finish(true, false);
+            }
+
+            /// Successful exit or failure rollback: back to `loaded`.
+            void complete_exit() {
+                finish(false, true);
+            }
+
+            void fail() {
+                finish(false, true);
+            }
+
+            private:
+            void finish(bool keep_running, bool mark_loaded) {
+                if (_target == nullptr)
+                    return;
+
+                close_waiter* waiter = nullptr;
+
+                {
+                    arch::interrupt_spinlock_guard guard(registry_lock);
+
+                    if (_entry_active) {
+                        _target->entry_active = false;
+                        _entry_active         = false;
+                    }
+
+                    if (_target->active_refs > 0)
+                        --_target->active_refs;
+
+                    if (!keep_running) {
+                        _target->running     = false;
+                        _target->initialized = false;
+                    }
+
+                    if (mark_loaded) {
+                        module_error   error = module_error::ok;
+                        registry_slot* slot  = find_slot_locked(_target->id, error);
+
+                        if (slot != nullptr && (slot->state == module_state::running ||
+                                                slot->state == module_state::exiting))
+                            slot->state = module_state::loaded;
+                    }
+
+                    module_error   error = module_error::ok;
+                    registry_slot* slot  = find_slot_locked(_target->id, error);
+                    if (slot != nullptr)
+                        waiter = take_ready_waiter_locked(*slot);
+                }
+
+                deliver_waiter(waiter, module_error::ok);
+
+                _target = nullptr;
+            }
+
+            loaded_module* _target;
+            callback_scope _callback;
+            bool           _entry_active;
+        };
 
         void collect_wake_locked(registry_slot& slot, unload_plan& plan) {
             close_waiter* waiter = take_ready_waiter_locked(slot);
@@ -520,6 +639,11 @@ namespace astia::mod {
             if (image.data() == nullptr || image.size() == 0)
                 return module_error::invalid_argument;
 
+            const module_error format_error = validate_module_image_format(image);
+
+            if (format_error != module_error::ok)
+                return format_error;
+
             if (elf::loader::audit_relocatable(image) !=
                 elf::loader::relocatable_problem::none)
                 return module_error::load_failed;
@@ -576,10 +700,11 @@ namespace astia::mod {
                             copy_module_name(slot.module.name, fallback);
                         }
 
-                        slot.module.base    = loaded.base;
-                        slot.module.size    = loaded.size;
-                        slot.module.entry   = reinterpret_cast<int (*)()>(loaded.entry);
-                        slot.module.running = false;
+                        slot.module.base = loaded.base;
+                        slot.module.size = loaded.size;
+                        slot.module.entry =
+                            reinterpret_cast<core::task<void> (*)()>(loaded.entry);
+                        slot.module.running     = false;
                         slot.module.initialized = false;
                         slot.module.init_count  = loaded.init_count;
                         slot.module.fini_count  = loaded.fini_count;
@@ -625,14 +750,6 @@ namespace astia::mod {
             }
 
             return module_error::ok;
-        }
-
-        const loaded_module* pointer_for_id(module_id id) {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-            module_error                   error = module_error::ok;
-            registry_slot*                 slot  = find_slot_locked(id, error);
-
-            return slot == nullptr ? nullptr : &slot->module;
         }
 
         /// Owns the close invocation for its whole lifetime. The slot cannot be
@@ -887,13 +1004,11 @@ namespace astia::mod {
         return load_image_impl(image, env, nullptr, options, out);
     }
 
-    module_error run(module_id id, int& result) {
-        result = -1;
-
+    core::task<module_error> run(module_id id) {
         execution_guard execution;
 
         if (!execution.owned())
-            return module_error::busy;
+            co_return module_error::busy;
 
         loaded_module* target = nullptr;
 
@@ -902,36 +1017,29 @@ namespace astia::mod {
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
             if (slot == nullptr)
-                return error;
+                co_return error;
 
             if (slot->state == module_state::running)
-                return module_error::busy;
+                co_return module_error::busy;
 
             if (slot->state != module_state::loaded)
-                return slot->state == module_state::loading
-                           ? module_error::busy
-                           : module_error::invalid_argument;
+                co_return slot->state == module_state::loading
+                    ? module_error::busy
+                    : module_error::invalid_argument;
 
             if (slot->module.quiescing)
-                return module_error::would_block;
+                co_return module_error::would_block;
 
             slot->state               = module_state::running;
             slot->module.running      = true;
             slot->module.entry_active = true;
-            target                    = &slot->module;
+
+            ++slot->module.active_refs;
+
+            target = &slot->module;
         }
 
-        loaded_module* previous       = nullptr;
-        void*          previous_owner = nullptr;
-
-        {
-            arch::interrupt_spinlock_guard guard(callback_lock);
-
-            previous       = active;
-            previous_owner = callback_owner;
-            active         = target;
-            callback_owner = callback_context_owner();
-        }
+        execution_session session(target, true);
 
         for (usize i = 0; i < target->init_count; ++i) {
             if (target->init_array[i] != nullptr) {
@@ -948,32 +1056,61 @@ namespace astia::mod {
 
             target->initialized = true;
         }
+
+        if (target->entry == nullptr) {
+            session.fail();
+            execution.release();
+
+            co_return module_error::load_failed;
+        }
 #ifdef ASTIA_MODULE_HOST_TEST
-        result = host_test::invoke_entry(target->entry);
+        const error_t entry_result = co_await host_test::invoke_entry(target->entry);
 #else
-        result = target->entry();
+        const error_t entry_result = co_await target->entry();
 #endif
-        {
-            arch::interrupt_spinlock_guard guard(callback_lock);
+        if (entry_result != error_t::enone) {
+            session.fail();
+            execution.release();
 
-            active         = previous;
-            callback_owner = previous_owner;
+            co_return entry_result == error_t::enomem ? module_error::no_memory
+                                                      : module_error::load_failed;
         }
 
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
+        session.complete_run();
+        execution.release();
 
-            target->entry_active = false;
-        }
-
-        return module_error::ok;
+        co_return module_error::ok;
     }
 
-    module_error exit(module_id id) {
+    module_error run_boot(module_id id) {
+        core::task<module_error> running = run(id);
+
+        if (!running.valid())
+            return running.error() == error_t::enomem ? module_error::no_memory
+                                                      : module_error::load_failed;
+
+        running.resume();
+
+        if (!running.done()) {
+            running.reset();
+
+            return module_error::would_block;
+        }
+
+        const error_t error = running.error();
+
+        if (error != error_t::enone)
+            return error == error_t::enomem ? module_error::no_memory
+                                            : module_error::load_failed;
+
+        return *running.value();
+    }
+
+    core::task<module_error> exit(module_id id) {
         execution_guard execution;
 
         if (!execution.owned())
-            return module_error::busy;
+            co_return module_error::busy;
 
         loaded_module* target = nullptr;
 
@@ -982,29 +1119,22 @@ namespace astia::mod {
             module_error                   error = module_error::ok;
             registry_slot*                 slot  = find_slot_locked(id, error);
             if (slot == nullptr)
-                return error;
+                co_return error;
 
             if (slot->state != module_state::running)
-                return module_error::not_running;
+                co_return module_error::not_running;
 
             if (slot->module.entry_active)
-                return module_error::busy;
+                co_return module_error::busy;
 
             slot->state = module_state::exiting;
-            target      = &slot->module;
+
+            ++slot->module.active_refs;
+
+            target = &slot->module;
         }
 
-        loaded_module* previous       = nullptr;
-        void*          previous_owner = nullptr;
-
-        {
-            arch::interrupt_spinlock_guard guard(callback_lock);
-
-            previous       = active;
-            previous_owner = callback_owner;
-            active         = target;
-            callback_owner = callback_context_owner();
-        }
+        execution_session session(target, false);
 
         finalize_exit_handlers(nullptr);
 
@@ -1019,29 +1149,10 @@ namespace astia::mod {
         }
 
         finalize_exit_handlers(nullptr);
+        session.complete_exit();
+        execution.release();
 
-        {
-            arch::interrupt_spinlock_guard guard(callback_lock);
-
-            active         = previous;
-            callback_owner = previous_owner;
-        }
-
-        arch::interrupt_spinlock_guard guard(registry_lock);
-
-        target->initialized  = false;
-        target->running      = false;
-        target->entry_active = false;
-
-        for (registry_slot& slot : slots) {
-            if (&slot.module == target && slot.state == module_state::exiting) {
-                slot.state = module_state::loaded;
-
-                break;
-            }
-        }
-
-        return module_error::ok;
+        co_return module_error::ok;
     }
 
     module_error unload(module_id id) {
@@ -1504,78 +1615,15 @@ namespace astia::mod {
 
         return module_error::ok;
     }
+
+    const loaded_module* inspect_for_test(module_id id) {
+        arch::interrupt_spinlock_guard guard(registry_lock);
+        module_error                   error = module_error::ok;
+        registry_slot*                 slot  = find_slot_locked(id, error);
+
+        return slot == nullptr ? nullptr : &slot->module;
+    }
 #endif
-
-    const loaded_module* load_module(span<const u8> image) {
-        module_id id{};
-
-        if (load_image(image, module_load_options{}, id) != module_error::ok)
-            return nullptr;
-
-        return pointer_for_id(id);
-    }
-
-    const loaded_module* load_module(span<const u8> image, const elf::loader::env& env) {
-        module_id id{};
-
-        if (load_image(image, env, module_load_options{}, id) != module_error::ok)
-            return nullptr;
-
-        return pointer_for_id(id);
-    }
-
-    bool unload_module(const loaded_module* mod) {
-        if (mod == nullptr)
-            return false;
-
-        module_id id{};
-
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-
-            if (!id_from_pointer_locked(mod, id))
-                return false;
-        }
-
-        return unload(id) == module_error::ok;
-    }
-
-    int run_module(const loaded_module* mod) {
-        if (mod == nullptr)
-            return -1;
-
-        module_id id{};
-
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-
-            if (!id_from_pointer_locked(mod, id))
-                return -1;
-        }
-
-        int result = -1;
-
-        if (run(id, result) != module_error::ok)
-            return -1;
-
-        return result;
-    }
-
-    bool exit_module(const loaded_module* mod) {
-        if (mod == nullptr)
-            return false;
-
-        module_id id{};
-
-        {
-            arch::interrupt_spinlock_guard guard(registry_lock);
-
-            if (!id_from_pointer_locked(mod, id))
-                return false;
-        }
-
-        return exit(id) == module_error::ok;
-    }
 
     int register_exit_handler(void (*handler)(void)) {
         if (handler == nullptr)
@@ -1720,24 +1768,6 @@ namespace astia::mod {
         }
 
         return count;
-    }
-
-    const loaded_module* at(usize i) {
-        arch::interrupt_spinlock_guard guard(registry_lock);
-
-        usize seen = 0;
-
-        for (registry_slot& slot : slots) {
-            if (!published(slot.state))
-                continue;
-
-            if (seen == i)
-                return &slot.module;
-
-            ++seen;
-        }
-
-        return nullptr;
     }
 } // namespace astia::mod
 

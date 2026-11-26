@@ -1,3 +1,4 @@
+#include <astia/core/task.hpp>
 #include <astia/log.hpp>
 #include <astia/module.hpp>
 
@@ -5,17 +6,11 @@ namespace {
     using logs = astia::log::context<"eth">;
 } // namespace
 
-// The loader runs module_main() on entry and teardown through .fini_array.
-// module_exit is the explicit exit entrypoint for the module-lifecycle work;
-// this scaffold owns no network state yet.
-int module_main() {
+// The module lifecycle is task-shaped: entry is a coroutine and teardown runs
+// through the validated .fini_array path. This scaffold owns no network state
+// yet.
+astia::core::task<void> module_main() {
     logs::info("ready");
 
-    return 0;
-}
-
-int module_exit() {
-    logs::info("stopped");
-
-    return 0;
+    co_return astia::error_t::enone;
 }

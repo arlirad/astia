@@ -1,9 +1,10 @@
+#include <astia/core/task.hpp>
 extern "C" int  atexit(void (*)(void));
 extern "C" void lifecycle_record(int);
 
 static void noop() {}
 
-int module_main() {
+astia::core::task<void> module_main() {
     int failures = 0;
 
     for (int i = 0; i < 64; ++i) {
@@ -14,5 +15,5 @@ int module_main() {
 
     lifecycle_record(400 + failures);
 
-    return failures;
+    co_return failures == 0 ? astia::error_t::enone : astia::error_t::eio;
 }

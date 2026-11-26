@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/core/resume_queue.hpp>
 #include <astia/core/task.hpp>
 #include <astia/error.hpp>
 #include <astia/mm/address_space.hpp>
@@ -12,6 +13,12 @@
 
 extern unsigned char module_lifecycle_no_fini_blob[];
 extern unsigned int  module_lifecycle_no_fini_blob_len;
+
+#if defined(__clang__)
+#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
+#else
+#define ASTIA_NO_SANITIZE_FUNCTION
+#endif
 
 namespace {
     alignas(astia::proc::process) unsigned char process_storage[sizeof(
@@ -35,7 +42,19 @@ namespace {
             munmap(image, size);
     }
 
-    astia::u64 resolve_symbol(void*, const char*) {
+    astia::u64 resolve_symbol(void*, const char* name) {
+        if (std::strcmp(name, "_Znwm") == 0)
+            return reinterpret_cast<astia::u64>(
+                static_cast<void* (*) (astia::usize)>(&::operator new));
+
+        if (std::strcmp(name, "_ZdlPv") == 0)
+            return reinterpret_cast<astia::u64>(
+                static_cast<void (*)(void*)>(&::operator delete));
+
+        if (std::strcmp(name, "_ZN5astia4core13cancel_resumeENSt7__n486116"
+                              "coroutine_handleIvEEy") == 0)
+            return reinterpret_cast<astia::u64>(&astia::core::cancel_resume);
+
         return 0;
     }
 
@@ -119,14 +138,9 @@ namespace astia::proc {
     }
 } // namespace astia::proc
 
-#if defined(__clang__)
-#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
-#else
-#define ASTIA_NO_SANITIZE_FUNCTION
-#endif
-
 namespace astia::mod::host_test {
-    ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {
+    ASTIA_NO_SANITIZE_FUNCTION astia::core::task<void>
+                               invoke_entry(astia::core::task<void> (*entry)()) {
         return entry();
     }
 
