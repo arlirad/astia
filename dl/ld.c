@@ -412,11 +412,22 @@ static uint64_t* auxv_value(uint64_t* sp, int64_t tag) {
     return 0;
 }
 
-static uint64_t payload_base(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t at_phdr) {
+/* The load bias of the main image.  PT_PHDR gives it directly.  A payload
+   built without that segment is spec-legal, so fall back to the bias the
+   kernel recorded in auxv; without either, refuse to guess: a wrong bias
+   turns every symbol into garbage instead of failing. */
+static int payload_base(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t at_phdr,
+                        const uint64_t* at_base, uint64_t* out) {
     for (uint32_t i = 0; i < phnum; ++i)
-        if (phdr[i].p_type == PT_PHDR)
-            return at_phdr - phdr[i].p_vaddr;
-    return 0; /* a fixed-address executable needs no bias */
+        if (phdr[i].p_type == PT_PHDR) {
+            *out = at_phdr - phdr[i].p_vaddr;
+            return 0;
+        }
+    if (at_base != 0) {
+        *out = *at_base;
+        return 0;
+    }
+    return -1;
 }
 
 static int build_path(char* out, const char* name) {
@@ -455,7 +466,10 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t  tls_tp       = at_tls_tp != 0 ? *at_tls_tp : 0;
     const uint64_t  tls_limit    = at_tls_limit != 0 ? *at_tls_limit : 0;
 
-    const uint64_t base = payload_base(phdr, phnum, *at_phdr);
+    const uint64_t* at_base = auxv_value(sp, AT_ASTIA_PAYLOAD_BASE);
+    uint64_t        base    = 0;
+    if (payload_base(phdr, phnum, *at_phdr, at_base, &base) != 0)
+        astia_exit(115);
     if (module_init(&modules[count++], base, phdr, phnum) != 0)
         astia_exit(111);
 

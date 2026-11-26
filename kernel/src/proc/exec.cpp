@@ -407,6 +407,7 @@ namespace astia::proc {
         // test images.
         if (image.interp_size != 0)
             return false;
+        _exec_image.base   = image.load_bias;
         _exec_image.entry  = reinterpret_cast<u64>(image.entry);
         _exec_image.phdr   = image.phdr_vaddr;
         _exec_image.interp = 0;
@@ -599,6 +600,7 @@ namespace astia::proc {
         if (image.tls_memsz == 0 && image.interp_size == 0)
             _tls_tp = 0;
 
+        _exec_image.base   = image.load_bias;
         _exec_image.entry  = reinterpret_cast<u64>(image.entry);
         _exec_image.phdr   = image.phdr_vaddr;
         _exec_image.interp = 0;
