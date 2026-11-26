@@ -1,5 +1,7 @@
 set(ASTIA_PUBLIC_HEADERS
+        astia/acpi.hpp
         astia/arch/io.hpp
+        astia/shutdown.hpp
         astia/arch/user_layout.hpp
         astia/boot/framebuffer.hpp
         astia/boot/virt/multiboot2.hpp

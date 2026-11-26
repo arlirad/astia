@@ -8,6 +8,7 @@ if (ARCH STREQUAL "aarch64")
     add_subdirectory(dbg)
     add_subdirectory(plat/aarch64-virt)
     add_subdirectory(boot/aarch64-virt)
+    add_subdirectory(acpi)
     return()
 endif ()
 
@@ -31,6 +32,7 @@ add_subdirectory(initrd)
 add_subdirectory(mod)
 add_subdirectory(init)
 add_subdirectory(boot)
+add_subdirectory(acpi)
 add_subdirectory(arch)
 add_subdirectory(plat)
 
@@ -53,6 +55,7 @@ set(_astia_kernel_libs
         initrd
         mod
         boot_${BOOT}
+        acpi
         plat_${PLATFORM}
         util
         libcore
@@ -122,3 +125,11 @@ astia_configure_kernel(astiakrn_module_runtime)
 astia_generate_module_symbols(astiakrn_module_runtime)
 target_compile_definitions(astiakrn_module_runtime PRIVATE
         ASTIA_RUN_SELFTEST=0 ASTIA_RUN_LIFECYCLE=0)
+
+add_executable(astiakrn_acpi ${ASTIA_KERNEL_SOURCE_DIR}/tests/acpi_kmain.cpp)
+astia_configure_kernel(astiakrn_acpi)
+
+add_executable(astiakrn_acpi_reject
+        ${ASTIA_KERNEL_SOURCE_DIR}/tests/acpi_kmain.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/tests/acpi_test_fixtures.cpp)
+astia_configure_kernel(astiakrn_acpi_reject)

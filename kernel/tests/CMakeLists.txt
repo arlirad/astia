@@ -96,6 +96,15 @@ function(astia_add_host_test name)
 endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
+astia_add_host_test(acpi_host_test acpi_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
+target_include_directories(acpi_host_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
+target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(acpi_host_test "acpi;host;deterministic")
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
@@ -1719,6 +1728,54 @@ if (ARCH STREQUAL "x86_64")
                             sh ${ASTIA_KERNEL_SOURCE_DIR}/scripts/test-grub-smp.sh
                             ${CMAKE_BINARY_DIR}/astia-grub.iso)
             set_tests_properties(astia_grub_smp4_boot PROPERTIES TIMEOUT 30)
+        endif ()
+
+        if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
+            add_custom_target(astia_acpi_grub_iso
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            $<TARGET_FILE:astiakrn_acpi>
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/astiakrn
+                    COMMAND ${CMAKE_COMMAND} -E copy
+                            ${ASTIA_KERNEL_SOURCE_DIR}/grub.cfg
+                            ${CMAKE_BINARY_DIR}/acpi-grub/boot/grub/grub.cfg
+                    COMMAND ${GRUB_FILE} --is-x86-multiboot2
+                            $<TARGET_FILE:astiakrn_acpi>
+                    COMMAND ${GRUB_MKRESCUE} -o ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                            ${CMAKE_BINARY_DIR}/acpi-grub
+                    BYPRODUCTS ${CMAKE_BINARY_DIR}/astia-acpi.iso
+                    DEPENDS astiakrn_acpi
+                    COMMENT "Building ACPI GRUB Multiboot2 ISO")
+
+            add_test(NAME acpi_q35_shutdown
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    shutdown ${ASTIA_QEMU} ${CMAKE_BINARY_DIR}/astia-acpi.iso)
+            set_tests_properties(acpi_q35_shutdown PROPERTIES
+                    TIMEOUT 60
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_rsdp
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-rsdp ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_rsdp PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_malformed_aml
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    reject-aml ${ASTIA_QEMU}
+                    $<TARGET_FILE:astiakrn_acpi_reject>)
+            set_tests_properties(acpi_q35_malformed_aml PROPERTIES
+                    TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
         endif ()
     else ()
         message(STATUS "astia: qemu-system-x86_64 not found; skipping astia_kernel_boot")
