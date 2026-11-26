@@ -24,7 +24,8 @@ namespace {
     }
 
     bool is_directory(const char* path) {
-        return same(path, "/") || same(path, "/tree") || same(path, "/tree/");
+        return same(path, "/") || same(path, "/tree") || same(path, "/tree/") ||
+               same(path, "/tree/sub");
     }
 
     bool is_file(const char* path) {
@@ -135,6 +136,22 @@ ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
     initialize_heap();
 
     char buffer[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/..", buffer, sizeof buffer,
+                                                 false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../file", buffer,
+                                                 sizeof buffer, false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree/file") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../..", buffer, sizeof buffer,
+                                                 false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/") == 0);
+
+    ASTIA_CHECK(astia::fs::path_service::resolve("/tree/sub/../target", buffer,
+                                                 sizeof buffer, true) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/tree/target") == 0);
 
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/../target", buffer, sizeof buffer,
                                                  false) == 0);
