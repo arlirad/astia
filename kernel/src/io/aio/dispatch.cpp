@@ -60,7 +60,8 @@ namespace astia::io::aio::dispatch {
             return current->compose_path_at(dirfd.value, path, out, capacity);
         }
 
-        bool parent_writable(proc::process* current, const char* path) {
+        bool parent_allows(proc::process* current, const char* path,
+                           fs::permission_bits want) {
             if (current == nullptr || path == nullptr)
                 return false;
 
@@ -87,9 +88,16 @@ namespace astia::io::aio::dispatch {
                 return false;
 
             return current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
-                                       fs::permission_bits::write) &&
-                   current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
-                                       fs::permission_bits::execute);
+                                       want);
+        }
+
+        bool parent_writable(proc::process* current, const char* path) {
+            return parent_allows(current, path, fs::permission_bits::write) &&
+                   parent_allows(current, path, fs::permission_bits::execute);
+        }
+
+        bool parent_searchable(proc::process* current, const char* path) {
+            return parent_allows(current, path, fs::permission_bits::execute);
         }
 
         constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
@@ -901,6 +909,10 @@ namespace astia::io::aio::dispatch {
 
     bool parent_writable(proc::process* current, const char* path) {
         return detail::parent_writable(current, path);
+    }
+
+    bool parent_searchable(proc::process* current, const char* path) {
+        return detail::parent_searchable(current, path);
     }
 
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,

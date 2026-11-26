@@ -73,7 +73,8 @@ add_executable(libc_getopt_test stdlib/getopt_test.c support/backend_host.c)
 target_link_libraries(libc_getopt_test PRIVATE astia_libc)
 add_test(NAME libc_getopt_test COMMAND libc_getopt_test)
 
-add_executable(libc_poll_select_test io/poll_select_test.c support/backend_host.c)
+add_executable(libc_poll_select_test io/poll_select_test.c support/backend_host.c
+  support/socket_backend_host.c)
 target_link_libraries(libc_poll_select_test PRIVATE astia_libc)
 add_test(NAME libc_poll_select_test COMMAND libc_poll_select_test)
 

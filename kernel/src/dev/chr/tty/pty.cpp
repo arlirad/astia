@@ -183,8 +183,12 @@ namespace astia::dev {
         u32 count = 0;
 
         for (; count < length; ++count) {
-            const bool ready = tty_receive(input[count]);
-            if (ready)
+            const tty_input_result result = tty_receive(input[count]);
+
+            if (result == tty_input_result::blocked)
+                break;
+
+            if (result == tty_input_result::ready)
                 tty_input_ready();
         }
 
@@ -264,7 +268,21 @@ namespace astia::dev {
             return result == 0 ? -EIO : result;
         }
 
-        return tty::read(buffer, length, offset);
+        const long result = tty::read(buffer, length, offset);
+        if (result > 0) {
+            fs::file* master = nullptr;
+
+            {
+                arch::interrupt_spinlock_guard guard(_pty_lock);
+
+                master = _master_file;
+            }
+
+            if (master != nullptr)
+                sys::io_device_ready_context(master);
+        }
+
+        return result;
     }
 
     long pty::write(const void* buffer, u32 length, u64 offset) {
