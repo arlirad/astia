@@ -208,6 +208,9 @@ typedef struct astia_stat {
     uint32_t nlink;
     uint32_t uid;
     uint32_t gid;
+    /* Wall-clock seconds/nanoseconds.  A filesystem that records no
+       timestamp reports zero; the kernel never substitutes a synthetic
+       epoch. */
     uint64_t atime_sec;
     uint64_t atime_nsec;
     uint64_t mtime_sec;

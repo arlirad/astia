@@ -495,7 +495,8 @@ ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
 
     auto* node = new aio_test::fake_file;
 
-    node->size_value = 37;
+    node->size_value          = 37;
+    node->recorded_timestamps = fs::file_timestamps{11, 12, 21, 22, 31, 32};
 
     const auto file = aio_test::make_open_file(node, ASTIA_AIO_O_RDWR);
 
@@ -512,6 +513,9 @@ ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 0);
     ASTIA_CHECK(stat.size == 37);
+    ASTIA_CHECK(stat.atime_sec == 11 && stat.atime_nsec == 12);
+    ASTIA_CHECK(stat.mtime_sec == 21 && stat.mtime_nsec == 22);
+    ASTIA_CHECK(stat.ctime_sec == 31 && stat.ctime_nsec == 32);
 }
 
 ASTIA_TEST(aio_filesystem_readdir_reports_posix_d_type_values) {

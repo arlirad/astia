@@ -20,6 +20,8 @@ namespace astia::fs {
         inline constexpr u32 max_types  = 16;
         inline constexpr u32 max_mounts = 16;
 
+        bool (*realtime_source)(u64& sec, u64& nsec) = nullptr;
+
         struct type_entry {
             const filesystem* type              = nullptr;
             u32               generation        = 0;
@@ -398,6 +400,14 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    void set_realtime_source(bool (*source)(u64& sec, u64& nsec)) {
+        realtime_source = source;
+    }
+
+    bool realtime_now(u64& sec, u64& nsec) {
+        return realtime_source != nullptr && realtime_source(sec, nsec);
+    }
+
     file_type mount::node_type(const char*) const {
         return directory_unknown;
     }
@@ -418,6 +428,10 @@ namespace astia::fs {
         return {};
     }
 
+    file_timestamps mount::node_timestamps(const char*) const {
+        return {};
+    }
+
     uid_t file::uid() const {
         return {};
     }
@@ -432,6 +446,10 @@ namespace astia::fs {
 
     long file::chown(uid_t, gid_t) {
         return -ENOSYS;
+    }
+
+    file_timestamps file::timestamps() const {
+        return {};
     }
 
     u64 file::inode() const {
@@ -1215,6 +1233,16 @@ namespace astia::fs {
                          relative_path(*operation.entry(), path));
     }
 
+    file_timestamps node_timestamps(const char* path) {
+        mount_operation operation(path);
+
+        if (!operation)
+            return {};
+
+        return operation.instance()->node_timestamps(
+            relative_path(*operation.entry(), path));
+    }
+
     long chmod_path(const char* path, file_permissions permissions) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
@@ -1690,6 +1718,10 @@ namespace astia::fs {
 
         _path[i]  = '\0';
         _has_path = true;
+    }
+
+    file_timestamps open_file::timestamps() const {
+        return !_parent ? file_timestamps{} : _parent->timestamps();
     }
 
     u64 open_file::mtime_sec() const {
