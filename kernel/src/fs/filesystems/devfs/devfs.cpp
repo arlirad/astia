@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
+#include <astia/strings.hpp>
 
 #include "../../../dev/chr/tty/pty.hpp"
 #include "../../../proc/proc.hpp"
@@ -9,14 +10,6 @@
 namespace astia::fs::filesystems {
 
     namespace {
-        bool equal(const char* lhs, const char* rhs) {
-            while (*lhs != '\0' && *lhs == *rhs) {
-                ++lhs;
-                ++rhs;
-            }
-            return *lhs == *rhs;
-        }
-
         bool copy_path(char* dst, const char* src) {
             if (src == nullptr || src[0] != '/')
                 return false;
@@ -35,7 +28,7 @@ namespace astia::fs::filesystems {
         if (!entry || path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (_entries[i].used && equal(_entries[i].path, path))
+            if (_entries[i].used && string_equal(_entries[i].path, path))
                 return -EEXIST;
         }
         for (u32 i = 0; i < devfs_max_entries; ++i) {
@@ -55,7 +48,7 @@ namespace astia::fs::filesystems {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
         for (u32 i = 0; i < devfs_max_entries; ++i) {
-            if (!_entries[i].used || !equal(_entries[i].path, path))
+            if (!_entries[i].used || !string_equal(_entries[i].path, path))
                 continue;
             if (entry && _entries[i].target.get() != entry.get())
                 return -ENOENT;
@@ -68,11 +61,11 @@ namespace astia::fs::filesystems {
     }
 
     mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
-        if (equal(path, "/ptmx"))
+        if (string_equal(path, "/ptmx"))
             return dev::pty_open_master(flags);
         if (dev::pty_node_exists(path))
             return dev::pty_open_slave(path, flags);
-        if (equal(path, "/tty")) {
+        if (string_equal(path, "/tty")) {
             mm::shptr<open_file> terminal = proc::controlling_terminal();
             if (!terminal)
                 return {};
@@ -85,7 +78,7 @@ namespace astia::fs::filesystems {
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
-                if (_entries[i].used && equal(_entries[i].path, path)) {
+                if (_entries[i].used && string_equal(_entries[i].path, path)) {
                     target = _entries[i].target;
                     break;
                 }
@@ -113,30 +106,30 @@ namespace astia::fs::filesystems {
         core::spinlock_guard guard(_namespace_lock);
         // The node exists independently of whether the caller has a ctty;
         // only opening it requires a controlling terminal.
-        if (equal(path, "/tty"))
+        if (string_equal(path, "/tty"))
             return directory_chr;
         if (dev::pty_node_is_directory(path))
             return directory_dir;
-        if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
+        if (dev::pty_node_exists(path) || string_equal(path, "/ptmx"))
             return directory_chr;
         for (u32 i = 0; i < devfs_max_entries; ++i)
-            if (_entries[i].used && equal(_entries[i].path, path))
+            if (_entries[i].used && string_equal(_entries[i].path, path))
                 return directory_chr;
         return directory_unknown;
     }
 
     file_mode devfs_mount::node_mode(const char* path) const {
-        if (equal(path, "/tty"))
+        if (string_equal(path, "/tty"))
             return file_mode(file_type::character, default_device_permissions);
         if (dev::pty_node_is_directory(path))
             return file_mode(file_type::directory, default_directory_permissions);
-        if (dev::pty_node_exists(path) || equal(path, "/ptmx"))
+        if (dev::pty_node_exists(path) || string_equal(path, "/ptmx"))
             return file_mode(file_type::character, default_device_permissions);
         mm::shptr<file> target;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < devfs_max_entries; ++i)
-                if (_entries[i].used && equal(_entries[i].path, path)) {
+                if (_entries[i].used && string_equal(_entries[i].path, path)) {
                     target = _entries[i].target;
                     break;
                 }

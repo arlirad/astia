@@ -31,16 +31,6 @@ namespace astia::initrd {
             usize     next      = 0;
         };
 
-        // find() takes NUL-terminated input; archive names are validated as
-        // bounded C strings before they reach this comparison.
-        bool c_string_equal(const char* a, const char* b) {
-            while (*a != '\0' && *a == *b) {
-                ++a;
-                ++b;
-            }
-            return *a == *b;
-        }
-
         bool has_magic(const u8* p, const char* magic, usize length) {
             for (usize i = 0; i < length; ++i)
                 if (p[i] != static_cast<u8>(magic[i]))
@@ -238,7 +228,7 @@ namespace astia::initrd {
 
         bool find_visit(void* ctx, const file& f) {
             auto* c = static_cast<find_ctx*>(ctx);
-            if (c_string_equal(f.name, c->name)) {
+            if (string_equal(f.name, c->name)) {
                 *c->out  = f;
                 c->found = true;
                 return false; // stop at the first match

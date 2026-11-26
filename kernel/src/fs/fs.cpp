@@ -3,6 +3,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/strings.hpp>
 
 #include "filesystems/devfs/devfs.hpp"
 #include "filesystems/ext4/ext4.hpp"
@@ -68,16 +69,6 @@ namespace astia::fs {
         bool        ready;
         bool        bootstrapping;
 
-        bool equal(const char* lhs, const char* rhs) {
-            if (lhs == nullptr || rhs == nullptr)
-                return false;
-            while (*lhs != '\0' && *lhs == *rhs) {
-                ++lhs;
-                ++rhs;
-            }
-            return *lhs == *rhs;
-        }
-
         u32 length_of(const char* value) {
             u32 n = 0;
             while (value != nullptr && value[n] != '\0')
@@ -99,7 +90,8 @@ namespace astia::fs {
 
         type_entry* find_type_locked(const char* name) {
             for (u32 i = 0; i < max_types; ++i) {
-                if (types[i].type != nullptr && equal(types[i].type->name(), name)) {
+                if (types[i].type != nullptr &&
+                    string_equal(types[i].type->name(), name)) {
                     return &types[i];
                 }
             }
@@ -152,7 +144,7 @@ namespace astia::fs {
         };
 
         bool path_matches(const char* target, const char* path) {
-            if (equal(target, "/")) {
+            if (string_equal(target, "/")) {
                 return path != nullptr && path[0] == '/';
             }
             u32 i = 0;
@@ -222,7 +214,7 @@ namespace astia::fs {
             if (mount_lookup_hint.generation == mount_registry_generation &&
                 mount_lookup_hint.entry != nullptr && mount_lookup_hint.entry->used &&
                 mount_lookup_hint.entry->instance != nullptr &&
-                equal(mount_lookup_hint.path, path))
+                string_equal(mount_lookup_hint.path, path))
                 return mount_lookup_hint.entry;
 
             best     = nullptr;
@@ -289,7 +281,7 @@ namespace astia::fs {
         };
 
         const char* relative_path(const mount_entry& entry, const char* path) {
-            if (equal(entry.target, "/")) {
+            if (string_equal(entry.target, "/")) {
                 return path;
             }
             const char* relative = path;
@@ -418,7 +410,7 @@ namespace astia::fs {
         core::spinlock_guard guard(mount_registry_lock);
         const char*          name = type->name();
         for (u32 i = 0; i < max_types; ++i) {
-            if (types[i].type != nullptr && equal(types[i].type->name(), name))
+            if (types[i].type != nullptr && string_equal(types[i].type->name(), name))
                 return -EEXIST;
         }
         for (u32 i = 0; i < max_types; ++i) {
@@ -482,7 +474,7 @@ namespace astia::fs {
             if (!copy_path(checked_target, target))
                 return -ENAMETOOLONG;
         }
-        else if (equal(target, "/")) {
+        else if (string_equal(target, "/")) {
             checked_target[0] = '/';
             checked_target[1] = '\0';
         }
@@ -495,7 +487,7 @@ namespace astia::fs {
                 {
                     core::spinlock_guard registry_guard(mount_registry_lock);
                     for (u32 i = 0; i < max_mounts; ++i)
-                        if (equal(mounts[i].target, checked_target))
+                        if (string_equal(mounts[i].target, checked_target))
                             known_mountpoint = true;
                 }
                 if (!known_mountpoint)
@@ -506,7 +498,7 @@ namespace astia::fs {
                 {
                     core::spinlock_guard registry_guard(mount_registry_lock);
                     for (u32 i = 0; i < max_mounts; ++i)
-                        if (equal(mounts[i].target, checked_target))
+                        if (string_equal(mounts[i].target, checked_target))
                             known_mountpoint = true;
                 }
                 if (!known_mountpoint)
@@ -545,7 +537,7 @@ namespace astia::fs {
         {
             core::spinlock_guard registry_guard(mount_registry_lock);
             for (u32 i = 0; i < max_mounts; ++i) {
-                if (mounts[i].used && equal(mounts[i].target, checked_target)) {
+                if (mounts[i].used && string_equal(mounts[i].target, checked_target)) {
                     publish_error = -EEXIST;
                     break;
                 }
@@ -588,13 +580,13 @@ namespace astia::fs {
         char checked_target[path_max]{};
         if (target == nullptr)
             return -EFAULT;
-        if (equal(target, "/"))
+        if (string_equal(target, "/"))
             return -EBUSY;
         long resolve_result =
             resolve_path(target, checked_target, sizeof checked_target, false);
         if (resolve_result < 0)
             return resolve_result;
-        if (equal(checked_target, "/"))
+        if (string_equal(checked_target, "/"))
             return -EBUSY;
         mount*            instance        = nullptr;
         mount_ownership   ownership       = mount_ownership::static_instance;
@@ -605,7 +597,7 @@ namespace astia::fs {
             core::spinlock_guard registry_guard(mount_registry_lock);
             mount_entry*         selected = nullptr;
             for (u32 i = 0; i < max_mounts; ++i) {
-                if (mounts[i].used && equal(mounts[i].target, checked_target)) {
+                if (mounts[i].used && string_equal(mounts[i].target, checked_target)) {
                     selected = &mounts[i];
                     break;
                 }
@@ -854,7 +846,7 @@ namespace astia::fs {
         // A mount point is itself a directory in the namespace.  Some
         // filesystems (notably devfs) only expose entries below their root
         // and therefore cannot describe the mount root through node_type().
-        if (equal(entry->target, path))
+        if (string_equal(entry->target, path))
             return directory_dir;
         file_type unix_type = unix_node_type(path, operation.instance());
         if (unix_type != directory_unknown)

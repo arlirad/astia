@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/mm/heap.hpp>
+#include <astia/strings.hpp>
 
 #include <new>
 
@@ -19,16 +20,6 @@ namespace astia::fs::path_service {
             for (usize i = 0; i <= length; ++i)
                 destination[i] = source[i];
             return 0;
-        }
-
-        bool equal(const char* lhs, const char* rhs) {
-            if (lhs == nullptr || rhs == nullptr)
-                return false;
-            while (*lhs != '\0' && *lhs == *rhs) {
-                ++lhs;
-                ++rhs;
-            }
-            return *lhs == *rhs;
         }
 
         u32 length_of(const char* value) {
@@ -137,9 +128,9 @@ namespace astia::fs::path_service {
                     pending[i] = pending[i + 1];
                 --plen;
             }
-            if (equal(component, "."))
+            if (string_equal(component, "."))
                 continue;
-            if (equal(component, "..")) {
+            if (string_equal(component, "..")) {
                 if (rlen > 1) {
                     --rlen;
                     while (rlen > 1 && result[rlen - 1] != '/')
