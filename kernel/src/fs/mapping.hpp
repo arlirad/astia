@@ -38,12 +38,20 @@ namespace astia {
                 type = fs::file_type::directory;
 
                 break;
+            case 0060000u:
+                type = fs::file_type::block;
+
+                break;
             case 0100000u:
                 type = fs::file_type::regular;
 
                 break;
             case 0120000u:
                 type = fs::file_type::symlink;
+
+                break;
+            case 0140000u:
+                type = fs::file_type::socket;
 
                 break;
             case 0:
@@ -65,6 +73,9 @@ namespace astia {
                 break;
             case fs::file_type::character:
                 type = 0020000u;
+                break;
+            case fs::file_type::block:
+                type = 0060000u;
                 break;
             case fs::file_type::directory:
                 type = 0040000u;

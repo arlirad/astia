@@ -44,7 +44,7 @@ namespace astia::fs {
         unknown   = 0,
         fifo      = 1,
         character = 2,
-        block     = 3,
+        block     = 6,
         directory = 4,
         regular   = 8,
         symlink   = 10,

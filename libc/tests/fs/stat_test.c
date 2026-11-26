@@ -40,6 +40,9 @@ int main(void) {
 
     int fd;
 
+    CHECK(S_ISBLK(S_IFBLK) && !S_ISBLK(S_IFCHR));
+    CHECK(S_ISSOCK(S_IFSOCK) && !S_ISSOCK(S_IFREG));
+
     (void) unlink(file);
     (void) unlink(link);
     (void) rmdir(dir);
