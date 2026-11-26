@@ -319,6 +319,11 @@ namespace astia::mod {
     module_error acquire(module_id id);
     module_error release(module_id id);
 
+    /// Deliver close waiters that were parked because release() ran in
+    /// interrupt or module-callback context. Call from normal context; the
+    /// scheduler invokes it each tick.
+    void service_module_waits();
+
     /// The module currently executing entrypoint or finalizer callbacks, or an
     /// invalid id outside that context. Used to resolve the calling module for
     /// lifetime_token.
