@@ -1,3 +1,4 @@
+#include <astia/arch/cpu.hpp>
 #include <astia/arch/exception_frame.hpp>
 #include <astia/dbg/panic_report.hpp>
 
@@ -6,6 +7,7 @@
 #include "panic_format.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
+#include "scheduler.hpp"
 
 extern "C" char __vector_table[];
 
@@ -88,6 +90,11 @@ namespace {
 
         console->write_line(line);
     }
+
+    void finish_irq() {
+        astia::arch::cpu::interrupt_exit();
+        astia::boot::aarch64::virt::sched::reschedule_from_irq();
+    }
 } // namespace
 
 extern "C" void astia_aarch64_install_exception_vectors() {
@@ -105,6 +112,8 @@ extern "C" void astia_aarch64_seed_far_el1(astia::u64 value) {
 extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
     namespace gicv3 = astia::arch::aarch64::gicv3;
 
+    astia::arch::cpu::interrupt_enter();
+
     const gicv3::irq_result result = gicv3::acknowledge_and_complete();
     const pl011_uart        console{astia::plat::aarch64_virt::pl011_base};
 
@@ -116,17 +125,20 @@ extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
         if (result.timer) {
             write_line_field(console, "irq: timer=", result.intid, 8);
             console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER HANDLED");
+            finish_irq();
 
             return;
         }
 
         console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ HANDLED");
+        finish_irq();
 
         return;
     }
 
     if (result.action == gicv3::irq_action::spurious) {
         console.write_line("irq: spurious");
+        finish_irq();
 
         return;
     }
