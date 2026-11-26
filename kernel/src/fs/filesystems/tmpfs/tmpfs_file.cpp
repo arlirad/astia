@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/atomic.hpp>
 
 #include "tmpfs.hpp"
 
@@ -10,7 +11,8 @@ namespace astia::fs::filesystems {
 
     tmpfs_file::tmpfs_file(usize pages, file_mode mode)
         : _storage(mode.is_directory() ? nullptr : mm::phys_region::create(pages, true)),
-          _mode(mode), _inode(__atomic_fetch_add(&next_inode, 1u, __ATOMIC_RELAXED)) {}
+          _mode(mode), _inode(astia::atomic_ref<u64>(next_inode)
+                                  .fetch_add(1u, astia::memory_order::relaxed)) {}
 
     tmpfs_file::~tmpfs_file() {
         if (_storage != nullptr) {
@@ -73,7 +75,7 @@ namespace astia::fs::filesystems {
         core::spinlock_guard guard(_lock);
         if (_storage == nullptr || !_mode.is_regular())
             co_return -EINVAL;
-        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        astia::atomic_thread_fence(astia::memory_order::seq_cst);
         co_return 0;
     }
 
@@ -112,7 +114,7 @@ namespace astia::fs::filesystems {
             for (u64 i = zero_start; i < zero_end; ++i)
                 target[i - current] = 0;
         }
-        __atomic_thread_fence(__ATOMIC_SEQ_CST);
+        astia::atomic_thread_fence(astia::memory_order::seq_cst);
         co_return 0;
     }
 

@@ -2,6 +2,7 @@
 
 #include <astia/api/syscalls.h>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/core/cancellation.hpp>
 #include <astia/core/spinlock.hpp>
@@ -196,10 +197,12 @@ namespace astia::proc {
             return _name;
         }
         process_state state() const {
-            return static_cast<process_state>(__atomic_load_n(&_state, __ATOMIC_ACQUIRE));
+            return static_cast<process_state>(
+                astia::atomic_ref<u8>(_state).load(astia::memory_order::acquire));
         }
         void state(process_state value) {
-            __atomic_store_n(&_state, static_cast<u8>(value), __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_state).store(static_cast<u8>(value),
+                                                astia::memory_order::release);
         }
         i32 exit_status() const {
             return _exit_status;
@@ -212,16 +215,19 @@ namespace astia::proc {
             return wait_status_from_stop(_stop_signal);
         }
         bool stop_event_pending() const {
-            return __atomic_load_n(&_stop_event, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_stop_event)
+                       .load(astia::memory_order::acquire) != 0;
         }
         bool continued_event_pending() const {
-            return __atomic_load_n(&_continued_event, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_continued_event)
+                       .load(astia::memory_order::acquire) != 0;
         }
         void clear_stop_event() {
-            __atomic_store_n(&_stop_event, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_stop_event).store(0, astia::memory_order::release);
         }
         void clear_continued_event() {
-            __atomic_store_n(&_continued_event, 0, __ATOMIC_RELEASE);
+            astia::atomic_ref<u8>(_continued_event)
+                .store(0, astia::memory_order::release);
         }
         void signal_state_change(signal_number signal);
         void interrupt_signal_io(signal_number signal);
@@ -257,10 +263,12 @@ namespace astia::proc {
         bool thread_exited(thread* value, i32 status);
         void request_exit(thread* caller, i32 status);
         bool process_exit_requested() const {
-            return __atomic_load_n(&_exit_requested, __ATOMIC_ACQUIRE) != 0;
+            return astia::atomic_ref<u8>(_exit_requested)
+                       .load(astia::memory_order::acquire) != 0;
         }
         i32 requested_exit_status() const {
-            return __atomic_load_n(&_requested_exit_status, __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<i32>(_requested_exit_status)
+                .load(astia::memory_order::acquire);
         }
 
         /// Move the process's owning reference to a dead thread out of
@@ -533,14 +541,14 @@ namespace astia::proc {
         // These are observed by registry, scheduler, and wait paths that do
         // not hold _lifecycle_lock. Keep the byte-sized representation
         // and publish transitions explicitly rather than widening the record.
-        u8           _state                 = static_cast<u8>(process_state::fresh);
+        mutable u8   _state                 = static_cast<u8>(process_state::fresh);
         i32          _exit_status           = 0;
         i32          _termination_signal    = 0;
         i32          _stop_signal           = 0;
-        u8           _stop_event            = 0;
-        u8           _continued_event       = 0;
-        u8           _exit_requested        = 0;
-        i32          _requested_exit_status = 0;
+        mutable u8   _stop_event            = 0;
+        mutable u8   _continued_event       = 0;
+        mutable u8   _exit_requested        = 0;
+        mutable i32  _requested_exit_status = 0;
         signal_state _signals{};
         u64          _alarm_deadline = 0;
 

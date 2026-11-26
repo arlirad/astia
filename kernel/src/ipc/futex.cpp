@@ -4,6 +4,7 @@
 #include <astia/api/syscalls.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
+#include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/resource_limits.hpp>
 
@@ -83,10 +84,13 @@ namespace astia::proc {
         }
 
         bool reserve_waiter() {
-            u32 count = __atomic_load_n(&waiter_count, __ATOMIC_RELAXED);
+            u32 count =
+                astia::atomic_ref<u32>(waiter_count).load(astia::memory_order::relaxed);
             while (count < futex_capacity &&
-                   !__atomic_compare_exchange_n(&waiter_count, &count, count + 1, false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
+                   !astia::atomic_ref<u32>(waiter_count)
+                        .compare_exchange_strong(count, count + 1,
+                                                 astia::memory_order::acq_rel,
+                                                 astia::memory_order::relaxed)) {
             }
             return count < futex_capacity;
         }
@@ -139,7 +143,8 @@ namespace astia::proc {
                         wake = waiter.value;
                         waiter.release_shared_mapping();
                         waiter = {};
-                        __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                        astia::atomic_ref<u32>(waiter_count)
+                            .fetch_sub(1, astia::memory_order::acq_rel);
                         break;
                     }
                     if (wake)
@@ -173,7 +178,8 @@ namespace astia::proc {
                     wake = waiter.value;
                     waiter.release_shared_mapping();
                     waiter = {};
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                     break;
                 }
                 if (wake)
@@ -247,12 +253,13 @@ namespace astia::proc {
         i64 result = 0;
 
         arch::interrupt_guard gate;
-        auto&                 bucket = shared
-                                           ? bucket_for_shared(shared_mapping.identity,
-                                                               shared_mapping.page, shared_mapping.offset)
-                                           : bucket_for_private(address);
-        core::spinlock_guard  lock(bucket.lock);
-        if (__atomic_load_n(word, __ATOMIC_SEQ_CST) != expected) {
+        auto& bucket = shared
+                           ? bucket_for_shared(shared_mapping.identity,
+                                               shared_mapping.page, shared_mapping.offset)
+                           : bucket_for_private(address);
+        core::spinlock_guard lock(bucket.lock);
+        if (astia::atomic_ref<u32>(*word).load(astia::memory_order::seq_cst) !=
+            expected) {
             shared_mapping.release();
             co_return -EAGAIN;
         }
@@ -276,13 +283,15 @@ namespace astia::proc {
             }
         }
         if (slot == futex_bucket_capacity) {
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             shared_mapping.release();
             co_return -EAGAIN;
         }
         mm::shptr<thread> retained = owner->retain_thread(self);
         if (!retained || retained.get() != self) {
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             shared_mapping.release();
             co_return -EAGAIN;
         }
@@ -306,7 +315,8 @@ namespace astia::proc {
         if (cancellation_point && self->cancellation_pending()) {
             waiter.release_shared_mapping();
             waiter = {};
-            __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(waiter_count)
+                .fetch_sub(1, astia::memory_order::acq_rel);
             self->state(thread_state::running);
             shared_mapping.release();
             co_return -EINTR;
@@ -330,10 +340,10 @@ namespace astia::proc {
         arch::interrupt_guard gate;
         mm::shptr<thread>     wake_list[futex_bucket_capacity];
         u32                   wake_count = 0;
-        auto&                 bucket     = shared
-                                               ? bucket_for_shared(shared_mapping.identity,
-                                                                   shared_mapping.page, shared_mapping.offset)
-                                               : bucket_for_private(address);
+        auto& bucket = shared
+                           ? bucket_for_shared(shared_mapping.identity,
+                                               shared_mapping.page, shared_mapping.offset)
+                           : bucket_for_private(address);
         {
             core::spinlock_guard lock(bucket.lock);
             for (u32 i = 0; i < futex_bucket_capacity && wake_count < count; ++i) {
@@ -348,7 +358,8 @@ namespace astia::proc {
                 wake_list[wake_count++] = waiter.value;
                 waiter.release_shared_mapping();
                 bucket.waiters[i] = {};
-                __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                astia::atomic_ref<u32>(waiter_count)
+                    .fetch_sub(1, astia::memory_order::acq_rel);
             }
         }
         shared_mapping.release();
@@ -373,7 +384,8 @@ namespace astia::proc {
                 if (bucket.waiters[i].value && bucket.waiters[i].owner == owner) {
                     bucket.waiters[i].release_shared_mapping();
                     bucket.waiters[i] = {};
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                 }
             }
         }
@@ -399,7 +411,8 @@ namespace astia::proc {
                     wake_list[wake_count++] = waiter.value;
                     waiter.release_shared_mapping();
                     waiter = {};
-                    __atomic_fetch_sub(&waiter_count, 1, __ATOMIC_ACQ_REL);
+                    astia::atomic_ref<u32>(waiter_count)
+                        .fetch_sub(1, astia::memory_order::acq_rel);
                 }
             }
             for (u32 i = 0; i < wake_count; ++i)

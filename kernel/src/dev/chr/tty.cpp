@@ -3,6 +3,7 @@
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 
 #include "../../proc/proc.hpp"
 
@@ -67,9 +68,10 @@ namespace astia::dev {
         }
         arch::interrupt_spinlock_guard guard(_state_lock);
         auto*                          dst = static_cast<u8*>(buf);
-        const u32 head                     = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
-        const u32 tail                     = _rx_tail;
-        u32       count                    = (head - tail) & (rx_capacity_bytes - 1);
+        const u32                      head =
+            astia::atomic_ref<u32>(_rx_head).load(astia::memory_order::acquire);
+        const u32 tail  = _rx_tail;
+        u32       count = (head - tail) & (rx_capacity_bytes - 1);
         if (count > len) {
             count = len;
         }
@@ -93,8 +95,8 @@ namespace astia::dev {
         for (u32 i = 0; i < count; ++i) {
             dst[i] = _rx[(tail + i) & (rx_capacity_bytes - 1)];
         }
-        __atomic_store_n(&_rx_tail, (tail + count) & (rx_capacity_bytes - 1),
-                         __ATOMIC_RELEASE);
+        astia::atomic_ref<u32>(_rx_tail).store((tail + count) & (rx_capacity_bytes - 1),
+                                               astia::memory_order::release);
         return static_cast<long>(count);
     }
 
@@ -259,14 +261,14 @@ namespace astia::dev {
                 return false;
             }
             _rx[head] = byte;
-            __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+            astia::atomic_ref<u32>(_rx_head).store(next, astia::memory_order::release);
             if ((_termios.c_lflag & ECHO) != 0 ||
                 (byte == '\n' && (_termios.c_lflag & ECHONL) != 0)) {
                 echo[echo_count++] = byte;
             }
             const u32 count = (next - _rx_tail) & (rx_capacity_bytes - 1);
             ready           = _termios.c_cc[VMIN] == 0 || count >= _termios.c_cc[VMIN] ||
-                    (_termios.c_cc[VTIME] != 0 && count != 0);
+                              (_termios.c_cc[VTIME] != 0 && count != 0);
             return finish();
         }
 
@@ -375,8 +377,9 @@ namespace astia::dev {
 
     long tty::tty_discard_input() {
         arch::interrupt_spinlock_guard guard(_state_lock);
-        const u32 head = __atomic_load_n(&_rx_head, __ATOMIC_ACQUIRE);
-        __atomic_store_n(&_rx_tail, head, __ATOMIC_RELEASE);
+        const u32                      head =
+            astia::atomic_ref<u32>(_rx_head).load(astia::memory_order::acquire);
+        astia::atomic_ref<u32>(_rx_tail).store(head, astia::memory_order::release);
         _line_length   = 0;
         _line_overflow = false;
         _eof_pending   = false;
@@ -403,7 +406,7 @@ namespace astia::dev {
             }
         }
         _line_length = 0;
-        __atomic_store_n(&_rx_head, next, __ATOMIC_RELEASE);
+        astia::atomic_ref<u32>(_rx_head).store(next, astia::memory_order::release);
         guard.unlock();
         tty_input_ready();
     }
