@@ -175,6 +175,39 @@ ASTIA_TEST(aio_filesystem_openat_reuses_lowest_free_descriptor) {
     ASTIA_CHECK(descriptor_present(0));
 }
 
+ASTIA_TEST(aio_filesystem_openat_preserves_close_on_exec) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    clear_descriptor(0);
+    set_node_mode(astia::fs::file_mode(astia::fs::file_type::regular));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/aio";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CLOEXEC) == 0);
+    ASTIA_CHECK(descriptor_flags(0) == ASTIA_FD_CLOEXEC);
+}
+
+ASTIA_TEST(aio_filesystem_openat_reports_emfile_when_table_full) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(astia::fs::file_mode(astia::fs::file_type::regular));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    for (i32 fd = 3; fd < static_cast<i32>(proc::max_process_fds); ++fd) {
+        ASTIA_CHECK(
+            install_descriptor(aio_test::make_open_file(new aio_test::fake_file)) == fd);
+    }
+
+    char path[] = "/tmp/aio";
+
+    ASTIA_CHECK(submit_openat(path, 0) == -EMFILE);
+}
+
 ASTIA_TEST(aio_filesystem_openat_create_requires_writable_parent) {
     using namespace aio::test_support;
 

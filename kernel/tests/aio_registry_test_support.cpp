@@ -301,6 +301,10 @@ namespace astia::io::aio::test_support {
         return is_valid_fd(fd) && static_cast<bool>(descriptors[fd].file);
     }
 
+    u32 descriptor_flags(i32 fd) {
+        return is_valid_fd(fd) ? descriptors[fd].flags : 0;
+    }
+
     void clear_descriptor(i32 fd) {
         if (is_valid_fd(fd))
             descriptors[fd] = {};
