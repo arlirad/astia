@@ -42,6 +42,12 @@ namespace astia::proc {
                     arch::interrupt_spinlock_guard guard(lock);
                     if (done)
                         return true;
+                    // A cancelled thread must not sit parked behind a long
+                    // module load or close drain.  The waiter owns the
+                    // operation coroutine; returning here detaches it from
+                    // any completion and destroys the frame.
+                    if (self->cancellation_pending())
+                        return false;
                     if (!wait_live(owner, self))
                         return false;
                     // A waiter wakeup that lands after resume_pending() but
@@ -109,6 +115,9 @@ namespace astia::proc {
         core::spinlock lock;
         volatile bool  done = false;
 
+        if (self_ref->cancellation_pending())
+            return -EINTR;
+
         auto waker = wake_when_done(static_cast<core::task<i64>&&>(operation), done, lock,
                                     self_ref);
         if (!waker.valid())
@@ -116,7 +125,7 @@ namespace astia::proc {
         waker.resume();
         if (!waker.done()) {
             if (!wait_park(done, lock, owner_ref, self_ref))
-                return -ESRCH;
+                return self_ref->cancellation_pending() ? -EINTR : -ESRCH;
             // The waker completes the wait before it reaches its final
             // suspend; wait for that before destroying the coroutine frames.
             while (!waker.done())

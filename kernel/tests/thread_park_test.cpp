@@ -91,3 +91,12 @@ ASTIA_TEST(thread_park_after_draining_a_resume_blocks) {
     ASTIA_CHECK(value.park_unless_woken());
     ASTIA_CHECK(value.state() == astia::proc::thread_state::blocked);
 }
+
+ASTIA_TEST(thread_cancellation_roundtrip) {
+    astia::proc::thread value(nullptr, 4);
+    ASTIA_CHECK(!value.cancellation_pending());
+    value.request_cancellation();
+    ASTIA_CHECK(value.cancellation_pending());
+    value.clear_cancellation();
+    ASTIA_CHECK(!value.cancellation_pending());
+}

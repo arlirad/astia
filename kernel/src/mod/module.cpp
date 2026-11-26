@@ -674,6 +674,10 @@ namespace astia::mod {
                 co_return result;
             }
             const module_load_options options = options_from(parameters);
+            result.error                      = validate_module_image_format(image);
+            if (result.error != module_error::ok) {
+                co_return result;
+            }
             result.error = load_image(image, env, options, result.id);
             co_return result;
         }
@@ -688,6 +692,10 @@ namespace astia::mod {
             load_state                state{};
             const elf::loader::env    env     = production_environment(state);
             const module_load_options options = options_from(parameters);
+            result.error                      = validate_module_image_format(image);
+            if (result.error != module_error::ok) {
+                co_return result;
+            }
             result.error = load_image(image, env, options, result.id);
             co_return result;
         }
