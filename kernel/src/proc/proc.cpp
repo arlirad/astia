@@ -715,13 +715,12 @@ namespace astia::proc {
             }
 
             bool await_suspend(std::coroutine_handle<> continuation) {
-                if (!self.arm_wait_unless_cancelled(continuation)) {
+                if (!self.arm_park_unless_cancelled(continuation)) {
                     arch::cpu::interrupts();
 
                     return false;
                 }
 
-                self.state(thread_state::blocked);
                 arch::cpu::interrupts();
 
                 return true;
