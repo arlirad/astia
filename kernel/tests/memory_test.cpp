@@ -69,6 +69,24 @@ ASTIA_TEST(string_views_are_length_delimited) {
     ASTIA_CHECK(!astia::string_starts_with({nullptr, 1}, {}));
 }
 
+ASTIA_TEST(c_string_equal_compares_nul_terminated_bytes) {
+    ASTIA_CHECK(astia::string_equal("path", "path"));
+    ASTIA_CHECK(!astia::string_equal("path", "pata"));
+    ASTIA_CHECK(!astia::string_equal("path", "pat"));
+    ASTIA_CHECK(!astia::string_equal("pat", "path"));
+    ASTIA_CHECK(astia::string_equal("", ""));
+    ASTIA_CHECK(!astia::string_equal("", "x"));
+    ASTIA_CHECK(!astia::string_equal("x", ""));
+    ASTIA_CHECK(!astia::string_equal(nullptr, "x"));
+    ASTIA_CHECK(!astia::string_equal("x", nullptr));
+    ASTIA_CHECK(!astia::string_equal(nullptr, nullptr));
+
+    // The C-string and string_view overloads stay callable side by side.
+    const char value[] = "path";
+    ASTIA_CHECK(
+        astia::string_equal({value, sizeof(value) - 1}, {value, sizeof(value) - 1}));
+}
+
 ASTIA_TEST(string_view_prefix_and_ordering) {
     const char value[]  = "kernel";
     const char prefix[] = "ker";
