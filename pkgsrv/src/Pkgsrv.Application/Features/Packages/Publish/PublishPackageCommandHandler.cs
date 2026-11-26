@@ -21,7 +21,7 @@ public sealed class PublishPackageCommandHandler
     private readonly IPackagePublisher _publisher;
     private readonly IIrvaAuthorization _authorization;
     private readonly ISystemClock _clock;
-    private readonly IPackageCacheInvalidator? _cacheInvalidator;
+    private readonly IPackageCacheInvalidationNotifier? _cacheNotifier;
 
     public PublishPackageCommandHandler(
         IPackageRepository repository,
@@ -32,7 +32,7 @@ public sealed class PublishPackageCommandHandler
         IPackagePublisher publisher,
         IIrvaAuthorization authorization,
         ISystemClock clock,
-        IPackageCacheInvalidator? cacheInvalidator = null)
+        IPackageCacheInvalidationNotifier? cacheNotifier = null)
     {
         _repository = repository;
         _artifactStore = artifactStore;
@@ -42,7 +42,7 @@ public sealed class PublishPackageCommandHandler
         _publisher = publisher;
         _authorization = authorization;
         _clock = clock;
-        _cacheInvalidator = cacheInvalidator;
+        _cacheNotifier = cacheNotifier;
     }
 
     public async ValueTask<PublishPackageResult> Handle(
@@ -120,6 +120,15 @@ public sealed class PublishPackageCommandHandler
             await _repository
                 .UpdateSignatureAsync(package, cancellationToken)
                 .ConfigureAwait(false);
+
+            if (_cacheNotifier is not null)
+            {
+                await _cacheNotifier
+                    .NotifyAsync(
+                        PackageCacheInvalidation.ForPackage(key),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
         }
         else if (!_signatureVerifier.Verify(package.Manifest.ContentHash, package.Manifest.Signature))
         {
@@ -151,7 +160,14 @@ public sealed class PublishPackageCommandHandler
             .ConfigureAwait(false);
         package.MarkPublished(publishedAt);
 
-        _cacheInvalidator?.InvalidateAfterMutation();
+        if (_cacheNotifier is not null)
+        {
+            await _cacheNotifier
+                .NotifyAsync(
+                    PackageCacheInvalidation.ForPackage(key),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
 
         return new PublishPackageResult(
             key.Name.Value,

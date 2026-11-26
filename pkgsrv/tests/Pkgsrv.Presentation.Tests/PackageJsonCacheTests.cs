@@ -2,6 +2,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Internal;
 using Pkgsrv.Application.Contracts;
 using Pkgsrv.Application.Errors;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Domain.Packages;
@@ -319,6 +320,125 @@ public sealed class PackageJsonCacheTests
         await cache.GetListJsonAsync(TestPackages.Actor, "widget", Load, CancellationToken.None);
 
         Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task ListScope_InvalidatesListsWithoutForcingPackageDetailReload()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var cache = CreateCache(memory);
+        var listCalls = 0;
+        var packageCalls = 0;
+
+        await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            _ =>
+            {
+                listCalls++;
+                return Task.FromResult(CreateListResponse());
+            },
+            CancellationToken.None);
+        await cache.GetPackageJsonAsync(
+            TestPackages.Actor,
+            "widget",
+            "1.2.3",
+            _ =>
+            {
+                packageCalls++;
+                return Task.FromResult(CreatePackageResponse());
+            },
+            CancellationToken.None);
+
+        cache.Invalidate(PackageCacheInvalidation.List);
+
+        await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            _ =>
+            {
+                listCalls++;
+                return Task.FromResult(CreateListResponse());
+            },
+            CancellationToken.None);
+        await cache.GetPackageJsonAsync(
+            TestPackages.Actor,
+            "widget",
+            "1.2.3",
+            _ =>
+            {
+                packageCalls++;
+                return Task.FromResult(CreatePackageResponse());
+            },
+            CancellationToken.None);
+
+        Assert.Equal(2, listCalls);
+        Assert.Equal(1, packageCalls);
+    }
+
+    [Fact]
+    public async Task PackageScope_InvalidatesListAndPackageDetails()
+    {
+        var clock = new ManualClock();
+        using var memory = new MemoryCache(new MemoryCacheOptions
+        {
+            Clock = clock,
+            SizeLimit = Options.SizeLimit
+        });
+        var cache = CreateCache(memory);
+        var listCalls = 0;
+        var packageCalls = 0;
+
+        await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            _ =>
+            {
+                listCalls++;
+                return Task.FromResult(CreateListResponse());
+            },
+            CancellationToken.None);
+        await cache.GetPackageJsonAsync(
+            TestPackages.Actor,
+            "widget",
+            "1.2.3",
+            _ =>
+            {
+                packageCalls++;
+                return Task.FromResult(CreatePackageResponse());
+            },
+            CancellationToken.None);
+
+        cache.Invalidate(PackageCacheInvalidation.ForPackage(
+            PackageKey.Create("widget", "1.2.3")));
+
+        await cache.GetListJsonAsync(
+            TestPackages.Actor,
+            null,
+            _ =>
+            {
+                listCalls++;
+                return Task.FromResult(CreateListResponse());
+            },
+            CancellationToken.None);
+        await cache.GetPackageJsonAsync(
+            TestPackages.Actor,
+            "widget",
+            "1.2.3",
+            _ =>
+            {
+                packageCalls++;
+                return Task.FromResult(CreatePackageResponse());
+            },
+            CancellationToken.None);
+
+        Assert.Equal(2, listCalls);
+        Assert.Equal(2, packageCalls);
     }
 
     [Fact]

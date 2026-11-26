@@ -1,8 +1,10 @@
 using Arlirad.Ervi.Mediator;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Pkgsrv.Application.Features.Packages.Register;
 using Pkgsrv.Application.Interfaces.Artifacts;
 using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Caching;
 using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
@@ -10,6 +12,8 @@ using Pkgsrv.Application.Interfaces.Sources;
 using Pkgsrv.Application.Interfaces.Time;
 using Pkgsrv.Infrastructure.Artifacts;
 using Pkgsrv.Infrastructure.Builds;
+using Pkgsrv.Infrastructure.Caching;
+using Pkgsrv.Infrastructure.Caching.Postgres;
 using Pkgsrv.Infrastructure.Events;
 using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence;
@@ -56,6 +60,12 @@ public static class PkgsrvServiceCollectionExtensions
                 new PostgresStorageReadinessProbe(
                     provider.GetRequiredService<IDbContextFactory<PostgresPackageDbContext>>(),
                     readinessOptions.PostgresProbeTimeout));
+            services.AddSingleton(_ =>
+                NpgsqlDataSource.Create(databaseOptions.ConnectionString!));
+            services.AddSingleton<
+                IPackageCacheInvalidationPublisher,
+                PostgresPackageCacheInvalidationPublisher>();
+            services.AddHostedService<PostgresPackageCacheInvalidationListener>();
         }
         else
         {
@@ -65,6 +75,9 @@ public static class PkgsrvServiceCollectionExtensions
             services.AddSingleton<IPackageIndex>(
                 provider => provider.GetRequiredService<InMemoryPackageRepository>());
             services.AddSingleton<IStorageReadinessProbe, InMemoryStorageReadinessProbe>();
+            services.AddSingleton<
+                IPackageCacheInvalidationPublisher,
+                InMemoryPackageCacheInvalidationPublisher>();
         }
 
         services.AddSingleton<IBuildSandbox, NonExecutingBuildSandbox>();

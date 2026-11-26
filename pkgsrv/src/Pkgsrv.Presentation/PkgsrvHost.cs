@@ -112,6 +112,9 @@ public static class PkgsrvHost
             provider.GetRequiredService<PackageJsonCache>());
         builder.Services.AddSingleton<IPackageCacheInvalidator>(provider =>
             provider.GetRequiredService<PackageJsonCache>());
+        builder.Services.AddSingleton<
+            IPackageCacheInvalidationNotifier,
+            PackageCacheInvalidationNotifier>();
         builder.Services.AddPkgsrv(
             allowedSourceHosts,
             databaseOptions,

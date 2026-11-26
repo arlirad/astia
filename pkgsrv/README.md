@@ -750,6 +750,38 @@ An opt-in integration test runs only when `PKGSRV_TEST_POSTGRES_CONNECTION` is s
 otherwise the PostgreSQL tests are reported as skipped. It covers fresh creation and
 old-v1 upgrade/data preservation through the EF migration chain.
 
+## Issue #175 acceptance evidence
+
+- Application port: `PackageCacheInvalidation` carries an all, list, or optional
+  package-key scope without Presentation dependencies. Authorization decisions
+  and errors remain uncached, and every cache read still authorizes the actor
+  before checking the cache.
+- Write path: register, build, and publish invalidate the local generation
+  immediately after the durable mutation commits. A pending manifest signature
+  update invalidates before the external publisher runs, so a publisher refusal
+  cannot leave another instance serving stale pending-signature JSON. Failed
+  writes and already-published retries publish no unchanged-state event. The
+  notifier performs local invalidation first and contains publication failures
+  after that point, so an unavailable listener cannot turn a successful package
+  write into a failure.
+- PostgreSQL: fixed quoted `LISTEN` channel, fixed parameterized
+  `pg_notify(@channel, @payload)` SQL, JSON payload limited to
+  scope/name/version, background listener with bounded exponential backoff and
+  clean cancellation, and no startup database connection in InMemory mode.
+- InMemory: process-local invalidation only; the absolute TTL remains the
+  bounded staleness fallback, and no external cache dependency is added.
+- Tests: two cache instances invalidate through an injectable bus seam; local
+  register/build/publish invalidation; no event on failed writes; duplicate,
+  concurrent, and out-of-order events are harmless; an unavailable publisher
+  does not break the write path; a deterministic delayed publisher proves
+  signature notification completes before external publication and publication
+  notification follows it; Postgres payload/channel unit tests; and an opt-in
+  live PostgreSQL integration test skipped unless
+  `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
+- Future: a durable bus/transactional outbox remains tracked in
+  [#176](https://github.com/arlirad/astia/issues/176). No deployment
+  configuration changes are part of this issue.
+
 ## Issue #179 acceptance evidence
 
 - Build execution: opt-in, fixed operator profiles, bubblewrap Namespace only,
@@ -845,11 +877,33 @@ miss, then returned with `application/json`.
 Successful registration invalidates the cache immediately after the package insert
 commits, before domain-event publication or acknowledgement. Build requests
 invalidate immediately after the state transition commits, before publication,
-acknowledgement, or sandbox execution. A later workflow failure therefore cannot
-leave a stale detail/list entry behind. A load captures the generation before it
+acknowledgement, or sandbox execution. Publication invalidates immediately after
+a pending manifest's signature update commits, before the external publisher is
+called, and again after the published state commits. A later workflow or
+publisher failure therefore cannot leave stale pending-signature or unpublished
+JSON behind. A load captures the generation before it
 starts; if a mutation invalidates the cache while that load is in flight, the stale
 result is not stored for future reads. Entries also expire by absolute TTL, and the
 `MemoryCache` size limit prevents unbounded growth.
+
+Invalidation is shared between PostgreSQL-backed instances through a
+`LISTEN`/`NOTIFY` channel named `pkgsrv_package_cache_invalidation`. Successful
+registration, build requests, and publication notify only after the durable write
+commits; a failed write publishes nothing. The payload contains only the
+invalidation scope and, for a package-scoped event, the package name and version:
+no tokens, authorization data, or connection strings are sent. Each instance
+invalidates its own cache first, then awaits notification publication. This keeps
+the signature-mutation event ahead of the external publisher and the
+publication-state event after `MarkPublished`. A notification or listener
+failure is logged and never changes the result of a successful package write.
+The listener reconnects with bounded exponential backoff and stops cleanly with
+host shutdown.
+
+The in-memory provider has no cross-process channel, so invalidation is
+process-local. Notifications are best-effort and can be lost during a transient
+PostgreSQL outage. The bounded absolute TTL still caps how long an instance can
+serve stale data. A durable bus/transactional outbox remains tracked in
+[#176](https://github.com/arlirad/astia/issues/176).
 
 ## Listening endpoint
 
@@ -1086,8 +1140,6 @@ listening endpoint section.
   namespace policy exists; no per-build disk-I/O controller.
 - [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration
   and migration conformance tests.
-- [#175](https://github.com/arlirad/astia/issues/175) - cross-instance read-model
-  cache invalidation.
 - [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox
   dispatch/retry for package domain events.
 - [#177](https://github.com/arlirad/astia/issues/177) - search supports name
