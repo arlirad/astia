@@ -186,6 +186,14 @@ add_executable(libc_realpath_test fs/realpath_test.c support/backend_host.c)
 target_link_libraries(libc_realpath_test PRIVATE astia_libc)
 add_test(NAME libc_realpath_test COMMAND libc_realpath_test)
 
+add_executable(libc_creat_test fs/creat_test.c support/backend_host.c)
+target_link_libraries(libc_creat_test PRIVATE astia_libc)
+add_test(NAME libc_creat_test COMMAND libc_creat_test)
+
+add_executable(libc_settimeofday_test time/settimeofday_test.c support/time_host.c)
+target_link_libraries(libc_settimeofday_test PRIVATE astia_libc)
+add_test(NAME libc_settimeofday_test COMMAND libc_settimeofday_test)
+
 add_executable(libc_mktemp_test stdlib/mktemp_test.c support/backend_host.c)
 target_link_libraries(libc_mktemp_test PRIVATE astia_libc)
 add_test(NAME libc_mktemp_test COMMAND libc_mktemp_test)

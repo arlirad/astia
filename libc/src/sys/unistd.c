@@ -210,6 +210,10 @@ int open(const char* path, int flags, ...) {
     return (int) rc;
 }
 
+int creat(const char* path, mode_t mode) {
+    return open(path, O_WRONLY | O_CREAT | O_TRUNC, (int) mode);
+}
+
 int openat(int dirfd, const char* path, int flags, ...) {
     va_list ap;
 
