@@ -984,6 +984,14 @@ namespace astia::fs {
         return 1;
     }
 
+    long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
+                        u32 capacity, file_type* type) {
+        if (!directory)
+            return -EBADF;
+
+        return read_directory(nullptr, index, name, capacity, type);
+    }
+
     optional<pipe_endpoints> create_pipe() {
         if (!::astia::io::aio::test_support::detail::pipe_read_value ||
             !::astia::io::aio::test_support::detail::pipe_write_value)
