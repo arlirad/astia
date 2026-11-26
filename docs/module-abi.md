@@ -57,30 +57,32 @@ unpin, cancellation, or completion.
 full-length transfer, a positive short count, or a negative errno. They never
 spin or halt the CPU while a device completion is outstanding.
 
-## Lifetime tokens and guarded IRQ routes
+## Kernel-owned route references and residency
 
-`astia::module::lifetime_token` is a move-only lease on the calling module's
-image, acquired with `lifetime_token::acquire()` from `module_main()` context.
-While a token is live, `mod::close()` waits for it; a resident module's close
-returns `resident` without running finalizers or unmapping. Releasing the last
-lease or guarded callback reference can complete a pending close. A token that
-cannot resolve an active module, or whose acquisition is refused after
-quiescing, is invalid.
+The module does not hold a public lifetime object. The kernel resolves the
+calling module from the execution context and owns the reference implied by a
+claimed route: `astia::module::ps2_claim_irq(handler)` refuses outside module
+entrypoint context and takes an active reference on the module before binding
+IRQ1. Every guarded dispatch enters through the kernel's `enter` and leaves
+through `leave`, taking and dropping that same reference; the claim itself is
+also a hold until `ps2_release_irq()`. While either exists, `mod::close()`
+waits, and a resident module's close returns `resident` without running
+finalizers or unmapping.
 
-`lifetime_token::try_enter()` acquires a guarded callback reference and
-returns false once teardown has started; `leave()` releases it and is always
-called after a successful `try_enter()`, including after `release()`. Both are
-safe in interrupt context and perform no allocation or blocking.
+`astia::module::make_resident()` resolves the calling module itself and marks
+it permanently non-unloadable. If a close waiter becomes ready in interrupt or
+module-callback context, the kernel parks it and delivers it only from the
+normal-context `service_module_waits()` pump, so finalizers and the final unmap
+never run from an interrupt.
 
-A module-owned IRQ handler is claimed with the guarded
+A module-owned handler is bound with the guarded
 `arch::register_irq_handler(irq, handler, enter, leave, context)` overload.
-The kernel calls `enter` before the handler and runs the handler only when
-`enter` returns true; `leave` runs after a successful entry and the EOI is
-unconditional. The PS/2 module uses this through
-`astia::module::ps2_claim_irq(handler, token)`, `ps2_platform_ports()`, and
-`ps2_unmask_irq()`. `arch::mask_irq_handler(irq)` masks the line while keeping
-the claim, and `arch::unregister_irq_handler(irq)` clears the binding, refusing
-while a dispatch is in flight so the caller can retry after references drain.
+The handler runs only when `enter` returns true, and EOI is unconditional. The
+PS/2 module uses the kernel-owned route through `ps2_claim_irq(handler)`,
+`ps2_platform_ports()`, `ps2_unmask_irq()`, and `ps2_release_irq()`.
+`arch::mask_irq_handler(irq)` masks the line while keeping the claim, and
+`arch::unregister_irq_handler(irq)` clears the binding, refusing while a
+dispatch is in flight so the caller can retry after references drain.
 
 ## Relocation contract
 
