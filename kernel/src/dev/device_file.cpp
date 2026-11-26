@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/mapping.hpp>
 
@@ -9,9 +10,10 @@ namespace astia::dev {
 
     bool device_file::quiescent() const {
         core::spinlock_guard guard(pending_lock_);
-        return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
-               __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) == 0 &&
-               __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0;
+        return astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire) &&
+               astia::atomic_ref<u32>(pending_count_)
+                       .load(astia::memory_order::acquire) == 0 &&
+               astia::atomic_ref<u32>(active_).load(astia::memory_order::acquire) == 0;
     }
 
     bool device_file::arm_quiescence_handler(quiescence_handler handler, void* context,
@@ -23,9 +25,10 @@ namespace astia::dev {
             quiescence_handler_    = handler;
             quiescence_context_    = context;
             quiescence_generation_ = generation;
-            if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
-                __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) == 0 &&
-                __atomic_load_n(&active_, __ATOMIC_ACQUIRE) == 0) {
+            if (astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire) &&
+                astia::atomic_ref<u32>(pending_count_)
+                        .load(astia::memory_order::acquire) == 0 &&
+                astia::atomic_ref<u32>(active_).load(astia::memory_order::acquire) == 0) {
                 callback            = quiescence_handler_;
                 callback_context    = quiescence_context_;
                 quiescence_handler_ = nullptr;
@@ -43,9 +46,10 @@ namespace astia::dev {
         u64                generation = 0;
         {
             core::spinlock_guard guard(pending_lock_);
-            if (!__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ||
-                __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE) != 0 ||
-                __atomic_load_n(&active_, __ATOMIC_ACQUIRE) != 0)
+            if (!astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire) ||
+                astia::atomic_ref<u32>(pending_count_)
+                        .load(astia::memory_order::acquire) != 0 ||
+                astia::atomic_ref<u32>(active_).load(astia::memory_order::acquire) != 0)
                 return;
             callback            = quiescence_handler_;
             context             = quiescence_context_;
@@ -63,8 +67,9 @@ namespace astia::dev {
         u32          count = 0;
         {
             core::spinlock_guard guard(pending_lock_);
-            __atomic_store_n(&detached_, true, __ATOMIC_RELEASE);
-            const u32 pending_count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+            astia::atomic_ref<bool>(detached_).store(true, astia::memory_order::release);
+            const u32 pending_count =
+                astia::atomic_ref<u32>(pending_count_).load(astia::memory_order::acquire);
             for (u32 i = 0; i < pending_count; ++i) {
                 if (!pending_owned_[i] || !pending_[i]->retain_for_device())
                     continue;
@@ -83,7 +88,8 @@ namespace astia::dev {
 
     bool device_file::tracked_request(const io::request& request) const {
         core::spinlock_guard guard(pending_lock_);
-        const u32            count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+        const u32            count =
+            astia::atomic_ref<u32>(pending_count_).load(astia::memory_order::acquire);
         for (u32 i = 0; i < count; ++i)
             if (pending_[i] == &request)
                 return true;
@@ -92,9 +98,10 @@ namespace astia::dev {
 
     bool device_file::track_request(io::request& request) const {
         core::spinlock_guard guard(pending_lock_);
-        if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE))
+        if (astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire))
             return false;
-        const u32 count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+        const u32 count =
+            astia::atomic_ref<u32>(pending_count_).load(astia::memory_order::acquire);
         for (u32 i = 0; i < count; ++i)
             if (pending_[i] == &request)
                 return true;
@@ -103,14 +110,16 @@ namespace astia::dev {
         const u32 index       = count;
         pending_[index]       = &request;
         pending_owned_[index] = request.retain_for_device();
-        __atomic_store_n(&pending_count_, count + 1, __ATOMIC_RELEASE);
+        astia::atomic_ref<u32>(pending_count_)
+            .store(count + 1, astia::memory_order::release);
         return true;
     }
 
     void device_file::untrack_request(io::request& request) const {
         {
             core::spinlock_guard guard(pending_lock_);
-            const u32 count = __atomic_load_n(&pending_count_, __ATOMIC_ACQUIRE);
+            const u32            count =
+                astia::atomic_ref<u32>(pending_count_).load(astia::memory_order::acquire);
             for (u32 i = 0; i < count; ++i) {
                 if (pending_[i] != &request)
                     continue;
@@ -120,7 +129,8 @@ namespace astia::dev {
                 pending_owned_[i]    = pending_owned_[last];
                 pending_[last]       = nullptr;
                 pending_owned_[last] = false;
-                __atomic_store_n(&pending_count_, last, __ATOMIC_RELEASE);
+                astia::atomic_ref<u32>(pending_count_)
+                    .store(last, astia::memory_order::release);
                 if (owned)
                     request.release_for_device();
                 break;
@@ -130,20 +140,20 @@ namespace astia::dev {
     }
 
     device* device_file::begin_operation(const io::request* request) const {
-        __atomic_add_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
-        if (__atomic_load_n(&detached_, __ATOMIC_ACQUIRE) &&
+        astia::atomic_ref<u32>(active_).add_fetch(1u, astia::memory_order::acq_rel);
+        if (astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire) &&
             (request == nullptr || !tracked_request(*request))) {
-            __atomic_sub_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(active_).sub_fetch(1u, astia::memory_order::acq_rel);
             return nullptr;
         }
         device* value = device_instance();
         if (value == nullptr)
-            __atomic_sub_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
+            astia::atomic_ref<u32>(active_).sub_fetch(1u, astia::memory_order::acq_rel);
         return value;
     }
 
     void device_file::end_operation() const {
-        __atomic_sub_fetch(&active_, 1u, __ATOMIC_ACQ_REL);
+        astia::atomic_ref<u32>(active_).sub_fetch(1u, astia::memory_order::acq_rel);
         notify_quiescent();
     }
 
@@ -163,7 +173,9 @@ namespace astia::dev {
             return -ENODEV;
         if (!track_request(request)) {
             end_operation();
-            return __atomic_load_n(&detached_, __ATOMIC_ACQUIRE) ? -ENODEV : -EBUSY;
+            return astia::atomic_ref<bool>(detached_).load(astia::memory_order::acquire)
+                       ? -ENODEV
+                       : -EBUSY;
         }
         if (request.cancellation_requested()) {
             untrack_request(request);

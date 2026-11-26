@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/core/rcu_grace.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/optional.hpp>
@@ -67,7 +68,8 @@ namespace astia::core {
                 : map_(map), shard_index_(shard_index) {
                 auto& state = map_.shards_[shard_index_];
                 state.grace_period.enter();
-                snapshot_ = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
+                snapshot_ = astia::atomic_ref<snapshot*>(state.published)
+                                .load(astia::memory_order::seq_cst);
             }
             ~read_guard() {
                 map_.shards_[shard_index_].grace_period.leave();
@@ -96,7 +98,8 @@ namespace astia::core {
         ~rcu_hashmap() {
             for (shard& state : shards_) {
                 state.grace_period.discard();
-                delete __atomic_exchange_n(&state.published, nullptr, __ATOMIC_SEQ_CST);
+                delete astia::atomic_ref<snapshot*>(state.published)
+                    .exchange(nullptr, astia::memory_order::seq_cst);
             }
         }
         rcu_hashmap(const rcu_hashmap&)            = delete;
@@ -122,7 +125,8 @@ namespace astia::core {
             for (;;) {
                 state.grace_period.reclaim();
                 state.grace_period.enter();
-                snapshot* old = __atomic_load_n(&state.published, __ATOMIC_SEQ_CST);
+                snapshot* old = astia::atomic_ref<snapshot*>(state.published)
+                                    .load(astia::memory_order::seq_cst);
 
                 snapshot* next   = clone_without(old, key);
                 auto      record = new grace::retired_record{};
@@ -146,8 +150,10 @@ namespace astia::core {
                 }
 
                 snapshot* expected = old;
-                if (__atomic_compare_exchange_n(&state.published, &expected, next, false,
-                                                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+                if (astia::atomic_ref<snapshot*>(state.published)
+                        .compare_exchange_strong(expected, next,
+                                                 astia::memory_order::seq_cst,
+                                                 astia::memory_order::seq_cst)) {
                     if (old != nullptr)
                         state.grace_period.retire(old, record);
                     else

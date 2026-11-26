@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 
 #if defined(__SANITIZE_THREAD__)
@@ -41,7 +42,8 @@ namespace astia::core {
         /// One attempt at taking the lock; false if another CPU holds it.
         /// Panic paths use this to bound how long they wait.
         bool try_lock() {
-            if (__atomic_exchange_n(&_flag, true, __ATOMIC_ACQUIRE)) {
+            if (astia::atomic_ref<bool>(_flag).exchange(true,
+                                                        astia::memory_order::acquire)) {
                 return false;
             }
             ASTIA_TSAN_ACQUIRE(&_flag);
@@ -56,7 +58,7 @@ namespace astia::core {
 
         void unlock() {
             ASTIA_TSAN_RELEASE(&_flag);
-            __atomic_store_n(&_flag, false, __ATOMIC_RELEASE);
+            astia::atomic_ref<bool>(_flag).store(false, astia::memory_order::release);
         }
 
         private:

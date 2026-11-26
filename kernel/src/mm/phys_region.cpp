@@ -1,4 +1,5 @@
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/atomic.hpp>
 #include <astia/mm/heap.hpp>
 #include <astia/mm/phys_region.hpp>
 
@@ -112,18 +113,20 @@ namespace astia::mm {
         usize changed = 0;
         for (; changed < count; ++changed) {
             u16* slot = &_page_refs[first + changed];
-            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            u16  old  = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
             for (;;) {
                 if (old == 0 || old == max_page_mappings) {
                     for (usize rollback = 0; rollback < changed; ++rollback) {
                         u16* prior = &_page_refs[first + rollback];
-                        __atomic_fetch_sub(prior, u16{1}, __ATOMIC_ACQ_REL);
+                        astia::atomic_ref<u16>(*prior).fetch_sub(
+                            u16{1}, astia::memory_order::acq_rel);
                     }
                     return false;
                 }
                 const u16 next = static_cast<u16>(old + 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE)) {
+                if (astia::atomic_ref<u16>(*slot).compare_exchange_strong(
+                        old, next, astia::memory_order::acq_rel,
+                        astia::memory_order::acquire)) {
                     break;
                 }
             }
@@ -140,7 +143,7 @@ namespace astia::mm {
         }
         for (usize i = 0; i < count; ++i) {
             u16* slot = &_page_refs[first + i];
-            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            u16  old  = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
             for (;;) {
                 // A page may already be zero when a caller is releasing
                 // an old full-range reference after CoW moved its page
@@ -149,15 +152,16 @@ namespace astia::mm {
                     break;
                 }
                 const u16 next = static_cast<u16>(old - 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE)) {
+                if (astia::atomic_ref<u16>(*slot).compare_exchange_strong(
+                        old, next, astia::memory_order::acq_rel,
+                        astia::memory_order::acquire)) {
                     if (old == 1) {
                         const u64 frame = page_base(first + i);
                         if (frame != frame_allocator::invalid_frame) {
                             if (_page_bases != nullptr)
-                                __atomic_store_n(&_page_bases[first + i],
-                                                 frame_allocator::invalid_frame,
-                                                 __ATOMIC_RELEASE);
+                                astia::atomic_ref<u64>(_page_bases[first + i])
+                                    .store(frame_allocator::invalid_frame,
+                                           astia::memory_order::release);
                             kernel_frames().release(frame);
                         }
                     }
@@ -209,7 +213,8 @@ namespace astia::mm {
             return frame_allocator::invalid_frame;
         }
         if (_page_bases != nullptr) {
-            return __atomic_load_n(&_page_bases[index], __ATOMIC_ACQUIRE);
+            return astia::atomic_ref<u64>(_page_bases[index])
+                .load(astia::memory_order::acquire);
         }
         return _base + index * frame_size;
     }
@@ -271,13 +276,15 @@ namespace astia::mm {
         // reference.  Normally their mapping counters are already zero;
         // releasing here is the defensive final cleanup.
         for (usize i = 0; i < _pages; ++i) {
-            u16 old = __atomic_exchange_n(&_page_refs[i], u16{0}, __ATOMIC_ACQ_REL);
+            u16 old = astia::atomic_ref<u16>(_page_refs[i])
+                          .exchange(u16{0}, astia::memory_order::acq_rel);
             if (old != 0) {
                 const u64 frame = page_base(i);
                 if (frame != frame_allocator::invalid_frame) {
                     if (_page_bases != nullptr)
-                        __atomic_store_n(&_page_bases[i], frame_allocator::invalid_frame,
-                                         __ATOMIC_RELEASE);
+                        astia::atomic_ref<u64>(_page_bases[i])
+                            .store(frame_allocator::invalid_frame,
+                                   astia::memory_order::release);
                     kernel_frames().release(frame);
                 }
             }
@@ -396,7 +403,8 @@ namespace astia::mm {
         if (index >= _pages || _page_refs == nullptr) {
             return false;
         }
-        return __atomic_load_n(&_page_refs[index], __ATOMIC_ACQUIRE) == 1;
+        return astia::atomic_ref<u16>(_page_refs[index])
+                   .load(astia::memory_order::acquire) == 1;
     }
 
     bool phys_region::retain_destination(usize first, usize count) {
@@ -409,15 +417,16 @@ namespace astia::mm {
         usize marked = 0;
         for (; marked < count; ++marked) {
             u16* slot = &_dest_refs[first + marked];
-            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            u16  old  = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
             for (;;) {
                 if (old == max_page_mappings) {
                     release_destination(first, marked);
                     return false;
                 }
                 const u16 next = static_cast<u16>(old + 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE)) {
+                if (astia::atomic_ref<u16>(*slot).compare_exchange_strong(
+                        old, next, astia::memory_order::acq_rel,
+                        astia::memory_order::acquire)) {
                     break;
                 }
             }
@@ -432,14 +441,15 @@ namespace astia::mm {
         }
         for (usize i = 0; i < count; ++i) {
             u16* slot = &_dest_refs[first + i];
-            u16  old  = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
+            u16  old  = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
             for (;;) {
                 if (old == 0) {
                     break; // an idempotent release, as unmap_range() allows
                 }
                 const u16 next = static_cast<u16>(old - 1);
-                if (__atomic_compare_exchange_n(slot, &old, next, false, __ATOMIC_ACQ_REL,
-                                                __ATOMIC_ACQUIRE)) {
+                if (astia::atomic_ref<u16>(*slot).compare_exchange_strong(
+                        old, next, astia::memory_order::acq_rel,
+                        astia::memory_order::acquire)) {
                     break;
                 }
             }
@@ -450,7 +460,8 @@ namespace astia::mm {
         if (index >= _pages || _dest_refs == nullptr) {
             return false;
         }
-        return __atomic_load_n(&_dest_refs[index], __ATOMIC_ACQUIRE) != 0;
+        return astia::atomic_ref<u16>(_dest_refs[index])
+                   .load(astia::memory_order::acquire) != 0;
     }
 
 } // namespace astia::mm

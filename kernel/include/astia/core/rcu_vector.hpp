@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/atomic.hpp>
 #include <astia/core/rcu_grace.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/span.hpp>
@@ -17,8 +18,8 @@ namespace astia::core {
         };
         using grace = rcu_grace_period<snapshot>;
 
-        grace     _grace;
-        snapshot* _published = nullptr;
+        grace             _grace;
+        mutable snapshot* _published = nullptr;
 
         void reclaim() const {
             _grace.reclaim();
@@ -33,7 +34,8 @@ namespace astia::core {
             public:
             explicit read_guard(const rcu_vector& owner) : _owner(owner) {
                 _owner._grace.enter();
-                _snapshot = __atomic_load_n(&_owner._published, __ATOMIC_SEQ_CST);
+                _snapshot = astia::atomic_ref<snapshot*>(_owner._published)
+                                .load(astia::memory_order::seq_cst);
             }
             ~read_guard() {
                 _owner._grace.leave();
@@ -59,7 +61,8 @@ namespace astia::core {
         ~rcu_vector() {
             // Destruction is only valid after all readers have quiesced.
             _grace.discard();
-            delete __atomic_exchange_n(&_published, nullptr, __ATOMIC_SEQ_CST);
+            delete astia::atomic_ref<snapshot*>(_published)
+                .exchange(nullptr, astia::memory_order::seq_cst);
         }
 
         rcu_vector()                             = default;
@@ -82,18 +85,21 @@ namespace astia::core {
 
             reclaim();
             for (;;) {
-                snapshot* old = __atomic_load_n(&_published, __ATOMIC_SEQ_CST);
+                snapshot* old = astia::atomic_ref<snapshot*>(_published)
+                                    .load(astia::memory_order::seq_cst);
                 {
                     _grace.enter();
-                    snapshot* protected_old =
-                        __atomic_load_n(&_published, __ATOMIC_SEQ_CST);
+                    snapshot* protected_old = astia::atomic_ref<snapshot*>(_published)
+                                                  .load(astia::memory_order::seq_cst);
                     if (protected_old != old) {
                         _grace.leave();
                         continue;
                     }
                     snapshot* expected = old;
-                    if (__atomic_compare_exchange_n(&_published, &expected, next, false,
-                                                    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+                    if (astia::atomic_ref<snapshot*>(_published)
+                            .compare_exchange_strong(expected, next,
+                                                     astia::memory_order::seq_cst,
+                                                     astia::memory_order::seq_cst)) {
                         if (old != nullptr)
                             retire(old, record);
                         else
