@@ -87,6 +87,10 @@ namespace astia::fs {
         /// This is deliberately separate from the generic file contracts.
         virtual const unix_socket_operations* unix_socket_capability() const;
 
+        virtual const char* device_name() const {
+            return nullptr;
+        }
+
         io::request_queue& pending() {
             return _pending;
         }

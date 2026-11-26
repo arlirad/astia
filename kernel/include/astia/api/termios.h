@@ -53,6 +53,13 @@ struct winsize {
     unsigned short ws_ypixel;
 };
 
+/* Terminal device path, as used by TIOCGNAME. */
+#define ASTIA_TTY_NAME_MAX 128
+
+struct astia_tty_name {
+    char path[ASTIA_TTY_NAME_MAX];
+};
+
 /* c_iflag */
 #define IGNBRK 0x000001
 #define BRKINT 0x000002
@@ -130,6 +137,9 @@ struct winsize {
 #define TIOCGPTN 0x80045430
 #define TIOCSPTLCK 0x40045431
 #define TIOCGPTLCK 0x80045439
+/* Astia extension: copy the open file's VFS path into an
+ * astia_tty_name.  ttyname_r uses it to report the actual terminal. */
+#define TIOCGNAME 0x80805440
 
 #ifdef __cplusplus
 }

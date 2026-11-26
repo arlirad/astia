@@ -240,8 +240,10 @@ int openat(int dirfd, const char* path, int flags, ...) {
 }
 
 int ttyname_r(int fd, char* buffer, size_t buffer_size) {
-    static const char tty_path[] = "/dev/tts0";
-    int               process_group;
+    struct astia_tty_name name;
+
+    int    process_group;
+    size_t length;
 
     if (buffer == NULL)
         return EINVAL;
@@ -252,16 +254,23 @@ int ttyname_r(int fd, char* buffer, size_t buffer_size) {
     if (ioctl(fd, TIOCGPGRP, &process_group) < 0)
         return errno == EBADF ? EBADF : ENOTTY;
 
-    if (buffer_size < sizeof tty_path)
+    if (ioctl(fd, TIOCGNAME, &name) < 0)
+        return errno == EBADF ? EBADF : ENOTTY;
+
+    length = strlen(name.path);
+    if (length == 0)
+        return ENOTTY;
+
+    if (length + 1 > buffer_size)
         return ERANGE;
 
-    memcpy(buffer, tty_path, sizeof tty_path);
+    memcpy(buffer, name.path, length + 1);
 
     return 0;
 }
 
 char* ttyname(int fd) {
-    static _Thread_local char buffer[sizeof "/dev/tts0"];
+    static _Thread_local char buffer[ASTIA_TTY_NAME_MAX];
 
     int rc = ttyname_r(fd, buffer, sizeof buffer);
     if (rc != 0) {
