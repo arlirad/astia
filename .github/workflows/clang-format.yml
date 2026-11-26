@@ -63,6 +63,31 @@ jobs:
       - name: Check changed-file range handling
         run: .github/scripts/test-check-format.sh
 
+      - name: Check cpp-style checker fixtures
+        run: python3 .github/scripts/test-check-cpp-style.py
+
+      - name: Check control-statement style
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'push' && github.event.before || '' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.sha || github.event_name == 'push' && github.event.after || github.sha }}
+          CLANG_FORMAT_FULL_TREE: ${{ inputs.full_tree || '0' }}
+        run: |
+          if [[ "${CLANG_FORMAT_FULL_TREE}" == "1" ]]; then
+            python3 .github/scripts/check-cpp-style.py --full-tree
+          else
+            base="${BASE_SHA}"
+            if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ||
+                  "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+              git fetch --no-tags origin main:refs/remotes/origin/main || true
+              if git rev-parse --verify --quiet origin/main >/dev/null; then
+                base="$(git merge-base "${HEAD_SHA}" origin/main)"
+              fi
+            fi
+            python3 .github/scripts/check-cpp-style.py \
+              --base "${base}" \
+              --head "${HEAD_SHA}"
+          fi
+
       - name: Check formatting
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event_name == 'push' && github.event.before || '' }}

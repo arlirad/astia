@@ -22,6 +22,8 @@ def main():
     assert "permissions:\n  contents: read" in workflow
     assert ".github/scripts/check-format.sh" in workflow
     assert ".github/scripts/test-check-format.sh" in workflow
+    assert ".github/scripts/check-cpp-style.py" in workflow
+    assert ".github/scripts/test-check-cpp-style.py" in workflow
     print("clang-format workflow test: passed")
 
 
