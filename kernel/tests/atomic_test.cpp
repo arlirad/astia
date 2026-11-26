@@ -58,8 +58,8 @@ ASTIA_TEST(atomic_pointer_ref_compare_exchange) {
     astia::atomic_ref<int*> ref(slot);
     int*                    expected = &first;
 
-    ASTIA_CHECK(ref.compare_exchange_weak(expected, &second, astia::memory_order::acq_rel,
-                                          astia::memory_order::acquire));
+    ASTIA_CHECK(ref.compare_exchange_strong(
+        expected, &second, astia::memory_order::acq_rel, astia::memory_order::acquire));
     ASTIA_CHECK(slot == &second);
     ASTIA_CHECK(expected == &first);
 }

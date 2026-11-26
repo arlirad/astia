@@ -106,7 +106,8 @@ namespace astia::test {
         bool scheduler_checks() {
             const bool gate_open = arch::cpu::check_interrupts();
             arch::cpu::interrupts();
-            scheduler_gate_result = 0;
+            astia::atomic_ref<u32>(scheduler_gate_result)
+                .store(0, astia::memory_order::relaxed);
             if (!proc::scheduler::spawn_kernel(scheduler_masked_worker, nullptr)) {
                 if (!gate_open) {
                     arch::cpu::nointerrupts();
@@ -132,9 +133,11 @@ namespace astia::test {
                 logs::error("scheduler: worker gate=%u", masked_result);
                 return false;
             }
-            scheduler_wake_phase  = 0;
-            scheduler_wake_result = 0;
-            auto wake_target      = proc::scheduler::create_kernel(
+            astia::atomic_ref<u32>(scheduler_wake_phase)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(scheduler_wake_result)
+                .store(0, astia::memory_order::relaxed);
+            auto wake_target = proc::scheduler::create_kernel(
                 scheduler_wake_worker, nullptr, proc::scheduling_class::realtime, 0, 1);
             if (!wake_target ||
                 !proc::scheduler::spawn_kernel(scheduler_waker, wake_target.get())) {
@@ -165,8 +168,10 @@ namespace astia::test {
                 logs::error("scheduler: wake target detach failed");
                 return false;
             }
-            scheduler_counts[0] = 0;
-            scheduler_counts[1] = 0;
+            astia::atomic_ref<u32>(scheduler_counts[0])
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(scheduler_counts[1])
+                .store(0, astia::memory_order::relaxed);
             if (!proc::scheduler::spawn_kernel(scheduler_worker,
                                                const_cast<u32*>(&scheduler_counts[0])) ||
                 !proc::scheduler::spawn_kernel(scheduler_worker,
@@ -177,8 +182,11 @@ namespace astia::test {
                 logs::error("scheduler: could not spawn kernel threads");
                 return false;
             }
-            for (u32 i = 0;
-                 i < 16 && (scheduler_counts[0] != 3 || scheduler_counts[1] != 3); ++i) {
+            for (u32 i = 0; i < 16 && (astia::atomic_ref<u32>(scheduler_counts[0])
+                                               .load(astia::memory_order::relaxed) != 3 ||
+                                       astia::atomic_ref<u32>(scheduler_counts[1])
+                                               .load(astia::memory_order::relaxed) != 3);
+                 ++i) {
                 proc::scheduler::yield();
             }
             const u32 first = astia::atomic_ref<u32>(scheduler_counts[0])
@@ -268,9 +276,11 @@ namespace astia::test {
         }
 
         bool preemption_checks() {
-            preempt_started   = 0;
-            preempt_main_seen = 0;
-            preempt_done      = 0;
+            astia::atomic_ref<u32>(preempt_started)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(preempt_main_seen)
+                .store(0, astia::memory_order::relaxed);
+            astia::atomic_ref<u32>(preempt_done).store(0, astia::memory_order::relaxed);
             if (!proc::scheduler::spawn_kernel(preempt_worker, nullptr)) {
                 logs::error("preemption: could not spawn kernel thread");
                 return false;
