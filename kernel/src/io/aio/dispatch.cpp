@@ -257,6 +257,13 @@ namespace astia::io::aio::dispatch {
                             ? -EOPNOTSUPP
                             : socket->accept(*op.handle, op.operation->request());
                 }
+                else if (op.socket_sendmsg) {
+                    const auto* socket = op.handle->parent()->unix_socket_capability();
+
+                    n = socket == nullptr || socket->sendmsg == nullptr
+                            ? -EOPNOTSUPP
+                            : socket->sendmsg(*op.handle, op.operation->request());
+                }
                 else {
                     n = op.handle->submit(op.operation->request());
                 }
@@ -356,6 +363,71 @@ namespace astia::io::aio::dispatch {
             }
         }
 
+        void complete_recvmsg(proc::process* owner, parked_op& op, long& result) {
+            if (!op.recvmsg || result < 0)
+                return;
+
+            const auto destination =
+                memory::user_ptr<astia_msghdr>(op.recvmsg_user).validate_for(owner);
+            if (!destination) {
+                result = -EFAULT;
+
+                return;
+            }
+
+            astia_msghdr header{};
+
+            if (!memory::copy_in(owner, &header, destination.value.bytes())) {
+                result = -EFAULT;
+
+                return;
+            }
+
+            const auto* socket = op.handle->parent()->unix_socket_capability();
+
+            if (socket == nullptr || socket->recvmsg_complete == nullptr) {
+                result = -EOPNOTSUPP;
+
+                return;
+            }
+
+            u32 capacity = header.controllen;
+
+            if (capacity > fs::unix_control_max_bytes)
+                capacity = fs::unix_control_max_bytes;
+
+            u8  control[fs::unix_control_max_bytes]{};
+            u32 used      = 0;
+            u32 msg_flags = 0;
+
+            const long rc =
+                socket->recvmsg_complete(*op.handle, owner, header.flags,
+                                         span<u8>(control, capacity), used, msg_flags);
+            if (rc < 0) {
+                result = rc;
+
+                return;
+            }
+
+            if (used != 0) {
+                const span<u8> control_span(static_cast<u8*>(header.control), used);
+
+                if (header.control == nullptr ||
+                    !memory::user_span_writable_ok_for(owner, control_span) ||
+                    !memory::copy_out_for(owner, control_span, control)) {
+                    result = -EFAULT;
+
+                    return;
+                }
+            }
+
+            header.controllen = used;
+            header.msg_flags  = msg_flags;
+
+            if (!memory::copy_out_for(owner, destination.value.bytes(), &header))
+                result = -EFAULT;
+        }
+
         void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
                            ring_slot* slot);
 
@@ -448,6 +520,9 @@ namespace astia::io::aio::dispatch {
             p->pending_result        = 0;
             p->recvfrom_address      = s.op == OP_RECVFROM;
             p->recvfrom_address_user = p->recvfrom_address ? s.offset : 0;
+            p->socket_sendmsg        = s.op == OP_SENDMSG;
+            p->recvmsg               = s.op == OP_RECVMSG;
+            p->recvmsg_user          = p->recvmsg ? s.offset : 0;
             // The runner state behind this token is released as soon as the
             // operation parks; the parked op outlives it.
             p->token_source = runner::retain_source(slot, token);
@@ -557,6 +632,7 @@ namespace astia::io::aio::dispatch {
                 result = -ECANCELED;
 
             complete_recvfrom_address(slot.owner.get(), *p, result);
+            complete_recvmsg(slot.owner.get(), *p, result);
 
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
@@ -667,6 +743,7 @@ namespace astia::io::aio::dispatch {
             }
 
             complete_recvfrom_address(owner, op, result);
+            complete_recvmsg(owner, op, result);
 
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.

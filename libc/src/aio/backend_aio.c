@@ -2,6 +2,7 @@
 
 #include "internal/file_port.h"
 #include "internal/process_port.h"
+#include "internal/socket_wire.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -831,6 +832,24 @@ long __astia_fio_recvfrom(int fd, void* buf, size_t n, int flags, void* addr,
 
     return transact(OP_RECVFROM, fd, (uint64_t) (uintptr_t) addr, buf, (uint32_t) n, 0,
                     0);
+}
+
+long __astia_fio_sendmsg(int fd, const void* buf, size_t n,
+                         const struct __astia_socket_msghdr* header) {
+    if (n > UINT32_MAX || header == NULL)
+        return -EINVAL;
+
+    return transact(OP_SENDMSG, fd, (uint64_t) (uintptr_t) header, buf, (uint32_t) n,
+                    header->flags, 0);
+}
+
+long __astia_fio_recvmsg(int fd, void* buf, size_t n,
+                         struct __astia_socket_msghdr* header) {
+    if (n > UINT32_MAX || header == NULL)
+        return -EINVAL;
+
+    return transact(OP_RECVMSG, fd, (uint64_t) (uintptr_t) header, buf, (uint32_t) n,
+                    header->flags, 0);
 }
 
 long __astia_fio_dup(int fd) {

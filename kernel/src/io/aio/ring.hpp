@@ -87,6 +87,9 @@ namespace astia::io::aio::ring {
         u64                       sleep_remaining_user  = 0;
         bool                      recvfrom_address      = false;
         u64                       recvfrom_address_user = 0;
+        bool                      socket_sendmsg        = false;
+        bool                      recvmsg               = false;
+        u64                       recvmsg_user          = 0;
         bool                      pending_cqe           = false;
         u64                       pending_user_data     = 0;
         i32                       pending_result        = 0;
@@ -127,6 +130,9 @@ namespace astia::io::aio::ring {
             sleep_remaining_user  = 0;
             recvfrom_address      = false;
             recvfrom_address_user = 0;
+            socket_sendmsg        = false;
+            recvmsg               = false;
+            recvmsg_user          = 0;
             pending_cqe           = false;
             pending_user_data     = 0;
             pending_result        = 0;

@@ -106,6 +106,10 @@ add_executable(libc_socket_test io/socket_test.c support/backend_host.c support/
 target_link_libraries(libc_socket_test PRIVATE astia_libc)
 add_test(NAME libc_socket_test COMMAND libc_socket_test)
 
+add_executable(libc_sendmsg_test io/sendmsg_test.c support/backend_host.c support/socket_backend_host.c)
+target_link_libraries(libc_sendmsg_test PRIVATE astia_libc)
+add_test(NAME libc_sendmsg_test COMMAND libc_sendmsg_test)
+
 add_executable(libc_conformance_test integration/conformance_test.c support/backend_host.c support/process_host.c support/time_host.c support/alarm_host.c)
 target_link_libraries(libc_conformance_test PRIVATE astia_libc_host)
 add_test(NAME libc_conformance_test COMMAND libc_conformance_test)

@@ -1,4 +1,7 @@
+#include "../../src/internal/socket_wire.h"
+#include <sys/socket.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 
 #include <errno.h>
 #include <stdint.h>
@@ -30,6 +33,42 @@ long __astia_fio_recv(int fd, void* buffer, unsigned long length, int flags) {
     long rc = syscall(SYS_recvfrom, fd, buffer, length, flags, 0, 0);
 
     return rc < 0 ? -HOST_ERRNO : rc;
+}
+
+long __astia_fio_sendmsg(int fd, const void* buffer, unsigned long length,
+                         const struct __astia_socket_msghdr* header) {
+    struct iovec  iov     = {(void*) buffer, length};
+    struct msghdr message = {0};
+
+    message.msg_iov        = &iov;
+    message.msg_iovlen     = 1;
+    message.msg_control    = header->control;
+    message.msg_controllen = header->controllen;
+
+    long rc = syscall(SYS_sendmsg, fd, &message, header->flags);
+
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
+
+long __astia_fio_recvmsg(int fd, void* buffer, unsigned long length,
+                         struct __astia_socket_msghdr* header) {
+    struct iovec  iov     = {buffer, length};
+    struct msghdr message = {0};
+
+    message.msg_iov        = &iov;
+    message.msg_iovlen     = 1;
+    message.msg_control    = header->control;
+    message.msg_controllen = header->controllen;
+
+    long rc = syscall(SYS_recvmsg, fd, &message, header->flags);
+
+    if (rc < 0)
+        return -HOST_ERRNO;
+
+    header->msg_flags  = (uint32_t) message.msg_flags;
+    header->controllen = (uint32_t) message.msg_controllen;
+
+    return rc;
 }
 
 long __astia_fio_getsockopt(int fd, int level, int option, void* value, uint32_t capacity,
