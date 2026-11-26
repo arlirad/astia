@@ -54,12 +54,14 @@ tests are omitted when their host tools are unavailable. Set
 repository smoke tests without compiling the host test tree.
 
 With `ASTIA_BUILD_TESTS=ON`, `ASTIA_CROSS_USERSPACE=ON`, and both external and
-manual suites disabled, the current tree discovers 174 tests: 167 enabled and
-7 intentionally disabled. The seven disabled entries are
-`astia_zsh_pty_regression`, `astia_zsh_signal_regression`,
-`astia_zsh_interactive_manual`, `astia_nano_pty_smoke`, `astia_vga_graphical`,
-`astia_vga_pvh_fallback`, and `astia_posix_batch`; they are registered for
-discovery but require external or manual opt-in. Module coverage is provided
+manual suites disabled, the current tree discovers 224 tests: 214 enabled and
+10 intentionally disabled. The ten disabled entries are
+`astia_ncurses_qemu_smoke`, `astia_zsh_pty_regression`,
+`astia_zsh_signal_regression`, `astia_zsh_interactive_manual`,
+`astia_nano_pty_smoke`, `openssh_sshd_qemu`, `openssh_ssh_loopback_qemu`,
+`astia_vga_graphical`, `astia_vga_pvh_fallback`, and `astia_posix_batch`; they
+are registered for discovery but require external or manual opt-in. Module
+coverage is provided
 by the typed-contract, lifecycle, I/O-request, NVMe-teardown, and virtio-blk-
 teardown tests; removed legacy module-header compatibility targets are not
 registered. The count can change when optional host tools or test artifacts
@@ -78,7 +80,7 @@ ctest --test-dir build-tests -L qemu --output-on-failure
 ```
 
 The deterministic host, fixture, module, ext4, boot, and local QEMU tests are
-registered by default. External zsh, nano, and LTP tests remain disabled
+registered by default. External zsh, nano, OpenSSH, and LTP tests remain disabled
 unless `ASTIA_ENABLE_EXTERNAL_TESTS=ON` is set at configure time. Graphical
 and interactive tests have `manual` labels and also require
 `ASTIA_ENABLE_MANUAL_TESTS=ON`; they never run accidentally in CI. Keep both
@@ -122,6 +124,9 @@ ctest --test-dir build-tests -L external --output-on-failure
 
 CTest test names identify focused hardware cases, including
 `astia_nvme_msix`, `astia_nvme_polling`, `astia_virtio_blk_read_write`,
-`astia_virtio_blk_read_only`, `astia_vga_graphical`, and
-`astia_vga_pvh_fallback`. All QEMU tests use a resource lock and bounded
+`astia_virtio_blk_read_only`, `openssh_sshd_qemu`,
+`openssh_ssh_loopback_qemu`, `astia_vga_graphical`, and
+`astia_vga_pvh_fallback`. The OpenSSH QEMU tests skip with status 77 while
+their prerequisite issues remain open, with the missing APIs named in the
+test output. All QEMU tests use a resource lock and bounded
 timeouts so parallel CTest runs do not race or hang.
