@@ -20,9 +20,12 @@ namespace astia::io::aio::operations {
                 co_return -ESRCH;
 
             const long resolve_rc =
-                resolve_path_for(current, path, resolved, sizeof resolved, true);
+                resolve_at(current, sqe.fd, path, resolved, sizeof resolved, true);
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
+
+            if (!owner_or_writable(current, resolved))
+                co_return -EACCES;
 
             u64 sec  = 0;
             u64 nsec = 0;

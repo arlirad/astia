@@ -21,9 +21,11 @@ namespace astia::io::aio::operations {
 
             long resolve_rc =
                 resolve_at(current, sqe.fd, path, resolved, sizeof resolved, false);
-
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
+
+            if (!parent_writable(current, resolved))
+                co_return -EACCES;
 
             const long rc =
                 fs::remove_path(resolved, (sqe.op_flags & UNLINKAT_REMOVEDIR) != 0);

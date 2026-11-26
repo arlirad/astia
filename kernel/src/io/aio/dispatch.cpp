@@ -141,6 +141,53 @@ namespace astia::io::aio::dispatch {
             return parent_allows(current, path, fs::permission_bits::execute);
         }
 
+        bool node_allows(proc::process* current, const char* path,
+                         fs::permission_bits want) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            // A missing node has no credentials to check; leave ENOENT to the
+            // layer that owns the operation.
+            if (!mode.exists())
+                return true;
+
+            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
+                                       want);
+        }
+
+        bool directory_listable(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            // Missing and non-directory targets are reported by the VFS so the
+            // handler does not turn ENOENT or ENOTDIR into EACCES.
+            if (!mode.exists() || !mode.is_directory())
+                return true;
+
+            return node_allows(current, path, fs::permission_bits::read) &&
+                   node_allows(current, path, fs::permission_bits::execute);
+        }
+
+        bool owner_or_writable(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            if (!mode.exists())
+                return true;
+
+            if (current->euid() == static_cast<u32>(fs::node_uid(path)))
+                return true;
+
+            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
+                                       fs::permission_bits::write);
+        }
+
         constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
 
         u64 poll_now_ns() {
@@ -1036,6 +1083,14 @@ namespace astia::io::aio::dispatch {
 
     bool parent_searchable(proc::process* current, const char* path) {
         return detail::parent_searchable(current, path);
+    }
+
+    bool directory_listable(proc::process* current, const char* path) {
+        return detail::directory_listable(current, path);
+    }
+
+    bool owner_or_writable(proc::process* current, const char* path) {
+        return detail::owner_or_writable(current, path);
     }
 
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,

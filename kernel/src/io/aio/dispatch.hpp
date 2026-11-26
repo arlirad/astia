@@ -13,6 +13,8 @@ namespace astia::io::aio::dispatch {
                           usize capacity, bool follow_final);
     bool parent_writable(proc::process* current, const char* path);
     bool parent_searchable(proc::process* current, const char* path);
+    bool directory_listable(proc::process* current, const char* path);
+    bool owner_or_writable(proc::process* current, const char* path);
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,
                                const astia_sqe&                sqe,
                                const mm::shptr<fs::open_file>& handle,
