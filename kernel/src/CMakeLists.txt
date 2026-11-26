@@ -18,6 +18,7 @@ add_subdirectory(io)
 add_subdirectory(ipc)
 add_subdirectory(dbg)
 add_subdirectory(core)
+add_subdirectory(crypto)
 add_subdirectory(mm)
 add_subdirectory(fs)
 add_subdirectory(proc)
@@ -43,6 +44,7 @@ set(_astia_kernel_libs
         io
         fs
         core
+        crypto
         proc
         dl
         sys

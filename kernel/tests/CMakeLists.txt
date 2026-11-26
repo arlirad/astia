@@ -119,6 +119,9 @@ astia_add_host_test(astia_aarch64_page_map_test
 target_include_directories(astia_aarch64_page_map_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
 target_compile_definitions(astia_aarch64_page_map_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_host_test(astia_csprng_test
+        csprng_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp)
 astia_add_host_test(astia_aarch64_exception_frame_test
         aarch64_exception_frame_test.cpp)
 target_include_directories(astia_aarch64_exception_frame_test PRIVATE
@@ -313,6 +316,9 @@ astia_add_host_test(astia_pseudo_test
         pseudo_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/pseudo.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/random.cpp
+        support/entropy_host.cpp
 )
 target_include_directories(astia_pseudo_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
@@ -1480,6 +1486,7 @@ if (ARCH STREQUAL "x86_64")
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
                 "astia: exec permission ok"
+                "astia: random ok"
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
@@ -1487,6 +1494,12 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_urandom_fresh_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_urandom_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio)
+        set_tests_properties(astia_urandom_fresh_boot PROPERTIES TIMEOUT 120)
 
         add_test(NAME astia_initrd_boot_gzip
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -1900,7 +1913,7 @@ astia_append_test_label("kernel;deterministic")
 foreach (_astia_boot_test IN ITEMS
         astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
         astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
-        astia_production_init_exit
+        astia_urandom_fresh_boot astia_production_init_exit
         astia_native_daemond_idle astia_native_daemond_service
         astia_native_daemond_visibility astia_native_daemond_missing_rc
         astia_native_daemond_launch_failure astia_native_daemond_failure)

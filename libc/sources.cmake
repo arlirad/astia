@@ -37,6 +37,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/stdio/snprintf.c
   src/stdlib/assert.c
   src/stdlib/getopt.c
+  src/stdlib/arc4random.c
   src/stdlib/malloc.c
   src/stdlib/stdlib.c
   src/string/ctype.c
@@ -44,6 +45,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/string/wchar.c
   src/sys/errno.c
   src/sys/mman.c
+  src/sys/random.c
   src/sys/unistd.c
   src/sys/utsname.c
   src/time/strptime.c

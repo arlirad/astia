@@ -20,7 +20,7 @@
  * Return convention: >= 0 on success, or a negative value from
  * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
  * This tree is a deliberate, repository-only breaking migration: the table is
- * contiguous 0..76 and uname moved from 82 to 70.  There is no legacy 82
+ * contiguous 0..77 and uname moved from 82 to 70.  There is no legacy 82
  * alias; new public calls append from 71.  The API_VERSION constant below
  * versions the AIO ring layout, not the syscall table, and is unchanged by
  * this migration.
@@ -70,7 +70,7 @@ extern "C" {
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, contiguous 0..76.      */
+/* syscall numbers — architecture-independent, contiguous 0..77.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -153,7 +153,12 @@ enum {
     SYS_MODLS                 = 74,
     SYS_MODSTAT               = 75,
     SYS_MODCLOSE              = 76,
+    SYS_GETRANDOM             = 77,
 };
+
+/* getrandom() accepts at most this many bytes in one call; larger requests
+ * are rejected with EINVAL instead of being silently truncated. */
+enum { ASTIA_GETRANDOM_MAX = 1024 * 1024 };
 
 /* ------------------------------------------------------------------ */
 /* shared value types                                                  */
@@ -478,6 +483,15 @@ static inline long astia_msync(void* addr, uint64_t len, uint32_t flags) {
 
 static inline long astia_umask(uint32_t mode) {
     return astia_raw6(SYS_UMASK, (long) mode, 0, 0, 0, 0, 0);
+}
+
+/* Fill at most ASTIA_GETRANDOM_MAX bytes from the kernel CSPRNG.  Only
+ * flags == 0 is accepted: the pool seeds at first use and never blocks, so
+ * there is no EINTR path, and an unavailable seed is EAGAIN rather than a
+ * weak fallback.  /dev/urandom exposes the same stream; /dev/random is
+ * intentionally not provided. */
+static inline long astia_getrandom(void* buffer, uint64_t length, uint32_t flags) {
+    return astia_raw6(SYS_GETRANDOM, (long) buffer, (long) length, (long) flags, 0, 0, 0);
 }
 
 static inline long astia_shm_open(const char* name, int flags, uint32_t mode) {

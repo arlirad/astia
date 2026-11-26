@@ -50,6 +50,14 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     contentKind: "markdown",
   },
   {
+    slug: "docs-acpi",
+    title: "ACPI and orderly shutdown",
+    group: "Design note",
+    summary: "This kernel subsystem discovers ACPI tables, validates them, interprets the AML needed to build a namespace and evaluate \\_S5, and enters S5 through the FADT PM1 control registe...",
+    sourcePath: "docs/acpi.md",
+    contentKind: "markdown",
+  },
+  {
     slug: "docs-architecture-boundaries",
     title: "Public subsystem dependency boundaries",
     group: "Design note",
@@ -93,7 +101,7 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     slug: "docs-initrd-format",
     title: "Initrd archive formats",
     group: "Design note",
-    summary: "The kernel initrd reader accepts uncompressed cpio newc and crc archives. Both are parsed zero-copy from the boot module. New production images use newc; crc remains supported f...",
+    summary: "The boot initrd is an outer container around a cpio archive. The kernel accepts: - raw cpio newc (070701), parsed zero-copy from the boot module; - raw cpio crc (070702), also p...",
     sourcePath: "docs/initrd-format.md",
     contentKind: "markdown",
   },
@@ -143,6 +151,14 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     group: "Design note",
     summary: "The libc implements unnamed, process-private semaphores through the futex ABI. sem_timedwait accepts an absolute CLOCK_REALTIME deadline, returns ETIMEDOUT when an unavailable s...",
     sourcePath: "docs/semaphore.md",
+    contentKind: "markdown",
+  },
+  {
+    slug: "docs-strings",
+    title: "Strings",
+    group: "Design note",
+    summary: "astia has exactly two string types, both declared in kernel/include/astia/strings.hpp and both reached through the astia namespace root: The owning type sits in namespace astia:...",
+    sourcePath: "docs/strings.md",
     contentKind: "markdown",
   },
   {
@@ -1325,5 +1341,19 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     syscallId: 76,
     synopsisKind: "public",
     synopsis: "long astia_modclose(const astia_module_id* id);",
+  },
+  {
+    slug: "syscall-77-getrandom",
+    title: "getrandom(2)",
+    group: "Syscall (2)",
+    summary: "Fills length bytes from the kernel CSPRNG. The pool seeds on the first request from available platform entropy and then never blocks, so this call does not have an EINTR path. O...",
+    sourcePath: "docs/2/proc/core/getrandom.md",
+    contentKind: "markdown",
+    implementationPath: "kernel/src/proc/syscalls/getrandom.cpp",
+    subsystem: "proc",
+    category: "core",
+    syscallId: 77,
+    synopsisKind: "public",
+    synopsis: "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);",
   }
 ];

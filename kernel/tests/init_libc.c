@@ -12,6 +12,7 @@
 #include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/random.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -4558,6 +4559,126 @@ int main(int argc, char** argv) {
 
         (void) signal(SIGPIPE, SIG_IGN);
         printf("astia: sigpipe ok\n");
+    }
+
+    /* 55: kernel CSPRNG: getrandom, getentropy, arc4random, /dev/urandom,
+       and fork-derived streams. */
+    {
+        unsigned char a[32];
+        unsigned char b[32];
+        unsigned char pool[256];
+        unsigned char child_bytes[16];
+        int           fds[2];
+        int           fd;
+        int           status = 0;
+
+        pid_t child;
+
+        ssize_t got;
+
+        if (getrandom(NULL, 0, 0) != 0)
+            return 100;
+
+        if (getrandom(a, sizeof a, 0) != (ssize_t) sizeof a ||
+            getrandom(b, sizeof b, 0) != (ssize_t) sizeof b)
+            return 101;
+
+        if (memcmp(a, b, sizeof a) == 0)
+            return 102;
+
+        errno = 0;
+
+        if (getrandom(a, (1024 * 1024) + 1, 0) != -1 || errno != EINVAL)
+            return 103;
+
+        errno = 0;
+
+        if (getrandom((void*) 1, 16, 0) != -1 || errno != EFAULT)
+            return 104;
+
+        errno = 0;
+
+        if (getrandom(a, 16, GRND_NONBLOCK) != -1 || errno != EINVAL)
+            return 105;
+
+        errno = 0;
+
+        if (getentropy(a, 257) != -1 || errno != EIO)
+            return 106;
+
+        if (getentropy(pool, sizeof pool) != 0)
+            return 107;
+
+        if (arc4random_uniform(0) != 0 || arc4random_uniform(1) != 0)
+            return 108;
+
+        for (int i = 0; i < 32; ++i) {
+            if (arc4random_uniform(7) >= 7)
+                return 109;
+        }
+
+        fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0)
+            return 110;
+
+        got = read(fd, a, sizeof a);
+
+        close(fd);
+
+        if (got != (ssize_t) sizeof a)
+            return 111;
+
+        if (pipe(fds) != 0)
+            return 112;
+
+        if (getrandom(a, 16, 0) != 16)
+            return 113;
+
+        child = fork();
+        if (child == 0) {
+            close(fds[0]);
+
+            if (getrandom(child_bytes, sizeof child_bytes, 0) != 16)
+                _Exit(1);
+
+            (void) write(fds[1], child_bytes, sizeof child_bytes);
+            _Exit(0);
+        }
+
+        if (child < 0)
+            return 114;
+
+        close(fds[1]);
+
+        got = read(fds[0], child_bytes, sizeof child_bytes);
+
+        close(fds[0]);
+
+        if (got != 16 || waitpid(child, &status, 0) != child || status != 0)
+            return 115;
+
+        if (memcmp(a, child_bytes, sizeof child_bytes) == 0)
+            return 116;
+
+        fd = open("/dev/urandom", O_RDONLY);
+
+        if (fd < 0 || read(fd, a, 8) != 8) {
+            if (fd >= 0)
+                close(fd);
+
+            return 117;
+        }
+
+        close(fd);
+
+        unsigned long long probe = 0;
+
+        for (int i = 0; i < 8; ++i) {
+            probe = (probe << 8) | a[i];
+        }
+
+        printf("astia: urandom %016llx\n", probe);
+        printf("astia: random ok\n");
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

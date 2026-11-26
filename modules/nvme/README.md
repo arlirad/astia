@@ -4,8 +4,9 @@
 initrd. The `mod` init step loads and runs its `int module_main()` entrypoint
 before PCI enumeration. The module registers its typed PCI driver through
 `astia::hw::drivers().register_driver`; the typed driver owns its shared
-block-device group and exposes stable namespace paths such as `/dev/nvme0n1`
-and `/dev/nvme0n2`.
+block-device group and exposes stable namespace paths such as
+`/dev/nvme<N>n1` and `/dev/nvme<N>n2`, where `<N>` comes from the shared
+name generator.
 
 The module uses the typed C++ module contract for PCI configuration and BAR
 mapping, DMA page allocation, user-buffer pinning/copying, and block I/O.
