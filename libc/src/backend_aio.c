@@ -72,11 +72,14 @@ static _Thread_local astia_rings* g_ring;
 static _Thread_local uint64_t     g_tag;
 static _Thread_local astia_rings* g_signal_ring;
 static _Thread_local uint64_t     g_signal_tag;
+static _Thread_local uint64_t     g_signal_inflight;
 static _Thread_local int          g_signal_transaction;
-static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation whose kick
-                                   failed *after* publish: its submission
-                                   state is unknown, so it must be settled
-                                   before any new SQE is written —
+static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation
+                                   submitted but not yet settled: either its
+                                   kick failed after publish, or it finished
+                                   while the deferred table was full.  Its
+                                   submission state is unknown, so it must be
+                                   settled before any new SQE is written —
                                    otherwise the next enter could consume
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
@@ -179,10 +182,11 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
         g_signal_transaction        = 1;
         g_ring                      = g_signal_ring;
         g_tag                       = g_signal_tag;
-        g_inflight                  = 0;
+        g_inflight                  = g_signal_inflight;
         rc                          = transact(op, fd, off, addr, len, op_flags, aux);
         g_signal_ring               = g_ring;
         g_signal_tag                = g_tag;
+        g_signal_inflight           = g_inflight;
         g_ring                      = saved_ring;
         g_tag                       = saved_tag;
         g_inflight                  = saved_inflight;
@@ -198,6 +202,8 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
         if (rc < 0)
             return rc;
     }
+    if (g_deferred_count >= RING_CQ_ENTRIES)
+        return -EAGAIN;
 
     r   = g_ring;
     tag = ++g_tag;
@@ -254,8 +260,10 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
             astia_cq_consume(r, 1);
             return rc;
         }
-        if (!defer_result(c->user_data, c->result))
+        if (!defer_result(c->user_data, c->result)) {
+            g_inflight = tag;
             return -EAGAIN;
+        }
         astia_cq_consume(r, 1);
     }
 }
@@ -355,12 +363,13 @@ long __astia_fio_aio_result(uint64_t tag, long* result) {
 void __astia_fio_prepare_exec(void) {
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
-    g_ring           = NULL;
-    g_inflight       = 0;
-    g_tag            = 0;
-    g_signal_ring    = NULL;
-    g_signal_tag     = 0;
-    g_deferred_count = 0;
+    g_ring            = NULL;
+    g_inflight        = 0;
+    g_tag             = 0;
+    g_signal_ring     = NULL;
+    g_signal_tag      = 0;
+    g_signal_inflight = 0;
+    g_deferred_count  = 0;
 }
 
 void __astia_fio_prepare_fork(void) {
@@ -369,12 +378,13 @@ void __astia_fio_prepare_fork(void) {
        acquire a private ring before their next file operation. */
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
-    g_ring           = NULL;
-    g_inflight       = 0;
-    g_tag            = 0;
-    g_signal_ring    = NULL;
-    g_signal_tag     = 0;
-    g_deferred_count = 0;
+    g_ring            = NULL;
+    g_inflight        = 0;
+    g_tag             = 0;
+    g_signal_ring     = NULL;
+    g_signal_tag      = 0;
+    g_signal_inflight = 0;
+    g_deferred_count  = 0;
 }
 
 long __astia_fio_open(const char* path, int flags, int mode) {
@@ -926,6 +936,7 @@ void __astia_fio_after_fork(void) {
     g_tag                = 0;
     g_signal_ring        = NULL;
     g_signal_tag         = 0;
+    g_signal_inflight    = 0;
     g_signal_transaction = 0;
     g_deferred_count     = 0;
 }

@@ -1387,6 +1387,7 @@ if (ARCH STREQUAL "x86_64")
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: aio deferred ok"
+                "astia: aio deferred backpressure ok"
                 "astia: libc ok"
                 "astia: interp ok"
                 "astia: ld ok"

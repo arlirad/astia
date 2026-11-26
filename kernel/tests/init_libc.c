@@ -1101,6 +1101,68 @@ static int aio_deferred_contract(void) {
     return 0;
 }
 
+enum { aio_backpressure_ops = 128 };
+
+static int aio_transact_backpressure_contract(void) {
+    static struct aiocb  read_cb[aio_backpressure_ops];
+    static unsigned char file_data[aio_backpressure_ops];
+    static unsigned char read_data[aio_backpressure_ops];
+    const char*          read_name  = "/tmp/astia_aio_backpressure";
+    const char*          write_name = "/tmp/astia_aio_backpressure_out";
+    unsigned char        byte       = 'F';
+    int                  pipe_fds[2];
+    int                  read_fd;
+    int                  write_fd;
+    int                  i;
+
+    for (i = 0; i < aio_backpressure_ops; ++i)
+        file_data[i] = (unsigned char) (0x51u + (unsigned) i * 3u);
+    read_fd = open(read_name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (read_fd < 0)
+        return 200;
+    if (write(read_fd, file_data, aio_backpressure_ops) != aio_backpressure_ops)
+        return 200;
+    write_fd = open(write_name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (write_fd < 0)
+        return 200;
+    if (pipe(pipe_fds) != 0)
+        return 200;
+    if (write(pipe_fds[1], &byte, 1) != 1)
+        return 200;
+
+    for (i = 0; i < aio_backpressure_ops; ++i) {
+        aio_read_request(&read_cb[i], read_fd, &read_data[i], i);
+        if (aio_read(&read_cb[i]) != 0)
+            return 201;
+    }
+
+    byte = 0;
+    if (read(pipe_fds[0], &byte, 1) != 1 || byte != 'F')
+        return 202;
+
+    byte  = 'W';
+    errno = 0;
+    if (write(write_fd, &byte, 1) != -1 || errno != EAGAIN)
+        return 203;
+
+    for (i = 0; i < aio_backpressure_ops; ++i)
+        if (aio_return(&read_cb[i]) != 1 || read_data[i] != file_data[i])
+            return 204;
+
+    if (write(write_fd, &byte, 1) != 1)
+        return 205;
+    if (lseek(write_fd, 0, SEEK_END) != 1)
+        return 205;
+
+    if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+        return 206;
+    if (close(read_fd) != 0 || unlink(read_name) != 0)
+        return 206;
+    if (close(write_fd) != 0 || unlink(write_name) != 0)
+        return 206;
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
@@ -3389,6 +3451,13 @@ int main(int argc, char** argv) {
         if (aio_result != 0)
             return aio_result;
         printf("astia: aio deferred ok\n");
+    }
+
+    {
+        int aio_result = aio_transact_backpressure_contract();
+        if (aio_result != 0)
+            return aio_result;
+        printf("astia: aio deferred backpressure ok\n");
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from
