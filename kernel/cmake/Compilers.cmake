@@ -23,6 +23,24 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcmodel=kernel")
     endif ()
 
+    # GCC 16 reports its runtime through pass-through options such as
+    # "-pass-through=-lgcc_s_asneeded".  CMake's compiler ABI probe turns
+    # those into implicit "-lgcc_s_asneeded"/"-latomic_asneeded" libraries,
+    # but freestanding link flags suppress the driver's own -L path.  Add the
+    # compiler's runtime directory explicitly so those scripts resolve.
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        execute_process(
+                COMMAND ${CMAKE_C_COMPILER} -print-file-name=libgcc_s.so
+                OUTPUT_VARIABLE _astia_libgcc
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET)
+        get_filename_component(_astia_libgcc_dir "${_astia_libgcc}" DIRECTORY)
+
+        if (_astia_libgcc_dir)
+            add_link_options("-L${_astia_libgcc_dir}")
+        endif ()
+    endif ()
+
     # Produce a static, non-PIE ELF that fits QEMU's -kernel loader.
     add_link_options(-nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie -Wl,--build-id=none)
 endif ()
