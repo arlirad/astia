@@ -33,10 +33,16 @@ namespace astia::proc::syscalls {
             if (copied != 0)
                 co_return copied;
 
-            if (exec_permission_denied(*owner, path))
+            char      resolved[fs::path_max]{};
+            const i64 resolve_rc =
+                owner->resolve_path(path, resolved, sizeof resolved, true);
+            if (resolve_rc < 0)
+                co_return resolve_rc;
+
+            if (exec_permission_denied(*owner, resolved))
                 co_return -EACCES;
 
-            auto file = fs::open_path(path);
+            auto file = fs::open_path(resolved);
             if (!file)
                 co_return -ENOENT;
 

@@ -1,30 +1,154 @@
 #include <astia/api/errno.h>
+#include <astia/mm/frame_allocator.hpp>
+#include <astia/mm/heap.hpp>
 
 #include "../src/proc/cwd_context.hpp"
+#include "arena.hpp"
 #include "support/test.hpp"
 
 #include <cstring>
 
+namespace {
+    alignas(16) astia::u8 cwd_context_heap_storage[64 * 1024];
+
+    bool no_mapping(astia::u64, astia::u64) {
+        return true;
+    }
+
+    void initialize_heap() {
+        static bool ready = false;
+        if (ready)
+            return;
+
+        astia_test::map_arena();
+
+        astia::mm::memory_map map;
+
+        map.add(astia_test::arena_base, astia_test::arena_size,
+                astia::mm::memory_type::usable);
+        astia::mm::kernel_frames().init(map);
+        astia::mm::heap::configure(cwd_context_heap_storage,
+                                   sizeof cwd_context_heap_storage, no_mapping);
+        ASTIA_CHECK(astia::mm::heap::init());
+
+        ready = true;
+    }
+} // namespace
+
 namespace astia::fs {
-    long resolve_path(const char* path, char* buffer, u32 capacity, bool) {
-        if (std::strcmp(path, "/good/..") == 0)
-            path = "/";
+    namespace {
+        bool drop_component(char* path) {
+            usize length = std::strlen(path);
 
-        const usize length = std::strlen(path);
+            while (length > 1 && path[length - 1] == '/') {
+                --length;
+            }
 
-        if (length + 1 > capacity)
-            return -ENAMETOOLONG;
+            while (length > 1 && path[length - 1] != '/') {
+                --length;
+            }
 
-        std::memcpy(buffer, path, length + 1);
+            if (length > 1)
+                --length;
 
-        return 0;
+            path[length == 0 ? 1 : length] = '\0';
+
+            return length != 0;
+        }
+
+        long join_root(const char* root, const char* path, char* buffer, u32 capacity) {
+            char  joined[64]{};
+            usize at = 0;
+
+            if (std::strcmp(root, "/") == 0) {
+                for (; path[at] != '\0' && at + 1 < sizeof joined; ++at) {
+                    joined[at] = path[at];
+                }
+            }
+            else if (std::strcmp(path, "/") == 0) {
+                for (; root[at] != '\0' && at + 1 < sizeof joined; ++at) {
+                    joined[at] = root[at];
+                }
+            }
+            else {
+                for (; root[at] != '\0' && at + 1 < sizeof joined; ++at) {
+                    joined[at] = root[at];
+                }
+
+                for (usize i = 0; path[i] != '\0' && at + 1 < sizeof joined; ++i) {
+                    joined[at++] = path[i];
+                }
+            }
+
+            joined[at] = '\0';
+
+            while (true) {
+                usize length = std::strlen(joined);
+                char  candidate[64];
+
+                std::strcpy(candidate, joined);
+
+                if (std::strcmp(candidate, "/good/..") == 0) {
+                    std::strcpy(joined, "/");
+                    continue;
+                }
+
+                bool dotted = false;
+
+                if (length >= 2 && std::strcmp(candidate + length - 2, "/.") == 0) {
+                    candidate[length - 2] = '\0';
+
+                    if (std::strlen(candidate) == 0)
+                        std::strcpy(candidate, "/");
+
+                    std::strcpy(joined, candidate);
+                    dotted = true;
+                }
+                else if (length >= 3 && std::strcmp(candidate + length - 3, "/..") == 0) {
+                    candidate[length - 3] = '\0';
+
+                    if (std::strlen(candidate) == 0)
+                        std::strcpy(candidate, "/");
+
+                    std::strcpy(joined, candidate);
+
+                    if (std::strcmp(joined, root) != 0 &&
+                        std::strlen(joined) > std::strlen(root))
+                        (void) drop_component(joined);
+
+                    dotted = true;
+                }
+
+                if (!dotted)
+                    break;
+            }
+
+            if (std::strlen(joined) + 1 > capacity)
+                return -ENAMETOOLONG;
+
+            std::strcpy(buffer, joined);
+
+            return 0;
+        }
+    } // namespace
+
+    long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
+                           bool) {
+        if (root == nullptr || path == nullptr || buffer == nullptr || capacity == 0)
+            return -EINVAL;
+
+        if (root[0] != '/' || path[0] != '/')
+            return -EINVAL;
+
+        return join_root(root, path, buffer, capacity);
     }
 
     file_type node_type(const char* path) {
-        if (std::strcmp(path, "/") == 0 || std::strcmp(path, "/good") == 0)
+        if (std::strcmp(path, "/") == 0 || std::strcmp(path, "/good") == 0 ||
+            std::strcmp(path, "/jail") == 0 || std::strcmp(path, "/jail/etc") == 0)
             return directory_dir;
 
-        if (std::strcmp(path, "/file") == 0)
+        if (std::strcmp(path, "/file") == 0 || std::strcmp(path, "/jail/etc/passwd") == 0)
             return directory_reg;
 
         return directory_unknown;
@@ -49,6 +173,8 @@ namespace {
 } // namespace
 
 ASTIA_TEST(cwd_context_composes_without_partial_output) {
+    initialize_heap();
+
     astia::proc::cwd_context context;
 
     char output[32];
@@ -67,6 +193,8 @@ ASTIA_TEST(cwd_context_composes_without_partial_output) {
 }
 
 ASTIA_TEST(cwd_context_commits_only_successful_directory_changes) {
+    initialize_heap();
+
     astia::proc::cwd_context context;
 
     char output[32];
@@ -85,6 +213,8 @@ ASTIA_TEST(cwd_context_commits_only_successful_directory_changes) {
 }
 
 ASTIA_TEST(cwd_context_inherits_a_snapshot) {
+    initialize_heap();
+
     astia::proc::cwd_context parent;
     astia::proc::cwd_context child;
 
@@ -97,6 +227,8 @@ ASTIA_TEST(cwd_context_inherits_a_snapshot) {
 }
 
 ASTIA_TEST(cwd_context_binds_an_open_directory_without_resolving) {
+    initialize_heap();
+
     astia::proc::cwd_context context;
 
     astia::fs::directory_matches_stale = false;
@@ -127,6 +259,8 @@ ASTIA_TEST(cwd_context_binds_an_open_directory_without_resolving) {
 }
 
 ASTIA_TEST(cwd_context_rejects_a_recycled_directory_name) {
+    initialize_heap();
+
     astia::proc::cwd_context context;
 
     astia::fs::directory_matches_stale = false;
@@ -152,6 +286,8 @@ ASTIA_TEST(cwd_context_rejects_a_recycled_directory_name) {
 }
 
 ASTIA_TEST(cwd_context_inherits_a_bound_directory) {
+    initialize_heap();
+
     astia::proc::cwd_context parent;
     astia::proc::cwd_context child;
 
@@ -177,4 +313,60 @@ ASTIA_TEST(cwd_context_inherits_a_bound_directory) {
     ASTIA_CHECK(std::strcmp(output, "/good/child") == 0);
 
     astia::fs::directory_matches_stale = false;
+}
+
+ASTIA_TEST(cwd_context_clamps_paths_to_the_process_root) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    char output[32];
+    char resolved[32];
+
+    ASTIA_CHECK(context.change_root("/jail") == 0);
+    ASTIA_CHECK(context.copy_root(output, sizeof output) == 6);
+    ASTIA_CHECK(std::strcmp(output, "/jail") == 0);
+
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == -ENOENT);
+    ASTIA_CHECK(context.change_directory("etc") == -ENOENT);
+
+    ASTIA_CHECK(context.change_directory("/") == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
+    ASTIA_CHECK(std::strcmp(output, "/") == 0);
+
+    ASTIA_CHECK(context.change_directory("etc") == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 5);
+    ASTIA_CHECK(std::strcmp(output, "/etc") == 0);
+
+    ASTIA_CHECK(context.change_directory("..") == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
+    ASTIA_CHECK(context.change_directory("../..") == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
+
+    ASTIA_CHECK(context.resolve_path("/etc/passwd", resolved, sizeof resolved, true) ==
+                0);
+    ASTIA_CHECK(std::strcmp(resolved, "/jail/etc/passwd") == 0);
+
+    ASTIA_CHECK(context.change_root("/") == -EACCES);
+    ASTIA_CHECK(context.change_root("/jail/etc") == 0);
+    ASTIA_CHECK(context.copy_root(output, sizeof output) == 10);
+    ASTIA_CHECK(std::strcmp(output, "/jail/etc") == 0);
+}
+
+ASTIA_TEST(cwd_context_inherits_root_state) {
+    initialize_heap();
+
+    astia::proc::cwd_context parent;
+    astia::proc::cwd_context child;
+
+    char output[32];
+
+    ASTIA_CHECK(parent.change_directory("/") == 0);
+    ASTIA_CHECK(parent.change_root("/jail") == 0);
+    child.inherit_from(parent);
+
+    ASTIA_CHECK(child.copy_root(output, sizeof output) == 6);
+    ASTIA_CHECK(std::strcmp(output, "/jail") == 0);
+    ASTIA_CHECK(child.copy_cwd(output, sizeof output) == -ENOENT);
+}
 }

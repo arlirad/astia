@@ -1118,6 +1118,11 @@ namespace astia::fs {
         return path_service::resolve(path, buffer, capacity, follow_final);
     }
 
+    long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
+                           bool follow_final) {
+        return path_service::resolve_from(root, path, buffer, capacity, follow_final);
+    }
+
     long make_symlink(const char* target, const char* path) {
         if (target == nullptr || path == nullptr || path[0] != '/')
             return -EINVAL;

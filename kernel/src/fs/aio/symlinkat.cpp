@@ -22,11 +22,7 @@ namespace astia::io::aio::operations {
                 co_return -ESRCH;
 
             long resolve_rc =
-                resolve_at(current, sqe.fd, path, resolved, sizeof resolved);
-            if (resolve_rc < 0)
-                co_return (i32) resolve_rc;
-
-            resolve_rc = fs::resolve_path(resolved, resolved, sizeof resolved, false);
+                resolve_at(current, sqe.fd, path, resolved, sizeof resolved, false);
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 

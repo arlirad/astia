@@ -31,7 +31,14 @@ namespace astia::fs::syscalls {
             if (current->euid() != 0)
                 co_return -EPERM;
 
-            co_return mount_type(type, target, source_address.null() ? nullptr : source);
+            char      resolved[path_max]{};
+            const i64 resolve_rc =
+                current->resolve_path(target, resolved, sizeof resolved, false);
+            if (resolve_rc < 0)
+                co_return resolve_rc;
+
+            co_return mount_type(type, resolved,
+                                 source_address.null() ? nullptr : source);
         }
     };
 } // namespace astia::fs::syscalls

@@ -180,6 +180,33 @@ namespace astia::proc {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
 
+        /// Resolve a path through this process's filesystem root and cwd.
+        /// Absolute paths start at the root; relative paths resolve from cwd
+        /// and fail with -ENOENT while cwd is outside the root.
+        i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
+        i64 resolve_path(const char* path, char* buffer, usize length,
+                         bool follow_final) const {
+            return resolve_path(path, span<char>(buffer, length), follow_final);
+        }
+
+        /// Resolve a path relative to dirfd, rejecting a directory descriptor
+        /// whose canonical path is outside this process's root.
+        i64 resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
+                            bool follow_final) const;
+        i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length,
+                            bool follow_final) const {
+            return resolve_path_at(dirfd, path, span<char>(buffer, length), follow_final);
+        }
+
+        bool path_within_root(const char* path) const {
+            return _cwd.within_root(path);
+        }
+
+        /// Make `path` the process filesystem root.  Only euid 0 may call it;
+        /// the path is resolved through the current root first, so a process
+        /// can only move its root deeper, never back out.
+        i64 chroot(const char* path);
+
         void inherit_groups(const process& parent) {
             _cwd.inherit_from(parent._cwd);
 

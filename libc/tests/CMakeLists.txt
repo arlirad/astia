@@ -246,6 +246,10 @@ add_executable(libc_process_group_test process/process_group_test.c support/proc
 target_link_libraries(libc_process_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_group_test COMMAND libc_process_group_test)
 
+add_executable(libc_chroot_test process/chroot_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_chroot_test PRIVATE astia_libc_host)
+add_test(NAME libc_chroot_test COMMAND libc_chroot_test)
+
 add_executable(libc_killpg_test process/killpg_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
 target_link_libraries(libc_killpg_test PRIVATE astia_libc_host)
 add_test(NAME libc_killpg_test COMMAND libc_killpg_test)

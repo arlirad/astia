@@ -42,7 +42,7 @@ namespace astia::io::aio::dispatch {
         }
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
-                        char* out, usize capacity) {
+                        char* out, usize capacity, bool follow_final) {
             if (current == nullptr)
                 return -ESRCH;
 
@@ -50,14 +50,16 @@ namespace astia::io::aio::dispatch {
             // -1; treat it like AT_FDCWD just as the explicit *at wrappers
             // do for AT_FDCWD.
             if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
-                return current->compose_path_at(fd_t{AT_FDCWD}, path, out, capacity);
+                return current->resolve_path_at(fd_t{AT_FDCWD}, path,
+                                                span<char>(out, capacity), follow_final);
 
             auto dirfd = mapper<fd_t>::from(raw_dirfd);
 
             if (!dirfd.has_value)
                 return -EBADF;
 
-            return current->compose_path_at(dirfd.value, path, out, capacity);
+            return current->resolve_path_at(dirfd.value, path, span<char>(out, capacity),
+                                            follow_final);
         }
 
         bool parent_allows(proc::process* current, const char* path,
@@ -903,8 +905,8 @@ namespace astia::io::aio::dispatch {
     }
 
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
-                    usize capacity) {
-        return detail::resolve_at(current, raw_dirfd, path, out, capacity);
+                    usize capacity, bool follow_final) {
+        return detail::resolve_at(current, raw_dirfd, path, out, capacity, follow_final);
     }
 
     bool parent_writable(proc::process* current, const char* path) {
