@@ -290,6 +290,11 @@ namespace astia::proc {
             // the block into the argument strings.
             const auto info = owner->exec_image();
 
+            // A spawn always starts from a freshly loaded image; never emit
+            // auxv from a process that has no image.
+            if (info.entry == 0)
+                return false;
+
             const struct {
                 u64 type;
                 u64 value;
@@ -1391,9 +1396,11 @@ namespace astia::proc {
         _mmap_regions         = staging._mmap_regions;
         _mapped_bytes         = staging._mapped_bytes;
         _tls_tp               = staging._tls_tp;
+        _exec_image           = staging._exec_image;
         staging._mmap_regions = nullptr;
         staging._mapped_bytes = 0;
         staging._tls_tp       = 0;
+        staging._exec_image   = {};
 
         if (_address_space.attached())
             _address_space.activate();

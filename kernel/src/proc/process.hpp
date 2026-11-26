@@ -400,6 +400,7 @@ namespace astia::proc {
         }
 
         /// Startup-vector facts about the image this process will enter.
+        /// Carried across replace_image and copied by fork.
         struct exec_image_info {
             u64 base   = 0; ///< payload load bias (AT_ASTIA_PAYLOAD_BASE)
             u64 entry  = 0; ///< payload entry (AT_ENTRY)

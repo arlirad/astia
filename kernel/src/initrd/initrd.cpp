@@ -129,9 +129,9 @@ namespace astia::initrd {
 
             string_view bounded_name;
 
-            if (!string_before_nul(
-                    {reinterpret_cast<const char*>(a.image.data() + name_off), name_size},
-                    bounded_name) ||
+            if (!string_view{reinterpret_cast<const char*>(a.image.data() + name_off),
+                             name_size}
+                     .find_nul(bounded_name) ||
                 bounded_name.size != name_size - 1)
                 return false;
 
@@ -169,9 +169,8 @@ namespace astia::initrd {
 
         bool is_cpio_trailer(const cpio_entry& entry) {
             return entry.size == 0 &&
-                   string_equal(
-                       {reinterpret_cast<const char*>(entry.name), entry.name_size},
-                       {cpio_trailer, sizeof(cpio_trailer) - 1});
+                   string_view{reinterpret_cast<const char*>(entry.name), entry.name_size}
+                       .equals({cpio_trailer, sizeof(cpio_trailer) - 1});
         }
     } // namespace
 
@@ -273,7 +272,8 @@ namespace astia::initrd {
         bool find_visit(void* ctx, const file& f) {
             auto* c = static_cast<find_ctx*>(ctx);
 
-            if (string_equal(f.name, c->name)) {
+            if (string_view::from_c_str(f.name).equals(
+                    string_view::from_c_str(c->name))) {
                 *c->out  = f;
                 c->found = true;
 

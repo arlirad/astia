@@ -12,6 +12,7 @@ using Pkgsrv.Presentation.Api;
 using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Composition;
 using Pkgsrv.Presentation.Configuration;
+using Pkgsrv.Presentation.Health;
 using Pkgsrv.Presentation.Security;
 
 namespace Pkgsrv.Presentation;
@@ -26,6 +27,7 @@ public static class PkgsrvHost
         var builder = WebApplication.CreateBuilder(args);
         var listenOptions = PkgsrvListenOptions.FromConfiguration(builder.Configuration);
         var databaseOptions = PkgsrvDatabaseOptions.FromConfiguration(builder.Configuration);
+        var readinessOptions = PkgsrvReadinessOptions.FromConfiguration(builder.Configuration);
         var cacheOptions = PackageJsonCacheOptions.FromConfiguration(builder.Configuration);
         var artifactOptions = PkgsrvArtifactOptions.FromConfiguration(builder.Configuration);
         var signingOptions = PkgsrvSigningOptions.FromConfiguration(builder.Configuration);
@@ -110,7 +112,11 @@ public static class PkgsrvHost
             provider.GetRequiredService<PackageJsonCache>());
         builder.Services.AddSingleton<IPackageCacheInvalidator>(provider =>
             provider.GetRequiredService<PackageJsonCache>());
-        builder.Services.AddPkgsrv(allowedSourceHosts, databaseOptions, irvaOptions);
+        builder.Services.AddPkgsrv(
+            allowedSourceHosts,
+            databaseOptions,
+            irvaOptions,
+            readinessOptions);
 
         builder.Services.AddSingleton(buildOptions);
 
@@ -180,6 +186,11 @@ public static class PkgsrvHost
 
         app.UseMiddleware<IrvaAuthenticationMiddleware>();
         app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+        app.MapGet("/readyz", (IServiceProvider services, CancellationToken cancellationToken) =>
+            StorageReadinessEndpoint.HandleAsync(
+                services,
+                databaseOptions.Provider,
+                cancellationToken));
         app.MapPackageEndpoints();
 
         return app;

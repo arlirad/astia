@@ -924,6 +924,7 @@ set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
 set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_exec_rollback_test
         astia_rcu_hashmap_test
+        astia_string_test
         astia_frame_allocator_test
         astia_page_map_test
         astia_address_space_test
@@ -985,6 +986,15 @@ astia_add_arena_test(astia_address_space_test
 # mm::heap: the free-list allocator over a window backed by arena frames.
 astia_add_arena_test(astia_heap_test
         heap_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/interrupts_host.cpp
+)
+
+# astia::strings::string allocates from mm::heap, so it runs with the heap fixture.
+astia_add_arena_test(astia_string_test
+        string_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/string.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
         support/interrupts_host.cpp
