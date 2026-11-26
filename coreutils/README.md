@@ -20,6 +20,11 @@ ASTIA_SYSROOT=/tmp/astia-zsh-build/sysroot \
 The resulting executables are placed in `coreutils/build/bin/`.  The zsh QEMU
 launcher builds and installs them into `/bin` automatically.
 
+`env` prints `NAME=VALUE` entries in `environ` order; `env -s` /
+`--sorted` prints them byte-lexicographically by the whole entry (C-locale
+`strcmp`: `A=10` before `A=2`, uppercase before lowercase). Sorting never
+mutates `environ` and never changes the environment of `env COMMAND`.
+
 The utilities deliberately use only native Astia primitives (`read`, `write`,
 `open`, `close`, `mkdir`, `unlink`, `rmdir`, `environ`, process exit, and the
 libc directory API).  The

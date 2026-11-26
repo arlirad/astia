@@ -8,6 +8,13 @@ namespace astia::fs {
     class mount {
         public:
         virtual ~mount() = default;
+
+        /// True for an immutable mount: create/write namespace operations
+        /// must fail with -EROFS instead of silently looking absent.
+        virtual bool read_only() const {
+            return false;
+        }
+
         virtual mm::shptr<open_file> open(const char* path, u32 flags);
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});

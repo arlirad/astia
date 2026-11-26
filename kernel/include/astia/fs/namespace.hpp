@@ -25,6 +25,9 @@ namespace astia::fs {
     mm::shptr<open_file> open(const char* path, u32 flags = 0);
     mm::shptr<open_file> open_directory(const char* path);
 
+    /// True when the path resolves to a read-only mount.
+    bool read_only_path(const char* path);
+
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
                         file_type* type);
     long make_directory(const char* path, file_mode mode);

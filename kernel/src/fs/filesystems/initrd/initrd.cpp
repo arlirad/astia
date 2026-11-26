@@ -210,6 +210,34 @@ namespace astia::fs::filesystems {
         return {};
     }
 
+    long initrd_mount::mkdir(const char*, file_mode) {
+        return -EROFS;
+    }
+
+    long initrd_mount::unlink(const char*, bool) {
+        return -EROFS;
+    }
+
+    long initrd_mount::rename(const char*, const char*) {
+        return -EROFS;
+    }
+
+    long initrd_mount::link(const char*, const char*) {
+        return -EROFS;
+    }
+
+    long initrd_mount::symlink(const char*, const char*) {
+        return -EROFS;
+    }
+
+    long initrd_mount::chmod(const char*, file_permissions) {
+        return -EROFS;
+    }
+
+    long initrd_mount::chown(const char*, uid_t, gid_t) {
+        return -EROFS;
+    }
+
     file_type initrd_mount::node_type(const char* path) const {
         if (path == nullptr || path[0] != '/')
             return directory_unknown;

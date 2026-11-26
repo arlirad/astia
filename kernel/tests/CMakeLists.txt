@@ -933,6 +933,8 @@ endif ()
 
 # memory.cpp is the code under test here, so it overrides the host libc's
 # symbols; -fno-builtin stops the compiler rewriting our loops back into calls.
+astia_add_host_test(astia_terminal_name_test terminal_name_test.cpp)
+
 astia_add_host_test(astia_memory_test memory_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp)
 set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
         PROPERTIES COMPILE_OPTIONS "-fno-builtin")

@@ -1262,70 +1262,68 @@ namespace {
             co_return astia::error_t::enone;
         }
 
-        bool selftest() override {
+        astia::core::task<bool> selftest() override {
             char first[512]{};
             char second[512]{};
             if (!device.started || device.namespace_count < 2)
-                return false;
-            const int first_read = astia::module::read_registered_async(
-                "/dev/nvme0n1", first, sizeof first, 0);
-            const int second_read = astia::module::read_registered_async(
-                "/dev/nvme0n2", second, sizeof second, 0);
-            if (first_read != 0 || second_read != 0)
-                return false;
+                co_return false;
+            if (device.read(device.namespaces[0], first, sizeof first, 0) !=
+                    sizeof first ||
+                device.read(device.namespaces[1], second, sizeof second, 0) !=
+                    sizeof second)
+                co_return false;
             astia::module::log("nvme", device.msix_active ? "async completion"
                                                           : "async polling fallback");
             char write_sector[512]{};
             for (unsigned i = 0; i < sizeof write_sector; ++i)
                 write_sector[i] = static_cast<char>("NVME_WRITE_FUA_OK"[i % 17] ^ i);
-            if (astia::module::write_registered_async(
-                    "/dev/nvme0n1", write_sector, sizeof write_sector, sizeof first) != 0)
-                return false;
+            if (device.write(device.namespaces[0], write_sector, sizeof write_sector,
+                             sizeof first) != sizeof write_sector)
+                co_return false;
             if (!device.flush(device.namespaces[0]))
-                return false;
+                co_return false;
             char reopened[512]{};
-            if (astia::module::read_registered_async("/dev/nvme0n1", reopened,
-                                                     sizeof reopened, sizeof first) != 0)
-                return false;
+            if (device.read(device.namespaces[0], reopened, sizeof reopened,
+                            sizeof first) != sizeof reopened)
+                co_return false;
             for (unsigned i = 0; i < sizeof reopened; ++i)
                 if (reopened[i] != write_sector[i])
-                    return false;
+                    co_return false;
             astia::module::log("nvme", "write flush reopen ok");
             if (!device.recover_controller())
-                return false;
+                co_return false;
             char reset_first[512]{};
             char reset_second[512]{};
-            if (astia::module::read_registered_async(
-                    "/dev/nvme0n1", reset_first, sizeof reset_first, sizeof first) != 0 ||
-                astia::module::read_registered_async("/dev/nvme0n2", reset_second,
-                                                     sizeof reset_second, 0) != 0)
-                return false;
+            if (device.read(device.namespaces[0], reset_first, sizeof reset_first,
+                            sizeof first) != sizeof reset_first ||
+                device.read(device.namespaces[1], reset_second, sizeof reset_second, 0) !=
+                    sizeof reset_second)
+                co_return false;
             for (unsigned i = 0; i < sizeof reset_first; ++i)
                 if (reset_first[i] != write_sector[i])
-                    return false;
+                    co_return false;
             if (!known(reset_second, "ASTIA_NVME_NAMESPACE_002", 24))
-                return false;
+                co_return false;
             astia::module::log("nvme", "reset recovery persistence ok");
             char invalid[513]{};
-            if (astia::module::read_registered_async("/dev/nvme0n1", invalid,
-                                                     sizeof invalid, 0) >= 0 ||
-                astia::module::write_registered_async("/dev/nvme0n1", invalid,
-                                                      sizeof invalid, 0) >= 0 ||
-                astia::module::read_registered_async("/dev/nvme0n3", invalid,
-                                                     sizeof first, 0) >= 0)
-                return false;
+            auto missing_read = co_await astia::module::read_registered(
+                "/dev/nvme0n3", invalid, sizeof first, 0);
+            if (device.read(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
+                device.write(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
+                (missing_read && missing_read.value >= 0))
+                co_return false;
             astia::module::log("nvme", "reset recovery error path");
             if (!known(first, "ASTIA_NVME_FIXTURE_SECTOR_000", 29) ||
                 !known(second, "ASTIA_NVME_NAMESPACE_002", 24))
-                return false;
+                co_return false;
             if (device.msix_active && device.interrupts_seen == 0)
-                return false;
+                co_return false;
             astia::module::log("nvme", "namespace 1 ok");
             astia::module::log("nvme", "namespace 2 ok");
             astia::module::log("nvme", device.msix_active ? "msix interrupt path"
                                                           : "polling fallback");
             astia::module::log("nvme", "known sector ok");
-            return true;
+            co_return true;
         }
 
         private:

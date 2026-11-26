@@ -110,6 +110,14 @@ static void* libc_thread_worker(void* opaque) {
     return (void*) (unsigned long) (errno == EINTR ? 0x1234 : 0x1235);
 }
 
+static void* libc_exec_thread_worker(void* opaque) {
+    (void) opaque;
+
+    sleep(1);
+
+    return (void*) (unsigned long) 0x5eed;
+}
+
 struct libc_key_probe {
     volatile unsigned int calls;
     volatile unsigned int rearmed;
@@ -1282,6 +1290,9 @@ int main(int argc, char** argv) {
         _Exit(0);
     }
 
+    if (argc > 1 && strcmp(argv[1], "--exec-multithread-check") == 0)
+        _Exit(126);
+
     if (argc > 1 && strcmp(argv[1], "--exec-getattr-check") == 0) {
         pthread_attr_t attr;
         void*          stack_addr = NULL;
@@ -2390,6 +2401,26 @@ int main(int argc, char** argv) {
 
         if (value != 42 || result != (void*) (unsigned long) 0x1234 || errno != EAGAIN)
             return 25;
+    }
+
+    /* 26: exec from a multithreaded process is rejected with EINVAL and the
+       process keeps running once the other thread is joined. */
+    {
+        pthread_t worker;
+        void*     result = NULL;
+
+        if (pthread_create(&worker, NULL, libc_exec_thread_worker, NULL) != 0)
+            return 253;
+
+        errno = 0;
+
+        if (execl(argv[0], argv[0], "--exec-multithread-check", NULL) != -1 ||
+            errno != EINVAL)
+            return 254;
+
+        if (pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x5eed)
+            return 255;
     }
 
     {
@@ -4328,6 +4359,41 @@ int main(int argc, char** argv) {
             return 89;
         else
             printf("astia: ld nophdr ok\n");
+    }
+
+    /* 54: the initrd namespace is immutable: create and mutation calls
+       report EROFS, never ENOENT or ENOSYS. */
+    {
+        errno = 0;
+
+        if (open("/bin/astia-erofs-probe", O_WRONLY | O_CREAT | O_TRUNC, 0600) >= 0 ||
+            errno != EROFS)
+            return 90;
+
+        errno = 0;
+
+        if (mkdir("/bin/astia-erofs-dir", 0700) == 0 || errno != EROFS)
+            return 91;
+
+        errno = 0;
+
+        if (unlink("/bin/init_libc") == 0 || errno != EROFS)
+            return 92;
+
+        errno = 0;
+
+        if (rename("/bin/init_libc", "/bin/astia-erofs-ren") == 0 || errno != EROFS)
+            return 93;
+
+        errno = 0;
+
+        if (link("/bin/init_libc", "/bin/astia-erofs-link") == 0 || errno != EROFS)
+            return 94;
+
+        errno = 0;
+
+        if (open("/bin/init_libc", O_WRONLY) >= 0 || errno != EROFS)
+            return 95;
     }
 
     /* 51: stdio over the rings; argc/argv arrived through CRT0 from

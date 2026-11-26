@@ -2,6 +2,7 @@
 
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/hw/pci.hpp>
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
@@ -160,9 +161,10 @@ namespace astia::module {
     bool pin_user_write(void* address, u32 length, u64* physical, user_pin** token);
     bool pin_user_read(const void* address, u32 length, u64* physical, user_pin** token);
     void unpin(user_pin* token);
-    int  read_registered_async(const char* path, void* buffer, u32 length, u64 offset);
-    int  write_registered_async(const char* path, const void* buffer, u32 length,
-                                u64 offset);
+    core::task<i64> read_registered(const char* path, void* buffer, u32 length,
+                                    u64 offset);
+    core::task<i64> write_registered(const char* path, const void* buffer, u32 length,
+                                     u64 offset);
 
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);

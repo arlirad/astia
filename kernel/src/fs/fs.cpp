@@ -872,6 +872,15 @@ namespace astia::fs {
         return open_path(path, flags);
     }
 
+    bool read_only_path(const char* path) {
+        if (path == nullptr || path[0] != '/')
+            return false;
+
+        mount_operation operation(path);
+
+        return operation && operation.instance()->read_only();
+    }
+
     mm::shptr<open_file> open_directory(const char* path) {
         char resolved[path_max]{};
         long rc = resolve_path(path, resolved, sizeof resolved, true);
@@ -954,6 +963,9 @@ namespace astia::fs {
         if (!operation)
             return -ENOENT;
 
+        if (operation.instance()->read_only())
+            return -EROFS;
+
         return operation.instance()->mkdir(relative_path(*operation.entry(), resolved),
                                            mode);
     }
@@ -971,6 +983,9 @@ namespace astia::fs {
 
         if (!operation)
             return -ENOENT;
+
+        if (operation.instance()->read_only())
+            return -EROFS;
 
         long unix_rc = remove_unix_path(resolved, operation.instance(), directory);
         if (unix_rc != 0)
@@ -999,6 +1014,10 @@ namespace astia::fs {
 
         if (!old_operation || !new_operation)
             return -ENOENT;
+
+        if (old_operation.instance()->read_only() ||
+            new_operation.instance()->read_only())
+            return -EROFS;
 
         if (old_operation.instance() != new_operation.instance())
             return -EXDEV;
@@ -1032,6 +1051,10 @@ namespace astia::fs {
 
         if (!old_operation || !new_operation)
             return -ENOENT;
+
+        if (old_operation.instance()->read_only() ||
+            new_operation.instance()->read_only())
+            return -EROFS;
 
         if (old_operation.instance() != new_operation.instance())
             return -EXDEV;
@@ -1088,6 +1111,9 @@ namespace astia::fs {
 
         if (!operation)
             return -ENOENT;
+
+        if (operation.instance()->read_only())
+            return -EROFS;
 
         return operation.instance()->symlink(target,
                                              relative_path(*operation.entry(), resolved));
@@ -1159,6 +1185,9 @@ namespace astia::fs {
         if (!operation)
             return -ENOENT;
 
+        if (operation.instance()->read_only())
+            return -EROFS;
+
         long unix_rc = unix_chmod_path(path, operation.instance(), permissions);
 
         if (unix_rc != -ENOENT)
@@ -1182,6 +1211,9 @@ namespace astia::fs {
         if (!operation)
             return -ENOENT;
 
+        if (operation.instance()->read_only())
+            return -EROFS;
+
         long unix_rc = unix_chown_path(resolved, operation.instance(), uid, gid);
 
         if (unix_rc != -ENOENT)
@@ -1199,6 +1231,9 @@ namespace astia::fs {
 
         if (!operation)
             return -ENOENT;
+
+        if (operation.instance()->read_only())
+            return -EROFS;
 
         auto handle =
             operation.instance()->open(relative_path(*operation.entry(), path), 0);

@@ -375,9 +375,18 @@ namespace astia::io {
         bool               _heap_owned     = false;
         bool               _owner_released = false;
 
+        // Out of line so the optimiser never sees `delete` applied to a
+        // known stack instance: an `operation` embeds this type by value and
+        // only heap-allocated instances set `_heap_owned`.  Inlining the
+        // destruction into those call sites makes GCC report a spurious
+        // -Wfree-nonheap-object.
+        [[gnu::noinline]] static void destroy(operation* target) {
+            delete target;
+        }
+
         void release_ref() {
             if (__atomic_sub_fetch(&_refs, 1u, __ATOMIC_ACQ_REL) == 0 && _heap_owned)
-                delete this;
+                destroy(this);
         }
 
         friend class request;
