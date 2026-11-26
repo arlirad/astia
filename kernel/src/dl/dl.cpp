@@ -29,8 +29,41 @@ namespace astia::dl {
         mm::shptr<image> g_images[max_images]{};
         u32              g_image_count = 0;
         u64              g_next_base   = proc::user_mmap_top;
-        bool             g_loading     = false;
-        core::spinlock   g_lock;
+
+        struct free_span {
+            u64 base = 0;
+            u64 span = 0;
+        };
+        free_span g_free[max_images]{};
+        u32       g_free_count = 0;
+
+        /// Hand ranges that sit exactly at the bump top back to the allocator.
+        /// An exec loop loads the interpreter and libc, drops them on reap and
+        /// loads them again; without this the bump would walk the whole DSO
+        /// gap and every later exec would fail with no image address left.
+        void reclaim_top() {
+            bool again = true;
+            while (again) {
+                again = false;
+                for (u32 i = 0; i < g_free_count; ++i) {
+                    if (g_free[i].base + g_free[i].span != g_next_base)
+                        continue;
+                    g_next_base          = g_free[i].base;
+                    g_free[i]            = g_free[--g_free_count];
+                    g_free[g_free_count] = {};
+                    again                = true;
+                    break;
+                }
+            }
+        }
+
+        void note_free(u64 base, u64 span) {
+            if (span != 0 && g_free_count < max_images)
+                g_free[g_free_count++] = free_span{base, span};
+            reclaim_top();
+        }
+        bool           g_loading = false;
+        core::spinlock g_lock;
 
         struct binding {
             mm::shptr<image> img;
@@ -105,6 +138,7 @@ namespace astia::dl {
                 g_images[i]                 = g_images[g_image_count - 1];
                 g_images[g_image_count - 1] = {};
                 --g_image_count;
+                note_free(value->base, value->reserved);
                 break;
             }
         }
@@ -406,6 +440,7 @@ namespace astia::dl {
                 }
                 else {
                     value->map_count = 1;
+                    value->reserved  = advance;
                     value->loading   = false;
                     g_next_base += advance;
                     g_images[g_image_count++] = value;
