@@ -3,7 +3,9 @@
 #include "internal/file_port.h"
 #include "internal/process_port.h"
 
+#include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <string.h>
 
 /*
@@ -566,11 +568,27 @@ long __astia_fio_read_batch(struct astia_fio_batch_read* requests, size_t count)
     return 0;
 }
 
+/* POSIX: a write to a pipe or connected socket with no reader fails with
+   EPIPE *and* raises SIGPIPE for the calling thread.  The kernel reports the
+   error; the signal belongs to the process-facing layer that knows the
+   caller's disposition and mask.  A handler must not change errno. */
+static long pipe_signal(long result) {
+    if (result == -EPIPE) {
+        int saved = errno;
+
+        (void) raise(SIGPIPE);
+
+        errno = saved;
+    }
+
+    return result;
+}
+
 long __astia_fio_write(int fd, uint64_t off, const void* buf, size_t n) {
     if (n > UINT32_MAX)
         return -EINVAL;
 
-    return transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0);
+    return pipe_signal(transact(OP_WRITE, fd, off, buf, (uint32_t) n, 0, 0));
 }
 
 long __astia_fio_ftruncate(int fd, uint64_t length) {
@@ -589,7 +607,7 @@ long __astia_fio_readv(int fd, uint64_t off, const struct iovec* iov, uint32_t c
 }
 
 long __astia_fio_writev(int fd, uint64_t off, const struct iovec* iov, uint32_t count) {
-    return transact(OP_WRITEV, fd, off, iov, count, 0, 0);
+    return pipe_signal(transact(OP_WRITEV, fd, off, iov, count, 0, 0));
 }
 
 long __astia_fio_close(int fd) {
@@ -782,7 +800,7 @@ long __astia_fio_send(int fd, const void* buf, size_t n, int flags) {
     if (n > UINT32_MAX)
         return -EINVAL;
 
-    return transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t) n, 0, 0);
+    return pipe_signal(transact(OP_SEND, fd, OFF_APPEND, buf, (uint32_t) n, 0, 0));
 }
 
 long __astia_fio_recv(int fd, void* buf, size_t n, int flags) {
