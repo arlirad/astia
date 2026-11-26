@@ -353,7 +353,14 @@ target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src
 
 astia_add_host_test(astia_panic_report_test
         panic_report_test.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dbg/panic_report.cpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dbg/panic_report.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64/panic_format.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64/panic_format.cpp)
+target_include_directories(astia_panic_report_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/x86_64
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/aarch64)
 
 astia_add_host_test(astia_driver_manager_test
         driver_manager_test.cpp

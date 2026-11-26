@@ -4,6 +4,7 @@ if (ARCH STREQUAL "aarch64")
             start.S
             gic.cpp
             page_map.cpp
+            panic_format.cpp
             timer.cpp
     )
     target_include_directories(arch_aarch64 PUBLIC

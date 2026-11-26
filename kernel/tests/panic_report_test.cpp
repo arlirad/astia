@@ -1,5 +1,8 @@
+#include <astia/arch/exception_frame.hpp>
 #include <astia/dbg/panic_report.hpp>
 
+#include "panic_format.hpp"
+#include "panic_state.hpp"
 #include "support/test.hpp"
 
 #include <cstring>
@@ -39,6 +42,7 @@ namespace {
         value.available          = true;
         value.metadata_available = true;
         value.thread_available   = true;
+        value.arch               = "x86_64";
         value.pid                = 1;
         value.tid                = 2;
         value.cpu                = 3;
@@ -61,58 +65,57 @@ namespace {
         return value;
     }
 
-    astia::dbg::panic_registers x86_registers() {
-        astia::dbg::panic_registers value{};
+    astia::arch::x86_64::panic_state x86_state() {
+        astia::arch::x86_64::panic_state value{};
 
-        value.arch      = "x86_64";
-        value.x86       = true;
-        value.gpr_count = 16;
-
-        for (astia::u32 i = 0; i < 16; ++i) {
-            value.gpr[i] = 0x100 + i;
-        }
-
-        value.rip    = 0xdeadbeef;
-        value.rsp    = 0x7000;
-        value.rbp    = 0x7100;
-        value.rflags = 0x202;
-        value.vector = 14;
-        value.error  = 2;
-        value.cr0    = 0x80000001;
-        value.cr2    = 0x4000;
-        value.cr3    = 0x5000;
-        value.cr4    = 0x20;
+        value.frame.rax    = 0x100;
+        value.frame.rbx    = 0x101;
+        value.frame.rcx    = 0x102;
+        value.frame.rdx    = 0x103;
+        value.frame.rsi    = 0x104;
+        value.frame.rdi    = 0x105;
+        value.frame.rbp    = 0x7100;
+        value.frame.rsp    = 0x7000;
+        value.frame.r8     = 0x108;
+        value.frame.r9     = 0x109;
+        value.frame.r10    = 0x10a;
+        value.frame.r11    = 0x10b;
+        value.frame.r12    = 0x10c;
+        value.frame.r13    = 0x10d;
+        value.frame.r14    = 0x10e;
+        value.frame.r15    = 0x10f;
+        value.frame.vector = 14;
+        value.frame.error  = 2;
+        value.frame.rip    = 0xdeadbeef;
+        value.frame.rflags = 0x202;
+        value.cr0          = 0x80000001;
+        value.cr2          = 0x4000;
+        value.cr3          = 0x5000;
+        value.cr4          = 0x20;
 
         return value;
     }
 
-    astia::dbg::panic_registers aarch64_registers() {
-        astia::dbg::panic_registers value{};
+    astia::arch::aarch64::exception_frame aarch64_frame() {
+        astia::arch::aarch64::exception_frame value{};
 
-        value.arch      = "aarch64";
-        value.aarch64   = true;
-        value.gpr_count = 31;
-
-        for (astia::u32 i = 0; i < 31; ++i) {
-            value.gpr[i] = 0x200 + i;
+        for (astia::u32 i = 0; i < astia::arch::aarch64::exception_frame_gpr_count; ++i) {
+            value.x[i] = 0x200 + i;
         }
 
-        value.rsp         = 0x8000;
-        value.elr         = 0x40400000;
-        value.spsr        = 0x3c5;
-        value.esr         = 0xf2001234;
-        value.far         = 0x1000;
-        value.ttbr0       = 0x9000;
-        value.vector_kind = 4;
+        value.elr_el1  = 0x40400000;
+        value.spsr_el1 = 0x3c5;
+        value.esr_el1  = 0xf2001234;
+        value.far_el1  = 0x1000;
 
         return value;
     }
 } // namespace
 
-ASTIA_TEST(panic_report_x86_records_every_register) {
+ASTIA_TEST(panic_report_common_records) {
     capture output;
 
-    astia::dbg::format_panic_report(x86_registers(), process(), sink, &output);
+    astia::dbg::format_panic_context(process(), sink, &output);
 
     ASTIA_CHECK(output.contains("kpanic: cpu=3 arch=x86_64"));
     ASTIA_CHECK(output.contains("kpanic: proc pid=1 tid=2 name=\"init\" state=runnable"));
@@ -120,24 +123,31 @@ ASTIA_TEST(panic_report_x86_records_every_register) {
     ASTIA_CHECK(output.contains("kpanic: thread state=running kstack-top=0x8000"));
     ASTIA_CHECK(output.contains("kstack-size=0x4000 kstack-high-water=0x1200"));
     ASTIA_CHECK(output.contains("address-space=0x9000"));
+}
+
+ASTIA_TEST(panic_report_x86_records_every_register) {
+    capture output;
+
+    astia::arch::x86_64::format_panic_registers(x86_state(), sink, &output);
+
     ASTIA_CHECK(output.contains("kpanic: fault vector=0xe error=0x2 rip=0xdeadbeef"));
     ASTIA_CHECK(output.contains("cr0=0x80000001 cr2=0x4000 cr3=0x5000 cr4=0x20"));
+    ASTIA_CHECK(output.contains("kpanic: rip=0xdeadbeef rbp=0x7100"));
     ASTIA_CHECK(output.contains("kpanic: regs rax=0x100 rbx=0x101 rcx=0x102"));
-    ASTIA_CHECK(output.contains("r15=0x10f rsp=0x7000 rbp=0x7100 rflags=0x202"));
+    ASTIA_CHECK(output.contains("r15=0x10f rflags=0x202"));
 }
 
 ASTIA_TEST(panic_report_aarch64_records_every_register) {
     capture output;
 
-    astia::dbg::format_panic_report(aarch64_registers(), process(), sink, &output);
+    astia::arch::aarch64::format_panic_registers(aarch64_frame(), 0x8000, 0x9000, 4, sink,
+                                                 &output);
 
-    ASTIA_CHECK(output.contains("kpanic: cpu=3 arch=aarch64"));
     ASTIA_CHECK(output.contains("kpanic: fault vector-kind=4 elr=0x40400000"));
     ASTIA_CHECK(output.contains("spsr=0x3c5 esr=0xf2001234 far=0x1000 ttbr0=0x9000"));
     ASTIA_CHECK(output.contains("kpanic: regs x0=0x200 x1=0x201"));
     ASTIA_CHECK(output.contains("x7=0x207 sp=0x8000"));
     ASTIA_CHECK(output.contains("x8=0x208"));
-    ASTIA_CHECK(output.contains("x24=0x218 x25=0x219"));
     ASTIA_CHECK(output.contains("x24=0x218 x25=0x219"));
     ASTIA_CHECK(output.contains("x30=0x21e"));
 }
@@ -146,7 +156,7 @@ ASTIA_TEST(panic_report_reports_unavailable_context) {
     capture                   output;
     astia::dbg::panic_process empty{};
 
-    astia::dbg::format_panic_report(x86_registers(), empty, sink, &output);
+    astia::dbg::format_panic_context(empty, sink, &output);
 
     ASTIA_CHECK(output.contains("kpanic: proc unavailable"));
     ASTIA_CHECK(output.contains("kpanic: thread unavailable"));
@@ -157,15 +167,17 @@ ASTIA_TEST(panic_report_reports_unavailable_context) {
 
     capture locked_output;
 
-    astia::dbg::format_panic_report(x86_registers(), locked, sink, &locked_output);
+    astia::dbg::format_panic_context(locked, sink, &locked_output);
     ASTIA_CHECK(locked_output.contains("uid=unavailable euid=unavailable"));
 }
 
 ASTIA_TEST(panic_report_keeps_records_bounded) {
     capture output;
 
-    astia::dbg::format_panic_report(aarch64_registers(), process(), sink, &output);
-    ASTIA_CHECK(output.lines >= 8);
+    astia::arch::aarch64::format_panic_registers(aarch64_frame(), 0x8000, 0x9000, 4, sink,
+                                                 &output);
+
+    ASTIA_CHECK(output.lines >= 6);
     ASTIA_CHECK(output.max_line < 512);
 }
 
@@ -179,8 +191,7 @@ ASTIA_TEST(panic_report_bounds_process_name) {
 
     value.name[sizeof value.name - 1] = '\0';
 
-    astia::dbg::format_panic_report(x86_registers(), value, sink, &output);
+    astia::dbg::format_panic_context(value, sink, &output);
     ASTIA_CHECK(output.contains("name=\""));
-    ASTIA_CHECK(std::strstr(output.text, "name=\"") != nullptr);
     ASTIA_CHECK(output.length < sizeof output.text);
 }
