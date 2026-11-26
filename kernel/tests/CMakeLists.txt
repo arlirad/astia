@@ -170,6 +170,7 @@ astia_add_host_test(astia_fs_async_test
 target_compile_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
+astia_add_host_test(astia_mmap_chunk_test mmap_chunk_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_core_name_test
