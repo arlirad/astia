@@ -71,6 +71,8 @@ namespace astia {
             return ETIMEDOUT;
         case error_t::ecanceled:
             return ECANCELED;
+        case error_t::epipe:
+            return EPIPE;
         }
 
         return EINVAL;
@@ -128,6 +130,8 @@ namespace astia {
             return error_t::etimedout;
         case ECANCELED:
             return error_t::ecanceled;
+        case EPIPE:
+            return error_t::epipe;
         default:
             return error_t::eio;
         }
