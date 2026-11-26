@@ -1458,6 +1458,7 @@ if (ARCH STREQUAL "x86_64")
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
+                "astia: exec permission ok"
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"

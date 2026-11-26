@@ -4,6 +4,7 @@
 
 #include "../../proc.hpp"
 #include "argv.hpp"
+#include "exec_permission.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
@@ -32,11 +33,7 @@ namespace astia::proc::syscalls {
             if (copied != 0)
                 co_return copied;
 
-            const fs::file_mode image_mode = fs::node_mode(path);
-
-            if (image_mode.exists() &&
-                !owner->can_access(image_mode, fs::node_uid(path), fs::node_gid(path),
-                                   fs::permission_bits::execute))
+            if (detail::exec_permission_denied(*owner, path))
                 co_return -EACCES;
 
             auto file = fs::open_path(path);

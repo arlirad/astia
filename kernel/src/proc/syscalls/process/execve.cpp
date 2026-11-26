@@ -6,6 +6,7 @@
 
 #include "../../proc.hpp"
 #include "argv.hpp"
+#include "exec_permission.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
@@ -35,6 +36,9 @@ namespace astia::proc::syscalls {
 
             if (owner == nullptr || self == nullptr)
                 co_return -ESRCH;
+
+            if (detail::exec_permission_denied(*owner, path))
+                co_return -EACCES;
 
             auto file = fs::open_path(path);
             if (!file)
