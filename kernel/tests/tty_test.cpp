@@ -54,11 +54,12 @@ namespace {
         unsigned    ready_notifications = 0;
 
         bool receive(astia::u8 byte) {
-            const bool ready = tty_receive(byte);
-            if (ready)
+            const astia::dev::tty_input_result result = tty_receive(byte);
+
+            if (result == astia::dev::tty_input_result::ready)
                 tty_input_ready();
 
-            return ready;
+            return result == astia::dev::tty_input_result::ready;
         }
 
         protected:
@@ -119,7 +120,7 @@ ASTIA_TEST(tty_raw_mode_delivers_bytes) {
     char result[4]{};
 
     tty.tty_receive('a');
-    ASTIA_CHECK(tty.tty_receive('\r'));
+    ASTIA_CHECK(tty.tty_receive('\r') == astia::dev::tty_input_result::ready);
     tty.tty_receive('\n');
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 3);
     ASTIA_CHECK(result[0] == 'a' && result[1] == '\r' && result[2] == '\n');
@@ -224,7 +225,7 @@ ASTIA_TEST(tty_line_reader_tcsetattr_and_editing) {
     ASTIA_CHECK(std::string(result, 3) == "ac\n");
     ASTIA_CHECK(tty.output == "ab\b \bc\n");
 
-    ASTIA_CHECK(tty.tty_receive('\n'));
+    ASTIA_CHECK(tty.tty_receive('\n') == astia::dev::tty_input_result::ready);
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 1);
     ASTIA_CHECK(result[0] == '\n');
     ASTIA_CHECK(tty.output == "ab\b \bc\n\n");
@@ -237,10 +238,10 @@ ASTIA_TEST(tty_raw_input_echoes_only_when_enabled) {
 
     char result[8]{};
 
-    ASTIA_CHECK(tty.tty_receive('a'));
-    ASTIA_CHECK(tty.tty_receive('\r'));
-    ASTIA_CHECK(tty.tty_receive('\n'));
-    ASTIA_CHECK(tty.tty_receive(127));
+    ASTIA_CHECK(tty.tty_receive('a') == astia::dev::tty_input_result::ready);
+    ASTIA_CHECK(tty.tty_receive('\r') == astia::dev::tty_input_result::ready);
+    ASTIA_CHECK(tty.tty_receive('\n') == astia::dev::tty_input_result::ready);
+    ASTIA_CHECK(tty.tty_receive(127) == astia::dev::tty_input_result::ready);
     ASTIA_CHECK(tty.read(result, sizeof(result), 0) == 4);
     ASTIA_CHECK(result[0] == 'a' && result[1] == '\n' && result[2] == '\n' &&
                 result[3] == 127);

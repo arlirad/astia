@@ -535,7 +535,8 @@ namespace astia::dev {
             if (!byte)
                 break;
 
-            ready = tty_receive(byte.value) || ready;
+            if (tty_receive(byte.value) == tty_input_result::ready)
+                ready = true;
 
             (void) virtual_tty_forward_input(byte.value);
         }

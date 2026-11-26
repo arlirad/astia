@@ -1,10 +1,42 @@
 #include <sys/select.h>
+#include <sys/socket.h>
 #include <sys/time.h>
 
 #include <errno.h>
 #include <poll.h>
 #include <stdio.h>
 #include <unistd.h>
+
+static int duplicate_ready_sets_count(void) {
+    struct timeval immediate = {0, 0};
+    fd_set         read_set, write_set;
+
+    int result = -1;
+    int pair[2];
+    int ready;
+
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) != 0)
+        return -1;
+
+    if (send(pair[1], "x", 1, 0) != 1)
+        goto out;
+
+    FD_ZERO(&read_set);
+    FD_ZERO(&write_set);
+    FD_SET(pair[0], &read_set);
+    FD_SET(pair[0], &write_set);
+
+    ready = select(pair[0] + 1, &read_set, &write_set, NULL, &immediate);
+
+    if (ready == 2 && FD_ISSET(pair[0], &read_set) && FD_ISSET(pair[0], &write_set))
+        result = 0;
+
+out:
+    close(pair[0]);
+    close(pair[1]);
+
+    return result;
+}
 
 int main(void) {
     struct timeval zero = {0, 0};
@@ -14,6 +46,9 @@ int main(void) {
 
     if (select(0, NULL, NULL, NULL, &zero) != 0)
         return 2;
+
+    if (duplicate_ready_sets_count() != 0)
+        return 7;
 
     {
         struct pollfd fd;

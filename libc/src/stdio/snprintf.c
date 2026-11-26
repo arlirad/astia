@@ -2,6 +2,7 @@
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -832,6 +833,34 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
 
                 if (left)
                     sink_pad(&s, ' ', pad);
+            }
+        }
+        else if (spec == 'n') {
+            switch (len_mod) {
+            case 1:
+                *va_arg(ap, short*) = (short) s.len;
+
+                break;
+            case 2:
+                *va_arg(ap, signed char*) = (signed char) s.len;
+
+                break;
+            case 3:
+                *va_arg(ap, long*) = (long) s.len;
+
+                break;
+            case 4:
+                *va_arg(ap, long long*) = (long long) s.len;
+
+                break;
+            case 5:
+                *va_arg(ap, ptrdiff_t*) = (ptrdiff_t) s.len;
+
+                break;
+            default:
+                *va_arg(ap, int*) = (int) s.len;
+
+                break;
             }
         }
         else if (spec == 'c') {

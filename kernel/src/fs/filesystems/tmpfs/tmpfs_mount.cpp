@@ -347,7 +347,7 @@ namespace astia::fs::filesystems {
                     ++end;
                 }
 
-                if (end == start || end >= capacity)
+                if (end == start)
                     continue;
 
                 bool duplicate = false;
@@ -391,11 +391,16 @@ namespace astia::fs::filesystems {
                 if (duplicate || ordinal++ != index)
                     continue;
 
-                for (u32 j = 0; j < end - start; ++j) {
+                const u32 length = end - start;
+
+                if (length + 1 > capacity)
+                    return -ENAMETOOLONG;
+
+                for (u32 j = 0; j < length; ++j) {
                     selected[j] = full[start + j];
                 }
 
-                selected[end - start] = '\0';
+                selected[length] = '\0';
                 selected_type =
                     end < path_max && full[end] != '\0'
                         ? directory_dir
