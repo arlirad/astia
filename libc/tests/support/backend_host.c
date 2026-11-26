@@ -465,11 +465,6 @@ struct host_dirent64 {
     char           d_name[];
 };
 
-static unsigned char host_dirent_type(unsigned char type) {
-    /* DT_BLK is 6 on the host; the ABI reports file_type::block, 3. */
-    return type == 6 ? 3 : type;
-}
-
 long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
     unsigned char buffer[4096];
 
@@ -521,7 +516,7 @@ long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
 
             out->name[length] = '\0';
             out->namelen      = length;
-            out->type         = host_dirent_type(entry->d_type);
+            out->type         = entry->d_type;
 
             return 1;
         }

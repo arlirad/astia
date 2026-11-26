@@ -47,6 +47,19 @@ ASTIA_TEST(file_mode_mapping_preserves_type_and_permissions) {
     ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(value.value) == 0100754);
 }
 
+ASTIA_TEST(file_mode_mapping_preserves_block_and_socket_types) {
+    const auto block  = astia::mapper<astia::fs::file_mode>::from(0060755);
+    const auto socket = astia::mapper<astia::fs::file_mode>::from(0140755);
+
+    ASTIA_CHECK(block.has_value);
+    ASTIA_CHECK(block.value.is_block_device());
+    ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(block.value) == 0060755);
+
+    ASTIA_CHECK(socket.has_value);
+    ASTIA_CHECK(socket.value.is_socket());
+    ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(socket.value) == 0140755);
+}
+
 ASTIA_TEST(file_mode_permission_decisions_and_chmod_mask) {
     const astia::fs::file_mode mode(astia::fs::file_type::directory,
                                     astia::fs::file_permissions(0750));

@@ -65,6 +65,9 @@ int main(void) {
 
     int fd;
 
+    CHECK(DT_UNKNOWN == 0 && DT_FIFO == 1 && DT_CHR == 2 && DT_DIR == 4);
+    CHECK(DT_BLK == 6 && DT_REG == 8 && DT_LNK == 10 && DT_SOCK == 12);
+
     cleanup();
 
     CHECK(mkdir(directory, 0755) == 0);

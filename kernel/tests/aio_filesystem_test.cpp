@@ -31,6 +31,23 @@ namespace {
         return sqe;
     }
 
+    i32 submit_readdir(i32 fd, astia_dirent* out, u64 index) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_READDIR, fd);
+
+        sqe.offset   = index;
+        sqe.address  = reinterpret_cast<u64>(out);
+        sqe.op_flags = ASTIA_AIO_READDIR_FD;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_openat(char* path, u32 flags) {
         using namespace aio::test_support;
 
@@ -495,6 +512,38 @@ ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 0);
     ASTIA_CHECK(stat.size == 37);
+}
+
+ASTIA_TEST(aio_filesystem_readdir_reports_posix_d_type_values) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    const i32 fd = install_descriptor(aio_test::make_open_file(new aio_test::fake_file));
+
+    struct type_case {
+        fs::file_type type;
+        u32           d_type;
+    };
+
+    const type_case cases[] = {
+        {fs::file_type::unknown, 0},   {fs::file_type::fifo, 1},
+        {fs::file_type::character, 2}, {fs::file_type::directory, 4},
+        {fs::file_type::block, 6},     {fs::file_type::regular, 8},
+        {fs::file_type::symlink, 10},  {fs::file_type::socket, 12},
+    };
+
+    for (const type_case& item : cases) {
+        set_node_mode(fs::file_mode(item.type, fs::default_file_permissions));
+
+        astia_dirent entry{};
+
+        ASTIA_CHECK(submit_readdir(fd, &entry, 0) == 1);
+        ASTIA_CHECK(entry.type == item.d_type);
+        ASTIA_CHECK(entry.namelen == 1);
+        ASTIA_CHECK(entry.name[0] == 'x' && entry.name[1] == '\0');
+    }
 }
 
 ASTIA_TEST(aio_filesystem_chown_owner_sentinel_keeps_existing_owner) {
