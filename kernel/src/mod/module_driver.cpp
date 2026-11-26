@@ -12,7 +12,6 @@
 #include <astia/net.hpp>
 
 #include "../dev/chr/tty/virtual_tty.hpp"
-#include "../sys/aio.hpp"
 #include "../sys/user_mem.hpp"
 
 namespace astia::module {
@@ -491,109 +490,60 @@ namespace astia::module {
     }
 
     namespace {
-        int registered_async(const char* path, void* buffer, u32 length, u64 offset,
-                             u32 op, u32 flags) {
+        core::task<i64> registered_io(const char* path, void* buffer, u32 length,
+                                      u64 offset, u32 flags, bool write) {
             if (path == nullptr || buffer == nullptr || length == 0)
-                return -EINVAL;
+                co_return -EINVAL;
 
-            auto  file    = fs::open(path, flags);
-            auto* current = proc::current_process();
+            // A deferred-ready completion can resume this task with interrupts
+            // masked (the scheduler services ready files under its yield gate).
+            // Device completions need IRQs, so restore the caller's IRQ state
+            // for the duration of the I/O and put it back before returning.
+            struct irq_scope {
+                bool was_enabled = arch::cpu::check_interrupts();
 
-            if (!file || current == nullptr)
-                return -ENOENT;
-
-            astia_rings* ring = nullptr;
-
-            const long setup = sys::io_setup(8, 0, &ring);
-            if (setup < 0)
-                return static_cast<int>(setup);
-
-            fd_t fd{-1};
-
-            for (i32 value = 3; value < static_cast<i32>(proc::max_process_fds);
-                 ++value) {
-                if (current->set_descriptor(fd_t{value}, file)) {
-                    fd = fd_t{value};
-
-                    break;
-                }
-            }
-
-            if (fd.value < 0) {
-                (void) sys::io_destroy(ring);
-
-                return -EMFILE;
-            }
-
-            astia_sqe* sqe = astia_sqe_slot(ring);
-            if (sqe == nullptr) {
-                current->clear_descriptor(fd);
-                (void) sys::io_destroy(ring);
-
-                return -EBUSY;
-            }
-
-            *sqe           = astia_sqe{};
-            sqe->op        = op;
-            sqe->fd        = fd.value;
-            sqe->op_flags  = flags;
-            sqe->offset    = offset;
-            sqe->address   = reinterpret_cast<u64>(buffer);
-            sqe->length    = length;
-            sqe->user_data = 0xA51A;
-
-            astia_sq_publish(ring, 1);
-
-            const long submitted = sys::io_submit(ring, 1);
-            if (submitted != 1) {
-                current->clear_descriptor(fd);
-                (void) sys::io_destroy(ring);
-
-                return submitted < 0 ? static_cast<int>(submitted) : -EIO;
-            }
-
-            const bool was_enabled = arch::cpu::check_interrupts();
-            if (!was_enabled)
-                arch::cpu::interrupts();
-
-            const u64 hz       = arch::timer_hz();
-            const u64 deadline = hz == 0 ? 0 : arch::timer_ticks() + hz * 2;
-            int       result   = -ETIMEDOUT;
-
-            while (true) {
-                astia_cqe* cqe = astia_cq_peek(ring);
-                if (cqe != nullptr) {
-                    result = cqe->user_data == 0xA51A ? cqe->result : -EIO;
-
-                    astia_cq_consume(ring, 1);
-                    break;
+                irq_scope() {
+                    if (!was_enabled)
+                        arch::cpu::interrupts();
                 }
 
-                if (deadline != 0 && arch::timer_ticks() >= deadline)
-                    break;
+                ~irq_scope() {
+                    if (!was_enabled)
+                        arch::cpu::nointerrupts();
+                }
+            } irqs;
 
-                arch::cpu::halt();
+            auto file = fs::open(path, flags);
+            if (!file)
+                co_return -ENOENT;
+
+            if (write) {
+                auto result = co_await file->write(
+                    span<const u8>(static_cast<const u8*>(buffer), length), offset, {});
+                if (!result)
+                    co_return error_errno(result.error);
+
+                co_return result.value == static_cast<i64>(length) ? 0 : result.value;
             }
 
-            if (!was_enabled)
-                arch::cpu::nointerrupts();
+            auto result = co_await file->read(span<u8>(static_cast<u8*>(buffer), length),
+                                              offset, {});
+            if (!result)
+                co_return error_errno(result.error);
 
-            current->clear_descriptor(fd);
-            (void) sys::io_destroy(ring);
-
-            return result == static_cast<int>(length) ? 0 : result;
+            co_return result.value == static_cast<i64>(length) ? 0 : result.value;
         }
     } // namespace
 
-    int read_registered_async(const char* path, void* buffer, u32 length, u64 offset) {
-        return registered_async(path, buffer, length, offset, OP_READ,
-                                ASTIA_AIO_O_RDONLY);
+    core::task<i64> read_registered(const char* path, void* buffer, u32 length,
+                                    u64 offset) {
+        return registered_io(path, buffer, length, offset, ASTIA_AIO_O_RDONLY, false);
     }
 
-    int write_registered_async(const char* path, const void* buffer, u32 length,
-                               u64 offset) {
-        return registered_async(path, const_cast<void*>(buffer), length, offset, OP_WRITE,
-                                ASTIA_AIO_O_WRONLY);
+    core::task<i64> write_registered(const char* path, const void* buffer, u32 length,
+                                     u64 offset) {
+        return registered_io(path, const_cast<void*>(buffer), length, offset,
+                             ASTIA_AIO_O_WRONLY, true);
     }
 
     void log(const char* source, const char* message) {
@@ -613,16 +563,16 @@ namespace astia::module {
 } // namespace astia::module
 
 namespace astia::mod {
-    bool run_selftests() {
+    core::task<bool> run_selftests() {
         const bool interrupts = arch::cpu::check_interrupts();
         if (!interrupts)
             arch::cpu::interrupts();
 
-        const bool passed = hw::drivers().selftests();
+        auto passed = co_await hw::drivers().selftests();
 
         if (!interrupts)
             arch::cpu::nointerrupts();
 
-        return passed;
+        co_return passed&& passed.value;
     }
 } // namespace astia::mod

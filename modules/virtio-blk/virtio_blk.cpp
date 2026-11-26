@@ -1120,35 +1120,36 @@ namespace {
             co_return astia::error_t::enone;
         }
 
-        bool selftest() override {
+        astia::core::task<bool> selftest() override {
             char      sector[512]{};
             const int first =
                 device.read(sector, sizeof sector, 0) == sizeof sector ? 0 : -5;
             if (!device.started || first != 0)
-                return false;
+                co_return false;
             char invalid[512]{};
             if (device.read(invalid, sizeof invalid, 1) >= 0 ||
                 device.read(invalid, sizeof invalid, device.capacity * 512) >= 0)
-                return false;
+                co_return false;
             const bool known = sector[0] == 'A' && sector[1] == 'S' && sector[2] == 'T' &&
                                sector[3] == 'I' && sector[4] == 'A' && sector[5] == '_' &&
                                sector[6] == 'V' && sector[7] == 'I';
             if (!known)
-                return false;
+                co_return false;
             astia::module::log("vblk", "known sector ok");
             astia::module::log("vblk", "invalid geometry rejected");
             char async_read[512]{};
-            if (astia::module::read_registered_async("/dev/vblk0", async_read,
-                                                     sizeof async_read, 0) != 0 ||
-                async_read[0] != 'A' || async_read[1] != 'S' || async_read[2] != 'T' ||
-                async_read[3] != 'I' || async_read[4] != 'A' || async_read[5] != '_' ||
-                async_read[6] != 'V' || async_read[7] != 'I')
-                return false;
+            auto read_result = co_await astia::module::read_registered(
+                "/dev/vblk0", async_read, sizeof async_read, 0);
+            if (!read_result || read_result.value != 0 || async_read[0] != 'A' ||
+                async_read[1] != 'S' || async_read[2] != 'T' || async_read[3] != 'I' ||
+                async_read[4] != 'A' || async_read[5] != '_' || async_read[6] != 'V' ||
+                async_read[7] != 'I')
+                co_return false;
             if (!device.write_supported) {
                 astia::module::log("vblk", "attached kernel-buffer async read ok");
                 astia::module::log("vblk", "write rejected: read-only or no flush");
 
-                return true;
+                co_return true;
             }
             char written[512]{};
             written[0] = 'A';
@@ -1160,13 +1161,13 @@ namespace {
             written[6] = 'W';
             written[7] = 'R';
             if (device.write(written, sizeof written, 512) != sizeof written)
-                return false;
+                co_return false;
             char persisted[512]{};
             if (device.read(persisted, sizeof persisted, 512) != sizeof persisted ||
                 persisted[0] != 'A' || persisted[6] != 'W' || persisted[7] != 'R')
-                return false;
+                co_return false;
             astia::module::log("vblk", "write flush persistence ok");
-            return true;
+            co_return true;
         }
 
         private:

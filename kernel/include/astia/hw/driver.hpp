@@ -108,8 +108,8 @@ namespace astia::hw {
             return {};
         }
 
-        virtual bool selftest() {
-            return true;
+        virtual core::task<bool> selftest() {
+            co_return true;
         }
     };
 
@@ -153,7 +153,7 @@ namespace astia::hw {
         u32      devices_owned_by(owner_id owner) const;
 
         /// Run each registered driver's optional selftest.
-        bool selftests() const;
+        core::task<bool> selftests() const;
 
         u32 driver_count() const {
             return _driver_count;
