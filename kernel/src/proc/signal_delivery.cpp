@@ -132,7 +132,7 @@ namespace astia::proc {
 
             if (default_action(signal) == signal_default::terminate ||
                 default_action(signal) == signal_default::core) {
-                owner->signal_termination(signal);
+                owner->terminate_for_signal(signal, self);
                 self->exit(reinterpret_cast<void*>(static_cast<usize>(
                     wait_signal_exit_status(static_cast<u8>(signal)))));
                 __builtin_unreachable();
@@ -168,7 +168,7 @@ namespace astia::proc {
 
             return;
         fatal_signal:
-            owner->signal_termination(signal);
+            owner->terminate_for_signal(signal, self);
             self->exit(reinterpret_cast<void*>(
                 static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
             __builtin_unreachable();
@@ -214,7 +214,7 @@ namespace astia::proc {
 
             constexpr auto signal       = signal_number::segv;
             const auto     fatal_signal = [&]() -> bool {
-                owner->signal_termination(signal);
+                owner->terminate_for_signal(signal, self);
                 self->request_kill();
                 return true;
             };

@@ -358,6 +358,7 @@ namespace astia::proc {
         /// until its parent reaps it with proc::waitpid().
         bool thread_exited(thread* value, i32 status);
         void request_exit(thread* caller, i32 status);
+        void terminate_for_signal(signal_number signal, thread* caller);
 
         bool process_exit_requested() const {
             return astia::atomic_ref<u8>(_exit_requested)

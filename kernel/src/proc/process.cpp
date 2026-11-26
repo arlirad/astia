@@ -756,6 +756,11 @@ namespace astia::proc {
         }
     }
 
+    void process::terminate_for_signal(signal_number signal, thread* caller) {
+        signal_termination(signal);
+        request_exit(caller, wait_signal_exit_status(static_cast<u8>(signal)));
+    }
+
     bool process::thread_exited(thread* value, i32 status) {
         if (value != nullptr) {
             release_thread_tls(value);

@@ -786,6 +786,57 @@ static void* libc_signal_mask_worker(void* opaque) {
     return (void*) (unsigned long) (libc_signal_mask_result == 0 ? 0x7890 : 0x7891);
 }
 
+static volatile int libc_thread_helper_started;
+
+static void* libc_thread_helper_worker(void* opaque) {
+    (void) opaque;
+
+    libc_thread_helper_started = 1;
+
+    for (;;) {
+        asm volatile("" ::: "memory");
+    }
+}
+
+static void libc_term_thread_check(void) {
+    pthread_t worker;
+
+    libc_thread_helper_started = 0;
+
+    if (pthread_create(&worker, NULL, libc_thread_helper_worker, NULL) != 0)
+        _Exit(250);
+
+    while (!libc_thread_helper_started) {
+        asm volatile("" ::: "memory");
+    }
+
+    if (raise(SIGTERM) != 0)
+        _Exit(251);
+
+    _Exit(252);
+}
+
+static void libc_fault_thread_check(void) {
+    pthread_t      worker;
+    unsigned char* page =
+        mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    if (page == MAP_FAILED || mprotect(page, 4096, PROT_NONE) != 0)
+        _Exit(253);
+
+    libc_thread_helper_started = 0;
+
+    if (pthread_create(&worker, NULL, libc_thread_helper_worker, NULL) != 0)
+        _Exit(254);
+
+    while (!libc_thread_helper_started) {
+        asm volatile("" ::: "memory");
+    }
+
+    (void) *(volatile unsigned char*) page;
+    _Exit(255);
+}
+
 static void* libc_cancel_join_target(void* opaque) {
     (void) opaque;
 
@@ -1425,6 +1476,20 @@ static int run_staged_fixture(const char* path) {
 }
 
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "--term-thread-check") == 0) {
+        if (argc != 2)
+            _Exit(1);
+
+        libc_term_thread_check();
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--fault-thread-check") == 0) {
+        if (argc != 2)
+            _Exit(1);
+
+        libc_fault_thread_check();
+    }
+
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
 
@@ -1832,6 +1897,78 @@ int main(int argc, char** argv) {
         if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
             !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
             return 131;
+    }
+
+    {
+        int ready[2];
+
+        if (pipe(ready) != 0)
+            return 232;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 233;
+
+        if (child == 0) {
+            char byte = 'R';
+
+            close(ready[0]);
+
+            if (write(ready[1], &byte, 1) != 1)
+                _Exit(240);
+
+            for (;;) {
+                asm volatile("" ::: "memory");
+            }
+        }
+
+        close(ready[1]);
+
+        char byte   = 0;
+        int  status = 0;
+
+        struct timespec settle = {0, 50000000};
+
+        if (read(ready[0], &byte, 1) != 1 || byte != 'R')
+            return 234;
+
+        close(ready[0]);
+
+        (void) nanosleep(&settle, NULL);
+
+        if (kill(child, SIGTERM) != 0 || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM)
+            return 235;
+    }
+
+    {
+        char* helper_argv[] = {(char*) "/bin/init_libc", (char*) "--term-thread-check",
+                               NULL};
+
+        const pid_t child = spawnve(helper_argv[0], helper_argv, NULL);
+        if (child < 0)
+            return 236;
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGTERM)
+            return 237;
+    }
+
+    {
+        char* helper_argv[] = {(char*) "/bin/init_libc", (char*) "--fault-thread-check",
+                               NULL};
+
+        const pid_t child = spawnve(helper_argv[0], helper_argv, NULL);
+        if (child < 0)
+            return 243;
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGSEGV)
+            return 244;
     }
 
     {
