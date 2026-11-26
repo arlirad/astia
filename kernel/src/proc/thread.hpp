@@ -273,6 +273,11 @@ namespace astia::proc {
         void request_cancellation() {
             __atomic_store_n(&_cancellation_pending, 1, __ATOMIC_RELEASE);
         }
+        /// Consume the request after the thread handled it, so a thread that
+        /// stays alive is not interrupted by every later wait.
+        void clear_cancellation() {
+            __atomic_store_n(&_cancellation_pending, 0, __ATOMIC_RELEASE);
+        }
         bool wake_join_for_cancellation();
         void tls_mapping(u64 base, usize pages) {
             _tls_mapping_base  = base;
