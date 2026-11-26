@@ -1,7 +1,8 @@
 #include "tables.hpp"
 
-#include <new>
 #include <type_traits>
+
+#include <new>
 
 namespace astia::acpi::detail {
     namespace {
@@ -143,9 +144,8 @@ namespace astia::acpi::detail {
                 return false;
             }
 
-            void* allocation = out.allocator.allocate(
-                out.allocator.context, sizeof(table_record) + length);
-
+            void* allocation = out.allocator.allocate(out.allocator.context,
+                                                      sizeof(table_record) + length);
             if (allocation == nullptr) {
                 error = table_error::out_of_memory;
 
@@ -171,6 +171,7 @@ namespace astia::acpi::detail {
 
             if (!read_bytes(reader, address, bytes, length)) {
                 discard();
+
                 error = table_error::truncated;
 
                 return false;
@@ -179,6 +180,7 @@ namespace astia::acpi::detail {
             if (load_u32(bytes) != record->signature ||
                 load_u32(bytes + 4) != record->length) {
                 discard();
+
                 error = table_error::source_changed;
 
                 return false;
@@ -186,6 +188,7 @@ namespace astia::acpi::detail {
 
             if (checksum(bytes, length) != 0) {
                 discard();
+
                 error = table_error::bad_table_checksum;
 
                 return false;
@@ -193,6 +196,7 @@ namespace astia::acpi::detail {
 
             if (load_u32(bytes) == 0) {
                 discard();
+
                 error = table_error::bad_table_signature;
 
                 return false;
@@ -203,15 +207,15 @@ namespace astia::acpi::detail {
                 address,
             };
 
-            if (out.tail == nullptr) {
+            if (out.tail == nullptr)
                 out.head = record;
-            }
-            else {
+            else
                 out.tail->next = record;
-            }
 
             out.tail = record;
+
             ++out.count;
+
             out.total_bytes += length;
 
             out.inventory[out.inventory_count++] = {
@@ -335,14 +339,14 @@ namespace astia::acpi::detail {
     void table_set::clear() {
         release_records();
 
-        allocator       = {};
-        fadt            = {};
-        dsdt            = {};
-        ssdt_count      = 0;
-        inventory_count = 0;
-        error           = table_error::none;
-        rsdp_address    = 0;
-        valid_rsdp      = false;
+        allocator          = {};
+        fadt               = {};
+        dsdt               = {};
+        ssdt_count         = 0;
+        inventory_count    = 0;
+        error              = table_error::none;
+        rsdp_address       = 0;
+        valid_rsdp         = false;
         root_address_space = 0;
         root_signature     = 0;
 
@@ -388,6 +392,7 @@ namespace astia::acpi::detail {
     bool discover(const memory_reader& reader, u64 rsdp_address,
                   const table_allocator& allocator, table_set& out) {
         out.clear();
+
         out.allocator    = allocator;
         out.rsdp_address = rsdp_address;
 
@@ -395,6 +400,7 @@ namespace astia::acpi::detail {
             const bool valid = out.valid_rsdp;
 
             out.clear();
+
             out.allocator    = allocator;
             out.rsdp_address = rsdp_address;
             out.valid_rsdp   = valid;
@@ -436,6 +442,7 @@ namespace astia::acpi::detail {
             return fail(error);
 
         const table root = out.head->value;
+
         const u32   root_signature = load_u32(root.bytes.data());
         const usize root_length    = root.bytes.size();
 
@@ -465,7 +472,8 @@ namespace astia::acpi::detail {
         table_addresses[0] = root_address;
 
         for (usize i = 0; i < entry_count; ++i) {
-            const u8* entry   = root.bytes.data() + sdt_header_size + i * entry_size;
+            const u8* entry = root.bytes.data() + sdt_header_size + i * entry_size;
+
             const u64 address = entry_size == 8 ? load_u64(entry) : load_u32(entry);
 
             if (address == 0)
@@ -498,7 +506,6 @@ namespace astia::acpi::detail {
 
             if (fadt.bytes.size() >= 148) {
                 const u64 extended = load_u64(fadt.bytes.data() + 140);
-
                 if (extended != 0)
                     dsdt_address = extended;
             }

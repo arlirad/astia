@@ -74,7 +74,7 @@ namespace astia::acpi::detail {
     };
 
     struct table_allocator {
-        void* context = nullptr;
+        void* context                                 = nullptr;
         void* (*allocate)(void* context, usize bytes) = nullptr;
         void (*release)(void* context, void* pointer) = nullptr;
     };
@@ -105,7 +105,7 @@ namespace astia::acpi::detail {
         table           fadt{};
         table           dsdt{};
         table           ssdt[max_ssdts]{};
-        usize           ssdt_count      = 0;
+        usize           ssdt_count = 0;
         inventory_entry inventory[max_tables]{};
         usize           inventory_count = 0;
         table_error     error           = table_error::none;

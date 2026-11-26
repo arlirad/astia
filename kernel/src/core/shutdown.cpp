@@ -16,9 +16,9 @@ namespace astia::shutdown {
             tier        level   = tier::prepare;
         };
 
-        registration      registrations[max_handlers]{};
-        usize             registration_count = 0;
-        astia::atomic<u8> state{0}; // 0 idle, 1 running, 2 complete
+        registration          registrations[max_handlers]{};
+        usize                 registration_count = 0;
+        astia::atomic<u8>     state{0}; // 0 idle, 1 running, 2 complete
         astia::core::spinlock registration_lock;
 
         const char* tier_name(tier level) {
@@ -69,11 +69,13 @@ namespace astia::shutdown {
 
     bool initiate() {
         registration snapshot[max_handlers]{};
-        usize        count = 0;
+
+        usize count = 0;
 
         {
             astia::core::spinlock_guard guard(registration_lock);
-            u8                             expected = 0;
+
+            u8 expected = 0;
 
             if (!state.compare_exchange_strong(expected, 1)) {
                 logs::warning("shutdown already requested");
@@ -113,6 +115,7 @@ namespace astia::shutdown {
                 if (!ok) {
                     logs::error("tier=%s handler=%s failed", tier_name(current),
                                 entry.name);
+
                     all_ok = false;
                 }
             }
@@ -120,11 +123,13 @@ namespace astia::shutdown {
 
         if (!platform_ran) {
             logs::error("no platform shutdown handler registered");
+
             all_ok = false;
         }
 
         if (!final_ran) {
             logs::error("no final shutdown handler registered");
+
             all_ok = false;
         }
 

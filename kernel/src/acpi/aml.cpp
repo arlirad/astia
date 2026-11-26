@@ -57,31 +57,19 @@ namespace astia::acpi::detail {
         constexpr u8 op_find_left     = 0x81;
         constexpr u8 op_find_right    = 0x82;
         constexpr u8 op_deref         = 0x83;
-        constexpr u8 op_concat_res    = 0x84;
         constexpr u8 op_mod           = 0x85;
         constexpr u8 op_notify        = 0x86;
         constexpr u8 op_size_of       = 0x87;
         constexpr u8 op_index         = 0x88;
-        constexpr u8 op_match         = 0x89;
-        constexpr u8 op_create_dword  = 0x8A;
-        constexpr u8 op_create_word   = 0x8B;
-        constexpr u8 op_create_byte   = 0x8C;
-        constexpr u8 op_create_bit    = 0x8D;
         constexpr u8 op_object_type   = 0x8E;
-        constexpr u8 op_create_qword  = 0x8F;
         constexpr u8 op_l_and         = 0x90;
         constexpr u8 op_l_or          = 0x91;
         constexpr u8 op_l_not         = 0x92;
         constexpr u8 op_l_equal       = 0x93;
         constexpr u8 op_l_greater     = 0x94;
         constexpr u8 op_l_less        = 0x95;
-        constexpr u8 op_to_buffer     = 0x96;
-        constexpr u8 op_to_decimal    = 0x97;
-        constexpr u8 op_to_hex        = 0x98;
         constexpr u8 op_to_integer    = 0x99;
-        constexpr u8 op_to_string     = 0x9C;
         constexpr u8 op_copy_object   = 0x9D;
-        constexpr u8 op_mid           = 0x9E;
         constexpr u8 op_continue      = 0x9F;
         constexpr u8 op_if            = 0xA0;
         constexpr u8 op_else          = 0xA1;
@@ -218,7 +206,6 @@ namespace astia::acpi::detail {
             return false;
 
         const u8 form = static_cast<u8>(first >> 6);
-
         if (form == 0) {
             value = first & 0x3Fu;
             bytes = 1;
@@ -244,9 +231,10 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::open_package(cursor& c, const u8*& end) {
-        const u8* const start  = c.position;
-        u32             length = 0;
-        u32             bytes  = 0;
+        const u8* const start = c.position;
+
+        u32 length = 0;
+        u32 bytes  = 0;
 
         if (!read_package_length(c, length, bytes))
             return false;
@@ -304,6 +292,7 @@ namespace astia::acpi::detail {
 
         if (c.position < c.end && *c.position == op_root_char) {
             reference.root = true;
+
             ++c.position;
         }
 
@@ -317,7 +306,6 @@ namespace astia::acpi::detail {
         }
 
         const u8 prefix = *c.position;
-
         if (prefix == op_dual_name) {
             ++c.position;
 
@@ -404,15 +392,16 @@ namespace astia::acpi::detail {
             return base;
 
         const bool upward = !reference.root && reference.parent_prefix == 0;
-        node_id    start  = base;
+
+        node_id start = base;
 
         while (true) {
             node_id current = start;
-            bool    found   = true;
+
+            bool found = true;
 
             for (u8 i = 0; i < reference.count; ++i) {
                 current = find_child(current, reference.segment[i]);
-
                 if (current == no_node) {
                     found = false;
 
@@ -451,13 +440,11 @@ namespace astia::acpi::detail {
 
         for (u8 i = 0; i + 1 < reference.count; ++i) {
             node_id next = find_child(base, reference.segment[i]);
-
             if (next == no_node) {
                 if (!create_parents)
                     return no_node;
 
                 next = add_node(base, reference.segment[i], node_kind::scope);
-
                 if (next == no_node)
                     return no_node;
             }
@@ -466,7 +453,6 @@ namespace astia::acpi::detail {
         }
 
         node_id existing = find_child(base, reference.segment[reference.count - 1]);
-
         if (existing != no_node)
             return existing;
 
@@ -506,7 +492,6 @@ namespace astia::acpi::detail {
 
     value_id interpreter::add_integer(u64 value) {
         const value_id id = add_value(value_kind::integer);
-
         if (id != no_value)
             _values[id].integer = value;
 
@@ -518,7 +503,6 @@ namespace astia::acpi::detail {
             return no_value;
 
         const value_id id = add_value(value_kind::name_reference);
-
         if (id == no_value)
             return no_value;
 
@@ -551,6 +535,7 @@ namespace astia::acpi::detail {
             _values[target.last].next = item;
 
         target.last = item;
+
         ++target.count;
 
         return true;
@@ -573,7 +558,8 @@ namespace astia::acpi::detail {
             return no_value;
 
         const name_ref& reference = _references[entry.reference];
-        const node_id   resolved  = resolve_lookup(reference, root());
+
+        const node_id resolved = resolve_lookup(reference, root());
 
         if (resolved == no_node ||
             (_nodes[resolved].kind != static_cast<u8>(node_kind::alias) &&
@@ -581,7 +567,6 @@ namespace astia::acpi::detail {
             return no_value;
 
         const node_id target_id = follow_alias(resolved, depth);
-
         if (target_id == no_node)
             return no_value;
 
@@ -778,7 +763,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -808,7 +792,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -863,7 +846,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -883,7 +865,6 @@ namespace astia::acpi::detail {
     bool interpreter::parse_field_list(cursor& c, const u8* end, node_id scope) {
         while (c.position < end) {
             const u8 tag = *c.position++;
-
             if (tag == 0x00) {
                 u32 bits  = 0;
                 u32 bytes = 0;
@@ -1038,7 +1019,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -1085,7 +1065,6 @@ namespace astia::acpi::detail {
             return false;
 
         node_id target = resolve_lookup(reference, scope);
-
         if (target == no_node)
             target = resolve_definition(reference, scope, true);
 
@@ -1113,7 +1092,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -1130,7 +1108,6 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -1163,7 +1140,6 @@ namespace astia::acpi::detail {
         }
 
         const node_id target = resolve_definition(reference, scope, true);
-
         if (target == no_node)
             return fail(aml_error::object_limit);
 
@@ -1195,15 +1171,21 @@ namespace astia::acpi::detail {
         switch (opcode) {
         case op_zero:
             ++c.position;
+
             out = add_integer(0);
+
             break;
         case op_one:
             ++c.position;
+
             out = add_integer(1);
+
             break;
         case op_ones:
             ++c.position;
+
             out = add_integer(~u64{0});
+
             break;
         case op_byte_prefix:
         case op_word_prefix:
@@ -1242,6 +1224,7 @@ namespace astia::acpi::detail {
             }
 
             out = add_integer(value);
+
             break;
         }
         case op_string_prefix: {
@@ -1257,14 +1240,16 @@ namespace astia::acpi::detail {
                 return fail(aml_error::truncated);
 
             const value_id id = add_value(value_kind::string);
-
             if (id == no_value)
                 return fail(aml_error::value_limit);
 
             _values[id].data   = start;
             _values[id].length = static_cast<u32>(c.position - start);
+
             ++c.position;
+
             out = id;
+
             break;
         }
         case op_extended:
@@ -1274,6 +1259,7 @@ namespace astia::acpi::detail {
             if (c.position[1] == ext_revision) {
                 c.position += 2;
                 out = add_integer(interpreter_revision);
+
                 break;
             }
 
@@ -1288,7 +1274,6 @@ namespace astia::acpi::detail {
                     return false;
 
                 out = add_name_reference(reference);
-
                 if (out == no_value)
                     return fail(aml_error::reference_limit);
 
@@ -1339,7 +1324,6 @@ namespace astia::acpi::detail {
         }
 
         const value_id package = add_value(value_kind::package);
-
         if (package == no_value)
             return fail(aml_error::value_limit);
 
@@ -1383,7 +1367,6 @@ namespace astia::acpi::detail {
             return fail(aml_error::package_length);
 
         const value_id id = add_value(value_kind::buffer);
-
         if (id == no_value)
             return fail(aml_error::value_limit);
 
@@ -1421,8 +1404,8 @@ namespace astia::acpi::detail {
 
         if (opcode >= op_local_base && opcode <= op_local_base + 7) {
             ++c.position;
-            out = e.local[opcode - op_local_base];
 
+            out = e.local[opcode - op_local_base];
             if (out == no_value)
                 out = add_integer(0);
 
@@ -1431,8 +1414,8 @@ namespace astia::acpi::detail {
 
         if (opcode >= op_arg_base && opcode <= op_arg_base + 6) {
             ++c.position;
-            out = e.argument[opcode - op_arg_base];
 
+            out = e.argument[opcode - op_arg_base];
             if (out == no_value)
                 out = add_integer(0);
 
@@ -1486,39 +1469,50 @@ namespace astia::acpi::detail {
             switch (opcode) {
             case op_add:
                 result = a + b;
+
                 break;
             case op_subtract:
                 result = a - b;
+
                 break;
             case op_multiply:
                 result = a * b;
+
                 break;
             case op_and:
                 result = a & b;
+
                 break;
             case op_nand:
                 result = ~(a & b);
+
                 break;
             case op_or:
                 result = a | b;
+
                 break;
             case op_nor:
                 result = ~(a | b);
+
                 break;
             case op_xor:
                 result = a ^ b;
+
                 break;
             case op_shift_left:
                 result = b >= 64 ? 0 : a << b;
+
                 break;
             case op_shift_right:
                 result = b >= 64 ? 0 : a >> b;
+
                 break;
             case op_mod:
                 if (b == 0)
                     return fail(aml_error::invalid_value);
 
                 result = a % b;
+
                 break;
             default:
                 break;
@@ -1554,7 +1548,6 @@ namespace astia::acpi::detail {
 
             if (!remainder.discard) {
                 const value_id value = add_integer(a % b);
-
                 if (value == no_value)
                     return fail(aml_error::value_limit);
 
@@ -1562,7 +1555,6 @@ namespace astia::acpi::detail {
             }
 
             const value_id result = add_integer(a / b);
-
             if (result == no_value)
                 return fail(aml_error::value_limit);
 
@@ -1670,7 +1662,6 @@ namespace astia::acpi::detail {
                 return false;
 
             out = dereference(operand);
-
             if (out == no_value)
                 return fail(aml_error::missing_object);
 
@@ -1685,7 +1676,6 @@ namespace astia::acpi::detail {
                 return false;
 
             const value_id resolved = dereference(operand);
-
             if (resolved == no_value)
                 return fail(aml_error::missing_object);
 
@@ -1749,7 +1739,6 @@ namespace astia::acpi::detail {
                 return false;
 
             const value_id resolved = dereference(operand);
-
             if (resolved == no_value)
                 return fail(aml_error::missing_object);
 
@@ -1855,7 +1844,6 @@ namespace astia::acpi::detail {
                 return false;
 
             out = dereference(operand);
-
             if (out == no_value)
                 return fail(aml_error::missing_object);
 
@@ -1948,12 +1936,14 @@ namespace astia::acpi::detail {
         }
         case op_noop: {
             ++c.position;
+
             out = add_integer(0);
 
             return out != no_value || fail(aml_error::value_limit);
         }
         case op_break: {
             ++c.position;
+
             e.do_break = true;
             out        = add_integer(0);
 
@@ -1961,6 +1951,7 @@ namespace astia::acpi::detail {
         }
         case op_continue: {
             ++c.position;
+
             e.do_continue = true;
             out           = add_integer(0);
 
@@ -2023,12 +2014,10 @@ namespace astia::acpi::detail {
             return false;
 
         const node_id resolved = resolve_lookup(reference, e.scope);
-
         if (resolved == no_node)
             return fail(aml_error::missing_object);
 
         const node_id target_id = follow_alias(resolved, 0);
-
         if (target_id == no_node)
             return fail(aml_error::missing_object);
 
@@ -2093,7 +2082,6 @@ namespace astia::acpi::detail {
         }
 
         const value_id package = add_value(value_kind::package);
-
         if (package == no_value)
             return fail(aml_error::value_limit);
 
@@ -2142,7 +2130,6 @@ namespace astia::acpi::detail {
             return fail(aml_error::package_length);
 
         const value_id id = add_value(value_kind::buffer);
-
         if (id == no_value)
             return fail(aml_error::value_limit);
 
@@ -2162,6 +2149,7 @@ namespace astia::acpi::detail {
 
         if (opcode >= op_local_base && opcode <= op_local_base + 7) {
             ++c.position;
+
             out.slot = &e.local[opcode - op_local_base];
 
             return true;
@@ -2169,6 +2157,7 @@ namespace astia::acpi::detail {
 
         if (opcode >= op_arg_base && opcode <= op_arg_base + 6) {
             ++c.position;
+
             out.slot = &e.argument[opcode - op_arg_base];
 
             return true;
@@ -2182,12 +2171,10 @@ namespace astia::acpi::detail {
                 return false;
 
             const node_id resolved = resolve_lookup(reference, e.scope);
-
             if (resolved == no_node)
                 return fail(aml_error::missing_object);
 
             const node_id target_id = follow_alias(resolved, 0);
-
             if (target_id == no_node)
                 return fail(aml_error::missing_object);
 
@@ -2251,16 +2238,19 @@ namespace astia::acpi::detail {
         }
         case op_break:
             ++c.position;
+
             e.do_break = true;
 
             return true;
         case op_continue:
             ++c.position;
+
             e.do_continue = true;
 
             return true;
         case op_noop:
             ++c.position;
+
             return true;
         case op_store: {
             value_id ignored = no_value;
@@ -2423,7 +2413,6 @@ namespace astia::acpi::detail {
 
         for (value_id& local : e.local) {
             local = add_integer(0);
-
             if (local == no_value)
                 return fail(aml_error::value_limit);
         }
@@ -2452,11 +2441,11 @@ namespace astia::acpi::detail {
         if (!ok)
             return false;
 
-        if (e.has_return)
+        if (e.has_return) {
             out = e.returned;
+        }
         else {
             out = add_integer(0);
-
             if (out == no_value)
                 return fail(aml_error::value_limit);
         }
@@ -2474,14 +2463,11 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::evaluate_s5(value_id& package) {
-        const node_id s5_node =
-            find_child(root(), name_segment('_', 'S', '5', '_'));
-
+        const node_id s5_node = find_child(root(), name_segment('_', 'S', '5', '_'));
         if (s5_node == no_node)
             return fail(aml_error::missing_object);
 
         const node_id s5 = follow_alias(s5_node, 0);
-
         if (s5 == no_node)
             return fail(aml_error::missing_object);
 

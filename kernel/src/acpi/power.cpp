@@ -2,11 +2,9 @@
 
 namespace astia::acpi::detail {
     namespace {
-        constexpr u16 sleep_type_shift = 10;
-        constexpr u16 sleep_enable     = 1u << 13;
-        constexpr u16 sleep_type_mask  = 0x7;
-
-        constexpr u32 fadt_dsdt_offset           = 40;
+        constexpr u16 sleep_type_shift           = 10;
+        constexpr u16 sleep_enable               = 1u << 13;
+        constexpr u16 sleep_type_mask            = 0x7;
         constexpr u32 fadt_pm1a_control_offset   = 64;
         constexpr u32 fadt_pm1b_control_offset   = 68;
         constexpr u32 fadt_pm1_control_length    = 89;
@@ -63,7 +61,6 @@ namespace astia::acpi::detail {
 
             for (u32 i = 0; i < index; ++i) {
                 const value* entry = aml.get(current);
-
                 if (entry == nullptr)
                     return false;
 
@@ -114,7 +111,8 @@ namespace astia::acpi::detail {
             return false;
         }
 
-        const u8*   fadt   = tables.fadt.bytes.data();
+        const u8* fadt = tables.fadt.bytes.data();
+
         const usize length = tables.fadt.bytes.size();
 
         if (length < 90) {

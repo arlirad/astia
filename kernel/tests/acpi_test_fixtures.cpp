@@ -73,7 +73,8 @@ namespace {
 
     usize write_table(usize offset, const char* signature, u8 revision, const u8* body,
                       usize body_length) {
-        u8*         table  = table_at(offset);
+        u8* table = table_at(offset);
+
         const usize length = 36 + body_length;
 
         for (usize i = 0; i < 4; ++i) {
@@ -81,6 +82,7 @@ namespace {
         }
 
         write_u32(table + 4, static_cast<u32>(length));
+
         table[8]  = revision;
         table[9]  = 0;
         table[10] = 'A';
@@ -89,9 +91,8 @@ namespace {
         table[13] = 'I';
         table[14] = 'A';
 
-        if (body_length != 0) {
+        if (body_length != 0)
             __builtin_memcpy(table + 36, body, body_length);
-        }
 
         finalize_checksum(table, length);
 
@@ -108,6 +109,7 @@ namespace {
         const u64 dsdt_address = fixture_base + dsdt_offset;
 
         u8 rsdt_body[4]{};
+
         write_u32(rsdt_body, static_cast<u32>(fadt_address));
 
         const usize rsdt_length =
@@ -117,6 +119,7 @@ namespace {
 
         write_u32(fadt_body + 40 - 36, static_cast<u32>(dsdt_address));
         write_u32(fadt_body + 64 - 36, 0x604);
+
         fadt_body[89 - 36] = 2;
 
         write_table(fadt_offset, "FACP", 3, fadt_body, sizeof(fadt_body));
@@ -127,7 +130,8 @@ namespace {
 
         const u8 bad_aml[] = {0x5B};
 
-        const u8*   aml        = malformed_aml ? bad_aml : good_aml;
+        const u8* aml = malformed_aml ? bad_aml : good_aml;
+
         const usize aml_length = malformed_aml ? sizeof(bad_aml) : sizeof(good_aml);
 
         write_table(dsdt_offset, "DSDT", 2, aml, aml_length);
@@ -139,7 +143,9 @@ namespace {
         }
 
         rsdp[15] = 0;
+
         write_u32(rsdp + 16, static_cast<u32>(rsdt_address));
+
         rsdp[8] = 0;
 
         u8 rsdp_sum = 0;
@@ -150,9 +156,8 @@ namespace {
 
         rsdp[8] = static_cast<u8>(0x100 - rsdp_sum);
 
-        if (corrupt_rsdp) {
+        if (corrupt_rsdp)
             rsdp[8] = static_cast<u8>(rsdp[8] ^ 0xFF);
-        }
 
         (void) rsdt_length;
 

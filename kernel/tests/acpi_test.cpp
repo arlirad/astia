@@ -1,6 +1,4 @@
 #include <astia/acpi.hpp>
-
-#include <cstdlib>
 #include <astia/log.hpp>
 #include <astia/shutdown.hpp>
 
@@ -8,6 +6,8 @@
 #include "acpi/power.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
+
+#include <cstdlib>
 
 namespace astia::log::detail {
     void emit(level, const char*, astia::u32) {}
@@ -77,7 +77,8 @@ namespace {
 
     usize add_table(image& target, usize offset, const char (&signature)[5], u8 revision,
                     const u8* body, usize body_length) {
-        u8* const   table  = target.bytes + offset;
+        u8* const table = target.bytes + offset;
+
         const usize length = 36 + body_length;
 
         for (usize i = 0; i < 4; ++i) {
@@ -85,6 +86,7 @@ namespace {
         }
 
         store_u32(table + 4, static_cast<u32>(length));
+
         table[8]  = revision;
         table[9]  = 0;
         table[10] = 'A';
@@ -99,9 +101,8 @@ namespace {
 
         checksum_table(table, length);
 
-        if (offset + length > target.used) {
+        if (offset + length > target.used)
             target.used = offset + length;
-        }
 
         return length;
     }
@@ -114,15 +115,13 @@ namespace {
     bool read_image(void* context, u64 address, u8* destination, usize length) {
         const auto* reader = static_cast<const raw_reader*>(context);
 
-        if (reader == nullptr || reader->target == nullptr || address < reader->base) {
+        if (reader == nullptr || reader->target == nullptr || address < reader->base)
             return false;
-        }
 
         const u64 offset = address - reader->base;
 
-        if (offset > image_size || length > image_size - offset) {
+        if (offset > image_size || length > image_size - offset)
             return false;
-        }
 
         __builtin_memcpy(destination, reader->target->bytes + offset, length);
 
@@ -143,6 +142,7 @@ namespace {
 
         rsdp[8]  = 0;
         rsdp[15] = extended ? 2 : 0;
+
         store_u32(rsdp + 16, static_cast<u32>(rsdt));
 
         rsdp[8] = static_cast<u8>(0x100 - sum(rsdp, 20));
@@ -150,6 +150,7 @@ namespace {
         if (extended) {
             store_u32(rsdp + 20, 36);
             store_u64(rsdp + 24, xsdt);
+
             rsdp[32] = 0;
             rsdp[32] = static_cast<u8>(0x100 - sum(rsdp, 36));
         }
@@ -175,6 +176,7 @@ namespace {
 
         store_u32(fadt_body + 4, static_cast<u32>(dsdt_address));
         store_u32(fadt_body + 28, 0x604);
+
         fadt_body[53] = 2;
 
         add_table(target.data, fadt_offset, "FACP", 3, fadt_body, sizeof(fadt_body));
@@ -194,7 +196,9 @@ namespace {
                 store_u64(root + 36, fadt_address);
                 store_u64(root + 44, dsdt_address);
                 store_u32(root + 4, static_cast<u32>(length + 16));
+
                 target.data.used = root_offset + length + 16;
+
                 checksum_table(root, length + 16);
             }
             else {
@@ -203,26 +207,24 @@ namespace {
             }
         }
         else {
-            if (extended_rsdp) {
+            if (extended_rsdp)
                 add_table(target.data, root_offset, "XSDT", 1, nullptr, 0);
-            }
-            else {
+            else
                 add_table(target.data, root_offset, "RSDT", 1, nullptr, 0);
-            }
 
-            u8*         root   = target.data.bytes + root_offset;
+            u8* root = target.data.bytes + root_offset;
+
             const usize length = extended_rsdp ? 44 : 40;
 
             store_u32(root + 4, static_cast<u32>(length));
 
-            if (extended_rsdp) {
+            if (extended_rsdp)
                 store_u64(root + 36, fadt_address);
-            }
-            else {
+            else
                 store_u32(root + 36, static_cast<u32>(fadt_address));
-            }
 
             target.data.used = root_offset + length;
+
             checksum_table(root, length);
         }
 
@@ -253,24 +255,22 @@ namespace {
     };
 
     constexpr u8 alias_sibling_aml[] = {
-        0x08, 0x54, 0x41, 0x52, 0x47, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00,
-        0x00, 0x08, 0x53, 0x49, 0x42, 0x4C, 0x12, 0x06, 0x04, 0x00, 0x00,
-        0x00, 0x00, 0x06, 0x54, 0x41, 0x52, 0x47, 0x41, 0x4C, 0x49, 0x41,
-        0x14, 0x11, 0x5F, 0x53, 0x35, 0x5F, 0x00, 0x70, 0x41, 0x4C, 0x49,
-        0x41, 0x60, 0xA4, 0x53, 0x49, 0x42, 0x4C,
+        0x08, 0x54, 0x41, 0x52, 0x47, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x08,
+        0x53, 0x49, 0x42, 0x4C, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x06, 0x54,
+        0x41, 0x52, 0x47, 0x41, 0x4C, 0x49, 0x41, 0x14, 0x11, 0x5F, 0x53, 0x35, 0x5F,
+        0x00, 0x70, 0x41, 0x4C, 0x49, 0x41, 0x60, 0xA4, 0x53, 0x49, 0x42, 0x4C,
     };
 
     constexpr u8 s5_alias_aml[] = {
-        0x08, 0x53, 0x35, 0x50, 0x4B, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00,
-        0x06, 0x53, 0x35, 0x50, 0x4B, 0x5F, 0x53, 0x35, 0x5F,
+        0x08, 0x53, 0x35, 0x50, 0x4B, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00,
+        0x00, 0x06, 0x53, 0x35, 0x50, 0x4B, 0x5F, 0x53, 0x35, 0x5F,
     };
 
     constexpr u8 s5_alias_scope_reopen_aml[] = {
-        0x10, 0x11, 0x53, 0x43, 0x4F, 0x50, 0x08, 0x53, 0x35, 0x50, 0x4B,
-        0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x10, 0x11, 0x53, 0x43,
-        0x4F, 0x50, 0x08, 0x53, 0x49, 0x42, 0x4C, 0x12, 0x06, 0x04, 0x00,
-        0x00, 0x00, 0x00, 0x06, 0x5C, 0x2E, 0x53, 0x43, 0x4F, 0x50, 0x53,
-        0x35, 0x50, 0x4B, 0x5F, 0x53, 0x35, 0x5F,
+        0x10, 0x11, 0x53, 0x43, 0x4F, 0x50, 0x08, 0x53, 0x35, 0x50, 0x4B, 0x12, 0x06,
+        0x04, 0x00, 0x00, 0x00, 0x00, 0x10, 0x11, 0x53, 0x43, 0x4F, 0x50, 0x08, 0x53,
+        0x49, 0x42, 0x4C, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x06, 0x5C, 0x2E,
+        0x53, 0x43, 0x4F, 0x50, 0x53, 0x35, 0x50, 0x4B, 0x5F, 0x53, 0x35, 0x5F,
     };
 
     constexpr u8 truncated_aml[] = {0x5B};
@@ -280,14 +280,16 @@ namespace {
     void build_fadt_with_dsdt(u64 dsdt_address, u8* fadt, usize length) {
         store_u32(fadt + 40, static_cast<u32>(dsdt_address));
         store_u32(fadt + 64, 0x604);
+
         fadt[89] = 2;
 
         checksum_table(fadt, length);
     }
+
     void build_duplicate_signature_tables(table_image& target) {
-        const u64 root_address = image_base + root_offset;
-        const u64 fadt_address = image_base + fadt_offset;
-        const u64 dsdt_address = image_base + dsdt_offset;
+        const u64 root_address  = image_base + root_offset;
+        const u64 fadt_address  = image_base + fadt_offset;
+        const u64 dsdt_address  = image_base + dsdt_offset;
         const u64 ssdt1_address = image_base + 0x300;
         const u64 ssdt2_address = image_base + 0x400;
 
@@ -298,6 +300,7 @@ namespace {
 
         store_u32(fadt_body + 4, static_cast<u32>(dsdt_address));
         store_u32(fadt_body + 28, 0x604);
+
         fadt_body[53] = 2;
 
         add_table(target.data, fadt_offset, "FACP", 3, fadt_body, sizeof(fadt_body));
@@ -322,13 +325,13 @@ namespace {
 
 ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
     table_image target;
+
     build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     raw_reader context = context_for(target.data);
 
     ASTIA_CHECK(astia::acpi::detail::discover(
-        reader_for(context), image_base + rsdp_offset,
-        host_allocator, target.tables));
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.valid_rsdp);
     ASTIA_CHECK(target.tables.dsdt.bytes.size() == sizeof(name_s5_package) + 36);
     ASTIA_CHECK(target.tables.fadt.bytes.size() == 116);
@@ -336,19 +339,20 @@ ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
 
 ASTIA_TEST(acpi_rsdp_v2_and_xsdt_validate) {
     table_image target;
+
     build_standard_tables(target, true, true, name_s5_package, sizeof(name_s5_package));
 
     raw_reader context = context_for(target.data);
 
     ASTIA_CHECK(astia::acpi::detail::discover(
-        reader_for(context), image_base + rsdp_offset,
-        host_allocator, target.tables));
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.valid_rsdp);
     ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::xsdt_signature);
 }
 
 ASTIA_TEST(acpi_rsdp_bad_checksum_rejects) {
     table_image target;
+
     build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     target.data.bytes[rsdp_offset + 8] ^= 0xFF;
@@ -356,8 +360,7 @@ ASTIA_TEST(acpi_rsdp_bad_checksum_rejects) {
     raw_reader context = context_for(target.data);
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
-        reader_for(context), image_base + rsdp_offset,
-        host_allocator, target.tables));
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error ==
                 astia::acpi::detail::table_error::bad_rsdp_checksum);
     ASTIA_CHECK(!target.tables.valid_rsdp);
@@ -365,6 +368,7 @@ ASTIA_TEST(acpi_rsdp_bad_checksum_rejects) {
 
 ASTIA_TEST(acpi_table_bad_checksum_rejects) {
     table_image target;
+
     build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     target.data.bytes[dsdt_offset + 9] ^= 0xFF;
@@ -372,37 +376,37 @@ ASTIA_TEST(acpi_table_bad_checksum_rejects) {
     raw_reader context = context_for(target.data);
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
-        reader_for(context), image_base + rsdp_offset,
-        host_allocator, target.tables));
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error ==
                 astia::acpi::detail::table_error::bad_table_checksum);
 }
 
 ASTIA_TEST(acpi_table_duplicate_rejects) {
     table_image target;
+
     build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     u8* root = target.data.bytes + root_offset;
+
     store_u32(root + 40, static_cast<u32>(image_base + fadt_offset));
     checksum_table(root, 44);
 
     raw_reader context = context_for(target.data);
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
-        reader_for(context), image_base + rsdp_offset,
-        host_allocator, target.tables));
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.error == astia::acpi::detail::table_error::duplicate_table);
 }
 
 ASTIA_TEST(acpi_table_store_finds_duplicate_signatures_in_order) {
     table_image target;
+
     build_duplicate_signature_tables(target);
 
     raw_reader context = context_for(target.data);
 
-    ASTIA_CHECK(astia::acpi::detail::discover(reader_for(context),
-                                              image_base + rsdp_offset,
-                                              host_allocator, target.tables));
+    ASTIA_CHECK(astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
     ASTIA_CHECK(target.tables.count == 5);
 
     astia::acpi::detail::table first{};
@@ -420,14 +424,13 @@ ASTIA_TEST(acpi_table_store_finds_duplicate_signatures_in_order) {
 
 ASTIA_TEST(acpi_table_store_owns_bytes_after_source_changes) {
     table_image target;
-    build_standard_tables(target, false, true, name_s5_package,
-                          sizeof(name_s5_package));
+
+    build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     raw_reader context = context_for(target.data);
 
-    ASTIA_CHECK(astia::acpi::detail::discover(reader_for(context),
-                                              image_base + rsdp_offset,
-                                              host_allocator, target.tables));
+    ASTIA_CHECK(astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
 
     astia::acpi::detail::table stored{};
 
@@ -445,8 +448,8 @@ ASTIA_TEST(acpi_table_store_owns_bytes_after_source_changes) {
 
 namespace {
     struct failing_allocator {
-        usize calls    = 0;
-        usize fail_at  = 0;
+        usize calls   = 0;
+        usize fail_at = 0;
     };
 
     void* fail_allocate(void* context, usize bytes) {
@@ -463,9 +466,9 @@ namespace {
 
 namespace {
     struct mutating_reader {
-        image* target        = nullptr;
+        image* target           = nullptr;
         bool   mutate_signature = false;
-        int    header_reads  = 0;
+        int    header_reads     = 0;
     };
 
     bool read_mutating(void* context, u64 address, u8* destination, usize length) {
@@ -483,12 +486,10 @@ namespace {
 
         if (address == image_base + root_offset && length == 36 &&
             reader->header_reads++ == 0) {
-            if (reader->mutate_signature) {
+            if (reader->mutate_signature)
                 reader->target->bytes[root_offset] = 'X';
-            }
-            else {
+            else
                 store_u32(reader->target->bytes + root_offset + 4, 32);
-            }
         }
 
         return true;
@@ -498,6 +499,7 @@ namespace {
 ASTIA_TEST(acpi_table_store_rejects_source_header_changes) {
     for (int mutation = 0; mutation < 2; ++mutation) {
         table_image target;
+
         build_standard_tables(target, false, true, name_s5_package,
                               sizeof(name_s5_package));
 
@@ -507,9 +509,9 @@ ASTIA_TEST(acpi_table_store_rejects_source_header_changes) {
             0,
         };
 
-        ASTIA_CHECK(!astia::acpi::detail::discover(
-            {&source, read_mutating}, image_base + rsdp_offset,
-            host_allocator, target.tables));
+        ASTIA_CHECK(!astia::acpi::detail::discover({&source, read_mutating},
+                                                   image_base + rsdp_offset,
+                                                   host_allocator, target.tables));
         ASTIA_CHECK(target.tables.error ==
                     astia::acpi::detail::table_error::source_changed);
         ASTIA_CHECK(target.tables.count == 0);
@@ -519,28 +521,27 @@ ASTIA_TEST(acpi_table_store_rejects_source_header_changes) {
 
 ASTIA_TEST(acpi_table_store_allocation_failure_cleans_up) {
     table_image target;
-    build_standard_tables(target, false, true, name_s5_package,
-                          sizeof(name_s5_package));
 
-    raw_reader context = context_for(target.data);
+    build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
+
+    raw_reader        context = context_for(target.data);
     failing_allocator state{0, 2};
 
     ASTIA_CHECK(!astia::acpi::detail::discover(
         reader_for(context), image_base + rsdp_offset,
         {&state, fail_allocate, host_release}, target.tables));
-    ASTIA_CHECK(target.tables.error ==
-                astia::acpi::detail::table_error::out_of_memory);
+    ASTIA_CHECK(target.tables.error == astia::acpi::detail::table_error::out_of_memory);
     ASTIA_CHECK(target.tables.count == 0);
     ASTIA_CHECK(target.tables.total_bytes == 0);
 
     astia::acpi::detail::table missing{};
 
-    ASTIA_CHECK(!target.tables.find(astia::acpi::detail::dsdt_signature, 0,
-                                    missing));
+    ASTIA_CHECK(!target.tables.find(astia::acpi::detail::dsdt_signature, 0, missing));
 }
 
 ASTIA_TEST(acpi_aml_finds_s5_name_package) {
     table_image target;
+
     build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
 
     target.tables.dsdt = {
@@ -560,8 +561,9 @@ ASTIA_TEST(acpi_aml_finds_s5_name_package) {
     ASTIA_CHECK(value != nullptr);
     ASTIA_CHECK(value->count == 4);
 
-    astia::acpi::detail::value_id item   = value->first;
-    u64                           number = 0;
+    astia::acpi::detail::value_id item = value->first;
+
+    u64 number = 0;
 
     ASTIA_CHECK(target.interpreter.integer(item, number));
     ASTIA_CHECK(number == 0);
@@ -569,6 +571,7 @@ ASTIA_TEST(acpi_aml_finds_s5_name_package) {
 
 ASTIA_TEST(acpi_aml_finds_s5_method_package) {
     table_image target;
+
     build_standard_tables(target, false, true, method_s5_package,
                           sizeof(method_s5_package));
 
@@ -589,6 +592,7 @@ ASTIA_TEST(acpi_aml_finds_s5_method_package) {
 
 ASTIA_TEST(acpi_aml_rejects_truncated_input) {
     table_image target;
+
     build_standard_tables(target, false, true, truncated_aml, sizeof(truncated_aml));
 
     target.tables.dsdt = {
@@ -603,6 +607,7 @@ ASTIA_TEST(acpi_aml_rejects_truncated_input) {
 
 ASTIA_TEST(acpi_aml_rejects_unsupported_opcode) {
     table_image target;
+
     build_standard_tables(target, false, true, unsupported_aml, sizeof(unsupported_aml));
 
     target.tables.dsdt = {
@@ -618,12 +623,11 @@ ASTIA_TEST(acpi_aml_rejects_unsupported_opcode) {
 
 ASTIA_TEST(acpi_aml_s5_alias_resolves) {
     table_image target;
-    build_standard_tables(target, false, true, s5_alias_aml,
-                          sizeof(s5_alias_aml));
+
+    build_standard_tables(target, false, true, s5_alias_aml, sizeof(s5_alias_aml));
 
     target.tables.dsdt = {
-        astia::span<const u8>(target.data.bytes + dsdt_offset,
-                              sizeof(s5_alias_aml) + 36),
+        astia::span<const u8>(target.data.bytes + dsdt_offset, sizeof(s5_alias_aml) + 36),
         image_base + dsdt_offset,
     };
 
@@ -638,6 +642,7 @@ ASTIA_TEST(acpi_aml_s5_alias_resolves) {
 
 ASTIA_TEST(acpi_aml_s5_alias_scope_reopen_resolves) {
     table_image target;
+
     build_standard_tables(target, false, true, s5_alias_scope_reopen_aml,
                           sizeof(s5_alias_scope_reopen_aml));
 
@@ -658,6 +663,7 @@ ASTIA_TEST(acpi_aml_s5_alias_scope_reopen_resolves) {
 
 ASTIA_TEST(acpi_aml_alias_does_not_mutate_namespace) {
     table_image target;
+
     build_standard_tables(target, false, true, alias_sibling_aml,
                           sizeof(alias_sibling_aml));
 
@@ -676,17 +682,18 @@ ASTIA_TEST(acpi_aml_alias_does_not_mutate_namespace) {
     ASTIA_CHECK(target.interpreter.get(package)->count == 4);
 
     package = astia::acpi::detail::no_value;
+
     ASTIA_CHECK(target.interpreter.evaluate_s5(package));
     ASTIA_CHECK(target.interpreter.get(package) != nullptr);
 }
 
 ASTIA_TEST(acpi_aml_rejects_deep_expression_recursion) {
-    u8 aml[256]{};
-    usize length = 0;
+    u8              aml[256]{};
+    usize           length     = 0;
     constexpr usize lnot_count = 80;
 
-    const usize body_length = 1 + lnot_count + 1;
-    const usize method_total = 1 + 2 + 4 + 1 + body_length;
+    const usize body_length   = 1 + lnot_count + 1;
+    const usize method_total  = 1 + 2 + 4 + 1 + body_length;
     const usize package_value = method_total - 1;
 
     aml[length++] = 0x14;
@@ -706,6 +713,7 @@ ASTIA_TEST(acpi_aml_rejects_deep_expression_recursion) {
     aml[length++] = 0x00;
 
     table_image target;
+
     build_standard_tables(target, false, true, aml, length);
 
     target.tables.dsdt = {
@@ -750,6 +758,7 @@ namespace {
 
         log->memory_address = address;
         log->memory_value   = value;
+
         ++log->memory_count;
 
         return true;
@@ -770,6 +779,7 @@ namespace {
             fadt[173] = 16;
             fadt[174] = 0;
             fadt[175] = 2;
+
             store_u64(fadt + 176, 0x1234);
             checksum_table(fadt, length);
         }
@@ -791,6 +801,7 @@ namespace {
 
 ASTIA_TEST(acpi_power_legacy_pm1a_plan_writes_s5) {
     table_image target;
+
     make_fadt(target, false);
 
     ASTIA_CHECK(target.interpreter.build(target.tables));
@@ -815,6 +826,7 @@ ASTIA_TEST(acpi_power_legacy_pm1a_plan_writes_s5) {
 
 ASTIA_TEST(acpi_power_extended_gas_plan_writes_s5) {
     table_image target;
+
     make_fadt(target, true);
 
     ASTIA_CHECK(target.interpreter.build(target.tables));
@@ -838,28 +850,28 @@ ASTIA_TEST(acpi_power_extended_gas_plan_writes_s5) {
 
 ASTIA_TEST(acpi_power_mmio_gas_writes_memory) {
     table_image target;
+
     make_fadt(target, true);
 
     u8* fadt = target.data.bytes + fadt_offset;
 
     fadt[172] = 0;
+
     store_u64(fadt + 176, 0x1000);
     checksum_table(fadt, 244);
 
     ASTIA_CHECK(target.interpreter.build(target.tables));
 
-    astia::acpi::detail::s5_plan plan{};
-    astia::acpi::detail::power_error error =
-        astia::acpi::detail::power_error::none;
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
 
-    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables,
-                                                   target.interpreter, plan,
-                                                   error));
+    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                   plan, error));
 
     write_log log{};
 
-    ASTIA_CHECK(astia::acpi::detail::execute_s5(
-        plan, {&log, record_io, record_memory}, error));
+    ASTIA_CHECK(
+        astia::acpi::detail::execute_s5(plan, {&log, record_io, record_memory}, error));
     ASTIA_CHECK(log.memory_count == 1);
     ASTIA_CHECK(log.memory_address == 0x1000);
     ASTIA_CHECK(log.memory_value == 0x2000);
@@ -868,22 +880,22 @@ ASTIA_TEST(acpi_power_mmio_gas_writes_memory) {
 
 ASTIA_TEST(acpi_power_malformed_gas_rejects) {
     table_image target;
+
     make_fadt(target, true);
 
     u8* fadt = target.data.bytes + fadt_offset;
 
     fadt[173] = 8;
+
     checksum_table(fadt, 244);
 
     ASTIA_CHECK(target.interpreter.build(target.tables));
 
-    astia::acpi::detail::s5_plan plan{};
-    astia::acpi::detail::power_error error =
-        astia::acpi::detail::power_error::none;
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
 
-    ASTIA_CHECK(!astia::acpi::detail::build_s5_plan(target.tables,
-                                                    target.interpreter, plan,
-                                                    error));
+    ASTIA_CHECK(!astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                    plan, error));
     ASTIA_CHECK(error == astia::acpi::detail::power_error::invalid_pm1a);
 }
 
@@ -976,10 +988,11 @@ namespace {
 ASTIA_TEST(acpi_shutdown_tiers_are_ordered_and_failures_continue) {
     astia::shutdown::detail::reset_for_test();
     reset_shutdown_log();
+
     late_registration_ok = true;
 
-    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::final,
-                                                  "final", record_handler_1));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::final, "final",
+                                                  record_handler_1));
     ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::platform,
                                                   "platform", record_handler_5));
     ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::prepare,

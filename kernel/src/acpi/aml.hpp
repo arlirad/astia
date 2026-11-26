@@ -154,7 +154,7 @@ namespace astia::acpi::detail {
         void leave_term();
 
         struct term_guard {
-            interpreter* owner = nullptr;
+            interpreter* owner  = nullptr;
             bool         active = false;
 
             explicit term_guard(interpreter& value)
@@ -187,6 +187,7 @@ namespace astia::acpi::detail {
         node_id resolve_lookup(const name_ref& reference, node_id scope) const;
         node_id resolve_definition(const name_ref& reference, node_id scope,
                                    bool create_parents);
+
         node_id root() const {
             return 0;
         }
