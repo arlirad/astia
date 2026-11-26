@@ -27,4 +27,4 @@ Does not return on success. On failure, returns -1 and sets errno.
 
 ## NOTES
 
-Relative paths are resolved against the caller's working directory by libc before the syscall. The public wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp).
+Relative paths are resolved against the caller's working directory by libc before the syscall. The public wrapper is implemented in [libc/src/sys/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/sys/unistd.c); the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp).

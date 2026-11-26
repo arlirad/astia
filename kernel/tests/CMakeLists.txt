@@ -1111,53 +1111,15 @@ if (ARCH STREQUAL "x86_64")
         # The libc in ring 3: the same sources the host tests link, but
         # freestanding and non-PIE, with the AIO ports as Astia's side of the
         # seams.  Userspace images link this against tests/crt0.S.
-        add_library(astia_userspace_libc STATIC
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/assert.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/backend_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/atfork.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ctype.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/dirent.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/errno.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/file.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/group.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pwd.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/ioctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/locale.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/malloc.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/math.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/mman.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/process_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/path.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/poll.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/prctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pthread.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/pty.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/printf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/rlimit.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/scanf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/setjmp.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/signal.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/semaphore.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/socket.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/snprintf.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/select.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stdlib.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/stat.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/string.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termcap.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/termios.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/time_sleep_aio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/times.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/unistd.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/utsname.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/uio.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/wchar.c
-        )
+        include(${ASTIA_KERNEL_SOURCE_DIR}/../libc/sources.cmake)
+        set(_astia_libc_abs_sources)
+        foreach(_astia_libc_source IN LISTS ASTIA_LIBC_ALL_SOURCES)
+            list(APPEND _astia_libc_abs_sources
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/${_astia_libc_source})
+        endforeach()
+        add_library(astia_userspace_libc STATIC ${_astia_libc_abs_sources})
         target_include_directories(astia_userspace_libc PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 ${ASTIA_KERNEL_SOURCE_DIR}/include
         )
@@ -1173,6 +1135,7 @@ if (ARCH STREQUAL "x86_64")
         get_target_property(_astia_libc_sources astia_userspace_libc SOURCES)
         add_library(astia_userspace_libc_shared SHARED ${_astia_libc_sources})
         target_include_directories(astia_userspace_libc_shared PRIVATE
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 ${ASTIA_KERNEL_SOURCE_DIR}/include
         )
@@ -1204,8 +1167,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMENT "Compiling userspace CRT0 fixture")
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
             set(_cross_dir ${_fix_dir}/clang)
-            file(GLOB _cross_libc_sources CONFIGURE_DEPENDS
-                    ${ASTIA_KERNEL_SOURCE_DIR}/../libc/src/*.c)
+            set(_cross_libc_sources ${_astia_libc_abs_sources})
             file(GLOB _cross_abi_headers CONFIGURE_DEPENDS
                     ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/*.h)
             add_custom_command(
