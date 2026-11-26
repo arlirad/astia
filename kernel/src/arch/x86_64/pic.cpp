@@ -36,6 +36,13 @@ namespace astia::arch::x86_64 {
         outb(slave_data_port, all_irqs_masked);  // OCW1: all slave IRQs masked
     }
 
+    void pic::mask(u8 irq) {
+        const u16 port = irq < slave_irq_offset ? master_data_port : slave_data_port;
+        const u8  bit  = static_cast<u8>(1u << (irq & 7));
+
+        outb(port, static_cast<u8>(inb(port) | bit));
+    }
+
     void pic::unmask(u8 irq) {
         const u16 port = irq < slave_irq_offset ? master_data_port : slave_data_port;
         const u8  bit  = static_cast<u8>(1u << (irq & 7));

@@ -61,6 +61,13 @@ namespace astia::arch {
     /// the device has been serviced.
     using irq_handler = void (*)();
 
+    /// Guard callbacks wrapped around a module-owned IRQ handler. `enter` runs
+    /// before the handler and may reject the callback; `leave` runs only when
+    /// `enter` succeeded, after the handler returns, and must be
+    /// non-blocking.
+    using irq_callback_enter = bool (*)(void* context);
+    using irq_callback_leave = void (*)(void* context);
+
     /// Claim a maskable IRQ line for a driver.  On x86_64 `irq` is the
     /// PIC line number (0..15), dispatched as vector pic::irq_base + irq;
     /// the timer lines (IRQ0 / the LAPIC timer vector) are reserved.
@@ -69,6 +76,20 @@ namespace astia::arch {
     /// Registration does not unmask anything: the driver unmasks its
     /// own PIC line when it is ready to service (pic::unmask).
     bool register_irq_handler(u8 irq, irq_handler handler);
+
+    /// Guarded claim for a handler in module image memory: every dispatch
+    /// enters through `enter` before calling `handler` and leaves through
+    /// `leave` afterwards. `context` is passed to both guard callbacks.
+    bool register_irq_handler(u8 irq, irq_handler handler, irq_callback_enter enter,
+                              irq_callback_leave leave, void* context);
+
+    /// Mask one claimed line at the PIC while keeping the claim. Safe in
+    /// callback context.
+    bool mask_irq_handler(u8 irq);
+
+    /// Clear a claimed line's handler and guard pointers. Refuses while a
+    /// dispatch is in flight, so the caller can retry after references drain.
+    bool unregister_irq_handler(u8 irq);
 
     struct interrupt_vector {
         u32 vector = 0;

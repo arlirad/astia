@@ -57,10 +57,48 @@ unpin, cancellation, or completion.
 full-length transfer, a positive short count, or a negative errno. They never
 spin or halt the CPU while a device completion is outstanding.
 
+## Lifetime tokens and guarded IRQ routes
+
+`astia::module::lifetime_token` is a move-only lease on the calling module's
+image, acquired with `lifetime_token::acquire()` from `module_main()` context.
+While a token is live, `mod::close()` waits for it; a resident module's close
+returns `resident` without running finalizers or unmapping. Releasing the last
+lease or guarded callback reference can complete a pending close. A token that
+cannot resolve an active module, or whose acquisition is refused after
+quiescing, is invalid.
+
+`lifetime_token::try_enter()` acquires a guarded callback reference and
+returns false once teardown has started; `leave()` releases it and is always
+called after a successful `try_enter()`, including after `release()`. Both are
+safe in interrupt context and perform no allocation or blocking.
+
+A module-owned IRQ handler is claimed with the guarded
+`arch::register_irq_handler(irq, handler, enter, leave, context)` overload.
+The kernel calls `enter` before the handler and runs the handler only when
+`enter` returns true; `leave` runs after a successful entry and the EOI is
+unconditional. The PS/2 module uses this through
+`astia::module::ps2_claim_irq(handler, token)`, `ps2_platform_ports()`, and
+`ps2_unmask_irq()`. `arch::mask_irq_handler(irq)` masks the line while keeping
+the claim, and `arch::unregister_irq_handler(irq)` clears the binding, refusing
+while a dispatch is in flight so the caller can retry after references drain.
+
+## Relocation contract
+
+`astia::elf::loader::audit_relocatable()` runs before mapping any module.
+Kernel modules are placed above 4 GiB through the direct map, so
+`R_X86_64_32`/`R_X86_64_32S` are rejected with a diagnostic naming
+`-mcmodel=large`; relocation types outside the module ABI are rejected as
+unsupported.
+
+Module images are allocated through the kernel direct map, so their code and
+data remain executable and addressable from every process address space.
+Because the module ABI applies RELA relocations, the audit also rejects a
+`SHT_REL` section that patches an allocated section.
+
 ## Verification
 
 `modules/tests` compiles the public C++ header independently and builds typed
 ET_REL fixtures. `kernel/tests/elf_test.cpp` verifies C++ symbol resolution,
 relocations, entrypoint execution, and malformed-symbol rejection.
 Driver-specific host, teardown, and QEMU tests cover NVMe, VirtIO, RTL8139,
-and USB consumers.
+USB, and PS/2 keyboard consumers.

@@ -1,0 +1,155 @@
+#include <astia/log.hpp>
+#include <astia/module.hpp>
+
+#include "ps2_keyboard.hpp"
+
+#include <new>
+
+namespace {
+    using logs = astia::log::context<"ps2-keyboard">;
+
+    using astia::ps2::input_sink;
+    using astia::ps2::ps2_controller;
+    using astia::ps2::ps2_error;
+    using astia::ps2::ps2_keyboard;
+
+    bool ttv0_put(void*, astia::u8 byte) {
+        return astia::module::tty_input_write(byte);
+    }
+
+    constexpr input_sink ttv0_sink{nullptr, ttv0_put};
+
+    constinit ps2_controller controller{};
+    constinit ps2_keyboard   keyboard{controller, ttv0_sink};
+
+    // The resident lease lives for the image's whole lifetime. Construct it in
+    // static storage instead of as a namespace-scope object: clang registers a
+    // global destructor through `atexit`, which the module ABI does not import.
+    alignas(astia::module::lifetime_token) unsigned char lifetime_storage[sizeof(
+        astia::module::lifetime_token)];
+
+    const char* error_text(ps2_error error) {
+        switch (error) {
+        case ps2_error::none:
+            return "ok";
+        case ps2_error::invalid:
+            return "invalid";
+        case ps2_error::timeout:
+            return "timeout";
+        case ps2_error::protocol:
+            return "protocol";
+        case ps2_error::self_test:
+            return "self-test";
+        case ps2_error::port_test:
+            return "port-test";
+        }
+
+        return "unknown";
+    }
+
+    int error_code(ps2_error error) {
+        return -32 - static_cast<int>(error);
+    }
+
+    void irq_entry() {
+        keyboard.irq();
+    }
+
+    void shutdown() {
+        (void) controller.disable_interrupt();
+        (void) controller.disable_keyboard();
+    }
+
+    int fail(ps2_error error) {
+        shutdown();
+        logs::info("unavailable");
+        logs::info("%s", error_text(error));
+
+        return error_code(error);
+    }
+} // namespace
+
+int module_main() {
+    logs::info("resident module loaded");
+
+    const astia::dev::ps2_port_window& ports = astia::module::ps2_platform_ports();
+
+    if (!ports.valid()) {
+        logs::info("unavailable");
+
+        return -19;
+    }
+
+    controller.attach(ports);
+
+    ps2_error result = controller.initialize();
+
+    if (result != ps2_error::none)
+        return fail(result);
+
+    result = keyboard.initialize();
+
+    if (result != ps2_error::none)
+        return fail(result);
+
+    result = controller.drain();
+
+    if (result != ps2_error::none)
+        return fail(result);
+
+    // PIC IRQ1 is still masked; enable the controller source before any
+    // route can point at this image.
+    result = controller.enable_interrupt();
+
+    if (result != ps2_error::none)
+        return fail(result);
+
+    // The lease is held for the image's lifetime and never destroyed.
+    auto& lifetime = *new (lifetime_storage) astia::module::lifetime_token();
+
+    lifetime = astia::module::lifetime_token::acquire();
+
+    if (!lifetime.valid()) {
+        shutdown();
+        logs::info("unavailable");
+        logs::info("lifetime lease failed");
+
+        return -20;
+    }
+
+    if (!astia::module::ps2_claim_irq(irq_entry, lifetime)) {
+        lifetime.release();
+        shutdown();
+        logs::info("unavailable");
+        logs::info("irq claim failed");
+
+        return -16;
+    }
+
+    // The route now points into this image. Resident holds the lease forever
+    // and makes request_exit return an explicit not-unloadable result.
+    if (!lifetime.make_resident()) {
+        (void) astia::module::ps2_release_irq();
+        lifetime.release();
+        shutdown();
+        logs::info("unavailable");
+        logs::info("resident transition failed");
+
+        return -21;
+    }
+
+    logs::info("ready irq=1");
+
+    // Unmask last: the lease, route, and controller source are all in place.
+    if (!astia::module::ps2_unmask_irq()) {
+        (void) astia::module::ps2_release_irq();
+        lifetime.release();
+        shutdown();
+        logs::info("unavailable");
+        logs::info("irq unmask failed");
+
+        return -5;
+    }
+
+    return 0;
+}

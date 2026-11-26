@@ -13,6 +13,12 @@
 #include "../sys/aio.hpp"
 #include "proc.hpp"
 
+namespace astia::mod {
+    // Provided when the module registry is linked into the kernel. Host tests
+    // that link the scheduler without modules see a null hook.
+    void service_module_waits() __attribute__((weak));
+}
+
 namespace astia::proc::scheduler {
     namespace {
         struct cpu_state {
@@ -473,6 +479,10 @@ namespace astia::proc::scheduler {
             previous->charge_runtime(nice_charge(previous->nice()));
 
         sys::io_process_deferred_ready();
+
+        if (astia::mod::service_module_waits != nullptr)
+            astia::mod::service_module_waits();
+
         (void) core::drain_resumes();
 
         if (!previous->idle() && (previous->state() == thread_state::running ||
@@ -542,6 +552,10 @@ namespace astia::proc::scheduler {
 
         core::system_rcu_quiescent(cpu_index);
         (void) core::system_rcu_poll();
+
+        if (astia::mod::service_module_waits != nullptr)
+            astia::mod::service_module_waits();
+
         (void) core::drain_resumes();
         // We are now running as `next`, still masked.  `previous` (and any
         // thread that deferred its own destruction in finish()) can no
