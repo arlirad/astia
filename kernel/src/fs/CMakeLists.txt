@@ -7,8 +7,8 @@ add_library(fs STATIC
         ${ASTIA_FS_SYSCALL_SOURCES}
         fs_io.cpp
         fs.cpp
+        device_registry.cpp
         path_service.cpp
-        filesystems/devfs/devfs.cpp
         filesystems/initrd/initrd.cpp
         initrd_init.cpp
         filesystems/ext4/ext4_file.cpp

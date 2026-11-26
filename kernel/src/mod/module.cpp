@@ -7,6 +7,7 @@
 #include "module.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/arch/layout.hpp>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/atomic.hpp>
 #include <astia/core/completion.hpp>
@@ -428,10 +429,13 @@ namespace astia::mod {
         ///
         /// Modules are ET_REL, so the loader always maps relocatably (fixed is
         /// never set). Frames are handed out 4 KiB-aligned, which satisfies any
-        /// section alignment a compiler actually emits (<= 4096). PVH boot
-        /// leaves the kernel on an identity map of physical memory, so the
-        /// returned physical address is directly usable — readable, writable
-        /// (for relocation), and executable.
+        /// section alignment a compiler actually emits (<= 4096). The image is
+        /// published through the kernel direct map, not as a raw physical
+        /// address: module text and static state execute on behalf of user
+        /// processes under their own page table, which keeps the kernel high
+        /// half but not the boot identity mapping. Keeping physical ownership
+        /// in the frame allocator and exposing only its shared direct-map alias
+        /// makes the image valid in every address space.
         void* image_map(void* context, u64 /*hint*/, usize size, usize align,
                         bool fixed) {
             using fa = mm::frame_allocator;
@@ -446,7 +450,13 @@ namespace astia::mod {
             if (phys == fa::invalid_frame)
                 return nullptr;
 
-            void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+            void* image = mm::kernel_frames().to_virt(phys);
+
+            if (image == nullptr) {
+                mm::kernel_frames().release(phys, frames);
+
+                return nullptr;
+            }
 
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;
@@ -457,9 +467,13 @@ namespace astia::mod {
         void image_unmap(void*, void* address, usize size) {
             using fa = mm::frame_allocator;
 
-            usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+            usize frames   = (size + fa::frame_size - 1) / fa::frame_size;
+            u64   physical = reinterpret_cast<u64>(address);
 
-            mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
+            if (physical >= arch::kernel_base)
+                physical -= arch::kernel_base;
+
+            mm::kernel_frames().release(physical, frames);
         }
 
         /// Backs the loader's undefined-symbol resolution with the linked

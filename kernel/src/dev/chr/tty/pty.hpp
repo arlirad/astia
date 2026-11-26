@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/dev/pty.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -64,10 +65,6 @@ namespace astia::dev {
         };
     };
 
-    mm::shptr<fs::open_file> pty_open_master(u32 flags);
-    mm::shptr<fs::open_file> pty_open_slave(const char* path, u32 flags);
-    bool                     pty_node_exists(const char* path);
-    bool                     pty_node_is_directory(const char* path);
-    bool                     pty_node_index(const char* path, u32* index);
-    void                     pty_release_slot(u32 index, pty* instance);
+    bool pty_node_index(const char* path, u32* index);
+    void pty_release_slot(u32 index, pty* instance);
 } // namespace astia::dev

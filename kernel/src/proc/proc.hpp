@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/optional.hpp>
+#include <astia/proc/terminal.hpp>
 
 #include "process.hpp"
 
@@ -100,14 +101,13 @@ namespace astia::proc {
     };
 
     i64 terminal_signal_foreground(pgrp_t foreground, signal_number signal);
-    terminal_access_result   terminal_read_allowed(pgrp_t foreground);
-    terminal_access_result   terminal_write_allowed(pgrp_t foreground, bool tostop);
-    terminal_access_result   terminal_set_foreground_allowed(pgrp_t foreground,
-                                                             pgrp_t requested);
-    mm::shptr<fs::open_file> controlling_terminal();
-    bool                     has_controlling_terminal();
-    i64                      setpgid(pid_t pid, pgrp_t pgid);
-    i64                      setsid();
+    terminal_access_result terminal_read_allowed(pgrp_t foreground);
+    terminal_access_result terminal_write_allowed(pgrp_t foreground, bool tostop);
+    terminal_access_result terminal_set_foreground_allowed(pgrp_t foreground,
+                                                           pgrp_t requested);
+    bool                   has_controlling_terminal();
+    i64                    setpgid(pid_t pid, pgrp_t pgid);
+    i64                    setsid();
 
     /// Credentials of a user-space signal sender. `kill()` group sends pass
     /// them so only permitted members are signalled; kernel-internal sends

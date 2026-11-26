@@ -16,6 +16,8 @@
 #include "types.hpp"
 
 namespace astia::fs {
+    class device_node_lease;
+
     namespace detail {
         /// Drive a control task that every current backend completes without
         /// suspending.  A backend that does suspend reports -EAGAIN; callers
@@ -50,7 +52,8 @@ namespace astia::fs {
         open_file(const open_file& other)
             : _parent(other._parent), _position(other._position),
               _position_state(other.position_state()), _flags(other._flags),
-              _mode(other._mode), _has_path(other._has_path), _mount(other._mount) {
+              _mode(other._mode), _has_path(other._has_path), _mount(other._mount),
+              _node_lease(other._node_lease) {
             for (u32 i = 0; i < path_max; ++i) {
                 _path[i] = other._path[i];
             }
@@ -133,6 +136,10 @@ namespace astia::fs {
         void set_path(const char* path);
         void attach_mount(mount* owner);
 
+        void attach_node_lease(mm::shptr<device_node_lease> lease) {
+            _node_lease = static_cast<mm::shptr<device_node_lease>&&>(lease);
+        }
+
         mount* mount_owner() const {
             return _mount.get();
         }
@@ -185,5 +192,6 @@ namespace astia::fs {
         bool                               _has_path = false;
         char                               _path[path_max]{};
         mm::shptr<mount>                   _mount;
+        mm::shptr<device_node_lease>       _node_lease;
     };
 } // namespace astia::fs

@@ -3,19 +3,19 @@
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
 
+#include "device_node.hpp"
 #include "open_file.hpp"
 #include "types.hpp"
 
 namespace astia::fs {
-    /// Reset the fixed VFS tables.  Called by the `fs` init step before
-    /// any device node is registered.
+    /// Reset the fixed VFS and device-registration tables.  Called by the
+    /// `fs` init step before any device node is registered.
     bool init();
 
-    /// Register one exact path as a device node.  Path traversal and
-    /// directories are intentionally deferred; the first useful VFS
-    /// shape is enough for /dev/tts0 and future block nodes.
-    long register_device(const char* path, const mm::shptr<file>& entry);
-    long unregister_device(const char* path, const mm::shptr<file>& entry = {});
+    /// Close the boot-time window in which a filesystem module may publish a
+    /// mount before the root filesystem exists.  Later mounts resolve through
+    /// the normal namespace.
+    void seal_boot_mounts();
 
     /// Resolve a path through the mounted filesystem namespace.
     mm::shptr<open_file> open_path(const char* path, u32 flags = 0);

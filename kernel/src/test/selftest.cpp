@@ -36,6 +36,19 @@ namespace astia::test {
         u32 preempt_main_seen     = 0;
         u32 preempt_done          = 0;
 
+        bool register_device_probe(fs::file* node, const char* name) {
+            fs::device_node_descriptor descriptor{};
+
+            descriptor.name        = name;
+            descriptor.node        = mm::shptr<fs::file>::borrowed(node);
+            descriptor.type        = fs::file_type::character;
+            descriptor.permissions = fs::default_device_permissions;
+
+            fs::device_node_handle handle{};
+
+            return fs::register_device_node(descriptor, handle) == 0;
+        }
+
         class registry_test_mount final : public fs::mount {};
 
         class registry_test_filesystem final : public fs::filesystem {
@@ -669,7 +682,7 @@ namespace astia::test {
 
             static const char path[] = "/dev/aio_capacity_probe";
 
-            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+            if (!register_device_probe(&node, "aio_capacity_probe")) {
                 logs::error("aio capacity fail (device registration)");
 
                 return false;
@@ -891,7 +904,7 @@ namespace astia::test {
 
             static const char path[] = "/dev/aio_dispatch_boundary";
 
-            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+            if (!register_device_probe(&node, "aio_dispatch_boundary")) {
                 logs::error("aio dispatch fail (device registration)");
 
                 return false;
@@ -1096,8 +1109,7 @@ namespace astia::test {
             constexpr u64     inline_tag    = 0xC0DE60;
             constexpr u64     parked_tag    = 0xC0DE61;
 
-            if (fs::register_device(parked_path,
-                                    mm::shptr<fs::file>::borrowed(&parked_node)) < 0) {
+            if (!register_device_probe(&parked_node, "aio_cq_full_probe")) {
                 logs::error("aio CQ fail (probe node)");
 
                 return false;
@@ -1400,7 +1412,7 @@ namespace astia::test {
             constexpr u64     target_tag = 0xC0DE70;
             constexpr u64     cancel_tag = 0xC0DE71;
 
-            if (fs::register_device(path, mm::shptr<fs::file>::borrowed(&node)) < 0) {
+            if (!register_device_probe(&node, "aio_cancel_probe")) {
                 logs::error("aio cancel fail (probe node)");
 
                 return false;
@@ -1509,8 +1521,7 @@ namespace astia::test {
             static const char missing_path[] = "/dev/astia_no_such_node";
             constexpr u64     statx_tag      = 0xC0DE57;
 
-            if (fs::register_device(probe_path,
-                                    mm::shptr<fs::file>::borrowed(&probe_node)) < 0) {
+            if (!register_device_probe(&probe_node, "statx_probe")) {
                 logs::error("statx fail (probe node)");
 
                 return false;

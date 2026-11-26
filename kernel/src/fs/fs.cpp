@@ -1,11 +1,12 @@
 #include <astia/api/errno.h>
+#include <astia/atomic.hpp>
 #include <astia/core/rcu_vector.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
 #include <astia/strings.hpp>
 
-#include "filesystems/devfs/devfs.hpp"
+#include "device_registry.hpp"
 #include "filesystems/ext4/ext4.hpp"
 #include "filesystems/initrd/initrd.hpp"
 #include "filesystems/tmpfs/tmpfs.hpp"
@@ -69,6 +70,7 @@ namespace astia::fs {
         u64         mount_registry_generation;
         bool        ready;
         bool        bootstrapping;
+        bool        early_mounts;
 
         u32 length_of(const char* value) {
             u32 n = 0;
@@ -349,11 +351,7 @@ namespace astia::fs {
             return *relative == '\0' ? "/" : relative;
         }
 
-        filesystems::devfs devfs_type;
         filesystems::tmpfs tmpfs_type_instance;
-        alignas(filesystems::devfs_mount) u8
-            devfs_storage[sizeof(filesystems::devfs_mount)];
-        filesystems::devfs_mount* devfs_instance;
     } // namespace
 
     mm::shptr<open_file> mount::open(const char* path, u32 flags) {
@@ -361,20 +359,6 @@ namespace astia::fs {
         (void) flags;
 
         return {};
-    }
-
-    long mount::register_file(const char* path, const mm::shptr<file>& entry) {
-        (void) path;
-        (void) entry;
-
-        return -ENOSYS;
-    }
-
-    long mount::unregister_file(const char* path, const mm::shptr<file>& entry) {
-        (void) path;
-        (void) entry;
-
-        return -ENOSYS;
     }
 
     long mount::read_directory(const char*, u64, char*, u32, file_type*) {
@@ -468,21 +452,22 @@ namespace astia::fs {
         mount_registry_generation = 0;
         ready                     = true;
         bootstrapping             = true;
+        early_mounts              = true;
 
-        devfs_instance = ::new (devfs_storage) filesystems::devfs_mount{};
+        reset_device_registry();
 
-        devfs_type.attach(devfs_instance);
-
-        const bool ok = register_type(&devfs_type) == 0 &&
-                        register_type(&filesystems::initrd_type()) == 0 &&
+        const bool ok = register_type(&filesystems::initrd_type()) == 0 &&
                         register_type(&filesystems::ext4_type()) == 0 &&
                         register_type(&tmpfs_type_instance) == 0 &&
-                        mount_type("devfs", "/dev") == 0 &&
                         mount_type("tmpfs", "/tmp") == 0;
 
         bootstrapping = false;
 
         return ok;
+    }
+
+    void seal_boot_mounts() {
+        astia::atomic_ref<bool>(early_mounts).store(false, astia::memory_order::release);
     }
 
     long register_type(const filesystem* type) {
@@ -577,7 +562,8 @@ namespace astia::fs {
 
         char checked_target[path_max]{};
 
-        if (bootstrapping) {
+        if (bootstrapping ||
+            astia::atomic_ref<bool>(early_mounts).load(astia::memory_order::acquire)) {
             if (!copy_path(checked_target, target))
                 return -ENAMETOOLONG;
         }
@@ -813,26 +799,6 @@ namespace astia::fs {
     void release_mount_reference(mount* owner) {
         if (owner)
             owner->release_open();
-    }
-
-    long register_device(const char* path, const mm::shptr<file>& entry) {
-        mount_operation operation(path);
-
-        if (!operation)
-            return -ENOENT;
-
-        return operation.instance()->register_file(
-            relative_path(*operation.entry(), path), entry);
-    }
-
-    long unregister_device(const char* path, const mm::shptr<file>& entry) {
-        mount_operation operation(path);
-
-        if (!operation)
-            return -ENOENT;
-
-        return operation.instance()->unregister_file(
-            relative_path(*operation.entry(), path), entry);
     }
 
     mm::shptr<open_file> open_path(const char* path, u32 flags) {

@@ -9,13 +9,16 @@ namespace astia::dev {
         constexpr u32 max_ptys = 16;
 
         bool parse_index(const char* path, u32* index) {
-            if (path == nullptr || index == nullptr || path[0] != '/' || path[1] != 'p' ||
-                path[2] != 't' || path[3] != 's' || path[4] != '/' || path[5] == '\0')
+            if (path != nullptr && path[0] == '/')
+                ++path;
+
+            if (path == nullptr || index == nullptr || path[0] != 'p' || path[1] != 't' ||
+                path[2] != 's' || path[3] != '/' || path[4] == '\0')
                 return false;
 
             u32 value = 0;
 
-            for (u32 i = 5; path[i] != '\0'; ++i) {
+            for (u32 i = 4; path[i] != '\0'; ++i) {
                 if (path[i] < '0' || path[i] > '9' || value > 0xffffffffu / 10)
                     return false;
 
@@ -285,7 +288,10 @@ namespace astia::dev {
     }
 
     bool pty_node_is_directory(const char* path) {
-        return path != nullptr && path[0] == '/' && path[1] == 'p' && path[2] == 't' &&
-               path[3] == 's' && path[4] == '\0';
+        if (path != nullptr && path[0] == '/')
+            ++path;
+
+        return path != nullptr && path[0] == 'p' && path[1] == 't' && path[2] == 's' &&
+               path[3] == '\0';
     }
 } // namespace astia::dev

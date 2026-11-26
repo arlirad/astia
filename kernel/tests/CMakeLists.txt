@@ -1102,6 +1102,7 @@ astia_add_arena_test(astia_tls_arena_test
 
 astia_add_arena_test(astia_ext4_vfs_test
         ext4_vfs_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../modules/devfs/devfs.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
@@ -1112,10 +1113,29 @@ astia_add_arena_test(astia_ext4_vfs_test
 )
 target_link_libraries(astia_ext4_vfs_test PRIVATE fs)
 target_compile_options(astia_ext4_vfs_test PRIVATE -fno-rtti)
+target_compile_definitions(astia_ext4_vfs_test PRIVATE ASTIA_DEVFS_HOST_TEST=1)
 target_include_directories(astia_ext4_vfs_test PRIVATE
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev
+        ${ASTIA_KERNEL_SOURCE_DIR}/../modules/devfs)
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
+
+astia_add_arena_test(astia_device_registry_test
+        device_registry_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../modules/devfs/devfs.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_device_registry_test PRIVATE fs)
+target_compile_options(astia_device_registry_test PRIVATE -fno-rtti)
+target_compile_definitions(astia_device_registry_test PRIVATE ASTIA_DEVFS_HOST_TEST=1)
+target_include_directories(astia_device_registry_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev
+        ${ASTIA_KERNEL_SOURCE_DIR}/../modules/devfs)
+astia_remove_test_label(astia_device_registry_test "sanitizer-host")
+astia_add_test_label(astia_device_registry_test "sanitizer-host-partial")
 
 astia_add_arena_test(astia_tmpfs_readdir_test
         tmpfs_readdir_test.cpp
@@ -1155,6 +1175,8 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ""
                 "core: version=${ASTIA_VERSION_version}"
+                "devfs: mounted /dev"
+                "mod: devfs resident rc=0"
                 "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
@@ -1490,6 +1512,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/boot_initrd.cpio
+                "devfs: mounted /dev"
                 "mod: hello_initrd.o rc=42"
                 "selftest: statx ok"
                 "user thread exit pid="

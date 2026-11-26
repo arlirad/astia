@@ -1233,7 +1233,14 @@ namespace {
                     co_return -ENODEV;
                 }
 
-                if (astia::fs::register_device(device.namespaces[i].path, file) < 0) {
+                astia::fs::device_node_descriptor node{};
+
+                node.name        = device.namespaces[i].path + 5;
+                node.node        = file;
+                node.type        = astia::fs::file_type::block;
+                node.permissions = astia::fs::default_device_permissions;
+
+                if (astia::fs::register_device_node(node, _handles[i]) < 0) {
                     rollback_probe();
 
                     co_return -ENODEV;
@@ -1464,8 +1471,9 @@ namespace {
             for (astia::u32 i = 0; i < _file_count; ++i) {
                 if (_files[i]) {
                     _files[i]->detach();
-                    (void) astia::fs::unregister_device(device.namespaces[i].path,
-                                                        _files[i]);
+                    (void) astia::fs::unregister_device_node(_handles[i]);
+
+                    _handles[i] = {};
                 }
             }
         }
@@ -1477,6 +1485,7 @@ namespace {
 
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _files[max_namespaces]{};
+        astia::fs::device_node_handle             _handles[max_namespaces]{};
         astia::u32                                _file_count     = 0;
         astia::u64                                _teardown_token = 0;
     };

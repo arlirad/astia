@@ -1081,7 +1081,15 @@ namespace {
 
                 co_return -ENODEV;
             }
-            if (astia::fs::register_device(_path, file) < 0) {
+
+            astia::fs::device_node_descriptor node{};
+
+            node.name        = _path + 5;
+            node.node        = file;
+            node.type        = astia::fs::file_type::block;
+            node.permissions = astia::fs::default_device_permissions;
+
+            if (astia::fs::register_device_node(node, _handle) < 0) {
                 device.release();
 
                 co_return -ENODEV;
@@ -1120,7 +1128,9 @@ namespace {
                 co_return astia::error_t::enone;
             if (_file) {
                 _file->detach();
-                (void) astia::fs::unregister_device(_path, _file);
+                (void) astia::fs::unregister_device_node(_handle);
+
+                _handle = {};
             }
             if (_file)
                 (void) _file->arm_quiescence_handler(quiescence_callback, this,
@@ -1280,6 +1290,7 @@ namespace {
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
         char                                      _path[32]{};
+        astia::fs::device_node_handle             _handle{};
         astia::u64                                _teardown_token = 0;
     };
 

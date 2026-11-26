@@ -21,8 +21,20 @@ namespace astia::dev {
         if (!backend->available())
             return false;
 
-        if (fs::register_device(virtual_tty_path,
-                                mm::shptr<fs::file>::borrowed(&ttv0_file)) < 0)
+        fs::device_node_descriptor descriptor{};
+
+        descriptor.name         = "ttv0";
+        descriptor.node         = mm::shptr<fs::file>::borrowed(&ttv0_file);
+        descriptor.type         = fs::file_type::character;
+        descriptor.permissions  = fs::default_device_permissions;
+        descriptor.capabilities = static_cast<u32>(fs::device_node_capability::readable) |
+                                  static_cast<u32>(fs::device_node_capability::writable) |
+                                  static_cast<u32>(fs::device_node_capability::pollable) |
+                                  static_cast<u32>(fs::device_node_capability::ioctlable);
+
+        fs::device_node_handle handle{};
+
+        if (fs::register_device_node(descriptor, handle) < 0)
             return false;
 
         ttv0.bind_ready_file(&ttv0_file);
