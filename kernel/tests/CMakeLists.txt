@@ -169,6 +169,18 @@ astia_add_host_test(astia_fs_async_test
 )
 target_compile_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
+astia_add_host_test(astia_pipe_test
+        pipe_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/pipe.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        support/file_host.cpp
+        support/device_ready_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
+)
+target_compile_options(astia_pipe_test PRIVATE -fno-sanitize=vptr)
+target_link_options(astia_pipe_test PRIVATE -fno-sanitize=vptr)
+astia_add_test_label(astia_pipe_test "deterministic;ipc")
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)

@@ -54,8 +54,9 @@ namespace {
 
         astia::core::task<astia::i64> writev(astia::span<const astia::fs::buffer> buffers,
                                              astia::u64                           offset,
-                                             astia::core::cltoken token) override {
-            return submit_writev(buffers, offset, token);
+                                             astia::core::cltoken                 token,
+                                             bool nonblock) override {
+            return submit_writev(buffers, offset, token, nonblock);
         }
 
         long submit(astia::io::request& request) override {

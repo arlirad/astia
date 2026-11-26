@@ -40,8 +40,8 @@ namespace astia::fs {
             }
 
             core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                                   core::cltoken token) override {
-                return submit_writev(buffers, offset, token);
+                                   core::cltoken token, bool nonblock) override {
+                return submit_writev(buffers, offset, token, nonblock);
             }
 
             long read_ready(void* buffer, u32 length, u64) override {
@@ -75,36 +75,7 @@ namespace astia::fs {
             }
 
             long write_ready(const void* buffer, u32 length, u64) override {
-                if (buffer == nullptr && length != 0)
-                    return -EFAULT;
-                if (astia::atomic_ref<u32>(_readers).load(astia::memory_order::acquire) ==
-                    0)
-                    return -EPIPE;
-                u32 count = 0;
-                {
-                    core::spinlock_guard guard(_lock);
-
-                    const u32 head = _head;
-                    const u32 tail = _tail;
-                    const u32 free = pipe_capacity_bytes - (head - tail);
-                    if (free == 0)
-                        return 0;
-
-                    count = free < length ? free : length;
-
-                    const auto* in = static_cast<const u8*>(buffer);
-
-                    for (u32 i = 0; i < count; ++i) {
-                        _data[(head + i) & (pipe_capacity_bytes - 1)] = in[i];
-                    }
-
-                    _head = head + count;
-                }
-                // A writer makes data available to parked readers.  The
-                // engine retries the operation after the release above, so
-                // its acquire load observes the published bytes.
-                sys::io_device_ready_context(this);
-                return count;
+                return write_bytes(buffer, length, true);
             }
 
             u32 poll(u32 events, u32 flags) override {
@@ -144,10 +115,13 @@ namespace astia::fs {
             }
 
             long submit(io::request& request) override {
+                const bool all_or_none = request.direction() == io::direction::output &&
+                                         !request.nonblock() &&
+                                         request.length() <= pipe_capacity_bytes;
                 const long result =
                     request.direction() == io::direction::input
                         ? read_ready(request.buffer(), request.length(), 0)
-                        : write_ready(request.buffer(), request.length(), 0);
+                        : write_bytes(request.buffer(), request.length(), all_or_none);
                 if (result == 0 && request.length() == 0)
                     request.complete(true);
                 else if (result == 0 && request.direction() == io::direction::input &&
@@ -160,6 +134,49 @@ namespace astia::fs {
             }
 
             private:
+            /// Copy up to `length` bytes.  An all-or-none write (a blocking
+            /// descriptor and a length no larger than PIPE_BUF) parks until
+            /// the whole range fits, so two writers can never interleave
+            /// partial records inside one atomic write.
+            long write_bytes(const void* buffer, u32 length, bool all_or_none) {
+                if (buffer == nullptr && length != 0)
+                    return -EFAULT;
+
+                if (astia::atomic_ref<u32>(_readers).load(astia::memory_order::acquire) ==
+                    0)
+                    return -EPIPE;
+
+                u32 count = 0;
+
+                {
+                    core::spinlock_guard guard(_lock);
+
+                    const u32 head = _head;
+                    const u32 tail = _tail;
+                    const u32 free = pipe_capacity_bytes - (head - tail);
+
+                    if (free == 0 || (all_or_none && free < length))
+                        return 0;
+
+                    count = free < length ? free : length;
+
+                    const auto* in = static_cast<const u8*>(buffer);
+
+                    for (u32 i = 0; i < count; ++i) {
+                        _data[(head + i) & (pipe_capacity_bytes - 1)] = in[i];
+                    }
+
+                    _head = head + count;
+                }
+
+                // A writer makes data available to parked readers.  The
+                // engine retries the operation after the release above, so
+                // its acquire load observes the published bytes.
+                sys::io_device_ready_context(this);
+
+                return count;
+            }
+
             u32            _head = 0;
             u32            _tail = 0;
             core::spinlock _lock;
