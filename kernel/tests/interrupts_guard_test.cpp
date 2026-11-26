@@ -11,6 +11,8 @@ namespace {
     unsigned enter_order         = 0;
     unsigned handler_order       = 0;
     unsigned leave_order         = 0;
+    unsigned eoi_order           = 0;
+    unsigned eoi_calls           = 0;
     bool     unregister_in_enter = false;
 
     void reset() {
@@ -21,6 +23,14 @@ namespace {
         enter_order   = 0;
         handler_order = 0;
         leave_order   = 0;
+        eoi_order     = 0;
+        eoi_calls     = 0;
+    }
+
+    void observe_eoi(astia::u8) {
+        ++eoi_calls;
+
+        eoi_order = ++order;
     }
 
     void handler() {
@@ -58,6 +68,7 @@ namespace {
 
 ASTIA_TEST(interrupts_guard_enter_refusal_skips_handler_and_leave) {
     reset();
+    astia::arch::host_test::set_eoi_observer(observe_eoi);
 
     ASTIA_CHECK(astia::arch::register_irq_handler(5, handler, refuse, leave, nullptr));
     astia::arch::host_test::dispatch_irq(5);
@@ -65,11 +76,14 @@ ASTIA_TEST(interrupts_guard_enter_refusal_skips_handler_and_leave) {
     ASTIA_CHECK(handler_calls == 0);
     ASTIA_CHECK(enter_calls == 1);
     ASTIA_CHECK(leave_calls == 0);
+    ASTIA_CHECK(eoi_calls == 1);
     ASTIA_CHECK(astia::arch::unregister_irq_handler(5));
+    astia::arch::host_test::set_eoi_observer(nullptr);
 }
 
 ASTIA_TEST(interrupts_guard_enter_orders_handler_before_leave) {
     reset();
+    astia::arch::host_test::set_eoi_observer(observe_eoi);
 
     ASTIA_CHECK(astia::arch::register_irq_handler(6, handler, accept, leave, nullptr));
     astia::arch::host_test::dispatch_irq(6);
@@ -80,7 +94,26 @@ ASTIA_TEST(interrupts_guard_enter_orders_handler_before_leave) {
     ASTIA_CHECK(enter_order == 1);
     ASTIA_CHECK(handler_order == 2);
     ASTIA_CHECK(leave_order == 3);
+    ASTIA_CHECK(eoi_order == 4);
     ASTIA_CHECK(astia::arch::unregister_irq_handler(6));
+    astia::arch::host_test::set_eoi_observer(nullptr);
+}
+
+ASTIA_TEST(interrupts_guard_eoi_is_unconditional_after_leave) {
+    reset();
+    astia::arch::host_test::set_eoi_observer(observe_eoi);
+
+    ASTIA_CHECK(astia::arch::register_irq_handler(9, handler, accept, leave, nullptr));
+    ASTIA_CHECK(astia::arch::mask_irq_handler(9));
+    astia::arch::host_test::dispatch_irq(9);
+
+    ASTIA_CHECK(handler_calls == 0);
+    ASTIA_CHECK(enter_calls == 0);
+    ASTIA_CHECK(leave_calls == 0);
+    ASTIA_CHECK(eoi_calls == 1);
+
+    ASTIA_CHECK(astia::arch::unregister_irq_handler(9));
+    astia::arch::host_test::set_eoi_observer(nullptr);
 }
 
 ASTIA_TEST(interrupts_guard_rejects_half_bound_pairs) {

@@ -2252,3 +2252,9 @@ ASTIA_TEST(elf_audit_rejects_non_relocatable_image) {
                     astia::span<const astia::u8>(buf.data, buf.len)) ==
                 astia::elf::loader::relocatable_problem::not_relocatable);
 }
+
+ASTIA_TEST(elf_relocatable_loader_rejects_32bit_absolute_relocation_directly) {
+    blob_copy buf(module_lifecycle_reloc32_blob, module_lifecycle_reloc32_blob_len);
+
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}

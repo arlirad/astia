@@ -1,11 +1,14 @@
+#include <astia/arch/cpu.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/module.hpp>
+#include <astia/resource_limits.hpp>
 
 #include "../src/mod/module.hpp"
 #include "support/test.hpp"
 #include <sys/mman.h>
 
 #include <atomic>
+#include <coroutine>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -62,9 +65,18 @@ namespace {
     observation* active_observation = nullptr;
 
     std::optional<astia::module::lifetime_token> lifecycle_lease;
+    bool                                         lifecycle_interrupt_acquire_valid = true;
 
     int lifecycle_token_probe() {
         lifecycle_lease.emplace(astia::module::lifetime_token::acquire());
+
+        astia::arch::cpu::interrupt_enter();
+
+        const auto intruder = astia::module::lifetime_token::acquire();
+
+        astia::arch::cpu::interrupt_exit();
+
+        lifecycle_interrupt_acquire_valid = intruder.valid();
 
         return lifecycle_lease->valid() ? 61 : -1;
     }
@@ -1179,6 +1191,7 @@ ASTIA_TEST(module_lifecycle_token_lease_defers_close) {
     ASTIA_CHECK(result == 61);
     ASTIA_CHECK(lifecycle_lease.has_value());
     ASTIA_CHECK(lifecycle_lease->valid());
+    ASTIA_CHECK(!lifecycle_interrupt_acquire_valid);
 
     ASTIA_CHECK(lifecycle_lease->try_enter());
     lifecycle_lease->leave();
@@ -1223,6 +1236,7 @@ ASTIA_TEST(module_lifecycle_token_resident_close_returns_resident) {
 
     ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
     ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(!lifecycle_interrupt_acquire_valid);
     ASTIA_CHECK(lifecycle_lease->make_resident());
     ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
 
@@ -1265,4 +1279,103 @@ ASTIA_TEST(module_lifecycle_rejects_32bit_absolute_relocation_before_mapping) {
     ASTIA_CHECK(state.mapped == 0);
     ASTIA_CHECK(state.unmapped == 0);
     ASTIA_CHECK(astia::mod::count() == before);
+}
+
+ASTIA_TEST(module_lifecycle_token_acquire_requires_owner_context) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    lifecycle_wait_started.store(false, std::memory_order_release);
+    lifecycle_wait_release.store(false, std::memory_order_release);
+    lifecycle_lease.reset();
+
+    ASTIA_CHECK(astia::mod::load_image(
+                    blob(module_lifecycle_wait_blob, module_lifecycle_wait_blob_len), env,
+                    {}, id) == astia::mod::module_error::ok);
+
+    std::atomic<astia::mod::module_error> run_error{astia::mod::module_error::ok};
+
+    std::thread runner([&]() {
+        int result = 0;
+
+        run_error.store(astia::mod::run(id, result), std::memory_order_release);
+    });
+
+    while (!lifecycle_wait_started.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+
+    // `active` names the waiting module, but this thread does not own its
+    // execution context, so a lease must not resolve.
+    ASTIA_CHECK(!astia::module::lifetime_token::acquire().valid());
+
+    lifecycle_wait_release.store(true, std::memory_order_release);
+    runner.join();
+
+    ASTIA_CHECK(run_error.load(std::memory_order_acquire) ==
+                astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+}
+
+ASTIA_TEST(module_lifecycle_close_waiter_defers_from_interrupt_context) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    lifecycle_lease.reset();
+    astia::core::initialize_resume_queues();
+
+    ASTIA_CHECK(astia::mod::load_image(
+                    blob(module_lifecycle_token_blob, module_lifecycle_token_blob_len),
+                    env, {}, id) == astia::mod::module_error::ok);
+
+    int result = 0;
+
+    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
+    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+
+    // Saturate the per-CPU resume queue, then release the last lease from an
+    // interrupt context. The close waiter must be parked, not resumed inline.
+    const auto filler   = std::noop_coroutine();
+    astia::u32 accepted = 0;
+
+    while (astia::core::schedule_resume(filler, accepted + 1)) {
+        ++accepted;
+    }
+
+    ASTIA_CHECK(accepted != 0);
+
+    auto closing = astia::mod::close(id);
+
+    closing.resume();
+    ASTIA_CHECK(!closing.done());
+
+    astia::arch::cpu::interrupt_enter();
+    lifecycle_lease->release();
+    astia::arch::cpu::interrupt_exit();
+
+    ASTIA_CHECK(!closing.done());
+    ASTIA_CHECK(state.unmapped == 0);
+
+    astia::u32 drained = 0;
+
+    while (const astia::u32 count = astia::core::drain_resumes(
+               astia::resource_limits::queue::resume * 2 + 1)) {
+        drained += count;
+    }
+
+    ASTIA_CHECK(drained == accepted);
+    ASTIA_CHECK(!closing.done());
+
+    astia::mod::service_module_waits();
+    ASTIA_CHECK(astia::core::drain_resumes() == 1);
+    ASTIA_CHECK(closing.done());
+    ASTIA_CHECK(closing.value() != nullptr &&
+                *closing.value() == astia::mod::module_error::ok);
+    ASTIA_CHECK(state.unmapped == 1);
+
+    lifecycle_lease.reset();
 }

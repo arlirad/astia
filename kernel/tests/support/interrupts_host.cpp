@@ -4,6 +4,8 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
 
+#include "resume_queue_host.hpp"
+
 namespace astia::arch {
     namespace {
         struct irq_binding {
@@ -17,9 +19,11 @@ namespace astia::arch {
 
         irq_binding    irq_bindings[16]{};
         core::spinlock irq_lock;
+        void (*eoi_observer)(u8 irq) = nullptr;
     } // namespace
 
     static thread_local bool interrupts_enabled = true;
+    static thread_local u32  interrupt_depth    = 0;
 
     void cpu::interrupts() {
         interrupts_enabled = true;
@@ -33,11 +37,42 @@ namespace astia::arch {
         return interrupts_enabled;
     }
 
+    void cpu::interrupt_enter() {
+        ++interrupt_depth;
+    }
+
+    void cpu::interrupt_exit() {
+        if (interrupt_depth != 0)
+            --interrupt_depth;
+    }
+
+    bool cpu::in_interrupt() {
+        return interrupt_depth != 0;
+    }
+
+    void host_test::set_eoi_observer(void (*observer)(u8 irq)) {
+        eoi_observer = observer;
+    }
+
     u32 cpu::current_index() {
         return 0;
     }
 
-    void cpu::request_local_reschedule() {}
+    static thread_local bool reschedule_pending = false;
+
+    void cpu::request_local_reschedule() {
+        reschedule_pending = true;
+    }
+
+    namespace test {
+        void clear_reschedule_request() {
+            reschedule_pending = false;
+        }
+
+        bool reschedule_requested() {
+            return reschedule_pending;
+        }
+    } // namespace test
 
     bool register_irq_handler(u8 irq, irq_handler handler) {
         return register_irq_handler(irq, handler, nullptr, nullptr, nullptr);
@@ -96,6 +131,8 @@ namespace astia::arch {
         if (irq >= 16)
             return;
 
+        cpu::interrupt_enter();
+
         irq_handler        handler = nullptr;
         irq_callback_enter enter   = nullptr;
         irq_callback_leave leave   = nullptr;
@@ -116,21 +153,28 @@ namespace astia::arch {
             }
         }
 
-        if (handler == nullptr)
-            return;
+        if (handler != nullptr) {
+            const bool entered = enter == nullptr || enter(context);
+            if (entered)
+                handler();
 
-        const bool entered = enter == nullptr || enter(context);
-        if (entered)
-            handler();
+            if (entered && leave != nullptr)
+                leave(context);
 
-        if (entered && leave != nullptr)
-            leave(context);
+            core::spinlock_guard guard(irq_lock);
 
-        core::spinlock_guard guard(irq_lock);
+            irq_binding& binding = irq_bindings[irq];
 
-        irq_binding& binding = irq_bindings[irq];
+            if (binding.in_flight != 0)
+                --binding.in_flight;
+        }
 
-        if (binding.in_flight != 0)
-            --binding.in_flight;
+        // The legacy PIC line is EOI'd unconditionally, even when no handler
+        // ran or the guard refused entry. Record it after handler/leave so the
+        // ordering is observable.
+        if (eoi_observer != nullptr)
+            eoi_observer(irq);
+
+        cpu::interrupt_exit();
     }
 } // namespace astia::arch
