@@ -471,6 +471,8 @@ int main(void) {
         return fail("runner chdir");
 
     char* cat_stdin[]         = {"cat", NULL};
+    char* cat_stdin_dash[]    = {"cat", "-", NULL};
+    char* cat_file_stdin[]    = {"cat", "/tmp/coreutils_a", "-", NULL};
     char* cat_files[]         = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* cat_missing[]       = {"cat", "/tmp/coreutils_missing", NULL};
     char* head_lines[]        = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
@@ -611,7 +613,10 @@ int main(void) {
         mkdir("/tmp/coreutils_ls_empty", 0777) != 0)
         return fail("ls fixture setup");
 
-    if (check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
+    if (check("cat stdin", cat_stdin, "plain\n", 0, "plain\n", 1) ||
+        check("cat stdin dash", cat_stdin_dash, "dashed\n", 0, "dashed\n", 1) ||
+        check("cat file and stdin", cat_file_stdin, "tail\n", 0, "alpha\ntail\n", 1) ||
+        check("cat files", cat_files, NULL, 0, "alpha\nbeta\ngamma\n", 1) ||
         check("cat missing", cat_missing, NULL, 1, NULL, 0) ||
         check("head -n", head_lines, NULL, 0, "one\ntwo\n", 1) ||
         check("head invalid", head_bad, NULL, 2, NULL, 0) ||
