@@ -488,6 +488,15 @@ int main(void) {
     char* echo_n[]            = {"echo", "-n", "hello", NULL};
     char* env[]               = {"env", NULL};
     char* env_bad[]           = {"env", "extra", NULL};
+    char* env_sorted[]        = {"env", "-s", NULL};
+    char* env_sorted_long[]   = {"env", "--sorted", NULL};
+    char* env_assign[]        = {"env", "A=1", "B=2", "A=3", NULL};
+    char* env_assign_sorted[] = {"env", "-s", "A=1", "B=2", "A=3", NULL};
+    char* env_invalid_name[]  = {"env", "=x", NULL};
+    char* env_exec[]          = {"env", "PATH=/bin", "true", NULL};
+    char* env_empty[]         = {NULL};
+    char* env_known[]         = {"Z=1", "A=2", "M=3", NULL};
+    char* env_duplicates[]    = {"B=2", "A=1", "B=3", NULL};
     char* uname[]             = {"uname", NULL};
     char* uname_all[]         = {"uname", "-a", NULL};
     char* uname_bad[]         = {"uname", "--bad", NULL};
@@ -627,6 +636,16 @@ int main(void) {
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
         check("echo -n", echo_n, NULL, 0, "hello", 1) ||
         check("env", env, NULL, 0, "COREUTILS_TEST=present\n", 0) ||
+        check_env("env sorted", env_sorted, env_known, 0, "A=2\nM=3\nZ=1\n", 1) ||
+        check_env("env sorted long", env_sorted_long, env_known, 0, "A=2\nM=3\nZ=1\n",
+                  1) ||
+        check_env("env assignment order", env_assign, env_empty, 0, "B=2\nA=3\n", 1) ||
+        check_env("env sorted assignments", env_assign_sorted, env_empty, 0, "A=3\nB=2\n",
+                  1) ||
+        check_env("env sorted duplicates", env_sorted, env_duplicates, 0,
+                  "A=1\nB=2\nB=3\n", 1) ||
+        check("env invalid name", env_invalid_name, NULL, 2, NULL, 0) ||
+        check("env command", env_exec, NULL, 0, NULL, 0) ||
         check("env invalid", env_bad, NULL, 2, NULL, 0) ||
         check("uname", uname, NULL, 0, "Astia\n", 1) ||
         check("uname -a", uname_all, NULL, 0, UNAME_ALL_EXPECTED, 1) ||
