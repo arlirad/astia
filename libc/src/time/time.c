@@ -110,6 +110,20 @@ int gettimeofday(struct timeval* value, struct timezone* timezone) {
     return 0;
 }
 
+int settimeofday(const struct timeval* value, const struct timezone* timezone) {
+    (void) timezone;
+
+    if (value == NULL || value->tv_usec < 0 || value->tv_usec >= 1000000L) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    errno = ENOSYS;
+
+    return -1;
+}
+
 int nanosleep(const struct timespec* requested, struct timespec* remaining) {
     int64_t remaining_sec  = 0;
     int64_t remaining_nsec = 0;
