@@ -1721,6 +1721,11 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relative ro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
         )
         set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 60)
 
@@ -1733,6 +1738,11 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relative ro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
         )
         set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 60)
 
