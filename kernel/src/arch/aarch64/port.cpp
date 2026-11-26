@@ -5,12 +5,11 @@
 // this port supplies the real switch and the state the scheduler polls.
 #include "port.hpp"
 
-#include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
 #include <astia/arch/layout.hpp>
 #include <astia/arch/mmio.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/arch/timer.hpp>
 
 #include "context.hpp"
 
@@ -32,12 +31,12 @@ namespace astia::arch {
         context context_pool[context_pool_size]{};
         bool    context_pool_used[context_pool_size]{};
 
-        volatile u32  interrupt_depth    = 0;
-        volatile bool reschedule_pending = false;
-        volatile bool should_yield       = false;
-        u64           kernel_stack_top   = 0;
-        u64           timer_tick_count   = 0;
-        timer_hook    tick_hook          = nullptr;
+        volatile u32         interrupt_depth    = 0;
+        volatile bool        reschedule_pending = false;
+        volatile bool        should_yield       = false;
+        [[maybe_unused]] u64 kernel_stack_top   = 0;
+        u64                  timer_tick_count   = 0;
+        timer_hook           tick_hook          = nullptr;
 
         [[nodiscard]] u64 read_counter_frequency() {
             u64 value = 0;
@@ -100,16 +99,6 @@ namespace astia::arch {
         return false;
     }
 
-    bool context_prepare_user_start(context*, u64, u64, u64, u64, u64, u64) {
-        return false;
-    }
-
-    bool context_prepare_fork(context*, u64, const user_context*) {
-        return false;
-    }
-
-    void context_set_fs_base(context*, u64) {}
-
     void context_destroy(context* value) {
         for (u32 index = 0; index < context_pool_size; ++index) {
             if (&context_pool[index] == value) {
@@ -119,18 +108,6 @@ namespace astia::arch {
                 return;
             }
         }
-    }
-
-    usize user_context_bytes() {
-        return 0;
-    }
-
-    u64 user_context::stack_pointer() const noexcept {
-        return 0;
-    }
-
-    user_context caller_image(const syscall_return&, u64, u64, u64, u64, u64, u64, u64) {
-        return user_context{};
     }
 
     // aarch64 (48-bit translation, TTBR1): the high half covers

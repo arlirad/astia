@@ -1,6 +1,5 @@
 #pragma once
 
-#include <astia/arch/context.hpp>
 #include <astia/common.hpp>
 
 // AArch64 kernel execution context for the boot-CPU scheduler stage.
@@ -36,6 +35,12 @@ namespace astia::arch {
     static_assert(__builtin_offsetof(context, lr) == 88);
     static_assert(__builtin_offsetof(context, sp) == 96);
     static_assert(__builtin_offsetof(context, daif) == 104);
+
+    /// Switch from `old_context` to `next_context`.  Declared here instead
+    /// of pulling in <astia/arch/context.hpp>: the generic header adds the
+    /// user-context surface and a <concepts> dependency the freestanding
+    /// AArch64 port does not need.
+    extern "C" void context_switch(context* old_context, const context* next_context);
 
     /// Prepare a context that enters `entry(argument)` on `stack_top`.
     /// The context starts with DAIF masked; the scheduler opens the gate

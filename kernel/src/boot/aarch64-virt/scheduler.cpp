@@ -1,8 +1,7 @@
 #include "scheduler.hpp"
 
-#include <astia/arch/context.hpp>
 #include <astia/arch/cpu.hpp>
-#include <astia/arch/interrupts.hpp>
+#include <astia/arch/timer.hpp>
 
 #include "context.hpp"
 #include "timer.hpp"

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/timer.hpp>
 #include <astia/common.hpp>
 
 #include <concepts>
@@ -34,35 +35,11 @@ namespace astia::arch {
     /// when dispatch may begin.
     bool init_interrupts();
 
-    /// Ticks counted from the timer interrupt since init_interrupts();
-    /// 0 until the first tick. Grows monotonically for the life of the
-    /// kernel — the time source for idle loops and timeouts.
-    u64 timer_ticks();
-
-    /// Frequency of timer_ticks() in hertz — the period one tick covers,
-    /// and therefore the resolution any clock read can offer. 0 means "no
-    /// timer source yet" (the aarch64 port before its timer lands): a
-    /// caller converting ticks to seconds must refuse rather than divide.
-    u32 timer_hz();
-
-    /// Which timer source drives timer_ticks(): the per-CPU LAPIC timer
-    /// (SMP-scalable — one LAPIC per core) when bring-up calibrated it,
-    /// the boot PIT otherwise. Diagnostics today; per-CPU once SMP lands.
-    enum class timer_source : u8 { pit, lapic };
-
-    timer_source current_timer_source();
-
     /// Number of int3 breakpoints dispatched since init_interrupts() — a
     /// debugger bumps it, and so does the boot selftest, which uses a
     /// software int3 to prove the IDT dispatch path works before opening
     /// the hardware IRQ gate.
     u64 breakpoint_hits();
-
-    /// Callback invoked from the timer interrupt with interrupts masked.
-    /// The scheduler owns the policy; the architecture only delivers the
-    /// periodic event.
-    using timer_hook = void (*)();
-    bool register_timer_hook(timer_hook hook);
 
     /// User page-fault resolver, registered by the process layer: the
     /// #PF path offers it every ring-3 fault before declaring it fatal.
