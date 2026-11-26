@@ -10,12 +10,14 @@ ASTIA_TEST(boot_init_selection) {
     auto selection = select_init(nullptr);
 
     ASTIA_CHECK(selection.error == init_option_error::none);
-    ASTIA_CHECK(astia::string_equal(selection.path, "/sbin/init"));
+    ASTIA_CHECK(astia::string_view::from_c_str(selection.path)
+                    .equals(astia::string_view::from_c_str("/sbin/init")));
 
     selection = select_init("quiet --init /bin/zsh console=ttyS0");
 
     ASTIA_CHECK(selection.error == init_option_error::none);
-    ASTIA_CHECK(astia::string_equal(selection.path, "/bin/zsh"));
+    ASTIA_CHECK(astia::string_view::from_c_str(selection.path)
+                    .equals(astia::string_view::from_c_str("/bin/zsh")));
 
     ASTIA_CHECK(select_init("--init").error == init_option_error::missing_path);
     ASTIA_CHECK(select_init("--init relative").error == init_option_error::invalid_path);

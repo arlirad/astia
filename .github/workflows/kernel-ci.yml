@@ -38,6 +38,9 @@ jobs:
           # Pinned submodules are initialized exactly by toolchain/init-userspace.sh.
           submodules: false
 
+      - name: Check string naming and inclusion rules
+        run: tools/check_string_naming.sh
+
       - name: Derive and validate release version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
