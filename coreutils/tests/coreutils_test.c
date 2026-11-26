@@ -598,6 +598,39 @@ static int mv_directory_checks(void) {
     return status;
 }
 
+static int ls_symlink_checks(void) {
+    char* ls_symlink_file[]     = {"ls", "/tmp/coreutils_link", NULL};
+    char* ls_symlink_dir[]      = {"ls", "/tmp/coreutils_ls_link", NULL};
+    char* ls_symlink_dir_long[] = {"ls", "-l", "/tmp/coreutils_ls_link", NULL};
+    char* ls_long[]             = {"ls", "-l", "/tmp/coreutils_link", NULL};
+
+    (void) unlink("/tmp/coreutils_ls_link");
+    (void) unlink("/tmp/coreutils_ls_target/sample");
+    (void) rmdir("/tmp/coreutils_ls_target");
+
+    if (mkdir("/tmp/coreutils_ls_target", 0777) != 0 ||
+        put_file("/tmp/coreutils_ls_target/sample", "x\n") != 0 ||
+        symlink("/tmp/coreutils_ls_target", "/tmp/coreutils_ls_link") != 0)
+        return fail("ls symlink fixture setup");
+
+    int status = 0;
+
+    if (check("ls symlink to file", ls_symlink_file, NULL, 0, "coreutils_link\n", 1) !=
+            0 ||
+        check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) != 0 ||
+        check("ls symlink to directory", ls_symlink_dir, NULL, 0,
+              "/tmp/coreutils_ls_link:\nsample\n", 1) != 0 ||
+        check("ls -l symlink to directory", ls_symlink_dir_long, NULL, 0,
+              " -> /tmp/coreutils_ls_target\n", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_ls_link");
+    (void) unlink("/tmp/coreutils_ls_target/sample");
+    (void) rmdir("/tmp/coreutils_ls_target");
+
+    return status;
+}
+
 static int rm_directory_checks(void) {
     char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
 
@@ -784,7 +817,6 @@ int main(void) {
     char* wc_files[]          = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* wc_bad[]            = {"wc", "--bad", NULL};
     char* ls_dir[]            = {"ls", "/bin", NULL};
-    char* ls_long[]           = {"ls", "-l", "/tmp/coreutils_link", NULL};
     char* ls_multi[]          = {"ls", "/bin", "/sbin", NULL};
     char* ls_bad[]            = {"ls", "--bad", NULL};
     char* pwd[]               = {"pwd", NULL};
@@ -957,8 +989,7 @@ int main(void) {
         check("ln relative", ln_link, NULL, 0, NULL, 0) ||
         !is_file("/tmp/coreutils_link") ||
         check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
-        check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) ||
-        symlink("missing", "/tmp/coreutils_dangling") != 0 ||
+        ls_symlink_checks() != 0 || symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
         !S_ISLNK(dangling_stat.st_mode) ||
         stat("/tmp/coreutils_dangling", &dangling_stat) == 0 ||
