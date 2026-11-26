@@ -265,6 +265,7 @@ set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/runner.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/unix_control.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
@@ -274,6 +275,9 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_unix_control_test
+        unix_control_test.cpp
+        ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 foreach(_astia_aio_test IN ITEMS astia_aio_static_handlers_test astia_aio_filesystem_test
         astia_aio_readiness_test astia_aio_socket_test)
     target_compile_options(${_astia_aio_test} PRIVATE -fno-pie)

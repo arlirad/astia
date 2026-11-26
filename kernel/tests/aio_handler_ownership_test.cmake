@@ -69,7 +69,7 @@ endfunction()
 set(_owners
         "${_aio}/core|14"
         "${_src}/fs/aio|15"
-        "${_src}/net/aio|11"
+        "${_src}/net/aio|13"
         "${_src}/io/readiness/aio|2")
 
 foreach (_entry IN LISTS _owners)
@@ -191,4 +191,4 @@ endif ()
 
 list(LENGTH _scan _scan_count)
 message(STATUS
-        "AIO handler ownership: 42 descriptors across 4 owner directories; production bodies are owner-local; shared submission/publication core retained; no registration macros (${_scan_count} files)")
+        "AIO handler ownership: 44 descriptors across 4 owner directories; production bodies are owner-local; shared submission/publication core retained; no registration macros (${_scan_count} files)")
