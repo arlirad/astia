@@ -122,6 +122,10 @@ add_executable(libc_strftime_test time/strftime_test.c support/time_host.c)
 target_link_libraries(libc_strftime_test PRIVATE astia_libc)
 add_test(NAME libc_strftime_test COMMAND libc_strftime_test)
 
+add_executable(libc_asctime_test time/asctime_test.c support/time_host.c)
+target_link_libraries(libc_asctime_test PRIVATE astia_libc)
+add_test(NAME libc_asctime_test COMMAND libc_asctime_test)
+
 add_executable(libc_strptime_test time/strptime_test.c support/time_host.c)
 target_link_libraries(libc_strptime_test PRIVATE astia_libc)
 add_test(NAME libc_strptime_test COMMAND libc_strptime_test)

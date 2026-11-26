@@ -292,7 +292,7 @@ char* asctime(const struct tm* value) {
         value->tm_mon > 11)
         return NULL;
 
-    return strftime(result, sizeof result, "%a %b %d %H:%M:%S %Y\n", value) == 0 ? NULL
+    return strftime(result, sizeof result, "%a %b %e %H:%M:%S %Y\n", value) == 0 ? NULL
                                                                                  : result;
 }
 
