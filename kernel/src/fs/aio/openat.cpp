@@ -59,6 +59,10 @@ namespace astia::io::aio::operations {
             if (needs_mutation && fs::read_only_path(resolved))
                 co_return -EROFS;
 
+            if (!existing_mode.exists() && (sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 &&
+                !parent_writable(current, resolved))
+                co_return -EACCES;
+
             if (existing_mode.exists()) {
                 auto*       cred  = proc::current_process();
                 const uid_t owner = fs::node_uid(resolved);

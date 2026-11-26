@@ -30,6 +30,34 @@ namespace {
 
         return sqe;
     }
+
+    i32 submit_openat(char* path, u32 flags) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_OPENAT);
+
+        sqe.address  = reinterpret_cast<u64>(path);
+        sqe.op_flags = flags;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    void set_directory(const char* path, u16 permissions, uid_t owner, gid_t group) {
+        using namespace aio::test_support;
+
+        set_node_mode(path, fs::file_mode(fs::file_type::directory,
+                                          fs::file_permissions(permissions)));
+        set_node_owner(path, owner, group);
+    }
+
+    void restore_credentials() {
+        aio::test_support::set_process_credentials(uid_t{0}, gid_t{0});
+    }
 } // namespace
 
 ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
@@ -55,6 +83,86 @@ ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 3);
     ASTIA_CHECK(descriptor_present(3));
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_requires_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode(fs::file_mode{});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/root/planted";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_allows_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode(fs::file_mode{});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/shared/new";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_allows_root_in_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(fs::file_mode{});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/root/new";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == 3);
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_requires_parent_search) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(fs::file_mode{});
+    set_directory("/private", 0600, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/private/new";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == -EACCES);
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+    set_node_mode("/root/existing",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0666)));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/root/existing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY) == 3);
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_close_releases_descriptor) {

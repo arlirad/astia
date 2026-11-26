@@ -41,10 +41,71 @@ namespace astia::io::aio::test_support {
         mm::shptr<open_file> socketpair_first;
         mm::shptr<open_file> socketpair_second;
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
-        bool                 memory_allowed    = true;
-        u64                  timer_hz_value    = 1000;
-        u64                  timer_ticks_value = 0;
-        u64                  generation_value  = 0;
+        bool                 memory_allowed         = true;
+        constexpr usize      node_override_capacity = 8;
+        constexpr usize      node_override_path_max = 128;
+
+        struct node_override_entry {
+            char      path[node_override_path_max]{};
+            file_mode mode{};
+            uid_t     uid{};
+            gid_t     gid{};
+            bool      mode_set  = false;
+            bool      owner_set = false;
+        };
+
+        node_override_entry node_overrides[node_override_capacity];
+
+        bool same_path(const char* left, const char* right) {
+            while (*left != '\0' && *left == *right) {
+                ++left;
+                ++right;
+            }
+
+            return *left == *right;
+        }
+
+        void copy_path(char* destination, const char* source) {
+            usize length = 0;
+
+            while (length + 1 < node_override_path_max && source[length] != '\0') {
+                destination[length] = source[length];
+
+                ++length;
+            }
+
+            destination[length] = '\0';
+        }
+
+        node_override_entry* find_override(const char* path, bool create) {
+            if (path == nullptr)
+                return nullptr;
+
+            node_override_entry* empty = nullptr;
+
+            for (auto& entry : node_overrides) {
+                if (entry.path[0] != '\0' && same_path(entry.path, path))
+                    return &entry;
+
+                if (empty == nullptr && entry.path[0] == '\0')
+                    empty = &entry;
+            }
+
+            return create ? empty : nullptr;
+        }
+
+        node_override_entry* ensure_override(const char* path) {
+            node_override_entry* entry = find_override(path, true);
+
+            if (entry != nullptr && entry->path[0] == '\0')
+                copy_path(entry->path, path);
+
+            return entry;
+        }
+
+        u64 timer_hz_value    = 1000;
+        u64 timer_ticks_value = 0;
+        u64 generation_value  = 0;
 
         bool inside_range(span<u8> range) {
             return memory_allowed && (!range.null() || range.empty());
@@ -168,7 +229,16 @@ namespace astia::io::aio::test_support {
     }
 
     void reset_environment() {
+        if (current != nullptr) {
+            (void) current->seteuid(0);
+            (void) current->setegid(0);
+        }
+
         for (auto& entry : descriptors) {
+            entry = {};
+        }
+
+        for (auto& entry : node_overrides) {
             entry = {};
         }
 
@@ -247,6 +317,33 @@ namespace astia::io::aio::test_support {
 
     void set_node_mode(file_mode mode) {
         node_mode = mode;
+    }
+
+    void set_node_mode(const char* path, file_mode mode) {
+        node_override_entry* entry = ensure_override(path);
+        if (entry == nullptr)
+            return;
+
+        entry->mode     = mode;
+        entry->mode_set = true;
+    }
+
+    void set_node_owner(const char* path, uid_t uid, gid_t gid) {
+        node_override_entry* entry = ensure_override(path);
+        if (entry == nullptr)
+            return;
+
+        entry->uid       = uid;
+        entry->gid       = gid;
+        entry->owner_set = true;
+    }
+
+    void set_process_credentials(uid_t uid, gid_t gid) {
+        if (current == nullptr)
+            return;
+
+        (void) current->seteuid(raw_id(uid));
+        (void) current->setegid(raw_id(gid));
     }
 
     void set_memory_allowed(bool allowed) {
@@ -538,6 +635,28 @@ namespace astia::proc {
         return ::astia::io::aio::test_support::detail::current;
     }
 
+    i64 process::seteuid(u32 value) {
+        arch::interrupt_spinlock_guard guard(_metadata_lock);
+
+        if (_euid != 0 && value != _uid && value != _euid)
+            return -EPERM;
+
+        _euid = value;
+
+        return 0;
+    }
+
+    i64 process::setegid(u32 value) {
+        arch::interrupt_spinlock_guard guard(_metadata_lock);
+
+        if (_egid != 0 && value != _gid && value != _egid)
+            return -EPERM;
+
+        _egid = value;
+
+        return 0;
+    }
+
     i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>&) {
         return 0;
     }
@@ -787,16 +906,26 @@ namespace astia::fs {
     }
 
     file_mode node_mode(const char* path) {
-        return path == nullptr ? file_mode{}
-                               : ::astia::io::aio::test_support::detail::node_mode;
+        if (path == nullptr)
+            return {};
+
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->mode_set
+                   ? entry->mode
+                   : ::astia::io::aio::test_support::detail::node_mode;
     }
 
-    uid_t node_uid(const char*) {
-        return {};
+    uid_t node_uid(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->owner_set ? entry->uid : uid_t{};
     }
 
-    gid_t node_gid(const char*) {
-        return {};
+    gid_t node_gid(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->owner_set ? entry->gid : gid_t{};
     }
 
     long chmod_path(const char*, file_permissions) {
