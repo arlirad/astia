@@ -1,6 +1,6 @@
 #pragma once
 
-#include <astia/module.hpp>
+#include <astia/dev/capabilities.hpp>
 
 namespace astia::ps2 {
     enum class ps2_error : u8 {
@@ -14,8 +14,8 @@ namespace astia::ps2 {
 
     class ps2_controller {
         public:
-        static constexpr u16 data_port    = dev::ps2_port_window::data_port;
-        static constexpr u16 command_port = dev::ps2_port_window::command_port;
+        static constexpr u16 data_port    = 0x60;
+        static constexpr u16 command_port = 0x64;
 
         static constexpr u8 status_output_full = 0x01;
         static constexpr u8 status_input_full  = 0x02;
@@ -56,13 +56,13 @@ namespace astia::ps2 {
 
         constexpr ps2_controller() = default;
 
-        constexpr explicit ps2_controller(const dev::ps2_port_window& io,
+        constexpr explicit ps2_controller(const dev::io_port_window& io,
                                           u32 status_budget = default_status_budget)
             : _io(&io), _budget(status_budget) {}
 
         /// Bind the platform window after static initialization: the module
         /// entrypoint is the first context that can call the platform.
-        constexpr void attach(const dev::ps2_port_window& io) {
+        constexpr void attach(const dev::io_port_window& io) {
             _io = &io;
         }
 
@@ -143,11 +143,11 @@ namespace astia::ps2 {
         static bool is_protocol_byte(u8 byte);
         static bool is_config_byte(u8 byte, bool require_aux_disabled);
 
-        const dev::ps2_port_window* _io           = nullptr;
-        u32                         _budget       = default_status_budget;
-        u32                         _retries      = default_retry_limit;
-        u8                          _config       = 0;
-        bool                        _config_valid = false;
-        ps2_error                   _last_error   = ps2_error::none;
+        const dev::io_port_window* _io           = nullptr;
+        u32                        _budget       = default_status_budget;
+        u32                        _retries      = default_retry_limit;
+        u8                         _config       = 0;
+        bool                       _config_valid = false;
+        ps2_error                  _last_error   = ps2_error::none;
     };
 } // namespace astia::ps2

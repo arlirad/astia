@@ -1,3 +1,5 @@
+#include <astia/dev/capabilities.hpp>
+#include <astia/dev/tty_input.hpp>
 #include <astia/log.hpp>
 #include <astia/module.hpp>
 
@@ -12,13 +14,16 @@ namespace {
     using astia::ps2::ps2_keyboard;
 
     bool ttv0_put(void*, astia::u8 byte) {
-        return astia::module::tty_input_write(byte);
+        return astia::dev::tty_input_write(byte);
     }
 
     constexpr input_sink ttv0_sink{nullptr, ttv0_put};
 
     constinit ps2_controller controller{};
     constinit ps2_keyboard   keyboard{controller, ttv0_sink};
+
+    // The module owns the device identity: line 1 and the 8042 port pair.
+    constinit astia::dev::irq_route route{1};
 
     const char* error_text(ps2_error error) {
         switch (error) {
@@ -64,7 +69,7 @@ namespace {
 int module_main() {
     logs::info("resident module loaded");
 
-    const astia::dev::ps2_port_window& ports = astia::module::ps2_platform_ports();
+    const astia::dev::io_port_window& ports = astia::dev::platform_input_window();
 
     if (!ports.valid()) {
         logs::info("unavailable");
@@ -98,7 +103,7 @@ int module_main() {
 
     // The kernel owns the module reference behind this route and marks the
     // caller resident itself; there is no module-side lifetime object.
-    if (!astia::module::ps2_claim_irq(irq_entry)) {
+    if (!route.claim(irq_entry)) {
         shutdown();
         logs::info("unavailable");
         logs::info("irq claim failed");
@@ -107,7 +112,7 @@ int module_main() {
     }
 
     if (!astia::module::make_resident()) {
-        (void) astia::module::ps2_release_irq();
+        (void) route.release();
         shutdown();
         logs::info("unavailable");
         logs::info("resident transition failed");
@@ -118,8 +123,8 @@ int module_main() {
     logs::info("ready irq=1");
 
     // Unmask last: the lease, route, and controller source are all in place.
-    if (!astia::module::ps2_unmask_irq()) {
-        (void) astia::module::ps2_release_irq();
+    if (!route.unmask()) {
+        (void) route.release();
         shutdown();
         logs::info("unavailable");
         logs::info("irq unmask failed");

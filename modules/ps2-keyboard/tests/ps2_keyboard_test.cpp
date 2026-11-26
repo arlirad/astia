@@ -6,7 +6,7 @@
 #include "support/test.hpp"
 #include <initializer_list>
 
-using astia::dev::ps2_port_window;
+using astia::dev::io_port_window;
 using astia::ps2::input_sink;
 using astia::ps2::key;
 using astia::ps2::modifiers;
@@ -169,7 +169,7 @@ ASTIA_TEST(keymap_sink_failure_is_reported) {
 ASTIA_TEST(keyboard_text_and_modifiers) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus = astia::test::fake_ps2_bus(fake);
-    ps2_port_window        window{bus};
+    io_port_window         window{bus, 0x60, 0x64};
     ps2_controller         controller(window, 64);
     capture_sink           capture;
     ps2_keyboard           keyboard(controller, sink_for(capture));
@@ -199,7 +199,7 @@ ASTIA_TEST(keyboard_text_and_modifiers) {
 ASTIA_TEST(keyboard_arrows_function_keys_and_keypad) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus = astia::test::fake_ps2_bus(fake);
-    ps2_port_window        window{bus};
+    io_port_window         window{bus, 0x60, 0x64};
     ps2_controller         controller(window, 64);
     capture_sink           capture;
     ps2_keyboard           keyboard(controller, sink_for(capture));
@@ -224,7 +224,7 @@ ASTIA_TEST(keyboard_irq_drain_is_bounded) {
     }
 
     astia::dev::pio_bus bus = astia::test::fake_ps2_bus(fake);
-    ps2_port_window     window{bus};
+    io_port_window      window{bus, 0x60, 0x64};
     ps2_controller      controller(window, 64);
     capture_sink        capture;
     ps2_keyboard        keyboard(controller, sink_for(capture));
@@ -240,7 +240,7 @@ ASTIA_TEST(keyboard_irq_drain_is_bounded) {
 ASTIA_TEST(keyboard_initialize_resets_selects_set2_and_scans) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus = astia::test::fake_ps2_bus(fake);
-    ps2_port_window        window{bus};
+    io_port_window         window{bus, 0x60, 0x64};
     ps2_controller         controller(window, 64);
     capture_sink           capture;
     ps2_keyboard           keyboard(controller, sink_for(capture));
@@ -256,7 +256,7 @@ ASTIA_TEST(keyboard_initialize_resets_selects_set2_and_scans) {
 ASTIA_TEST(keyboard_sink_failure_propagates) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus = astia::test::fake_ps2_bus(fake);
-    ps2_port_window        window{bus};
+    io_port_window         window{bus, 0x60, 0x64};
     ps2_controller         controller(window, 64);
     capture_sink           capture;
 
