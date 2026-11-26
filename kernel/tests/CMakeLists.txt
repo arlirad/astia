@@ -278,11 +278,16 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_unix_socket_accept_test
+        unix_socket_accept_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/unix_socket.cpp)
+target_compile_definitions(astia_unix_socket_accept_test PRIVATE
+        ASTIA_AIO_TEST_REAL_UNIX_SOCKETS=1)
 astia_add_host_test(astia_unix_control_test
         unix_control_test.cpp
         ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 foreach(_astia_aio_test IN ITEMS astia_aio_static_handlers_test astia_aio_filesystem_test
-        astia_aio_readiness_test astia_aio_socket_test)
+        astia_aio_readiness_test astia_aio_socket_test astia_unix_socket_accept_test)
     target_compile_options(${_astia_aio_test} PRIVATE -fno-pie)
     target_link_options(${_astia_aio_test} PRIVATE
             "-Wl,-no-pie"

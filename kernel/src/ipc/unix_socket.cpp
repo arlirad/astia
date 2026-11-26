@@ -490,24 +490,17 @@ namespace astia::fs {
                     return n;
                 }
                 if (kind == state::listener) {
-                    auto accepted = dequeue();
-                    if (!accepted) {
+                    const long accepted = accept_queued(proc::current_process());
+                    if (accepted == 0) {
                         r.stage(1);
 
                         return 0;
                     }
 
-                    auto* current = proc::current_process();
-                    if (!current)
-                        return -ESRCH;
+                    if (accepted > 0)
+                        r.complete(true);
 
-                    const auto installed = current->allocate_descriptor(accepted);
-                    if (!installed)
-                        return -EMFILE;
-
-                    r.complete(true);
-
-                    return installed.value.value;
+                    return accepted;
                 }
                 long n           = r.direction() == io::direction::input
                                        ? read_ready(r.buffer(), r.length(), 0)
@@ -826,20 +819,32 @@ namespace astia::fs {
                 return true;
             }
 
-            mm::shptr<open_file> dequeue() {
+            /// Install the connection at the head of the backlog into a free
+            /// descriptor and only then advance the queue.  A full descriptor
+            /// table leaves the backlog untouched so a later accept can still
+            /// return the connection.
+            long accept_queued(proc::process* current) {
                 core::spinlock_guard guard(_lock);
 
                 if (!_queue_count)
-                    return {};
+                    return 0;
 
-                auto x = _queue[_queue_head];
+                if (!current)
+                    return -ESRCH;
 
-                _queue[_queue_head] = {};
-                _queue_head         = (_queue_head + 1) % socket_backlog_capacity;
+                auto& pending = _queue[_queue_head];
+
+                const auto installed = current->allocate_descriptor(pending);
+
+                if (!installed)
+                    return -EMFILE;
+
+                pending     = {};
+                _queue_head = (_queue_head + 1) % socket_backlog_capacity;
 
                 --_queue_count;
 
-                return x;
+                return installed.value.value;
             }
 
             private:

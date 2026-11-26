@@ -841,7 +841,14 @@ namespace astia::proc {
 } // namespace astia::proc
 
 namespace astia::fs {
+#ifdef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
+    open_file::~open_file() {
+        if (_parent)
+            _parent->close(_flags);
+    }
+#else
     open_file::~open_file() {}
+#endif
 
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
@@ -1058,6 +1065,7 @@ namespace astia::fs {
                               ::astia::io::aio::test_support::detail::pipe_write_value};
     }
 
+#ifndef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
     long create_unix_socket(mm::shptr<open_file>& out, u32) {
         if (!::astia::io::aio::test_support::detail::socket_value)
             return -EAFNOSUPPORT;
@@ -1077,6 +1085,7 @@ namespace astia::fs {
 
         return 0;
     }
+#endif
 } // namespace astia::fs
 
 namespace astia::io::aio::ring {
