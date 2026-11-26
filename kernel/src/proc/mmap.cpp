@@ -876,9 +876,10 @@ namespace astia::proc {
 
         auto take_spare = [&]() {
             mmap_region* node = spare;
-
-            spare      = spare->next;
-            node->next = nullptr;
+            if (node != nullptr) {
+                spare      = node->next;
+                node->next = nullptr;
+            }
 
             return node;
         };

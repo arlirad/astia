@@ -53,6 +53,8 @@ def check_production_layout(repository: Path) -> None:
             assert name in {
                 "execve",
                 "spawnve",
+                "munmap",
+                "mprotect",
                 "mmap",
                 "msync",
                 "mount",
