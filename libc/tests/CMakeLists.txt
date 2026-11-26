@@ -225,6 +225,11 @@ add_executable(libc_perror_test stdio/perror_test.c support/backend_host.c)
 target_link_libraries(libc_perror_test PRIVATE astia_libc)
 add_test(NAME libc_perror_test COMMAND libc_perror_test)
 
+add_executable(libc_syslog_test sys/syslog_test.c support/backend_host.c
+                                support/process_host.c support/alarm_host.c)
+target_link_libraries(libc_syslog_test PRIVATE astia_libc_host Threads::Threads)
+add_test(NAME libc_syslog_test COMMAND libc_syslog_test)
+
 add_executable(libc_sigwait_test process/sigwait_test.c support/backend_host.c support/process_host.c support/alarm_host.c)
 target_link_libraries(libc_sigwait_test PRIVATE astia_libc_host)
 add_test(NAME libc_sigwait_test COMMAND libc_sigwait_test)
