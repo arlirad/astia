@@ -98,6 +98,10 @@ add_executable(libc_termios_request_test io/termios_request_test.c)
 target_link_libraries(libc_termios_request_test PRIVATE astia_libc)
 add_test(NAME libc_termios_request_test COMMAND libc_termios_request_test)
 
+add_executable(libc_ttyname_test io/ttyname_test.c support/backend_host.c)
+target_link_libraries(libc_ttyname_test PRIVATE astia_libc)
+add_test(NAME libc_ttyname_test COMMAND libc_ttyname_test)
+
 add_executable(libc_aio_test aio/aio_test.c support/backend_host.c support/time_host.c)
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)

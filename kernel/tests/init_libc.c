@@ -1017,6 +1017,7 @@ static int libc_tcflush_contract(void) {
     int  master;
     int  slave;
     char slave_name[64];
+    char tty_name[64];
     char result[8];
 
     struct termios raw;
@@ -1028,7 +1029,9 @@ static int libc_tcflush_contract(void) {
         return 28;
 
     slave = open(slave_name, O_RDWR | O_NOCTTY);
-    if (slave < 0)
+
+    if (slave < 0 || ttyname_r(slave, tty_name, sizeof tty_name) != 0 ||
+        strcmp(tty_name, slave_name) != 0)
         return 28;
 
     if (tcgetattr(slave, &raw) != 0)

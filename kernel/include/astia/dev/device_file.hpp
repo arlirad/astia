@@ -61,6 +61,12 @@ namespace astia::dev {
             return result;
         }
 
+        const char* device_name() const override {
+            const device* value = device_instance();
+
+            return value != nullptr ? value->name() : nullptr;
+        }
+
         private:
         device*                    borrowed_ = nullptr;
         mm::shptr<device>          owner_;

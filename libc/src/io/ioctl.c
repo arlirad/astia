@@ -48,6 +48,9 @@ int ioctl(int fd, unsigned long request, ...) {
     else if (request == TIOCSCTTY) {
         length = 0;
     }
+    else if (request == TIOCGNAME) {
+        length = sizeof(struct astia_tty_name);
+    }
     else {
         errno = ENOTTY;
 

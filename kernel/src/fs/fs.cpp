@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/api/termios.h>
 #include <astia/core/rcu_vector.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
@@ -1517,6 +1518,51 @@ namespace astia::fs {
     }
 
     long open_file::ioctl(u64 request, void* argp, usize size) {
+        if (request == TIOCGNAME) {
+            if (argp == nullptr || size != sizeof(struct astia_tty_name))
+                return -EINVAL;
+
+            const char* device = _parent ? _parent->device_name() : nullptr;
+            const char* path   = this->path();
+
+            if ((device == nullptr || device[0] == '\0') && path == nullptr)
+                return -ENOTTY;
+
+            auto* name = static_cast<struct astia_tty_name*>(argp);
+
+            usize i = 0;
+
+            if (device != nullptr && device[0] != '\0') {
+                static constexpr char prefix[] = "/dev/";
+
+                for (usize j = 0; prefix[j] != '\0'; ++j) {
+                    if (i + 1 >= sizeof(name->path))
+                        return -ENAMETOOLONG;
+
+                    name->path[i++] = prefix[j];
+                }
+
+                for (usize j = 0; device[j] != '\0'; ++j) {
+                    if (i + 1 >= sizeof(name->path))
+                        return -ENAMETOOLONG;
+
+                    name->path[i++] = device[j];
+                }
+            }
+            else {
+                for (; i + 1 < sizeof(name->path) && path[i] != '\0'; ++i) {
+                    name->path[i] = path[i];
+                }
+
+                if (path[i] != '\0')
+                    return -ENAMETOOLONG;
+            }
+
+            name->path[i] = '\0';
+
+            return 0;
+        }
+
         if (!_parent)
             return -EBADF;
 

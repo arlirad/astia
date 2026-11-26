@@ -61,6 +61,10 @@ namespace astia::io::aio::operations {
             else if (sqe.offset == TIOCSCTTY) {
                 expected = 0;
             }
+            else if (sqe.offset == TIOCGNAME) {
+                expected = sizeof(struct astia_tty_name);
+                output   = true;
+            }
             else {
                 co_return -ENOTTY;
             }
@@ -76,7 +80,12 @@ namespace astia::io::aio::operations {
 
             astia::atomic_thread_fence(astia::memory_order::seq_cst);
 
-            alignas(8) u8 ioctl_storage[sizeof(struct termios)]{};
+            constexpr usize ioctl_storage_size =
+                sizeof(struct termios) > sizeof(struct astia_tty_name)
+                    ? sizeof(struct termios)
+                    : sizeof(struct astia_tty_name);
+
+            alignas(8) u8 ioctl_storage[ioctl_storage_size]{};
 
             if (input && !memory::copy_in(ioctl_storage, argument.value.bytes(expected)))
                 co_return -EFAULT;
