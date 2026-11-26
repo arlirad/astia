@@ -23,4 +23,4 @@ Never returns 0. When a signal ends the wait, returns -1 and sets errno to EINTR
 
 ## NOTES
 
-The libc wrapper is implemented in [libc/src/signal.c](https://github.com/arlirad/astia/blob/main/libc/src/signal.c); the kernel wait path is [kernel/src/proc/syscalls/signal/sigsuspend.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.cpp).
+The libc wrapper is implemented in [libc/src/process/signal.c](https://github.com/arlirad/astia/blob/main/libc/src/process/signal.c); the kernel wait path is [kernel/src/proc/syscalls/signal/sigsuspend.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/signal/sigsuspend.cpp).

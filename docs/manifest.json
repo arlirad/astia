@@ -297,7 +297,7 @@
         "subsystem": "proc",
         "category": "process",
         "sourcePath": "docs/2/proc/process/execve.md",
-        "source": "libc/src/unistd.c",
+        "source": "libc/src/sys/unistd.c",
         "synopsisKind": "public",
         "synopsis": "int execve(const char* path, char* const argv[], char* const envp[]);"
       },
@@ -309,7 +309,7 @@
         "subsystem": "proc",
         "category": "signal",
         "sourcePath": "docs/2/proc/signal/sigsuspend.md",
-        "source": "libc/src/signal.c",
+        "source": "libc/src/process/signal.c",
         "synopsisKind": "public",
         "synopsis": "int sigsuspend(const sigset_t* mask);"
       },

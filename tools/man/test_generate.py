@@ -54,8 +54,8 @@ class GenerateTest(unittest.TestCase):
         'sigaction': 'kernel/src/proc/syscalls/signal/sigaction.cpp',
         'sigprocmask': 'kernel/src/proc/syscalls/signal/sigprocmask.cpp',
         'thread_create2': 'kernel/src/proc/syscalls/thread/thread_create2.cpp',
-        'execve': 'libc/src/unistd.c',
-        'sigsuspend': 'libc/src/signal.c',
+        'execve': 'libc/src/sys/unistd.c',
+        'sigsuspend': 'libc/src/process/signal.c',
         'getpgrp': 'kernel/src/proc/syscalls/getpgrp.cpp',
         'setpgid': 'kernel/src/proc/syscalls/setpgid.cpp',
         'setsid': 'kernel/src/proc/syscalls/setsid.cpp',
@@ -394,7 +394,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("FD_CLOEXEC", execve)
         self.assertIn("null path returns EINVAL", execve)
         self.assertIn("ENAMETOOLONG", execve)
-        self.assertIn("libc/src/unistd.c", execve)
+        self.assertIn("libc/src/sys/unistd.c", execve)
         self.assertIn("exec_loader.cpp", execve)
         waitpid = (REPO_ROOT / "docs/2/proc/process/waitpid.md").read_text()
         self.assertIn("astia_waitpid_options", waitpid)
@@ -409,7 +409,7 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("Never returns 0", sigsuspend)
         self.assertIn("errno to EINTR", sigsuspend)
         self.assertIn("EAGAIN", sigsuspend)
-        self.assertIn("libc/src/signal.c", sigsuspend)
+        self.assertIn("libc/src/process/signal.c", sigsuspend)
 
     def test_generator_exports_authored_markdown_verbatim(self):
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
