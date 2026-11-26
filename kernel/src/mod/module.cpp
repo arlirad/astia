@@ -423,10 +423,11 @@ namespace astia::mod {
         ///
         /// Modules are ET_REL, so the loader always maps relocatably (fixed is
         /// never set). Frames are handed out 4 KiB-aligned, which satisfies any
-        /// section alignment a compiler actually emits (<= 4096). PVH boot
-        /// leaves the kernel on an identity map of physical memory, so the
-        /// returned physical address is directly usable — readable, writable
-        /// (for relocation), and executable.
+        /// section alignment a compiler actually emits (<= 4096). The image is
+        /// addressed through the kernel direct map, which every address space
+        /// shares, so module text stays executable while a process CR3 is
+        /// active. Never return the low identity alias: only [0, 1 GiB) is
+        /// identity-mapped in the kernel map and none of it is shared.
         void* image_map(void* context, u64 /*hint*/, usize size, usize align,
                         bool fixed) {
             using fa = mm::frame_allocator;
@@ -441,7 +442,7 @@ namespace astia::mod {
             if (phys == fa::invalid_frame)
                 return nullptr;
 
-            void* image = reinterpret_cast<void*>(static_cast<usize>(phys));
+            void* image = mm::kernel_frames().to_virt(phys);
 
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;
@@ -453,8 +454,9 @@ namespace astia::mod {
             using fa = mm::frame_allocator;
 
             usize frames = (size + fa::frame_size - 1) / fa::frame_size;
+            u64   phys   = mm::kernel_frames().to_phys(address);
 
-            mm::kernel_frames().release(reinterpret_cast<u64>(address), frames);
+            mm::kernel_frames().release(phys, frames);
         }
 
         /// Backs the loader's undefined-symbol resolution with the linked

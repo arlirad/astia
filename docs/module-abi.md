@@ -90,10 +90,15 @@ Kernel modules are placed above 4 GiB through the direct map, so
 `-mcmodel=large`; relocation types outside the module ABI are rejected as
 unsupported.
 
+Module images are allocated through the kernel direct map, so their code and
+data remain executable and addressable from every process address space.
+Because the module ABI applies RELA relocations, the audit also rejects a
+`SHT_REL` section that patches an allocated section.
+
 ## Verification
 
 `modules/tests` compiles the public C++ header independently and builds typed
 ET_REL fixtures. `kernel/tests/elf_test.cpp` verifies C++ symbol resolution,
 relocations, entrypoint execution, and malformed-symbol rejection.
 Driver-specific host, teardown, and QEMU tests cover NVMe, VirtIO, RTL8139,
-and USB consumers.
+USB, and PS/2 keyboard consumers.
