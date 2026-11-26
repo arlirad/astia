@@ -370,4 +370,3 @@ ASTIA_TEST(cwd_context_inherits_root_state) {
     ASTIA_CHECK(std::strcmp(output, "/jail") == 0);
     ASTIA_CHECK(child.copy_cwd(output, sizeof output) == -ENOENT);
 }
-}

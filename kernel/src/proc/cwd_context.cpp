@@ -235,9 +235,9 @@ namespace astia::proc {
         if (!fs::path_service::within_root(workspace->root, workspace->full))
             return -ENOENT;
 
-        return fs::resolve_path_from(
-            workspace->root, root_relative(workspace->root, workspace->full),
-            buffer.data(), buffer.size(), follow_final);
+        return fs::resolve_path_from(workspace->root,
+                                     root_relative(workspace->root, workspace->full),
+                                     buffer.data(), buffer.size(), follow_final);
     }
 
     i64 cwd_context::resolve_path_at(const char* directory, const char* path,
@@ -276,9 +276,9 @@ namespace astia::proc {
         if (!fs::path_service::within_root(workspace->root, workspace->full))
             return -ENOENT;
 
-        return fs::resolve_path_from(
-            workspace->root, root_relative(workspace->root, workspace->full),
-            buffer.data(), buffer.size(), follow_final);
+        return fs::resolve_path_from(workspace->root,
+                                     root_relative(workspace->root, workspace->full),
+                                     buffer.data(), buffer.size(), follow_final);
     }
 
     i64 cwd_context::change_directory(const char* path) {
@@ -359,8 +359,9 @@ namespace astia::proc {
     }
 
     void cwd_context::inherit_from(const cwd_context& parent) {
-        char                     root[fs::path_max]{};
-        char                     cwd[fs::path_max]{};
+        char root[fs::path_max]{};
+        char cwd[fs::path_max]{};
+
         directory_anchor         anchor;
         mm::shptr<fs::open_file> handle;
 
@@ -389,6 +390,7 @@ namespace astia::proc {
 
         copy_path(_root, root);
         copy_path(_cwd, cwd);
+
         _anchor      = anchor;
         _root_handle = static_cast<mm::shptr<fs::open_file>&&>(handle);
     }
