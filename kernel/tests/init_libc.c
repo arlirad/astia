@@ -4867,6 +4867,34 @@ int main(int argc, char** argv) {
             printf("astia: interp ok\n");
     }
 
+    /* GNU IFUNC: ifunc_value's resolver calls into libfixture_base, so it can
+       only run once every image is relocated; the slot must hold the result,
+       and the DSO's own R_X86_64_IRELATIVE slot must too. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 99;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_ifunc", NULL};
+
+            execv("/bin/interp_ifunc", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 99;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 99;
+        else
+            printf("astia: ifunc ok\n");
+    }
+
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {

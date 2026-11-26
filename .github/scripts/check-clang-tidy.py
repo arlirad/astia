@@ -34,6 +34,8 @@ UNSUPPORTED_FILES = {
     "kernel/tests/fixture_lib.c",
     "kernel/tests/init_libc.c",
     "kernel/tests/interp_link.c",
+    "kernel/tests/fixture_ifunc.c",
+    "kernel/tests/interp_ifunc.c",
     "kernel/tests/fixture_exec.c",
     "kernel/tests/support/file_host.cpp",
 }
