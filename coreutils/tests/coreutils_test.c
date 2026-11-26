@@ -616,6 +616,12 @@ int main(void) {
     char* whoami[]                 = {"whoami", NULL};
     char* login[]                  = {"login", NULL};
 
+    char* wc_lines_one[]   = {"wc", "-l", "/tmp/coreutils_a", NULL};
+    char* wc_lines_files[] = {"wc", "-l", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* wc_lines_stdin[] = {"wc", "-l", NULL};
+    char* wc_words_file[]  = {"wc", "-w", "/tmp/coreutils_a", NULL};
+    char* wc_lines_bytes[] = {"wc", "-lc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
     (void) unlink("/tmp/coreutils_from_stdin");
@@ -671,7 +677,15 @@ int main(void) {
         check("head -n", head_lines, NULL, 0, "one\ntwo\n", 1) ||
         check("head invalid", head_bad, NULL, 2, NULL, 0) ||
         check("head invalid number", head_bad_text, NULL, 2, NULL, 0) ||
-        check("wc files", wc_files, NULL, 0, "/tmp/coreutils_a\n", 0) ||
+        check("wc default files", wc_files, NULL, 0,
+              "1 1 6 /tmp/coreutils_a\n2 2 11 /tmp/coreutils_b\n3 3 17 total\n", 1) ||
+        check("wc -l file", wc_lines_one, NULL, 0, "1 /tmp/coreutils_a\n", 1) ||
+        check("wc -l files", wc_lines_files, NULL, 0,
+              "1 /tmp/coreutils_a\n2 /tmp/coreutils_b\n3 total\n", 1) ||
+        check("wc -l stdin", wc_lines_stdin, "alpha\nbeta\n", 0, "2\n", 1) ||
+        check("wc -w file", wc_words_file, NULL, 0, "1 /tmp/coreutils_a\n", 1) ||
+        check("wc -lc files", wc_lines_bytes, NULL, 0,
+              "1 6 /tmp/coreutils_a\n2 11 /tmp/coreutils_b\n3 17 total\n", 1) ||
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
         check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
         check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
