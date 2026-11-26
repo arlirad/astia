@@ -330,20 +330,36 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
                      spec == 'G' || spec == 'a' || spec == 'A') {
                 char* end;
 
-                double value;
+                int converted;
 
-                ok    = scan_token(in, token, sizeof token, width, float_char, 1);
-                value = strtod(token, &end);
-                ok    = ok && *end == '\0';
+                ok = scan_token(in, token, sizeof token, width, float_char, 1);
 
-                if (ok && !suppress) {
-                    if (length == 'l')
-                        *va_arg(ap, double*) = value;
-                    else if (length == 'L')
-                        *va_arg(ap, long double*) = (long double) value;
-                    else
-                        *va_arg(ap, float*) = (float) value;
+                if (length == 'L') {
+                    long double value = strtold(token, &end);
+
+                    converted = ok && *end == '\0';
+
+                    if (converted && !suppress)
+                        *va_arg(ap, long double*) = value;
                 }
+                else if (length == 'l') {
+                    double value = strtod(token, &end);
+
+                    converted = ok && *end == '\0';
+
+                    if (converted && !suppress)
+                        *va_arg(ap, double*) = value;
+                }
+                else {
+                    float value = strtof(token, &end);
+
+                    converted = ok && *end == '\0';
+
+                    if (converted && !suppress)
+                        *va_arg(ap, float*) = value;
+                }
+
+                ok = converted;
             }
             else if (spec == 'c') {
                 int n = width == 0 ? 1 : width;

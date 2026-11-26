@@ -471,7 +471,8 @@ static long double scale_binary(long double value, int exponent) {
     return value;
 }
 
-double strtod(const char* nptr, char** endptr) {
+static long double parse_floating(const char* nptr, char** endptr, int* negative_out,
+                                  int* nonzero_out) {
     const char* s = nptr;
 
     long double value             = 0.0L;
@@ -479,6 +480,7 @@ double strtod(const char* nptr, char** endptr) {
     int         exponent          = 0;
     int         exponent_negative = 0;
     int         any               = 0;
+    int         nonzero           = 0;
     int         frac_digits       = 0;
 
     while (isspace((unsigned char) *s)) {
@@ -498,13 +500,13 @@ double strtod(const char* nptr, char** endptr) {
 
         memcpy(&result, &bits, sizeof result);
 
-        if (negative)
-            result = -result;
-
         if (endptr)
             *endptr = (char*) (s + 8);
 
-        return result;
+        *negative_out = negative;
+        *nonzero_out  = 0;
+
+        return (long double) result;
     }
 
     if (ascii_equal_ci(s, "inf", 3)) {
@@ -514,13 +516,13 @@ double strtod(const char* nptr, char** endptr) {
 
         memcpy(&result, &bits, sizeof result);
 
-        if (negative)
-            result = -result;
-
         if (endptr)
             *endptr = (char*) (s + 3);
 
-        return result;
+        *negative_out = negative;
+        *nonzero_out  = 0;
+
+        return (long double) result;
     }
 
     if (ascii_equal_ci(s, "nan", 3)) {
@@ -533,7 +535,10 @@ double strtod(const char* nptr, char** endptr) {
         if (endptr)
             *endptr = (char*) (s + 3);
 
-        return result;
+        *negative_out = 0;
+        *nonzero_out  = 0;
+
+        return (long double) result;
     }
 
     if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
@@ -549,6 +554,9 @@ double strtod(const char* nptr, char** endptr) {
         while ((digit = hex_digit_value((unsigned char) *s)) >= 0) {
             value = value * 16.0L + (long double) digit;
 
+            if (digit != 0)
+                nonzero = 1;
+
             s++;
 
             any = 1;
@@ -559,6 +567,9 @@ double strtod(const char* nptr, char** endptr) {
 
             while ((digit = hex_digit_value((unsigned char) *s)) >= 0) {
                 value = value * 16.0L + (long double) digit;
+
+                if (digit != 0)
+                    nonzero = 1;
 
                 hex_fraction++;
                 s++;
@@ -600,15 +611,13 @@ double strtod(const char* nptr, char** endptr) {
                 (binary_negative ? -binary_exponent : binary_exponent) - 4 * hex_fraction;
             value = scale_binary(value, binary_exponent);
 
-            if (value > (long double) DBL_MAX) {
-                errno = ERANGE;
-                value = (long double) DBL_MAX;
-            }
-
             if (endptr)
                 *endptr = (char*) s;
 
-            return negative ? -(double) value : (double) value;
+            *negative_out = negative;
+            *nonzero_out  = nonzero;
+
+            return value;
         }
 
         s = hex_start;
@@ -616,6 +625,9 @@ double strtod(const char* nptr, char** endptr) {
 
     while (isdigit((unsigned char) *s)) {
         value = value * 10.0L + (long double) (*s - '0');
+
+        if (*s != '0')
+            nonzero = 1;
 
         s++;
 
@@ -628,6 +640,9 @@ double strtod(const char* nptr, char** endptr) {
         while (isdigit((unsigned char) *s)) {
             value = value * 10.0L + (long double) (*s - '0');
 
+            if (*s != '0')
+                nonzero = 1;
+
             frac_digits++;
             s++;
 
@@ -639,7 +654,10 @@ double strtod(const char* nptr, char** endptr) {
         if (endptr)
             *endptr = (char*) nptr;
 
-        return 0.0;
+        *negative_out = 0;
+        *nonzero_out  = 0;
+
+        return 0.0L;
     }
 
     exponent -= frac_digits;
@@ -676,27 +694,70 @@ double strtod(const char* nptr, char** endptr) {
 
     value = scale_decimal(value, exponent);
 
+    if (endptr)
+        *endptr = (char*) s;
+
+    *negative_out = negative;
+    *nonzero_out  = nonzero;
+
+    return value;
+}
+
+static int floating_underflow(long double value, int nonzero, long double minimum) {
+    return (value != 0.0L && value < minimum) || (value == 0.0L && nonzero);
+}
+
+double strtod(const char* nptr, char** endptr) {
+    int negative;
+    int nonzero;
+
+    long double value = parse_floating(nptr, endptr, &negative, &nonzero);
+    double      result;
+
     if (value > (long double) DBL_MAX) {
         errno = ERANGE;
         value = (long double) DBL_MAX;
     }
-    else if (value != 0.0L && value < (long double) DBL_MIN) {
+    else if (floating_underflow(value, nonzero, (long double) DBL_MIN)) {
         errno = ERANGE;
         value = 0.0L;
     }
 
-    if (endptr)
-        *endptr = (char*) s;
+    result = (double) value;
 
-    return negative ? -(double) value : (double) value;
+    return negative ? -result : result;
 }
 
 float strtof(const char* nptr, char** endptr) {
-    return (float) strtod(nptr, endptr);
+    int negative;
+    int nonzero;
+
+    long double value  = parse_floating(nptr, endptr, &negative, &nonzero);
+    float       result = (float) value;
+
+    if (value > (long double) FLT_MAX) {
+        if (result > FLT_MAX)
+            errno = ERANGE;
+    }
+    else if (floating_underflow(value, nonzero, (long double) FLT_MIN)) {
+        errno = ERANGE;
+    }
+
+    return negative ? -result : result;
 }
 
 long double strtold(const char* nptr, char** endptr) {
-    return (long double) strtod(nptr, endptr);
+    int negative;
+    int nonzero;
+
+    long double value = parse_floating(nptr, endptr, &negative, &nonzero);
+
+    if (value > (long double) LDBL_MAX)
+        errno = ERANGE;
+    else if (floating_underflow(value, nonzero, (long double) LDBL_MIN))
+        errno = ERANGE;
+
+    return negative ? -value : value;
 }
 
 double atof(const char* nptr) {
