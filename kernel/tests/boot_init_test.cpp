@@ -1,16 +1,7 @@
 #include <astia/boot/init.hpp>
+#include <astia/strings.hpp>
 
 #include "support/test.hpp"
-
-namespace {
-    bool string_equal(const char* first, const char* second) {
-        while (*first != '\0' && *first == *second) {
-            ++first;
-            ++second;
-        }
-        return *first == *second;
-    }
-}
 
 ASTIA_TEST(boot_init_selection) {
     using astia::boot::init_option_error;
@@ -18,11 +9,11 @@ ASTIA_TEST(boot_init_selection) {
 
     auto selection = select_init(nullptr);
     ASTIA_CHECK(selection.error == init_option_error::none);
-    ASTIA_CHECK(string_equal(selection.path, "/sbin/init"));
+    ASTIA_CHECK(astia::string_equal(selection.path, "/sbin/init"));
 
     selection = select_init("quiet --init /bin/zsh console=ttyS0");
     ASTIA_CHECK(selection.error == init_option_error::none);
-    ASTIA_CHECK(string_equal(selection.path, "/bin/zsh"));
+    ASTIA_CHECK(astia::string_equal(selection.path, "/bin/zsh"));
 
     ASTIA_CHECK(select_init("--init").error == init_option_error::missing_path);
     ASTIA_CHECK(select_init("--init relative").error == init_option_error::invalid_path);

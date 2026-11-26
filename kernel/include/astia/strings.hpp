@@ -23,6 +23,20 @@ namespace astia {
         return true;
     }
 
+    /// Compare two NUL-terminated strings.  A null pointer is not equal to
+    /// anything, including another null pointer.
+    constexpr bool string_equal(const char* lhs, const char* rhs) {
+        if (lhs == nullptr || rhs == nullptr)
+            return false;
+
+        while (*lhs != '\0' && *lhs == *rhs) {
+            ++lhs;
+            ++rhs;
+        }
+
+        return *lhs == *rhs;
+    }
+
     constexpr bool string_starts_with(string_view value, string_view prefix) {
         if (!value.valid() || !prefix.valid() || prefix.size > value.size)
             return false;

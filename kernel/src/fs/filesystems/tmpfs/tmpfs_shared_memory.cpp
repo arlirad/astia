@@ -6,7 +6,6 @@ namespace astia::fs::filesystems {
 
     using tmpfs_detail::access_allowed;
     using tmpfs_detail::copy_path;
-    using tmpfs_detail::equal;
     using tmpfs_detail::oflag_creat;
     using tmpfs_detail::oflag_excl;
     using tmpfs_detail::oflag_trunc;
@@ -22,7 +21,7 @@ namespace astia::fs::filesystems {
             return -EINVAL;
         core::spinlock_guard guard(_namespace_lock);
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!_entries[i].used || !equal(_entries[i].path, path))
+            if (!_entries[i].used || !string_equal(_entries[i].path, path))
                 continue;
             if (_entries[i].directory)
                 return -EISDIR;
@@ -81,7 +80,7 @@ namespace astia::fs::filesystems {
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-                if (!_entries[i].used || !equal(_entries[i].path, path))
+                if (!_entries[i].used || !string_equal(_entries[i].path, path))
                     continue;
                 if (_entries[i].directory)
                     return -EISDIR;

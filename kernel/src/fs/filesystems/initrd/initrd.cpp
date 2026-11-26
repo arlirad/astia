@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/mm/share.hpp>
+#include <astia/strings.hpp>
 
 namespace astia::fs::filesystems {
 
@@ -53,14 +54,6 @@ namespace astia::fs::filesystems {
             private:
             astia::span<const u8> _data;
         };
-
-        bool equal(const char* lhs, const char* rhs) {
-            while (*lhs != '\0' && *lhs == *rhs) {
-                ++lhs;
-                ++rhs;
-            }
-            return *lhs == *rhs;
-        }
 
         bool copy_path(char* dst, const char* src) {
             if (src == nullptr)
@@ -131,7 +124,7 @@ namespace astia::fs::filesystems {
         if (!copy_path(normalized + 1, path))
             return false;
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (_entries[i].used && equal(_entries[i].path, normalized))
+            if (_entries[i].used && string_equal(_entries[i].path, normalized))
                 return false;
         }
         for (u32 i = 0; i < initrd_max_entries; ++i) {
@@ -165,7 +158,7 @@ namespace astia::fs::filesystems {
         if (path == nullptr)
             return {};
         for (u32 i = 0; i < initrd_max_entries; ++i) {
-            if (_entries[i].used && equal(_entries[i].path, path)) {
+            if (_entries[i].used && string_equal(_entries[i].path, path)) {
                 auto file = mm::share<initrd_file>(_entries[i].data);
                 return file ? mm::share<open_file>(file, flags) : mm::shptr<open_file>{};
             }
@@ -179,7 +172,7 @@ namespace astia::fs::filesystems {
         if (path[1] == '\0')
             return directory_dir;
         for (u32 i = 0; i < initrd_max_entries; ++i)
-            if (_entries[i].used && equal(_entries[i].path, path))
+            if (_entries[i].used && string_equal(_entries[i].path, path))
                 return directory_reg;
         // Directories are implicit in the archive namespace.
         u32 length = 0;
@@ -203,7 +196,7 @@ namespace astia::fs::filesystems {
             if (path[1] == '\0')
                 return file_mode(file_type::directory, readonly_directory_permissions);
             for (u32 i = 0; i < initrd_max_entries; ++i)
-                if (_entries[i].used && equal(_entries[i].path, path))
+                if (_entries[i].used && string_equal(_entries[i].path, path))
                     return file_mode(file_type::regular, readonly_file_permissions);
             /* Directories are implicit in the archive namespace. */
             for (u32 i = 0; i < initrd_max_entries; ++i)

@@ -5,7 +5,6 @@
 namespace astia::fs::filesystems {
 
     using tmpfs_detail::copy_path;
-    using tmpfs_detail::equal;
     using tmpfs_detail::oflag_creat;
     using tmpfs_detail::oflag_excl;
     using tmpfs_detail::oflag_rdwr;
@@ -37,7 +36,7 @@ namespace astia::fs::filesystems {
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-                if (!_entries[i].used || !equal(_entries[i].path, path))
+                if (!_entries[i].used || !string_equal(_entries[i].path, path))
                     continue;
                 /* Permission selection is performed by the process/VFS ABI
                    boundary, where real/effective and supplementary credentials
@@ -73,7 +72,7 @@ namespace astia::fs::filesystems {
             /* Recheck after the allocation: creation remains one atomic
                namespace publication, without holding the lock over it. */
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-                if (_entries[i].used && equal(_entries[i].path, path)) {
+                if (_entries[i].used && string_equal(_entries[i].path, path)) {
                     if (_entries[i].directory ||
                         ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0))
                         return {};
@@ -115,7 +114,7 @@ namespace astia::fs::filesystems {
         // The mount point is the tmpfs root.  From the VFS this is the
         // existing directory /tmp, so mkdir(/tmp) must have normal mkdir
         // semantics rather than looking like an invalid tmpfs pathname.
-        if (equal(path, "/"))
+        if (string_equal(path, "/"))
             return -EEXIST;
         auto file = mm::shptr<tmpfs_file>(new tmpfs_file{
             0, file_mode(file_type::directory, mode.permissions().chmod_mask())});
@@ -123,7 +122,7 @@ namespace astia::fs::filesystems {
             return -ENOMEM;
         core::spinlock_guard guard(_namespace_lock);
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
-            if (_entries[i].used && equal(_entries[i].path, path))
+            if (_entries[i].used && string_equal(_entries[i].path, path))
                 return -EEXIST;
         char parent[path_max]{};
         copy_path(parent, path);
@@ -201,7 +200,7 @@ namespace astia::fs::filesystems {
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i)
-                if (_entries[i].used && equal(_entries[i].path, path)) {
+                if (_entries[i].used && string_equal(_entries[i].path, path)) {
                     if (!_entries[i].mode.is_symlink())
                         return -EINVAL;
                     file = _entries[i].target;
@@ -303,14 +302,14 @@ namespace astia::fs::filesystems {
         // walk through a mounted directory such as /tmp.
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
-        if (equal(path, "/"))
+        if (string_equal(path, "/"))
             return -EEXIST;
         mm::shptr<tmpfs_file> file;
         bool                  found = false;
         {
             core::spinlock_guard guard(_namespace_lock);
             for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-                if (!_entries[i].used || !equal(_entries[i].path, path))
+                if (!_entries[i].used || !string_equal(_entries[i].path, path))
                     continue;
                 if (_entries[i].directory != directory)
                     return directory ? -ENOTDIR : -EISDIR;
@@ -337,9 +336,9 @@ namespace astia::fs::filesystems {
         if (old_path == nullptr || new_path == nullptr || old_path[0] != '/' ||
             new_path[0] != '/')
             return -EINVAL;
-        if (equal(old_path, "/"))
+        if (string_equal(old_path, "/"))
             return -EBUSY;
-        if (equal(old_path, new_path))
+        if (string_equal(old_path, new_path))
             return 0;
 
         char* parent = _path_scratch;
@@ -367,9 +366,9 @@ namespace astia::fs::filesystems {
         u32 source = tmpfs_max_entries;
         u32 target = tmpfs_max_entries;
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && equal(_entries[i].path, old_path))
+            if (_entries[i].used && string_equal(_entries[i].path, old_path))
                 source = i;
-            if (_entries[i].used && equal(_entries[i].path, new_path))
+            if (_entries[i].used && string_equal(_entries[i].path, new_path))
                 target = i;
         }
         if (source == tmpfs_max_entries)
@@ -409,12 +408,12 @@ namespace astia::fs::filesystems {
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (!_entries[i].used)
                 continue;
-            bool match = equal(_entries[i].path, old_path);
+            bool match = string_equal(_entries[i].path, old_path);
             if (!match && _entries[source].directory)
                 match = parent_of(old_path, _entries[i].path);
             if (!match)
                 continue;
-            u32       suffix     = equal(_entries[i].path, old_path) ? old_len : old_len;
+            u32 suffix = string_equal(_entries[i].path, old_path) ? old_len : old_len;
             const u32 suffix_len = [&] {
                 u32 n = 0;
                 while (_entries[i].path[suffix + n])
@@ -427,7 +426,7 @@ namespace astia::fs::filesystems {
         for (u32 i = 0; i < tmpfs_max_entries; ++i) {
             if (!_entries[i].used)
                 continue;
-            bool match = equal(_entries[i].path, old_path);
+            bool match = string_equal(_entries[i].path, old_path);
             if (!match && _entries[source].directory)
                 match = parent_of(old_path, _entries[i].path);
             if (!match)
@@ -465,7 +464,7 @@ namespace astia::fs::filesystems {
             return -ENOENT;
         u32 source = tmpfs_max_entries;
         for (u32 i = 0; i < tmpfs_max_entries; ++i)
-            if (_entries[i].used && equal(_entries[i].path, old_path))
+            if (_entries[i].used && string_equal(_entries[i].path, old_path))
                 source = i;
         if (source == tmpfs_max_entries)
             return -ENOENT;

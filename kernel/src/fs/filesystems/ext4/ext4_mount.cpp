@@ -1,20 +1,11 @@
 #include <astia/api/errno.h>
+#include <astia/strings.hpp>
 
 #include "ext4.hpp"
 
 namespace astia::fs::filesystems {
 
     namespace {
-        bool equal(const char* lhs, const char* rhs) {
-            if (lhs == nullptr || rhs == nullptr)
-                return false;
-            while (*lhs != '\0' && *lhs == *rhs) {
-                ++lhs;
-                ++rhs;
-            }
-            return *lhs == *rhs;
-        }
-
         bool copy_name(char* destination, const u8* source, u8 length, u32 capacity) {
             if (static_cast<u32>(length) + 1 > capacity)
                 return false;
@@ -165,7 +156,7 @@ namespace astia::fs::filesystems {
                 component[length++] = path[at++];
             }
             component[length] = '\0';
-            if (equal(component, "."))
+            if (string_equal(component, "."))
                 continue;
             ext4::inode child_node;
             if (!child(node, component, child_node))

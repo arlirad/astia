@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/core/spinlock.hpp>
+#include <astia/strings.hpp>
 
 namespace astia::fs {
     namespace {
@@ -17,16 +18,6 @@ namespace astia::fs {
         };
         entry          entries[max_unix_paths];
         core::spinlock lock;
-
-        bool equal(const char* a, const char* b) {
-            if (!a || !b)
-                return false;
-            while (*a && *a == *b) {
-                ++a;
-                ++b;
-            }
-            return *a == *b;
-        }
 
         bool parent_of(const char* directory, const char* path, u32& start);
     }
@@ -48,7 +39,7 @@ namespace astia::fs {
         long                 result = 0;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && equal(item.path, canonical.data())) {
+            if (item.used && string_equal(item.path, canonical.data())) {
                 result = -EADDRINUSE;
                 break;
             }
@@ -86,7 +77,7 @@ namespace astia::fs {
             return rc;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && equal(item.path, resolved)) {
+            if (item.used && string_equal(item.path, resolved)) {
                 endpoint = item.endpoint;
                 return endpoint ? 0 : -ECONNREFUSED;
             }
@@ -119,7 +110,7 @@ namespace astia::fs {
             for (auto& item : entries) {
                 if (!item.used || item.owner != owner)
                     continue;
-                if (equal(item.path, canonical)) {
+                if (string_equal(item.path, canonical)) {
                     if (directory)
                         return -ENOTDIR;
                     held = item.owner;
@@ -142,7 +133,7 @@ namespace astia::fs {
     long rename_unix_path(const char* old_path, const char* new_path, mount* owner) {
         if (!old_path || !new_path || !owner)
             return -EINVAL;
-        if (equal(old_path, new_path))
+        if (string_equal(old_path, new_path))
             return 0;
         mount* replaced = nullptr;
         {
@@ -152,9 +143,9 @@ namespace astia::fs {
             for (auto& item : entries) {
                 if (!item.used)
                     continue;
-                if (item.owner == owner && equal(item.path, old_path))
+                if (item.owner == owner && string_equal(item.path, old_path))
                     source = &item;
-                if (item.owner == owner && equal(item.path, new_path))
+                if (item.owner == owner && string_equal(item.path, new_path))
                     target = &item;
             }
             if (!source)
@@ -205,7 +196,7 @@ namespace astia::fs {
             return directory_unknown;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical))
+            if (item.used && item.owner == owner && string_equal(item.path, canonical))
                 return directory_sock;
         return directory_unknown;
     }
@@ -214,7 +205,7 @@ namespace astia::fs {
             return {};
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical))
+            if (item.used && item.owner == owner && string_equal(item.path, canonical))
                 return item.mode;
         return {};
     }
@@ -223,7 +214,7 @@ namespace astia::fs {
             return {};
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical))
+            if (item.used && item.owner == owner && string_equal(item.path, canonical))
                 return item.uid;
         return {};
     }
@@ -232,7 +223,7 @@ namespace astia::fs {
             return {};
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical))
+            if (item.used && item.owner == owner && string_equal(item.path, canonical))
                 return item.gid;
         return {};
     }
@@ -242,7 +233,7 @@ namespace astia::fs {
             return -EINVAL;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical)) {
+            if (item.used && item.owner == owner && string_equal(item.path, canonical)) {
                 item.mode = file_mode(file_type::socket, permissions);
                 return 0;
             }
@@ -253,7 +244,7 @@ namespace astia::fs {
             return -EINVAL;
         core::spinlock_guard guard(lock);
         for (auto& item : entries)
-            if (item.used && item.owner == owner && equal(item.path, canonical)) {
+            if (item.used && item.owner == owner && string_equal(item.path, canonical)) {
                 item.uid = uid;
                 item.gid = gid;
                 return 0;

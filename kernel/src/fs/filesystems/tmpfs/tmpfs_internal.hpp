@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/errno.h>
+#include <astia/strings.hpp>
 
 #include "tmpfs.hpp"
 
@@ -11,17 +12,6 @@ namespace astia::fs::filesystems::tmpfs_detail {
     inline constexpr u32 oflag_creat = ASTIA_AIO_O_CREAT;
     inline constexpr u32 oflag_excl  = ASTIA_AIO_O_EXCL;
     inline constexpr u32 oflag_trunc = ASTIA_AIO_O_TRUNC;
-
-    inline bool equal(const char* lhs, const char* rhs) {
-        if (lhs == nullptr || rhs == nullptr) {
-            return false;
-        }
-        while (*lhs != '\0' && *lhs == *rhs) {
-            ++lhs;
-            ++rhs;
-        }
-        return *lhs == *rhs;
-    }
 
     inline bool copy_path(char* dst, const char* src) {
         if (src == nullptr || src[0] != '/') {
