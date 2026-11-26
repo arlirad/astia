@@ -6,6 +6,7 @@
 #include <astia/core/cancellation.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
+#include <astia/dbg/panic_report.hpp>
 #include <astia/mm/address_space.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
@@ -535,6 +536,10 @@ namespace astia::proc {
             u32                      uid, gid;
             mm::shptr<fs::open_file> controlling_terminal;
         };
+
+        /// Lock-free best-effort snapshot for the panic report.  Metadata is
+        /// reported as unavailable when the lock is already held.
+        void panic_snapshot(dbg::panic_process& out) const;
 
         void snapshot_metadata(metadata_snapshot& out) const {
             arch::interrupt_spinlock_guard guard(_metadata_lock);

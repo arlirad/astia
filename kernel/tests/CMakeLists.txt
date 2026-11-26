@@ -351,6 +351,10 @@ astia_add_host_test(astia_pci_test
 target_compile_definitions(astia_pci_test PRIVATE ASTIA_HOST_TEST=1)
 target_include_directories(astia_pci_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 
+astia_add_host_test(astia_panic_report_test
+        panic_report_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dbg/panic_report.cpp)
+
 astia_add_host_test(astia_driver_manager_test
         driver_manager_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp

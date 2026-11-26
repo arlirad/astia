@@ -9,7 +9,7 @@ target_include_directories(astiakrn PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64
 )
 
-target_link_libraries(astiakrn PRIVATE arch_aarch64 libcore plat_aarch64_virt)
+target_link_libraries(astiakrn PRIVATE arch_aarch64 libcore dbg plat_aarch64_virt)
 
 target_compile_options(astiakrn PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:-ffunction-sections>

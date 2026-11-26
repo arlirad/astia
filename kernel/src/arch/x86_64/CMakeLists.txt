@@ -22,6 +22,7 @@ add_library(arch_x86_64 STATIC
         pci_mmio_owner.cpp
         smp.cpp
         platform.cpp
+        panic.cpp
 )
 
 # The 256 per-vector entry stubs (and their address table) are mechanical;
