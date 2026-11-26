@@ -1,3 +1,4 @@
+#include <astia/atomic.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/device_file.hpp>
@@ -831,12 +832,14 @@ namespace {
             return pci != nullptr && match_pci(pci->device());
         }
         bool probe(const astia::hw::device_info& info) override {
-            astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            astia::u64       token = astia::atomic_ref<astia::u64>(_teardown_token)
+                                         .load(astia::memory_order::acquire);
             const astia::u64 state = teardown_state(token);
             if (state == teardown_complete &&
-                !__atomic_compare_exchange_n(&_teardown_token, &token,
-                                             teardown_word(teardown_generation(token), 0),
-                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                !astia::atomic_ref<astia::u64>(_teardown_token)
+                     .compare_exchange_strong(
+                         token, teardown_word(teardown_generation(token), 0),
+                         astia::memory_order::acq_rel, astia::memory_order::acquire))
                 return {};
             if (state != 0 && state != teardown_complete)
                 return {};
@@ -869,7 +872,8 @@ namespace {
             return _product;
         }
         void remove(const astia::hw::device_info&) override {
-            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            astia::u64       expected = astia::atomic_ref<astia::u64>(_teardown_token)
+                                            .load(astia::memory_order::acquire);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
                     ? 1
@@ -877,9 +881,10 @@ namespace {
             const astia::u64 state = teardown_state(expected);
             if (state != 0 && state != teardown_complete)
                 return;
-            if (!__atomic_compare_exchange_n(&_teardown_token, &expected,
-                                             teardown_word(generation, teardown_claiming),
-                                             false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            if (!astia::atomic_ref<astia::u64>(_teardown_token)
+                     .compare_exchange_strong(
+                         expected, teardown_word(generation, teardown_claiming),
+                         astia::memory_order::acq_rel, astia::memory_order::acquire))
                 return;
             if (_file) {
                 _file->detach();
@@ -888,9 +893,9 @@ namespace {
             if (_file)
                 (void) _file->arm_quiescence_handler(quiescence_callback, this,
                                                      generation);
-            __atomic_store_n(&_teardown_token,
-                             teardown_word(generation, teardown_waiting),
-                             __ATOMIC_RELEASE);
+            astia::atomic_ref<astia::u64>(_teardown_token)
+                .store(teardown_word(generation, teardown_waiting),
+                       astia::memory_order::release);
             finish_remove(generation);
         }
         bool selftest() override {
@@ -966,7 +971,8 @@ namespace {
         }
 
         void finish_remove(astia::u64 generation) {
-            astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+            astia::u64 expected = astia::atomic_ref<astia::u64>(_teardown_token)
+                                      .load(astia::memory_order::acquire);
             for (;;) {
                 if (teardown_generation(expected) != generation)
                     return;
@@ -974,30 +980,35 @@ namespace {
                     if ((expected & teardown_retry) != 0)
                         return;
                     const astia::u64 desired = expected | teardown_retry;
-                    if (__atomic_compare_exchange_n(&_teardown_token, &expected, desired,
-                                                    false, __ATOMIC_ACQ_REL,
-                                                    __ATOMIC_ACQUIRE))
+                    if (astia::atomic_ref<astia::u64>(_teardown_token)
+                            .compare_exchange_strong(expected, desired,
+                                                     astia::memory_order::acq_rel,
+                                                     astia::memory_order::acquire))
                         return;
                     continue;
                 }
                 if (teardown_state(expected) != teardown_waiting)
                     return;
-                if (__atomic_compare_exchange_n(&_teardown_token, &expected,
-                                                teardown_word(generation, 3), false,
-                                                __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+                if (astia::atomic_ref<astia::u64>(_teardown_token)
+                        .compare_exchange_strong(expected, teardown_word(generation, 3),
+                                                 astia::memory_order::acq_rel,
+                                                 astia::memory_order::acquire))
                     break;
             }
             if (_file && !_file->quiescent()) {
-                astia::u64 observed = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
+                astia::u64 observed = astia::atomic_ref<astia::u64>(_teardown_token)
+                                          .load(astia::memory_order::acquire);
                 for (;;) {
                     if (teardown_generation(observed) != generation ||
                         teardown_state(observed) != 3)
                         return;
                     const bool retry = (observed & teardown_retry) != 0;
-                    if (__atomic_compare_exchange_n(
-                            &_teardown_token, &observed,
-                            teardown_word(generation, teardown_waiting, retry), false,
-                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                    if (astia::atomic_ref<astia::u64>(_teardown_token)
+                            .compare_exchange_strong(
+                                observed,
+                                teardown_word(generation, teardown_waiting, retry),
+                                astia::memory_order::acq_rel,
+                                astia::memory_order::acquire)) {
                         if (retry)
                             finish_remove(generation);
                         break;
@@ -1008,15 +1019,15 @@ namespace {
             device.stop();
             _file    = {};
             _product = {};
-            __atomic_store_n(&_teardown_token,
-                             teardown_word(generation, teardown_complete),
-                             __ATOMIC_RELEASE);
+            astia::atomic_ref<astia::u64>(_teardown_token)
+                .store(teardown_word(generation, teardown_complete),
+                       astia::memory_order::release);
         }
 
         controller                                device;
         astia::mm::shptr<astia::dev::device>      _product;
         astia::mm::shptr<astia::dev::device_file> _file;
-        volatile astia::u64                       _teardown_token = 0;
+        astia::u64                                _teardown_token = 0;
     };
 
     virtio_driver driver;
