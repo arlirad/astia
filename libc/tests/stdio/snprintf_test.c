@@ -201,6 +201,52 @@ static void test_pointers(void) {
     CHECK_FMT("0x0", 3, "%p", (void*) 0);
 }
 
+static void test_percent_n(void) {
+    char      text[32];
+    int       n;
+    ptrdiff_t z;
+
+    n = -1;
+
+    CHECK(snprintf(text, sizeof text, "abc%nxyz", &n) == 6);
+    CHECK(strcmp(text, "abcxyz") == 0 && n == 3);
+
+    n = -1;
+
+    CHECK(snprintf(text, sizeof text, "%n %d", &n, 42) == 3);
+    CHECK(strcmp(text, " 42") == 0 && n == 0);
+
+    {
+        char            small[4];
+        volatile size_t cap_4 = 4;
+
+        n = -1;
+
+        CHECK(snprintf(small, cap_4, "abcdef%n", &n) == 6);
+        CHECK(strcmp(small, "abc") == 0 && n == 6);
+
+        n = -1;
+
+        CHECK(snprintf(NULL, 0, "abc%n", &n) == 3 && n == 3);
+    }
+
+    {
+        signed char hh = -1;
+        short       h  = -1;
+        long        l  = -1;
+        long long   ll = -1;
+
+        CHECK(snprintf(text, sizeof text, "ab%hhn", &hh) == 2 && hh == 2);
+        CHECK(snprintf(text, sizeof text, "ab%hn", &h) == 2 && h == 2);
+        CHECK(snprintf(text, sizeof text, "ab%ln", &l) == 2 && l == 2);
+        CHECK(snprintf(text, sizeof text, "ab%lln", &ll) == 2 && ll == 2);
+
+        z = -1;
+
+        CHECK(snprintf(text, sizeof text, "ab%zn", &z) == 2 && z == 2);
+    }
+}
+
 static void test_unsupported(void) {
     CHECK_FMT("1.500000", 8, "%f", 1.5);
     CHECK_FMT("2.500000 42", 11, "%f %d", 2.5, 42);
@@ -302,6 +348,7 @@ int main(void) {
     test_float_precision();
     test_truncation();
     test_entry_points();
+    test_percent_n();
     test_long();
 
     if (fails)
