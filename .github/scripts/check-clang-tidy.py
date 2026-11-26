@@ -34,7 +34,12 @@ UNSUPPORTED_FILES = {
     "kernel/tests/fixture_lib.c",
     "kernel/tests/init_libc.c",
     "kernel/tests/interp_link.c",
+    "kernel/tests/interp_gnu.c",
+    "kernel/tests/interp_relro.c",
+    "kernel/tests/interp_tpoff32.c",
     "kernel/tests/fixture_exec.c",
+    "kernel/tests/fixture_gnu.c",
+    "kernel/tests/fixture_semihash.c",
     "kernel/tests/support/file_host.cpp",
 }
 CONFIG = pathlib.Path(__file__).with_name("clang-tidy-config.yml").resolve()
