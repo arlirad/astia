@@ -47,6 +47,22 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_linkat(char* old_path, char* new_path) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_LINKAT);
+
+        sqe.address = reinterpret_cast<u64>(old_path);
+        sqe.offset  = reinterpret_cast<u64>(new_path);
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     void set_directory(const char* path, u16 permissions, uid_t owner, gid_t group) {
         using namespace aio::test_support;
 
@@ -161,6 +177,66 @@ ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
     char path[] = "/root/existing";
 
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_linkat_allows_read_only_source_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode(fs::file_mode{});
+    set_directory("/src", 0555, uid_t{0}, gid_t{0});
+    set_node_mode("/src/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_directory("/dst", 0755, uid_t{1000}, gid_t{1000});
+
+    char old_path[] = "/src/file";
+    char new_path[] = "/dst/link";
+
+    ASTIA_CHECK(submit_linkat(old_path, new_path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_linkat_requires_source_parent_search) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode(fs::file_mode{});
+    set_directory("/src", 0644, uid_t{0}, gid_t{0});
+    set_node_mode("/src/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_directory("/dst", 0755, uid_t{1000}, gid_t{1000});
+
+    char old_path[] = "/src/file";
+    char new_path[] = "/dst/link";
+
+    ASTIA_CHECK(submit_linkat(old_path, new_path) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_linkat_requires_writable_destination_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode(fs::file_mode{});
+    set_directory("/src", 0755, uid_t{0}, gid_t{0});
+    set_node_mode("/src/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_directory("/dst", 0555, uid_t{1000}, gid_t{1000});
+
+    char old_path[] = "/src/file";
+    char new_path[] = "/dst/link";
+
+    ASTIA_CHECK(submit_linkat(old_path, new_path) == -EACCES);
 
     restore_credentials();
 }

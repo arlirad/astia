@@ -42,7 +42,7 @@ namespace astia::io::aio::operations {
             if (new_rc < 0)
                 co_return (i32) new_rc;
 
-            if (!parent_writable(current, old_resolved) ||
+            if (!parent_searchable(current, old_resolved) ||
                 !parent_writable(current, new_resolved))
                 co_return -EACCES;
 
