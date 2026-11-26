@@ -56,5 +56,20 @@ public sealed class PostgresRepositoryIntegrationTests
 
         var results = await repository.SearchAsync(name, CancellationToken.None);
         Assert.Contains(results, entry => entry.Manifest.Name.Value == name);
+
+        var byCommitPrefix = await repository.SearchAsync(
+            TestPackages.CommitSha[..8],
+            CancellationToken.None);
+        Assert.Contains(byCommitPrefix, entry => entry.Manifest.Name.Value == name);
+
+        var byCommitSubstring = await repository.SearchAsync(
+            TestPackages.CommitSha[8..16],
+            CancellationToken.None);
+        Assert.DoesNotContain(byCommitSubstring, entry => entry.Manifest.Name.Value == name);
+
+        var byProvenance = await repository.SearchAsync(
+            "ci://pkgsrv/tests/42",
+            CancellationToken.None);
+        Assert.Empty(byProvenance);
     }
 }
