@@ -696,7 +696,9 @@ astia_embed_blob(_lifecycle_reentrant_fixture_cpp
 # without linking the fixture symbols into any test binary.
 add_library(astia_module_lifecycle_fixture_compile_db OBJECT
         module_lifecycle_reentrant_fixture.cpp
-        module_lifecycle_wait_fixture.cpp)
+        module_lifecycle_wait_fixture.cpp
+        module_lifecycle_token_fixture.cpp
+        module_lifecycle_reloc32_fixture.cpp)
 target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
         -ffreestanding -fno-pic -fno-pie -mcmodel=large
         -fno-exceptions -fno-rtti -fno-use-cxa-atexit)
