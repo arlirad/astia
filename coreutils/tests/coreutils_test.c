@@ -854,11 +854,19 @@ int main(void) {
     char* touch_modify[]      = {"touch", "-m", "/tmp/coreutils_touch", NULL};
     char* touch_both[]        = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
     char* cp_file[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
+    char* cp_self[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_a", NULL};
+    char* cp_hardlink[]  = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_cp_hard", NULL};
+    char* cp_symlink[]   = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_link", NULL};
     char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy",
                             NULL};
-    char* cp_directory_bad[] = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad",
-                                NULL};
-    char* cp_stdin[]         = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
+    char* cp_directory_bad[]  = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad",
+                                 NULL};
+    char* cp_recursive_self[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree",
+                                 NULL};
+    char* cp_recursive_inside[] = {"cp", "-r", "/tmp/coreutils_tree",
+                                   "/tmp/coreutils_tree/nested_copy", NULL};
+    char* cp_stdin[]            = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
+    char* cp_stdin_self[]       = {"cp", "-", "/tmp/coreutils_stdin", NULL};
     char* mv_file[]    = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
     char* mv_replace[] = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
     char* mv_missing[] = {"mv", "/tmp/coreutils_missing", "/tmp/coreutils_moved", NULL};
@@ -920,6 +928,7 @@ int main(void) {
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
+    (void) unlink("/tmp/coreutils_cp_hard");
     (void) unlink("/tmp/coreutils_from_stdin");
     (void) unlink("/tmp/coreutils_moved");
     (void) unlink("/tmp/coreutils_tee");
@@ -935,6 +944,8 @@ int main(void) {
     (void) rmdir("/tmp/coreutils_tree_copy");
     (void) unlink("/tmp/coreutils_tree/nested/file");
     (void) rmdir("/tmp/coreutils_tree/nested");
+    (void) rmdir("/tmp/coreutils_tree/nested_copy");
+    (void) rmdir("/tmp/coreutils_tree/coreutils_tree");
     (void) rmdir("/tmp/coreutils_tree");
     (void) rmdir("/tmp/coreutils_tree_bad");
     /* The minimal initrd need not ship a /tmp directory. */
@@ -1033,6 +1044,18 @@ int main(void) {
         check("touch selective unsupported", touch_access_only, NULL, 1, NULL, 0) ||
         check("touch modify", touch_modify, NULL, 0, NULL, 0) ||
         check("touch access and modify unsupported", touch_both, NULL, 1, NULL, 0) ||
+        link("/tmp/coreutils_a", "/tmp/coreutils_cp_hard") != 0 ||
+        check("cp same file", cp_self, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_a", "alpha\n") ||
+        check("cp hard link", cp_hardlink, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_cp_hard", "alpha\n") ||
+        unlink("/tmp/coreutils_cp_hard") != 0 ||
+        check("cp symlink alias", cp_symlink, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_a", "alpha\n") ||
+        check("cp -r same directory", cp_recursive_self, NULL, 1, NULL, 0) ||
+        check("cp -r inside directory", cp_recursive_inside, NULL, 1, NULL, 0) ||
+        is_directory("/tmp/coreutils_tree/coreutils_tree") ||
+        is_directory("/tmp/coreutils_tree/nested_copy") ||
         check("cp", cp_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_copy") ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
@@ -1060,8 +1083,10 @@ int main(void) {
         check("find directory", find_tree, NULL, 0, "/tmp/coreutils_tree/nested/file\n",
               0) ||
         check("cp stdin", cp_stdin, "from stdin\n", 0, NULL, 0) ||
-        !is_file("/tmp/coreutils_from_stdin") || check("mv", mv_file, NULL, 0, NULL, 0) ||
-        !is_file("/tmp/coreutils_moved") ||
+        !is_file("/tmp/coreutils_from_stdin") ||
+        check("cp stdin same file", cp_stdin_self, "alpha\n", 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_stdin", "alpha\n") ||
+        check("mv", mv_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_moved") ||
         check("mv replacement", mv_replace, NULL, 0, NULL, 0) ||
         is_file("/tmp/coreutils_a") || !is_file("/tmp/coreutils_moved") ||
         check("mv missing", mv_missing, NULL, 1, NULL, 0) ||
