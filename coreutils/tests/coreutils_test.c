@@ -76,18 +76,32 @@ static int file_equals(const char* path, const char* expected) {
 
     char   buffer[512];
     size_t length;
-    size_t actual;
+    size_t offset = 0;
+    int    equal  = 1;
 
     if (file == NULL)
         return 0;
 
-    actual = fread(buffer, 1, sizeof buffer, file);
-
-    int at_end = actual < sizeof buffer || fgetc(file) == EOF;
-
     length = strlen(expected);
 
-    int equal = at_end && actual == length && memcmp(buffer, expected, length) == 0;
+    while (offset < length) {
+        size_t chunk = length - offset;
+
+        if (chunk > sizeof buffer)
+            chunk = sizeof buffer;
+
+        if (fread(buffer, 1, chunk, file) != chunk ||
+            memcmp(buffer, expected + offset, chunk) != 0) {
+            equal = 0;
+
+            break;
+        }
+
+        offset += chunk;
+    }
+
+    if (equal && fgetc(file) != EOF)
+        equal = 0;
 
     fclose(file);
 
@@ -541,6 +555,58 @@ static int id_checks(void) {
                  1);
 }
 
+#define LONG_LINE_PADDING 5000
+
+static int long_line_checks(void) {
+    static char grep_line[LONG_LINE_PADDING + 64];
+    static char cut_line[LONG_LINE_PADDING + 64];
+    static char sort_first[LONG_LINE_PADDING + 16];
+    static char sort_second[LONG_LINE_PADDING + 16];
+
+    static char sort_expected[2 * (LONG_LINE_PADDING + 16) + 1];
+    static char sort_input[2 * (LONG_LINE_PADDING + 16) + 1];
+
+    char* grep_boundary[]  = {"grep", "cross-boundary", NULL};
+    char* cut_late_field[] = {"cut", "-d", ":", "-f", "2", NULL};
+    char* sort_long[]      = {"sort", NULL};
+    char* sort_unique[]    = {"sort", "-u", "/tmp/coreutils_long_sort", NULL};
+
+    memset(grep_line, 'x', 4090);
+    memcpy(grep_line + 4090, "cross-boundary", 14);
+    memset(grep_line + 4104, 'y', LONG_LINE_PADDING - 4104);
+
+    grep_line[LONG_LINE_PADDING]     = '\n';
+    grep_line[LONG_LINE_PADDING + 1] = '\0';
+
+    memset(cut_line, 'a', LONG_LINE_PADDING);
+
+    cut_line[LONG_LINE_PADDING] = ':';
+
+    memcpy(cut_line + LONG_LINE_PADDING + 1, "tail-field\n", 12);
+
+    memset(sort_first, 'a', LONG_LINE_PADDING);
+    memcpy(sort_first + LONG_LINE_PADDING, "a\n", 3);
+    memset(sort_second, 'a', LONG_LINE_PADDING);
+    memcpy(sort_second + LONG_LINE_PADDING, "b\n", 3);
+
+    size_t first_length  = strlen(sort_first);
+    size_t second_length = strlen(sort_second);
+
+    memcpy(sort_expected, sort_first, first_length);
+    memcpy(sort_expected + first_length, sort_second, second_length + 1);
+    memcpy(sort_input, sort_second, second_length);
+    memcpy(sort_input + second_length, sort_first, first_length + 1);
+
+    if (put_file("/tmp/coreutils_long_sort", sort_expected) != 0)
+        return fail("long line sort fixture");
+
+    return check("grep line across 4095", grep_boundary, grep_line, 0, grep_line, 1) ||
+           check("cut field after 4095", cut_late_field, cut_line, 0, "tail-field\n",
+                 1) ||
+           check("sort long lines", sort_long, sort_input, 0, sort_expected, 1) ||
+           check("sort -u long lines", sort_unique, NULL, 0, sort_expected, 1);
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -864,6 +930,9 @@ int main(void) {
         check("cut trailing comma", cut_trailing_comma, "one:two:three\n", 2, NULL, 0) ||
         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
+        return 1;
+
+    if (long_line_checks() != 0)
         return 1;
 
     if (mv_directory_checks() != 0)
