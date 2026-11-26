@@ -1012,6 +1012,95 @@ static void test_fclose_stdout(void) {
     CHECK(ferror(stdout) == 0);
 }
 
+static void test_ungetc(void) {
+    char buf[4];
+
+    FILE* f;
+
+    f = fopen(P1, "w");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(fputs("abc", f) == 0);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "r");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(ungetc('X', f) == 'X'); /* fresh stream: offset zero */
+    CHECK(ftell(f) == 0);
+    CHECK(ungetc('Y', f) == EOF); /* exactly one pushback */
+    CHECK(fgetc(f) == 'X');
+    CHECK(ftell(f) == 0); /* the pushed byte is no file byte */
+    CHECK(fgetc(f) == 'a');
+    CHECK(ftell(f) == 1);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "r");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(fgetc(f) == 'a');
+    CHECK(ungetc('Z', f) == 'Z'); /* nonzero offset still decrements */
+    CHECK(ftell(f) == 0);
+    CHECK(fgetc(f) == 'Z');
+    CHECK(fgetc(f) == 'b');
+    CHECK(fseek(f, 0, SEEK_SET) == 0);
+    CHECK(ungetc('W', f) == 'W');
+    CHECK(fseek(f, 0, SEEK_SET) == 0); /* seeking discards the pushback */
+    CHECK(fgetc(f) == 'a');
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "r");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(ungetc('Q', f) == 'Q');
+    CHECK(fread(buf, 1, 2, f) == 2);
+    CHECK(memcmp(buf, "Qa", 2) == 0);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "r");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(setvbuf(f, NULL, _IONBF, 0) == 0);
+    CHECK(ungetc('U', f) == 'U'); /* unbuffered stream, offset zero */
+    CHECK(fgetc(f) == 'U');
+    CHECK(fgetc(f) == 'a');
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "r");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(fread(buf, 1, 3, f) == 3);
+    CHECK(fgetc(f) == EOF);       /* EOF at offset 3 */
+    CHECK(ungetc('E', f) == 'E'); /* pushback re-opens the stream */
+    CHECK(fgetc(f) == 'E');
+    CHECK(fgetc(f) == EOF);
+    CHECK(fclose(f) == 0);
+}
+
 int main(void) {
     (void) unlink(P1);
     (void) unlink(P2);
@@ -1030,6 +1119,7 @@ int main(void) {
     test_fdopen();
     test_dup2_resets_stream_position();
     test_chars_and_lines();
+    test_ungetc();
     test_element_accounting();
     test_fflush_all();
     test_fflush_discards_readahead();
