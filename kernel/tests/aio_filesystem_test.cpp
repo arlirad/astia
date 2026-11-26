@@ -71,6 +71,14 @@ namespace {
         set_node_owner(path, owner, group);
     }
 
+    void set_file(const char* path, u16 permissions, uid_t owner, gid_t group) {
+        using namespace aio::test_support;
+
+        set_node_mode(path, fs::file_mode(fs::file_type::regular,
+                                          fs::file_permissions(permissions)));
+        set_node_owner(path, owner, group);
+    }
+
     void restore_credentials() {
         aio::test_support::set_process_credentials(uid_t{0}, gid_t{0});
     }
@@ -179,6 +187,131 @@ ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY) == 3);
 
     restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_write_only_requires_write_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/readonly", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/readonly";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_WRONLY) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_read_write_requires_write_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/readonly", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/readonly";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDWR) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_read_write_requires_read_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/writeonly", 0200, uid_t{1000}, gid_t{1000});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/writeonly";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDWR) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_read_only_requires_read_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/writeonly", 0200, uid_t{1000}, gid_t{1000});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/writeonly";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDONLY) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_read_only_allows_read_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/readable", 0004, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/readable";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDONLY) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_write_only_allows_owner_write_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/owned", 0200, uid_t{1000}, gid_t{1000});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/owned";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_WRONLY) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_write_only_allows_group_write_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/shared", 0020, uid_t{0}, gid_t{1000});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/shared";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_WRONLY) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_write_only_allows_root) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_file("/tmp/protected", 0444, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/tmp/protected";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_WRONLY) == 3);
 }
 
 ASTIA_TEST(aio_filesystem_linkat_allows_read_only_source_parent) {

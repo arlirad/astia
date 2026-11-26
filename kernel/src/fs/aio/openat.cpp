@@ -68,12 +68,14 @@ namespace astia::io::aio::operations {
                 const uid_t owner = fs::node_uid(resolved);
                 const gid_t group = fs::node_gid(resolved);
 
-                if ((sqe.op_flags & ASTIA_AIO_O_RDWR) != 0 &&
+                const u32 access = sqe.op_flags & ASTIA_AIO_O_ACCMODE;
+
+                if ((access == ASTIA_AIO_O_WRONLY || access == ASTIA_AIO_O_RDWR) &&
                     !cred->can_access(existing_mode, owner, group,
                                       fs::permission_bits::write))
                     co_return -EACCES;
 
-                if ((sqe.op_flags & ASTIA_AIO_O_WRONLY) == 0 &&
+                if ((access == ASTIA_AIO_O_RDONLY || access == ASTIA_AIO_O_RDWR) &&
                     !cred->can_access(existing_mode, owner, group,
                                       fs::permission_bits::read))
                     co_return -EACCES;
