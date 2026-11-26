@@ -226,7 +226,7 @@ struct tm* gmtime_r(const time_t* timer, struct tm* result) {
         result->tm_wday += 7;
 
     result->tm_yday  = (int) (__astia_time_days_from_civil(year, month, day) -
-                              __astia_time_days_from_civil(year, 1, 1));
+                             __astia_time_days_from_civil(year, 1, 1));
     result->tm_isdst = 0;
 
     return result;
