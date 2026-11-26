@@ -3,11 +3,16 @@
  *
  * It proves the whole dynamic path: ld.astia.so maps libc.so, resolves printf,
  * pthread and errno, the constructor chain runs, and a pthread's own TLS copy
- * of errno is independent of the main thread's.
+ * of errno is independent of the main thread's.  A fork after the dynamic
+ * image runs checks the same isolation for a copy-on-write TLS arena.
  */
+#include <sys/wait.h>
+
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 static void* worker(void* argument) {
     (void) argument;
@@ -36,6 +41,32 @@ int main(void) {
     if (errno != 7)
         return 4; /* the main thread's errno must not see the worker's write */
 
+    /* A fork shares the TLS arena copy-on-write: the child inherits the
+       parent's value, its own write stays private, and the parent's TLS is
+       untouched once the child is reaped. */
+    const pid_t child = fork();
+    if (child < 0)
+        return 5;
+
+    if (child == 0) {
+        if (errno != 7)
+            _Exit(1);
+
+        errno = 21;
+
+        _Exit(errno == 21 ? 0 : 2);
+    }
+
+    if (errno != 7)
+        return 6;
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+        WEXITSTATUS(status) != 0)
+        return 7;
+
+    printf("astia: dyn tls clone ok\n");
     printf("astia: libc.so ok\n");
 
     return 0;

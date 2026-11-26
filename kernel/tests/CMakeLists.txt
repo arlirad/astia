@@ -1399,6 +1399,53 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_nophdr
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_nophdr ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=gnu
+                -Wl,-soname,libfixture_gnu.so -o ${_fix_dir}/libfixture_gnu.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_gnu.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=both
+                -Wl,-soname,libfixture_semihash.so
+                -o ${_fix_dir}/libfixture_semihash.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_semihash.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=gnu
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_gnu
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
+                ${_fix_dir}/libfixture_gnu.so ${_fix_dir}/libfixture_semihash.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -Wl,--hash-style=sysv -Wl,-soname,libfixture_tpoff32.so
+                -o ${_fix_dir}/libfixture_tpoff32.link.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
+                ${_fix_dir}/libfixture_base.so
+                COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py 18 23
+                ${_fix_dir}/libfixture_tpoff32.link.so
+                ${_fix_dir}/libfixture_tpoff32.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_tpoff32
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
+                ${_fix_dir}/libfixture_tpoff32.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_relro
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.S
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture_gnu.so ${_fix_dir}/libfixture_semihash.so
+                ${_fix_dir}/libfixture_tpoff32.so ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_gnu ${_fix_dir}/interp_tpoff32
+                ${_fix_dir}/interp_relro ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1421,6 +1468,9 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so bin/interp_link bin/interp_nophdr
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
+                lib/libfixture_gnu.so lib/libfixture_semihash.so
+                lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
+                bin/interp_relro
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1432,7 +1482,15 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_gnu.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_semihash.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1499,6 +1557,11 @@ if (ARCH STREQUAL "x86_64")
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
                 "astia: sigpipe ok"
                 "astia: libc.so ok"
         )
