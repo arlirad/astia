@@ -98,7 +98,10 @@ namespace astia::proc {
         // range.  It is not visible to lookup/fault/pin until page tables
         // have been installed and the transaction publishes it.
         bool pending = false;
-        bool stack   = false;
+        /// A pending node that munmap is tearing down.  It keeps its range
+        /// reserved while the page tables are removed in bounded batches.
+        bool unloading = false;
+        bool stack     = false;
         /// A lazy region whose untouched pages fault in zeroed on first
         /// access; kept on the VMA so clones inherit the same behaviour.
         bool             demand_zero  = false;
