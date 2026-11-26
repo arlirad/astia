@@ -49,7 +49,10 @@ namespace astia::mod::syscalls {
             if (!encode_public_id(opened.value.id, id)) {
                 co_return -EINVAL;
             }
-            if (!sys::copy_out(out.value.bytes(), &id)) {
+            // The coroutine resumes on a kernel worker after I/O, where
+            // current_process() is not necessarily this caller.  Copy out
+            // through the process captured at entry.
+            if (!sys::copy_out_for(process, out.value.bytes(), &id)) {
                 const auto rollback = co_await close(opened.value.id);
                 if (!rollback || rollback.value != module_error::ok) {
                     co_return -EIO;
