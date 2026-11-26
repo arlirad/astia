@@ -1,2 +1,2 @@
-root:x:0:
-users:x:1000:user
+root::0:
+users::1000:user

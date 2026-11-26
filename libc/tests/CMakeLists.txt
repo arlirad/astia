@@ -201,6 +201,10 @@ add_executable(libc_group_test fs/group_test.c support/process_host.c support/ba
 target_link_libraries(libc_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_group_test COMMAND libc_group_test)
 
+add_executable(libc_pwd_test fs/pwd_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_pwd_test PRIVATE astia_libc_host)
+add_test(NAME libc_pwd_test COMMAND libc_pwd_test)
+
 add_executable(libc_gethostname_test sys/gethostname_test.c support/backend_host.c)
 target_link_libraries(libc_gethostname_test PRIVATE astia_libc)
 add_test(NAME libc_gethostname_test COMMAND libc_gethostname_test)
