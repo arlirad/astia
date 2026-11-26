@@ -73,3 +73,16 @@ ASTIA_TEST(device_name_capacity_failure_does_not_advance) {
     ASTIA_CHECK(astia::core::name_letter_increment(name, sizeof name, "disk%"));
     ASTIA_CHECK(equals(name, "diska"));
 }
+
+ASTIA_TEST(device_name_block_patterns) {
+    char name[32]{};
+
+    ASTIA_CHECK(astia::core::name_number_increment(name, sizeof name, "/dev/vblk%"));
+    ASTIA_CHECK(equals(name, "/dev/vblk0"));
+
+    ASTIA_CHECK(astia::core::name_number_increment(name, sizeof name, "/dev/vblk%"));
+    ASTIA_CHECK(equals(name, "/dev/vblk1"));
+
+    ASTIA_CHECK(astia::core::name_number_increment(name, sizeof name, "/dev/nvme%"));
+    ASTIA_CHECK(equals(name, "/dev/nvme0"));
+}

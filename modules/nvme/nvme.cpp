@@ -1,3 +1,4 @@
+#include <astia/core/name.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/device_file.hpp>
 #include <astia/dev/driver.hpp>
@@ -58,6 +59,7 @@ namespace {
         unsigned long long        capability      = 0;
         unsigned                  doorbell_stride = 4;
         unsigned                  namespace_count = 0;
+        char                      path_base[32]{};
         namespace_device          namespaces[max_namespaces]{};
         unsigned short            admin_sq_tail     = 0;
         unsigned short            admin_cq_head     = 0;
@@ -370,35 +372,44 @@ namespace {
             return true;
         }
 
-        bool make_path(namespace_device& value) {
-            constexpr char prefix[]      = "/dev/nvme0n";
-            unsigned       prefix_length = 0;
+        bool format_path(char* out, unsigned capacity, unsigned id) const {
+            unsigned base_length = 0;
 
-            while (prefix[prefix_length] != '\0') {
-                value.path[prefix_length] = prefix[prefix_length];
-
-                ++prefix_length;
+            while (path_base[base_length] != '\0') {
+                ++base_length;
             }
+
+            if (base_length == 0)
+                return false;
 
             unsigned char digits[10]{};
             unsigned      count = 0;
-            unsigned      id    = value.id;
 
             do {
                 digits[count++] = static_cast<unsigned char>('0' + id % 10);
                 id /= 10;
             } while (id != 0 && count < sizeof(digits));
 
-            if (id != 0 || prefix_length + count + 1 > sizeof(value.path))
+            if (id != 0 || base_length + count + 2 > capacity)
                 return false;
 
-            for (unsigned i = 0; i < count; ++i) {
-                value.path[prefix_length + i] = static_cast<char>(digits[count - i - 1]);
+            for (unsigned i = 0; i < base_length; ++i) {
+                out[i] = path_base[i];
             }
 
-            value.path[prefix_length + count] = '\0';
+            out[base_length] = 'n';
+
+            for (unsigned i = 0; i < count; ++i) {
+                out[base_length + 1 + i] = static_cast<char>(digits[count - i - 1]);
+            }
+
+            out[base_length + count + 1] = '\0';
 
             return true;
+        }
+
+        bool make_path(namespace_device& value) {
+            return format_path(value.path, sizeof(value.path), value.id);
         }
 
         bool identify() {
@@ -1158,6 +1169,11 @@ namespace {
 
             device.pci = &value;
 
+            if (device.path_base[0] == '\0' &&
+                !astia::core::name_number_increment(
+                    device.path_base, sizeof device.path_base, "/dev/nvme%"))
+                return false;
+
             if (!device.start()) {
                 device.stop();
 
@@ -1306,8 +1322,11 @@ namespace {
                 co_return false;
             astia::module::log("nvme", "reset recovery persistence ok");
             char invalid[513]{};
+            char missing_path[32]{};
+            if (!device.format_path(missing_path, sizeof missing_path, 250))
+                co_return false;
             auto missing_read = co_await astia::module::read_registered(
-                "/dev/nvme0n3", invalid, sizeof first, 0);
+                missing_path, invalid, sizeof first, 0);
             if (device.read(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
                 device.write(device.namespaces[0], invalid, sizeof invalid, 0) >= 0 ||
                 (missing_read && missing_read.value >= 0))
