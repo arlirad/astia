@@ -669,44 +669,54 @@ namespace astia::usb::xhci {
 
     namespace {
 
-        class xhci_driver final : public astia::hw::driver {
+        class xhci_driver final {
             public:
-            const char* name() const override {
-                return "xhci";
-            }
-
-            bool match(const astia::hw::device_info& info) const override {
+            bool match(const astia::hw::device_info& info) const {
                 const auto* pci = astia::hw::pci_device_info::get(info);
                 return pci != nullptr && pci_match(&pci->device());
             }
 
-            bool probe(const astia::hw::device_info& info) override {
+            astia::i64 probe(const astia::hw::device_info& info) {
                 const auto* pci = astia::hw::pci_device_info::get(info);
                 if (pci == nullptr)
-                    return false;
+                    return -ENODEV;
                 auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
                 if (stable == nullptr || controller_instance.start(stable) != 0) {
                     astia::module::log("usb", "xhci start failed");
-                    return false;
+                    return -ENODEV;
                 }
                 auto* model = new (std::nothrow) device_model{};
                 if (model == nullptr) {
                     controller_instance.stop();
-                    return false;
+                    return -ENODEV;
                 }
                 for (uint8_t port = 1; port <= controller_instance.max_ports(); ++port)
                     if (controller_instance.enumerate_port(port, *model) == 0) {
                         astia::module::log_u64("usb", "xhci port enumerated", port);
                         delete model;
-                        return true;
+                        return 0;
                     }
                 astia::module::log("usb", "xhci enumeration failed");
                 delete model;
                 controller_instance.stop();
-                return false;
+                return -ENODEV;
             }
 
-            void remove(const astia::hw::device_info&) override {
+            astia::i64 start(const astia::hw::device_info&) {
+                return 0;
+            }
+
+            void stop(const astia::hw::device_info&) {}
+
+            astia::hw::product_handle publish(const astia::hw::device_info&) {
+                return {};
+            }
+
+            bool selftest() {
+                return true;
+            }
+
+            void remove(const astia::hw::device_info&) {
                 controller_instance.stop();
             }
         };
@@ -718,5 +728,10 @@ namespace astia::usb::xhci {
 }
 
 int module_main() {
-    return astia::hw::drivers().register_driver(astia::usb::xhci::driver) ? 0 : -19;
+    astia::hw::driver_handle handle{};
+    const auto               descriptor = astia::hw::make_driver_descriptor(
+        astia::usb::xhci::driver, "xhci", astia::hw::kernel_owner,
+        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+            astia::hw::driver_resource_msix | astia::hw::driver_resource_async);
+    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -19;
 }

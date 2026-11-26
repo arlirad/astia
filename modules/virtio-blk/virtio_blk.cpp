@@ -809,11 +809,8 @@ namespace {
         controller& _owner;
     };
 
-    class virtio_driver final : public astia::hw::driver {
+    class virtio_driver final {
         public:
-        const char* name() const override {
-            return "virtio-blk";
-        }
         bool match_pci(const astia::hw::pci_device& value) const {
             return value.vendor_id == pci_vendor_virtio &&
                    value.device_id == pci_device_blk && value.class_code == 1 &&
@@ -826,49 +823,55 @@ namespace {
             device.pci = &value;
             return device.start() || (device.release(), false);
         }
-        bool match(const astia::hw::device_info& info) const override {
+        bool match(const astia::hw::device_info& info) const {
             const auto* pci = astia::hw::pci_device_info::get(info);
             return pci != nullptr && match_pci(pci->device());
         }
-        bool probe(const astia::hw::device_info& info) override {
+        astia::i64 probe(const astia::hw::device_info& info) {
             astia::u64       token = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 state = teardown_state(token);
             if (state == teardown_complete &&
                 !__atomic_compare_exchange_n(&_teardown_token, &token,
                                              teardown_word(teardown_generation(token), 0),
                                              false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return {};
+                return -ENODEV;
             if (state != 0 && state != teardown_complete)
-                return {};
+                return -ENODEV;
             const auto* pci = astia::hw::pci_device_info::get(info);
             if (pci == nullptr)
-                return {};
+                return -ENODEV;
             auto* stable = astia::hw::pci_devices().find(pci->device().bdf);
             if (stable == nullptr || !probe_pci(*stable))
-                return {};
+                return -ENODEV;
             auto block = astia::mm::share<virtio_block>(device);
             if (!block) {
                 device.release();
-                return {};
+                return -ENODEV;
             }
             astia::mm::shptr<astia::dev::device> owner = block;
             auto file = astia::mm::share<astia::dev::device_file>(owner);
             if (!file) {
                 device.release();
-                return {};
+                return -ENODEV;
             }
             if (astia::fs::register_device("/dev/vblk0", file) < 0) {
                 device.release();
-                return {};
+                return -ENODEV;
             }
             _file    = file;
             _product = block;
-            return true;
+            return 0;
         }
-        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+
+        astia::i64 start(const astia::hw::device_info&) {
+            return 0;
+        }
+
+        void                      stop(const astia::hw::device_info&) {}
+        astia::hw::product_handle publish(const astia::hw::device_info&) {
             return _product;
         }
-        void remove(const astia::hw::device_info&) override {
+        void remove(const astia::hw::device_info&) {
             astia::u64 expected = __atomic_load_n(&_teardown_token, __ATOMIC_ACQUIRE);
             const astia::u64 generation =
                 teardown_generation(expected) == teardown_generation_mask
@@ -893,7 +896,7 @@ namespace {
                              __ATOMIC_RELEASE);
             finish_remove(generation);
         }
-        bool selftest() override {
+        bool selftest() {
             char      sector[512]{};
             const int first =
                 device.read(sector, sizeof sector, 0) == sizeof sector ? 0 : -5;
@@ -1023,6 +1026,11 @@ namespace {
 }
 
 int module_main() {
-    return astia::hw::drivers().register_driver(driver) ? 0 : -22;
+    astia::hw::driver_handle handle{};
+    const auto               descriptor = astia::hw::make_driver_descriptor(
+        driver, "virtio-blk", astia::hw::kernel_owner,
+        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+            astia::hw::driver_resource_device_file | astia::hw::driver_resource_async);
+    return astia::hw::drivers().register_driver(descriptor, handle) == 0 ? 0 : -22;
 }
 #endif
