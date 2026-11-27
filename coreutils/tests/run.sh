@@ -39,6 +39,9 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/grep_regex_test.c" -o "$out/host/grep_regex_test"
 "$out/host/grep_regex_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
+    "$root/coreutils/tests/daemonctl_path_test.c" -o "$out/host/daemonctl_path_test"
+"$out/host/daemonctl_path_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
