@@ -137,8 +137,9 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    int status = 1;
-    int files  = args.index < argc;
+    int status       = 1;
+    int close_failed = 0;
+    int files        = args.index < argc;
     if (!files) {
         status = grep_fd(CU_STDIN, "", &regex, invert, numbered);
 
@@ -159,17 +160,16 @@ int main(int argc, char** argv) {
 
         int result = grep_fd(fd, files && argc - args.index > 1 ? argv[i] : "", &regex,
                              invert, numbered);
-
-        if (fd != CU_STDIN)
-            close(fd);
-
         if (result == 0)
             status = 0;
         else if (result == 2)
             status = 2;
+
+        if (fd != CU_STDIN && cu_close(fd, "grep", argv[i]) != 0)
+            close_failed = 1;
     }
 
     gre_free(&regex);
 
-    return status;
+    return close_failed ? 2 : status;
 }

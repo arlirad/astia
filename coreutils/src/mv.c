@@ -45,6 +45,8 @@ static int copy_file(const char* source, const char* destination) {
 
     int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (output < 0) {
+        /* The destination failure is the primary error; the doomed input
+         * close is legitimately ignorable. */
         close(input);
 
         return cu_error("mv", destination);
@@ -65,8 +67,11 @@ static int copy_file(const char* source, const char* destination) {
         }
     }
 
-    close(input);
-    close(output);
+    if (cu_close(input, "mv", source) != 0)
+        status = 1;
+
+    if (cu_close(output, "mv", destination) != 0)
+        status = 1;
 
     return status;
 }

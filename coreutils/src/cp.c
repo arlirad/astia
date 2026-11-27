@@ -209,6 +209,8 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
 
     output = open(destination, O_WRONLY | O_CREAT, mode & 0777);
     if (output < 0) {
+        /* The destination failure is the primary error; the doomed input
+         * close is legitimately ignorable. */
         close(input);
 
         return cu_error("cp", destination);
@@ -218,8 +220,11 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
     if (status == 0)
         status = copy_fd(input, output, source);
 
-    if (close(input) < 0 || close(output) < 0)
-        status = cu_error("cp", source);
+    if (cu_close(input, "cp", source) != 0)
+        status = 1;
+
+    if (cu_close(output, "cp", destination) != 0)
+        status = 1;
 
     return status;
 }
@@ -298,6 +303,8 @@ int main(int argc, char** argv) {
             output = open(destination, O_WRONLY | O_CREAT, 0666);
 
         if (input < 0 || output < 0) {
+            /* The failed open is the primary error; closing whichever
+             * descriptor did open is legitimately ignorable. */
             if (input > CU_STDERR)
                 close(input);
 
@@ -317,11 +324,11 @@ int main(int argc, char** argv) {
         if (status == 0)
             status = copy_fd(input, output, source);
 
-        if (input > CU_STDERR)
-            close(input);
+        if (input > CU_STDERR && cu_close(input, "cp", source) != 0)
+            status = 1;
 
-        if (output > CU_STDERR)
-            close(output);
+        if (output > CU_STDERR && cu_close(output, "cp", destination) != 0)
+            status = 1;
 
         free(target);
 

@@ -89,8 +89,7 @@ int main(int argc, char** argv) {
         }
 
         status |= copy_lines(fd, argv[i], lines);
-
-        close(fd);
+        status |= cu_close(fd, "head", argv[i]);
     }
 
     return status;
