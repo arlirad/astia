@@ -1,3 +1,11 @@
+# Kernel targets are freestanding and link with -nostdlib.  GCC 16 reports
+# linker pass-through options that CMake converts into implicit host runtime
+# entries (for example -lgcc_s_asneeded), which are inappropriate here and
+# cannot resolve under -static.  Host tests are configured in the sibling
+# tests/ directory after this one and keep their normal implicit libraries.
+set(CMAKE_C_IMPLICIT_LINK_LIBRARIES "")
+set(CMAKE_CXX_IMPLICIT_LINK_LIBRARIES "")
+
 # Core source directories
 if (ARCH STREQUAL "aarch64")
     # The generic full kernel graph (paging, IRQ, devices, scheduler) has no
