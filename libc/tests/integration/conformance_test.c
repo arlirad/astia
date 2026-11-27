@@ -219,15 +219,19 @@ static void test_utc_time(void) {
     /* Every clock clock_gettime reads also has a resolution, and libc
      * forwards the ID unchanged. */
     CHECK(clock_gettime(CLOCK_BOOTTIME, &now) == 0);
+
     __astia_time_host_clock_id = -1;
     now.tv_sec                 = 9;
     now.tv_nsec                = 9;
+
     CHECK(clock_getres(CLOCK_BOOTTIME, &now) == 0 && now.tv_sec == 0 && now.tv_nsec > 0 &&
           now.tv_nsec < 1000000000L);
     CHECK(__astia_time_host_clock_id == CLOCK_BOOTTIME);
+
     errno       = 0;
     now.tv_sec  = 9;
     now.tv_nsec = 9;
+
     CHECK(clock_getres(3, &now) == -1 && errno == EINVAL);
     CHECK(now.tv_sec == 9 && now.tv_nsec == 9);
     CHECK(clock_getres(CLOCK_REALTIME, NULL) == 0);
