@@ -760,6 +760,7 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         fixture_ifunc.c
         interp_gnu.c
         interp_relative_ro.c
+        interp_relro.c
         interp_tpoff32.c
         interp_ifunc.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
@@ -1598,6 +1599,22 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_gnu ${_fix_dir}/interp_tpoff32
                 ${_fix_dir}/interp_relative_ro ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -Wl,-z,relro -Wl,-z,now -Wl,--hash-style=sysv
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_relro
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -DRELRO_CONTROL
+                -Wl,-z,relro -Wl,-z,now -Wl,--hash-style=sysv
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_relro_ok
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_relro ${_fix_dir}/interp_relro_ok
+                ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1632,7 +1649,8 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_nophdr bin/interp_ifunc
-                lib/libc.so bin/dyn_libc etc/passwd etc/group
+                bin/interp_relro bin/interp_relro_ok lib/libc.so bin/dyn_libc
+                etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
                 bin/interp_relative_ro
@@ -1661,6 +1679,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1795,6 +1814,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: exec permission ok"
                 "astia: random ok"
                 "astia: interp ok"
+                "astia: relro ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
                 "astia: gnu-hash ok"

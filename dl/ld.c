@@ -10,7 +10,9 @@
  * DT_INIT, the resolvers run and their results land in the slots.
  *
  * v1: eager binding, no lazy PLT, no symbol versioning, SysV hash only,
- * direct dependencies only.  Everything here is single-threaded startup.
+ * direct dependencies only.  PT_GNU_RELRO is applied after relocation and
+ * TLS setup, before constructors.  Everything here is single-threaded
+ * startup.
  */
 
 #include "ld.h"
@@ -192,6 +194,33 @@ static uint64_t load_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t
     return 0;
 }
 
+/* The kernel does not validate PT_GNU_RELRO, so the interpreter must: a
+ * non-empty, non-wrapping interval that lies entirely inside one PT_LOAD's
+ * memory range.  Anything else would let apply_relro mprotect pages outside
+ * the module, so it is rejected rather than silently skipped. */
+static int relro_range_valid(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t vaddr,
+                             uint64_t memsz) {
+    if (memsz == 0 || vaddr > UINT64_MAX - memsz)
+        return 0;
+
+    const uint64_t end = vaddr + memsz;
+
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type != PT_LOAD)
+            continue;
+
+        /* A load segment whose own range wraps makes containment unprovable.
+           Fail closed rather than ignoring that segment. */
+        if (phdr[i].p_vaddr > UINT64_MAX - phdr[i].p_memsz)
+            return 0;
+
+        if (vaddr >= phdr[i].p_vaddr && end <= phdr[i].p_vaddr + phdr[i].p_memsz)
+            return 1;
+    }
+
+    return 0;
+}
+
 static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
                        uint32_t phnum) {
     module->base            = base;
@@ -208,6 +237,8 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->tls_memsz       = 0;
     module->tls_align       = 0;
     module->tls_offset      = 0;
+    module->relro_start     = 0;
+    module->relro_size      = 0;
 
     for (uint32_t i = 0; i < phnum; ++i) {
         if (phdr[i].p_type == PT_TLS) {
@@ -215,6 +246,18 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
             module->tls_filesz = phdr[i].p_filesz;
             module->tls_memsz  = phdr[i].p_memsz;
             module->tls_align  = phdr[i].p_align;
+        }
+
+        if (phdr[i].p_type == PT_GNU_RELRO) {
+            /* One RELRO interval per image: a second header would overwrite
+               the first and leave half the range writable, so refuse it. */
+            if (module->relro_size != 0 ||
+                !relro_range_valid(phdr, phnum, phdr[i].p_vaddr, phdr[i].p_memsz) ||
+                base > UINT64_MAX - phdr[i].p_vaddr)
+                return -1;
+
+            module->relro_start = base + phdr[i].p_vaddr;
+            module->relro_size  = phdr[i].p_memsz;
         }
 
         if (phdr[i].p_type == PT_DYNAMIC)
@@ -541,6 +584,43 @@ static void resolve_ifuncs(void) {
     }
 }
 
+/* Make each module's PT_GNU_RELRO range read-only.  Runs after every
+ * relocation, after the IFUNC resolvers have filled their (RELRO) slots, and
+ * after the TLS templates are copied (both write through these pages) and
+ * before constructors, which must never need to.  The range is page-granular
+ * by contract: round the start down and the end up, because mprotect
+ * protects whole pages and rejects a misaligned base.
+ *
+ * Under partial RELRO `.data.rel.ro` and `.got` are inside the segment; only
+ * the lazy PLT slots (`.got.plt`) stay writable.  `-z now` alone does not
+ * move them in: full RELRO is the `-z relro -z now` combination that places
+ * `.got.plt` inside PT_GNU_RELRO, and then it is protected here too (v1 binds
+ * eagerly, so nothing patches it later).
+ *
+ * module_init has already validated each interval; a sum that still wraps
+ * means the absolute range is broken, so fail closed instead of skipping.
+ */
+static void apply_relro(const ld_module* modules, int count) {
+    for (int module = 0; module < count; ++module) {
+        const ld_module* image = &modules[module];
+
+        if (image->relro_size == 0)
+            continue;
+
+        const uint64_t sum = image->relro_start + image->relro_size;
+
+        if (sum < image->relro_start || sum > UINT64_MAX - 4095)
+            astia_exit(152);
+
+        const uint64_t start = image->relro_start & ~(uint64_t) 4095;
+        const uint64_t end   = (sum + 4095) & ~(uint64_t) 4095;
+
+        if (end > start &&
+            astia_mprotect((void*) (uintptr_t) start, end - start, PROT_READ) < 0)
+            astia_exit(152);
+    }
+}
+
 /* Run DT_INIT and DT_INIT_ARRAY.  Dependencies initialize before the
  * payload, so walk the breadth-first list backwards. */
 static void run_initializers(const ld_module* modules, int count, int argc, char** argv,
@@ -729,6 +809,10 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     copy_tls_templates(modules, count, tls_tp);
 
     resolve_ifuncs();
+
+    /* Relocations, IFUNC slots and TLS writes are complete: harden the RELRO
+       pages before any constructor of any module runs. */
+    apply_relro(modules, count);
 
     const int argc = (int) sp[0];
 
