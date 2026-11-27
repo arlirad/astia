@@ -71,6 +71,8 @@ def check_production_layout(repository: Path) -> None:
                 "dlmap",
                 "modopen",
                 "modclose",
+                "chdir",
+                "fchdir",
             }, (
                 f"unexpected async production wrapper: {path}"
             )
