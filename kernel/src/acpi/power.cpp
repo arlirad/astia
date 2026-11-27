@@ -2,9 +2,13 @@
 
 namespace astia::acpi::detail {
     namespace {
-        constexpr u16 sleep_type_shift              = 10;
-        constexpr u16 sleep_enable                  = 1u << 13;
-        constexpr u16 sleep_type_mask               = 0x7;
+        constexpr u16 sleep_type_shift = 10;
+        constexpr u16 sleep_enable     = 1u << 13;
+        constexpr u16 sleep_type_mask  = 0x7;
+        constexpr u16 sleep_type_field_mask =
+            static_cast<u16>(sleep_type_mask << sleep_type_shift);
+        constexpr u16 pm1_control_mask =
+            static_cast<u16>(sleep_type_field_mask | sleep_enable);
         constexpr u32 fadt_pm1a_control_offset      = 64;
         constexpr u32 fadt_pm1b_control_offset      = 68;
         constexpr u32 fadt_pm1_control_length       = 89;
@@ -112,6 +116,74 @@ namespace astia::acpi::detail {
 
             return aml.integer(current, out);
         }
+
+        bool read_pm1_control(const pm_register& reg, const pm_io& io, u16& value,
+                              power_error& error) {
+            if (reg.gas.space == gas_system_io) {
+                if (io.read_io == nullptr ||
+                    !io.read_io(io.context, static_cast<u16>(reg.gas.address), value)) {
+                    error = power_error::read_failed;
+
+                    return false;
+                }
+            }
+            else if (reg.gas.space == gas_system_memory) {
+                if (io.read_memory == nullptr ||
+                    !io.read_memory(io.context, reg.gas.address, value)) {
+                    error = power_error::read_failed;
+
+                    return false;
+                }
+            }
+            else {
+                error = power_error::unsupported_address_space;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        bool write_pm1_control(const pm_register& reg, const pm_io& io, u16 value,
+                               power_error& error) {
+            if (reg.gas.space == gas_system_io) {
+                if (io.write_io == nullptr ||
+                    !io.write_io(io.context, static_cast<u16>(reg.gas.address), value)) {
+                    error = power_error::write_failed;
+
+                    return false;
+                }
+            }
+            else if (reg.gas.space == gas_system_memory) {
+                if (io.write_memory == nullptr ||
+                    !io.write_memory(io.context, reg.gas.address, value)) {
+                    error = power_error::write_failed;
+
+                    return false;
+                }
+            }
+            else {
+                error = power_error::unsupported_address_space;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        bool enter_sleep(const pm_register& reg, u16 sleep_type, const pm_io& io,
+                         power_error& error) {
+            u16 current = 0;
+
+            if (!read_pm1_control(reg, io, current, error))
+                return false;
+
+            const u16 value =
+                static_cast<u16>((current & static_cast<u16>(~pm1_control_mask)) |
+                                 (sleep_type << sleep_type_shift) | sleep_enable);
+
+            return write_pm1_control(reg, io, value, error);
+        }
     } // namespace
 
     const char* power_error_text(power_error error) {
@@ -138,6 +210,8 @@ namespace astia::acpi::detail {
             return "register address space";
         case power_error::unsupported_access_size:
             return "register access size";
+        case power_error::read_failed:
+            return "PM1 read";
         case power_error::write_failed:
             return "PM1 write";
         }
@@ -291,59 +365,11 @@ namespace astia::acpi::detail {
             return false;
         }
 
-        const u16 value_a =
-            static_cast<u16>((plan.slp_typa << sleep_type_shift) | sleep_enable);
-
-        if (plan.pm1a.gas.space == gas_system_io) {
-            if (io.write_io == nullptr ||
-                !io.write_io(io.context, static_cast<u16>(plan.pm1a.gas.address),
-                             value_a)) {
-                error = power_error::write_failed;
-
-                return false;
-            }
-        }
-        else if (plan.pm1a.gas.space == gas_system_memory) {
-            if (io.write_memory == nullptr ||
-                !io.write_memory(io.context, plan.pm1a.gas.address, value_a)) {
-                error = power_error::write_failed;
-
-                return false;
-            }
-        }
-        else {
-            error = power_error::unsupported_address_space;
-
+        if (!enter_sleep(plan.pm1a, plan.slp_typa, io, error))
             return false;
-        }
 
-        if (plan.pm1b.valid) {
-            const u16 value_b =
-                static_cast<u16>((plan.slp_typb << sleep_type_shift) | sleep_enable);
-
-            if (plan.pm1b.gas.space == gas_system_io) {
-                if (io.write_io == nullptr ||
-                    !io.write_io(io.context, static_cast<u16>(plan.pm1b.gas.address),
-                                 value_b)) {
-                    error = power_error::write_failed;
-
-                    return false;
-                }
-            }
-            else if (plan.pm1b.gas.space == gas_system_memory) {
-                if (io.write_memory == nullptr ||
-                    !io.write_memory(io.context, plan.pm1b.gas.address, value_b)) {
-                    error = power_error::write_failed;
-
-                    return false;
-                }
-            }
-            else {
-                error = power_error::unsupported_address_space;
-
-                return false;
-            }
-        }
+        if (plan.pm1b.valid && !enter_sleep(plan.pm1b, plan.slp_typb, io, error))
+            return false;
 
         return true;
     }

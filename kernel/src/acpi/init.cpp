@@ -74,6 +74,29 @@ namespace astia::acpi {
             astia::mm::heap::free(pointer);
         }
 
+        bool read_io(void*, u16 port, u16& value) {
+            value = astia::arch::pio::read16(port);
+
+            return true;
+        }
+
+        bool read_memory(void*, u64 physical, u16& value) {
+            const u64 offset = physical & mm::page_mask;
+            const u64 page   = physical - offset;
+
+            auto mapping =
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 2);
+
+            if (!mapping)
+                return false;
+
+            auto* base = static_cast<volatile u8*>(mapping.value.base());
+
+            value = *reinterpret_cast<volatile u16*>(base + offset);
+
+            return true;
+        }
+
         bool write_io(void*, u16 port, u16 value) {
             astia::arch::pio::write16(port, value);
 
@@ -123,7 +146,8 @@ namespace astia::acpi {
         bool platform_s5(void*) {
             detail::power_error error = detail::power_error::none;
 
-            if (!detail::execute_s5(s5, {nullptr, write_io, write_memory}, error)) {
+            if (!detail::execute_s5(
+                    s5, {nullptr, read_io, write_io, read_memory, write_memory}, error)) {
                 logs::error("S5 write failed (%s)", detail::power_error_text(error));
 
                 return false;

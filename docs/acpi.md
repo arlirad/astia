@@ -79,6 +79,11 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
   preserves discovery order across duplicate signatures.
 - FADT signature/length/checksum; DSDT from RSDT/XSDT or `Xdsdt`/`DSDT`;
   SSDTs validated and loaded in order.
+- S5 entry reads each PM1a/PM1b control register, clears SLP_TYPx and SLP_EN,
+  programs the `\_S5` sleep type with SLP_EN, and writes the result back.
+  SCI_EN and every other non-sleep bit keep their read values, as required by
+  ACPI 6.5 Table 4.13. A failed read or write aborts the transition and is
+  reported and logged.
 - AML fixed limits: total AML bytes, namespace nodes, values, name references,
   package items, package nesting, term/evaluation recursion depth, call depth,
   reference depth, and execution steps. Deeply nested firmware expressions are
@@ -146,8 +151,9 @@ claimed. Unsupported platforms must not assume ACPI shutdown works.
 - `acpi_host_test`: synthetic RSDP v1/v2, RSDT/XSDT, checksum/duplicate
   rejection, `_S5` Name and Method, malformed/unsupported AML, FADT legacy and
   extended GAS plans, invalid SLP types, shutdown tier ordering/failure
-  behavior, and FADT reset plans for System I/O, System Memory, and bus-0 PCI
-  Configuration space.
+  behavior, PM1 read-modify-write preservation of non-SLP control bits,
+  PM1 read/write failure handling, and FADT reset plans for System I/O, System
+  Memory, and bus-0 PCI Configuration space.
 - `acpi_q35_shutdown`: GRUB Multiboot2 q35 boot; requires QEMU to exit normally
   with status 0 after the S5 write, plus inventory/S5/platform-handler markers.
 - `acpi_q35_malformed_rsdp`, `acpi_q35_malformed_aml`: synthetic corrupt RSDP
