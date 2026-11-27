@@ -11,7 +11,12 @@
 
 namespace astia::proc {
     namespace {
-        constexpr usz kernel_stack_bytes         = 16 * 1024;
+        // The exec path (process::load_user_file_async -> lookup_unix_path ->
+        // fs::path_service::resolve_from) nests deeply enough to use ~15.2 KiB
+        // of kernel stack on a clean boot, and timer interrupts can nest on
+        // top of it; a 16 KiB stack overran its heap block. 64 KiB leaves
+        // headroom for the deepest path plus interrupt frames.
+        constexpr usz kernel_stack_bytes         = 64 * 1024;
         constexpr u8  kernel_stack_fill          = 0xA5;
         constexpr u32 kernel_stack_sample_period = 16;
         constexpr usz kernel_stack_sample_bytes  = 256;
