@@ -85,7 +85,9 @@ eagerly, so `RTLD_LAZY` changes nothing for them (the fixtures are built with
 `RTLD_LOCAL` is the default; `RTLD_GLOBAL` puts every module in the group in
 the default scope; `RTLD_NODELETE` keeps the group mapped after its last
 handle closes. `RTLD_DEFAULT` (NULL) tells `dlsym` to search the default
-scope.
+scope. A mode with any other bit set, or with `RTLD_LAZY` and `RTLD_NOW`
+together, fails with a `dlerror()` message; `RTLD_NOLOAD` is recognised by
+`<dlfcn.h>` but unsupported.
 
 ### Handles, scopes, and refcounts
 

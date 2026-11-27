@@ -12,6 +12,8 @@ extern "C" {
 #define RTLD_LOCAL 0
 #define RTLD_GLOBAL 0x100
 #define RTLD_NODELETE 0x1000
+/* Recognised but unsupported: dlopen() rejects it with dlerror(). */
+#define RTLD_NOLOAD 0x4
 #define RTLD_DEFAULT ((void*) 0)
 
 struct dl_phdr_info {
