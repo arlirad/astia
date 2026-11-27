@@ -45,7 +45,7 @@ namespace {
         astia::net::unregister_protocol(icmp);
         astia::net::unregister_protocol(arp);
         astia::net::unregister_discoverer(arp_discoverer);
-        astia::net::events::link_bound::remove(hook_id);
+        astia::net::events::link_bound::remove_quiesced(hook_id);
     }
 } // namespace
 

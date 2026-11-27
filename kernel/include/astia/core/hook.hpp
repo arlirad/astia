@@ -41,8 +41,9 @@ namespace astia::core::hook {
     /// Handlers are plain function pointers.  The payload carries the
     /// instance, so registration never allocates and never captures.  An
     /// `emit` runs against the registrations present when it started; `add`
-    /// is always safe from a handler, while `remove` waits for in-flight
-    /// emissions and must not be called by a handler of the same event.
+    /// and `remove` are always safe from a handler, including the handler
+    /// itself.  `remove_quiesced` additionally waits for in-flight emissions
+    /// and is the variant for module teardown that unmaps handler code.
     template <class Tag, typename... Args>
     class event {
         public:
@@ -84,33 +85,18 @@ namespace astia::core::hook {
             return true;
         }
 
-        /// Remove the handler registered under `id`.  Waits for emissions
-        /// already in flight so the caller may unmap the handler's code.
+        /// Remove the handler registered under `id`.  Safe from a handler
+        /// of the same event; an emission already running keeps its snapshot
+        /// and may still call the handler once.
         static bool remove(const char* id) {
-            if (id == nullptr)
-                return false;
+            return erase(id);
+        }
 
-            bool removed = false;
-
-            {
-                core::spinlock_guard guard(_lock);
-
-                for (usz i = 0; i < _count; ++i) {
-                    if (!same(_entries[i].id, id))
-                        continue;
-
-                    for (usz j = i + 1; j < _count; ++j) {
-                        _entries[j - 1] = _entries[j];
-                    }
-
-                    --_count;
-
-                    _entries[_count] = entry{};
-                    removed          = true;
-
-                    break;
-                }
-            }
+        /// Remove the handler and wait for emissions already in flight, so
+        /// the caller may unmap the handler's code.  Must not be called from
+        /// a handler of the same event.
+        static bool remove_quiesced(const char* id) {
+            const bool removed = erase(id);
 
             wait_quiescent();
 
@@ -189,6 +175,33 @@ namespace astia::core::hook {
             priority_t  priority = 0;
             handler     call     = nullptr;
         };
+
+        static bool erase(const char* id) {
+            if (id == nullptr)
+                return false;
+
+            bool removed = false;
+
+            core::spinlock_guard guard(_lock);
+
+            for (usz i = 0; i < _count; ++i) {
+                if (!same(_entries[i].id, id))
+                    continue;
+
+                for (usz j = i + 1; j < _count; ++j) {
+                    _entries[j - 1] = _entries[j];
+                }
+
+                --_count;
+
+                _entries[_count] = entry{};
+                removed          = true;
+
+                break;
+            }
+
+            return removed;
+        }
 
         static constexpr bool same(const char* a, const char* b) {
             if (a == b)
