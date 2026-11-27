@@ -117,12 +117,15 @@ namespace astia::io::aio::dispatch {
             if (current == nullptr || path == nullptr)
                 return false;
 
-            char parent[256]{};
+            char parent[fs::path_max]{};
             u32  n = 0;
 
             while (path[n]) {
                 ++n;
             }
+
+            if (n >= fs::path_max)
+                return false;
 
             while (n > 1 && path[n - 1] != '/') {
                 --n;
