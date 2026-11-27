@@ -9,9 +9,13 @@ project(astia_dl LANGUAGES C ASM)
 set(ASTIA_DL_ARCH "x86_64" CACHE STRING "Interpreter architecture")
 
 add_library(ld_astia SHARED
+        error.c
         ld.c
+        aio_wait.c
+        mode.c
         symcount.c
-        ${CMAKE_CURRENT_SOURCE_DIR}/arch/${ASTIA_DL_ARCH}/start.S)
+        ${CMAKE_CURRENT_SOURCE_DIR}/arch/${ASTIA_DL_ARCH}/start.S
+        ${CMAKE_CURRENT_SOURCE_DIR}/arch/${ASTIA_DL_ARCH}/resolve.S)
 
 target_include_directories(ld_astia PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

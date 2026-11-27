@@ -23,6 +23,13 @@ enum {
     page_alignment_mask = page_size - 1,
 };
 
+/* The futex ABI reads the wake count as a signed int, so UINT32_MAX turns
+ * into -1 and releases a single waiter.  Releasing everyone has to be
+ * INT_MAX; a bare UINT32_MAX leaves the rest of the waiters parked. */
+enum {
+    pthread_futex_wake_all = INT_MAX,
+};
+
 enum {
     pthread_key_index_bits = 8,
     pthread_key_index_mask = (1u << pthread_key_index_bits) - 1,
@@ -581,62 +588,6 @@ void* pthread_getspecific(pthread_key_t key) {
     return value;
 }
 
-enum {
-    pthread_once_running = 1,
-};
-
-static uint64_t pthread_once_running_state(int pid) {
-    return ((uint64_t) (uint32_t) pid << 32) | pthread_once_running;
-}
-
-int pthread_once(pthread_once_t* once_control, void (*init_routine)(void)) {
-    const int pid = getpid();
-
-    const uint64_t running = pthread_once_running_state(pid);
-
-    if (once_control == NULL || init_routine == NULL || pid <= 0)
-        return EINVAL;
-
-    for (;;) {
-        uint64_t state = __atomic_load_n(once_control, __ATOMIC_ACQUIRE);
-        if (state == UINT64_MAX)
-            return 0;
-
-        if (state == 0) {
-            uint64_t expected = 0;
-
-            if (__atomic_compare_exchange_n(once_control, &expected, running, 0,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                break;
-
-            continue;
-        }
-
-        if ((int) (uint32_t) (state >> 32) != pid) {
-            uint64_t expected = state;
-
-            if (__atomic_compare_exchange_n(once_control, &expected, running, 0,
-                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                break;
-
-            continue;
-        }
-
-        int result = futex_wait((uint32_t*) once_control, pthread_once_running);
-
-        if (result == 0 || (result < 0 && (errno == EAGAIN || errno == EINTR)))
-            continue;
-
-        return errno;
-    }
-
-    init_routine();
-    __atomic_store_n(once_control, UINT64_MAX, __ATOMIC_RELEASE);
-    (void) futex_wake((uint32_t*) once_control, UINT32_MAX);
-
-    return 0;
-}
-
 int pthread_kill(pthread_t thread, int signal_number) {
     if (signal_number < 0 || signal_number >= NSIG)
         return EINVAL;
@@ -1136,7 +1087,7 @@ static void pthread_rwlock_wake_locked(pthread_rwlock_t* rwlock) {
     if (rwlock->waiting_writers != 0)
         count = 1;
     else if (rwlock->waiting_readers != 0)
-        count = UINT32_MAX;
+        count = pthread_futex_wake_all;
     else
         return;
 
@@ -1785,7 +1736,7 @@ int pthread_cond_signal(pthread_cond_t* cond) {
 }
 
 int pthread_cond_broadcast(pthread_cond_t* cond) {
-    return pthread_cond_wake(cond, UINT32_MAX);
+    return pthread_cond_wake(cond, pthread_futex_wake_all);
 }
 
 enum { pthread_barrier_magic = 0x42415252u };
@@ -1895,7 +1846,7 @@ int pthread_barrier_wait(pthread_barrier_t* barrier) {
 
         __atomic_store_n(&barrier->count, trip_count, __ATOMIC_RELAXED);
         __atomic_store_n(&barrier->generation, next_generation, __ATOMIC_RELEASE);
-        (void) futex_wake(&barrier->generation, UINT32_MAX);
+        (void) futex_wake(&barrier->generation, pthread_futex_wake_all);
         __atomic_fetch_sub(&barrier->active, 1, __ATOMIC_ACQ_REL);
 
         return PTHREAD_BARRIER_SERIAL_THREAD;

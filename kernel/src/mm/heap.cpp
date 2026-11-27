@@ -6,6 +6,23 @@
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 
+#include "heap_internal.hpp"
+
+// A dropped guard must never return: the kernel overrides this weak default
+// with a reporter that logs and panics.
+namespace astia::mm::heap::detail {
+    [[noreturn]] __attribute__((weak)) void
+    report_fatal(const char* where, const char* reason, u64 block, u64 base, usz bytes) {
+        (void) where;
+        (void) reason;
+        (void) block;
+        (void) base;
+        (void) bytes;
+
+        __builtin_trap();
+    }
+} // namespace astia::mm::heap::detail
+
 // A first-fit free-list allocator over one contiguous virtual window.
 //
 // init() takes frames from the kernel frame allocator and wires each one
@@ -14,18 +31,9 @@
 // Everything past that is plain list surgery under one spinlock.
 namespace astia::mm::heap {
     namespace {
-        /// One block: header directly precedes the payload. sizeof() is a
-        /// multiple of 16, so a 16-aligned region start keeps every payload
-        /// 16-byte aligned.
-        struct block {
-            usz    size; // payload bytes
-            block* prev;
-            block* next;
-            bool   free;
-        };
-
-        static_assert(sizeof(block) % 16 == 0,
-                      "block header must keep 16-byte alignment");
+        using detail::block;
+        using detail::block_status;
+        using detail::window;
 
         core::spinlock _lock{};
 
@@ -55,9 +63,14 @@ namespace astia::mm::heap {
         }
 
         /// Carve `need` bytes off `b` when the leftover could stand on its
-        /// own (header + at least 16 payload bytes).
+        /// own (header + at least 16 payload bytes). `b` must already have
+        /// been validated by the caller; subtraction keeps the arithmetic
+        /// overflow-free.
         void split(block* b, usz need) {
-            if (b->size < need + sizeof(block) + 16)
+            if (need > b->size)
+                return;
+
+            if ((b->size - need) < sizeof(block) + detail::alignment)
                 return;
 
             auto* next =
@@ -75,15 +88,46 @@ namespace astia::mm::heap {
             b->size = need;
         }
 
+        /// Report a broken free-list link and stop before dereferencing it.
+        /// The heap lock is dropped first so logging cannot deadlock against
+        /// a logging CPU that is itself waiting for the heap.
+        [[noreturn]] void corrupt(arch::interrupt_spinlock_guard& guard,
+                                  const char* where, const block* b, const char* reason) {
+            guard.unlock();
+            detail::report_fatal(
+                where, reason, static_cast<u64>(reinterpret_cast<usz>(b)),
+                static_cast<u64>(reinterpret_cast<usz>(_base)), static_cast<u64>(_bytes));
+        }
+
+        /// Validate one block against the live window, then turn a failure
+        /// into the heap's panic path.
+        void validate_block(arch::interrupt_spinlock_guard& guard, const window& w,
+                            const char* where, const block* b, bool adjacency) {
+            const auto status = detail::validate(w, b, adjacency);
+
+            if (status != block_status::ok)
+                corrupt(guard, where, b, detail::status_name(status));
+        }
+
         /// Merge `b` with its free neighbours (forward first, then let the
         /// predecessor absorb the result).
-        void coalesce(block* b) {
+        void coalesce(arch::interrupt_spinlock_guard& guard, const window& w, block* b) {
+            validate_block(guard, w, "coalesce", b, true);
+
+            if (b->next != nullptr)
+                validate_block(guard, w, "coalesce", b->next, true);
+
+            if (b->prev != nullptr)
+                validate_block(guard, w, "coalesce", b->prev, true);
+
             if (b->next != nullptr && b->next->free) {
                 b->size += sizeof(block) + b->next->size;
                 b->next = b->next->next;
 
                 if (b->next != nullptr)
                     b->next->prev = b;
+
+                validate_block(guard, w, "coalesce", b, true);
             }
 
             if (b->prev != nullptr && b->prev->free) {
@@ -92,6 +136,8 @@ namespace astia::mm::heap {
 
                 if (b->next != nullptr)
                     b->next->prev = b->prev;
+
+                validate_block(guard, w, "coalesce", b->prev, true);
             }
         }
     } // namespace
@@ -161,7 +207,10 @@ namespace astia::mm::heap {
         if (bytes == 0)
             return error_t::einval;
 
-        const usz need = align_up(bytes, 16);
+        if (bytes > detail::max_value - (detail::alignment - 1))
+            return error_t::enomem;
+
+        const usz need = align_up(bytes, detail::alignment);
 
         arch::interrupt_spinlock_guard guard(_lock);
 
@@ -170,9 +219,27 @@ namespace astia::mm::heap {
             return error_t::enomem;
         }
 
+        usz walked = 0;
+
+        const window w{_base, _bytes};
+
+        if (!w.valid())
+            corrupt(guard, "alloc", _head, detail::status_name(block_status::bad_window));
+
+        const usz budget = w.max_blocks();
+
         for (block* b = _head; b != nullptr; b = b->next) {
+            if (walked++ >= budget)
+                corrupt(guard, "alloc", b, detail::status_name(block_status::list_cycle));
+
+            validate_block(guard, w, "alloc", b, false);
+
             if (b->free && b->size >= need) {
+                validate_block(guard, w, "alloc", b, true);
+
                 split(b, need);
+
+                validate_block(guard, w, "alloc", b, true);
 
                 b->free = false;
                 _used += b->size;
@@ -207,7 +274,21 @@ namespace astia::mm::heap {
         // would make a foreign pointer invoke undefined pointer arithmetic.
         const usz address = reinterpret_cast<usz>(ptr);
 
+        usz walked = 0;
+
+        const window w{_base, _bytes};
+
+        if (!w.valid())
+            corrupt(guard, "free", _head, detail::status_name(block_status::bad_window));
+
+        const usz budget = w.max_blocks();
+
         for (block* b = _head; b != nullptr; b = b->next) {
+            if (walked++ >= budget)
+                corrupt(guard, "free", b, detail::status_name(block_status::list_cycle));
+
+            validate_block(guard, w, "free", b, false);
+
             const usz payload = reinterpret_cast<usz>(b) + sizeof(block);
             if (payload != address)
                 continue;
@@ -219,7 +300,7 @@ namespace astia::mm::heap {
             _used -= b->size;
             b->free = true;
 
-            coalesce(b);
+            coalesce(guard, w, b);
 
             return;
         }

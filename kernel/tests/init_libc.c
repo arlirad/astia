@@ -183,7 +183,7 @@ static void* libc_key_probe_worker(void* opaque) {
     return NULL;
 }
 
-static pthread_once_t    libc_once_control;
+static pthread_once_t    libc_once_controls[2];
 static volatile int      libc_once_started;
 static volatile int      libc_once_release;
 static volatile unsigned libc_once_calls;
@@ -199,12 +199,51 @@ static void libc_once_initializer(void) {
 }
 
 static void* libc_once_worker(void* opaque) {
-    (void) opaque;
-
-    return (void*) (unsigned long) (pthread_once(&libc_once_control,
+    return (void*) (unsigned long) (pthread_once((pthread_once_t*) opaque,
                                                  libc_once_initializer) == 0
                                         ? 0x678a
                                         : 0x678b);
+}
+
+/* Four threads race on one control while the winner's initializer is held in
+   place, so the rest must take the wait path and wake on completion.  Once
+   the control is finished a further call must be terminal, not a second
+   initializer run. */
+static int libc_once_round(pthread_once_t* control, unsigned completed) {
+    pthread_t workers[4];
+    void*     result = NULL;
+
+    libc_once_started = 0;
+    libc_once_release = 0;
+
+    if (pthread_create(&workers[0], NULL, libc_once_worker, control) != 0)
+        return -1;
+
+    while (!libc_once_started) {
+        sched_yield();
+    }
+
+    for (unsigned int i = 1; i < 4; ++i) {
+        if (pthread_create(&workers[i], NULL, libc_once_worker, control) != 0)
+            return -1;
+    }
+
+    for (int i = 0; i < 8; ++i) {
+        sched_yield();
+    }
+
+    libc_once_release = 1;
+
+    for (unsigned int i = 0; i < 4; ++i) {
+        if (pthread_join(workers[i], &result) != 0 ||
+            result != (void*) (unsigned long) 0x678a)
+            return -1;
+    }
+
+    if (pthread_once(control, libc_once_initializer) != 0 || libc_once_calls != completed)
+        return -1;
+
+    return 0;
 }
 
 static void* libc_stack_worker(void* opaque) {
@@ -1623,7 +1662,10 @@ int main(int argc, char** argv) {
             _Exit(205);
 
         printf("astia: chroot exec ok\n");
-        fflush(stdout);
+        /* Flush every stream instead of naming stdout: referencing the
+           stdout object from the PIE makes the linker emit an
+           R_X86_64_COPY relocation, which the loader does not handle. */
+        fflush(NULL);
 
         _Exit(0);
     }
@@ -3003,39 +3045,17 @@ int main(int argc, char** argv) {
     }
 
     {
-        pthread_t workers[4];
-        void*     result = NULL;
+        libc_once_controls[0] = PTHREAD_ONCE_INIT;
+        libc_once_controls[1] = PTHREAD_ONCE_INIT;
+        libc_once_calls       = 0;
 
-        libc_once_control = PTHREAD_ONCE_INIT;
-        libc_once_started = 0;
-        libc_once_release = 0;
-        libc_once_calls   = 0;
-
-        if (pthread_create(&workers[0], NULL, libc_once_worker, NULL) != 0)
+        if (libc_once_round(&libc_once_controls[0], 1) != 0)
             return 118;
 
-        while (!libc_once_started) {
-            sched_yield();
-        }
+        if (libc_once_round(&libc_once_controls[1], 2) != 0)
+            return 119;
 
-        for (unsigned int i = 1; i < 4; ++i) {
-            if (pthread_create(&workers[i], NULL, libc_once_worker, NULL) != 0)
-                return 119;
-        }
-
-        for (int i = 0; i < 8; ++i) {
-            sched_yield();
-        }
-
-        libc_once_release = 1;
-
-        for (unsigned int i = 0; i < 4; ++i) {
-            if (pthread_join(workers[i], &result) != 0 ||
-                result != (void*) (unsigned long) 0x678a)
-                return 120;
-        }
-
-        if (libc_once_calls != 1)
+        if (libc_once_calls != 2)
             return 121;
     }
 
@@ -4928,6 +4948,63 @@ int main(int argc, char** argv) {
             printf("astia: ifunc ok\n");
     }
 
+    /* Unversioned call binds the default VERS_2 definition; the .symver
+       reference binds the non-default VERS_1 definition. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 206;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_ver", NULL};
+
+            execv("/bin/interp_ver", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 206;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 206;
+        else
+            printf("astia: ver ok\n");
+    }
+
+    /* /bin/interp_badver needs bad_value@VERS_1 but /lib/libverstub.so only
+       defines VERS_2: the loader must reject it instead of binding the
+       unversioned driver.  Exit 0 from the payload is the failure. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 207;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_badver", NULL};
+
+            execv("/bin/interp_badver", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 207;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status == 0)
+            return 207;
+        else if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+            printf("astia: ver reject ok\n");
+        else
+            return 207;
+    }
+
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {
@@ -4964,6 +5041,33 @@ int main(int argc, char** argv) {
             return 99;
         else
             printf("astia: dyntls ok\n");
+    }
+
+    /* Same payload linked -z now: DT_BIND_NOW must keep the eager path, so
+       every PLT slot is bound before entry and the lazy resolver never runs. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 90;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_now", NULL};
+
+            execv("/bin/interp_now", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 90;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 90;
+        else
+            printf("astia: ld eager ok\n");
     }
 
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must

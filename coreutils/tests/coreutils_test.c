@@ -803,6 +803,23 @@ static int id_checks(void) {
 
 #define LONG_LINE_PADDING 5000
 
+static int sort_empty_checks(void) {
+    char* sort_stdin[]      = {"sort", NULL};
+    char* sort_empty_file[] = {"sort", "/tmp/coreutils_empty", NULL};
+
+    (void) unlink("/tmp/coreutils_empty");
+
+    if (put_file("/tmp/coreutils_empty", "") != 0)
+        return fail("sort empty fixture setup");
+
+    int status = check("sort empty stdin", sort_stdin, "", 0, "", 1) ||
+                 check("sort empty file", sort_empty_file, NULL, 0, "", 1);
+
+    (void) unlink("/tmp/coreutils_empty");
+
+    return status;
+}
+
 static int long_line_checks(void) {
     static char grep_line[LONG_LINE_PADDING + 64];
     static char cut_line[LONG_LINE_PADDING + 64];
@@ -1231,6 +1248,9 @@ int main(void) {
         check("cut trailing comma", cut_trailing_comma, "one:two:three\n", 2, NULL, 0) ||
         check("tee", tee_file, "tee input\n", 0, NULL, 0) ||
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
+        return 1;
+
+    if (sort_empty_checks() != 0)
         return 1;
 
     if (long_line_checks() != 0)

@@ -1,8 +1,10 @@
 #include <astia/acpi.hpp>
 #include <astia/log.hpp>
+#include <astia/mm/memory_map.hpp>
 #include <astia/shutdown.hpp>
 
 #include "acpi/aml.hpp"
+#include "acpi/limits.hpp"
 #include "acpi/power.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
@@ -244,6 +246,10 @@ namespace {
         0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x06, 0x04, 0x00, 0x00, 0x00, 0x00,
     };
 
+    constexpr u8 name_s5_nonzero_package[] = {
+        0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x05, 0x02, 0x0A, 0x05, 0x00,
+    };
+
     constexpr u8 name_s5_invalid[] = {
         0x08, 0x5F, 0x53, 0x35, 0x5F, 0x12, 0x07, 0x04, 0x0A, 0x08, 0x00, 0x00, 0x00,
     };
@@ -325,6 +331,95 @@ namespace {
         write_rsdp(target.data.bytes + rsdp_offset, root_address, 0, false);
     }
 } // namespace
+
+ASTIA_TEST(acpi_checked_add_rejects_overflow) {
+    u64 result = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::checked_add(0, 0, result) && result == 0);
+    ASTIA_CHECK(astia::acpi::detail::checked_add(0x1000, 0x2000, result) &&
+                result == 0x3000);
+    ASTIA_CHECK(astia::acpi::detail::checked_add(~u64{0} - 1, 1, result) &&
+                result == ~u64{0});
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(~u64{0}, 1, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(1, ~u64{0}, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(~u64{0}, ~u64{0}, result));
+}
+
+ASTIA_TEST(acpi_checked_align_up_rejects_overflow) {
+    constexpr u64 two_m = 2ull << 20;
+
+    u64 result = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(0, two_m, result) && result == 0);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(1, two_m, result) &&
+                result == two_m);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(two_m, two_m, result) &&
+                result == two_m);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(two_m + 1, two_m, result) &&
+                result == two_m * 2);
+    ASTIA_CHECK(
+        astia::acpi::detail::checked_align_up(~u64{0} - (two_m - 1), two_m, result) &&
+        result == ~u64{0} - (two_m - 1));
+    ASTIA_CHECK(
+        !astia::acpi::detail::checked_align_up(~u64{0} - (two_m - 2), two_m, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(~u64{0}, two_m, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(0, 0, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(0, 3, result));
+}
+
+ASTIA_TEST(acpi_usable_top_ignores_non_usable_regions) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(0x5000, 0x1000, astia::mm::memory_type::reserved);
+    map.add(0x2000, 0x1000, astia::mm::memory_type::usable);
+    map.add(~u64{0}, 1, astia::mm::memory_type::reserved);
+
+    u64 top = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::usable_top(map, top));
+    ASTIA_CHECK(top == 0x3000);
+}
+
+ASTIA_TEST(acpi_usable_top_rejects_overflowing_region) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(~u64{0} - 0x10, 0x20, astia::mm::memory_type::usable);
+
+    u64 top = 0;
+
+    ASTIA_CHECK(!astia::acpi::detail::usable_top(map, top));
+}
+
+ASTIA_TEST(acpi_direct_map_limit_uses_aligned_usable_top) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
+
+    map.add(0x2000, 0x1000, astia::mm::memory_type::usable);
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
+}
+
+ASTIA_TEST(acpi_direct_map_limit_rejects_wrapping_top) {
+    astia::mm::memory_map map;
+
+    map.add(~u64{0} - 0xf, 0xf, astia::mm::memory_type::usable);
+
+    u64 top   = 0;
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::usable_top(map, top));
+    ASTIA_CHECK(top == ~u64{0});
+    ASTIA_CHECK(!astia::acpi::detail::direct_map_limit(map, limit));
+}
 
 ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
     table_image target;
@@ -761,7 +856,33 @@ namespace {
         u64 memory_address = 0;
         u16 memory_value   = 0;
         usz memory_count   = 0;
+
+        u16  io_read_port        = 0;
+        u16  io_read_value       = 0;
+        usz  io_read_count       = 0;
+        u64  memory_read_address = 0;
+        u16  memory_read_value   = 0;
+        usz  memory_read_count   = 0;
+        bool io_read_ok          = true;
+        bool io_write_ok         = true;
+        bool memory_read_ok      = true;
+        bool memory_write_ok     = true;
     };
+
+    bool read_io(void* context, u16 port, u16& value) {
+        auto* log = static_cast<write_log*>(context);
+
+        log->io_read_port = port;
+
+        ++log->io_read_count;
+
+        if (!log->io_read_ok)
+            return false;
+
+        value = log->io_read_value;
+
+        return true;
+    }
 
     bool record_io(void* context, u16 port, u16 value) {
         auto* log = static_cast<write_log*>(context);
@@ -772,6 +893,21 @@ namespace {
         }
 
         ++log->io_count;
+
+        return log->io_write_ok;
+    }
+
+    bool read_memory(void* context, u64 address, u16& value) {
+        auto* log = static_cast<write_log*>(context);
+
+        log->memory_read_address = address;
+
+        ++log->memory_read_count;
+
+        if (!log->memory_read_ok)
+            return false;
+
+        value = log->memory_read_value;
 
         return true;
     }
@@ -784,10 +920,11 @@ namespace {
 
         ++log->memory_count;
 
-        return true;
+        return log->memory_write_ok;
     }
 
-    void make_fadt(table_image& target, bool extended) {
+    void make_fadt(table_image& target, bool extended, const u8* aml = name_s5_package,
+                   usz aml_length = sizeof(name_s5_package)) {
         const usz length       = extended ? 244 : 116;
         const u64 dsdt_address = image_base + dsdt_offset;
 
@@ -812,13 +949,11 @@ namespace {
             image_base + fadt_offset,
         };
         target.tables.dsdt = {
-            astia::span<const u8>(target.data.bytes + dsdt_offset,
-                                  sizeof(name_s5_package) + 36),
+            astia::span<const u8>(target.data.bytes + dsdt_offset, aml_length + 36),
             dsdt_address,
         };
 
-        __builtin_memcpy(target.data.bytes + dsdt_offset + 36, name_s5_package,
-                         sizeof(name_s5_package));
+        __builtin_memcpy(target.data.bytes + dsdt_offset + 36, aml, aml_length);
     }
 
     void make_reset_fadt(table_image& target, u8 space, u64 address, u8 value,
@@ -896,8 +1031,8 @@ ASTIA_TEST(acpi_power_legacy_pm1a_plan_writes_s5) {
 
     write_log log{};
 
-    ASTIA_CHECK(
-        astia::acpi::detail::execute_s5(plan, {&log, record_io, record_memory}, error));
+    ASTIA_CHECK(astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
     ASTIA_CHECK(log.io_count == 1);
     ASTIA_CHECK(log.io_port[0] == 0x604);
     ASTIA_CHECK(log.io_value[0] == 0x2000);
@@ -920,8 +1055,8 @@ ASTIA_TEST(acpi_power_extended_gas_plan_writes_s5) {
 
     write_log log{};
 
-    ASTIA_CHECK(
-        astia::acpi::detail::execute_s5(plan, {&log, record_io, record_memory}, error));
+    ASTIA_CHECK(astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
     ASTIA_CHECK(log.io_count == 1);
     ASTIA_CHECK(log.io_port[0] == 0x1234);
     ASTIA_CHECK(log.io_value[0] == 0x2000);
@@ -949,12 +1084,123 @@ ASTIA_TEST(acpi_power_mmio_gas_writes_memory) {
 
     write_log log{};
 
-    ASTIA_CHECK(
-        astia::acpi::detail::execute_s5(plan, {&log, record_io, record_memory}, error));
+    ASTIA_CHECK(astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
     ASTIA_CHECK(log.memory_count == 1);
     ASTIA_CHECK(log.memory_address == 0x1000);
     ASTIA_CHECK(log.memory_value == 0x2000);
     ASTIA_CHECK(log.io_count == 0);
+}
+
+ASTIA_TEST(acpi_power_pm1_control_rmw_preserves_non_sleep_bits_io) {
+    table_image target;
+
+    make_fadt(target, false, name_s5_nonzero_package, sizeof(name_s5_nonzero_package));
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                   plan, error));
+    ASTIA_CHECK(plan.slp_typa == 5);
+
+    write_log log{};
+
+    log.io_read_value = 0x3E07;
+
+    ASTIA_CHECK(astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
+    ASTIA_CHECK(log.io_read_count == 1);
+    ASTIA_CHECK(log.io_read_port == 0x604);
+    ASTIA_CHECK(log.io_count == 1);
+    ASTIA_CHECK(log.io_port[0] == 0x604);
+    ASTIA_CHECK(log.io_value[0] == 0x3607);
+}
+
+ASTIA_TEST(acpi_power_pm1_control_rmw_preserves_non_sleep_bits_memory) {
+    table_image target;
+
+    make_fadt(target, true, name_s5_nonzero_package, sizeof(name_s5_nonzero_package));
+
+    u8* fadt = target.data.bytes + fadt_offset;
+
+    fadt[172] = 0;
+
+    store_u64(fadt + 176, 0x1000);
+    checksum_table(fadt, 244);
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                   plan, error));
+    ASTIA_CHECK(plan.slp_typa == 5);
+
+    write_log log{};
+
+    log.memory_read_value = 0x0003;
+
+    ASTIA_CHECK(astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
+    ASTIA_CHECK(log.memory_read_count == 1);
+    ASTIA_CHECK(log.memory_read_address == 0x1000);
+    ASTIA_CHECK(log.memory_count == 1);
+    ASTIA_CHECK(log.memory_address == 0x1000);
+    ASTIA_CHECK(log.memory_value == 0x3403);
+    ASTIA_CHECK(log.io_count == 0);
+}
+
+ASTIA_TEST(acpi_power_pm1_control_read_failure_does_not_write) {
+    table_image target;
+
+    make_fadt(target, false);
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                   plan, error));
+
+    write_log log{};
+
+    log.io_read_ok = false;
+
+    ASTIA_CHECK(!astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::read_failed);
+    ASTIA_CHECK(log.io_read_count == 1);
+    ASTIA_CHECK(log.io_count == 0);
+    ASTIA_CHECK(log.memory_count == 0);
+}
+
+ASTIA_TEST(acpi_power_pm1_control_write_failure_reports_error) {
+    table_image target;
+
+    make_fadt(target, false);
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::s5_plan     plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_s5_plan(target.tables, target.interpreter,
+                                                   plan, error));
+
+    write_log log{};
+
+    log.io_write_ok = false;
+
+    ASTIA_CHECK(!astia::acpi::detail::execute_s5(
+        plan, {&log, read_io, record_io, read_memory, record_memory}, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::write_failed);
+    ASTIA_CHECK(log.io_read_count == 1);
+    ASTIA_CHECK(log.io_count == 1);
 }
 
 ASTIA_TEST(acpi_power_malformed_gas_rejects) {

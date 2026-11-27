@@ -11,6 +11,7 @@
 
 #include "aml.hpp"
 #include "io.hpp"
+#include "limits.hpp"
 #include "power.hpp"
 #include "tables.hpp"
 
@@ -73,16 +74,27 @@ namespace astia::acpi {
             astia::mm::heap::free(pointer);
         }
 
-        u64 usable_top(const mm::memory_map& map) {
-            u64 top = 0;
+        bool read_io(void*, u16 port, u16& value) {
+            value = astia::arch::pio::read16(port);
 
-            for (const auto& region : map) {
-                if (region.type == mm::memory_type::usable &&
-                    region.base + region.size > top)
-                    top = region.base + region.size;
-            }
+            return true;
+        }
 
-            return top;
+        bool read_memory(void*, u64 physical, u16& value) {
+            const u64 offset = physical & mm::page_mask;
+            const u64 page   = physical - offset;
+
+            auto mapping =
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 2);
+
+            if (!mapping)
+                return false;
+
+            auto* base = static_cast<volatile u8*>(mapping.value.base());
+
+            value = *reinterpret_cast<volatile u16*>(base + offset);
+
+            return true;
         }
 
         bool write_io(void*, u16 port, u16 value) {
@@ -134,7 +146,8 @@ namespace astia::acpi {
         bool platform_s5(void*) {
             detail::power_error error = detail::power_error::none;
 
-            if (!detail::execute_s5(s5, {nullptr, write_io, write_memory}, error)) {
+            if (!detail::execute_s5(
+                    s5, {nullptr, read_io, write_io, read_memory, write_memory}, error)) {
                 logs::error("S5 write failed (%s)", detail::power_error_text(error));
 
                 return false;
@@ -164,9 +177,17 @@ namespace astia::acpi {
             if (ctx.info == nullptr)
                 return true;
 
+            u64 direct_limit = 0;
+
+            if (!detail::direct_map_limit(ctx.info->memory, direct_limit)) {
+                logs::error("unavailable: malformed memory map");
+
+                return true;
+            }
+
             kernel_reader reader{
                 identity_window,
-                align_up(usable_top(ctx.info->memory), 2ull << 20),
+                direct_limit,
             };
 
             detail::memory_reader access{
