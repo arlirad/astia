@@ -31,27 +31,21 @@ namespace astia::proc {
     }
 
     i64 process::change_directory(const fs::open_file& directory) {
-        if (!directory.mode().is_directory())
+        const fs::file_mode mode = directory.mode();
+
+        if (!mode.is_directory())
             return -ENOTDIR;
 
         const char* path = directory.path();
         if (path == nullptr)
             return -ENOENT;
 
-        char root[fs::path_max]{};
+        const auto parent = directory.parent();
 
-        const i64 root_rc = _cwd.copy_root(root, sizeof root);
-        if (root_rc < 0)
-            return root_rc;
+        if (parent && !can_search(mode, parent->uid(), parent->gid()))
+            return -EACCES;
 
-        const process_search_permission search(*this);
-
-        const long search_rc = fs::check_search(root, path, &search, true);
-
-        if (search_rc < 0)
-            return search_rc;
-
-        const u64 inode = directory.parent() ? directory.parent()->inode() : 0;
+        const u64 inode = parent ? parent->inode() : 0;
 
         return _cwd.bind_directory(path,
                                    directory_anchor{directory.mount_reference(), inode});

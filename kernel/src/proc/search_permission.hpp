@@ -13,17 +13,8 @@ namespace astia::proc {
             if (directory == nullptr)
                 return false;
 
-            const fs::file_mode mode = fs::node_mode(directory);
-
-            if (!mode.is_directory())
-                return false;
-
-            if (_owner.euid() == 0)
-                return true;
-
-            return _owner.can_access(mode, fs::node_uid(directory),
-                                     fs::node_gid(directory),
-                                     fs::permission_bits::execute);
+            return _owner.can_search(fs::node_mode(directory), fs::node_uid(directory),
+                                     fs::node_gid(directory));
         }
 
         private:

@@ -157,6 +157,16 @@ namespace astia::proc {
             }());
         }
 
+        bool can_search(fs::file_mode mode, uid_t owner, gid_t group) const {
+            if (!mode.is_directory())
+                return false;
+
+            if (euid() == 0)
+                return true;
+
+            return can_access(mode, owner, group, fs::permission_bits::execute);
+        }
+
         core::task<i64> change_directory(const char* path);
         i64             change_directory(const fs::open_file& directory);
         i64             copy_cwd(span<char> buffer) const;
