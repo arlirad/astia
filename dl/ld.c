@@ -34,12 +34,14 @@
  * (astia_thread_count), no installed signal handler, and the dlclose caller
  * not executing inside the image.  A module that fails any check is kept
  * mapped, dropped from the global scope, marked pending, and marked
- * finalized; a later dlclose re-attempts only the unmap.  Reopening a
- * finalized retained module re-runs its initializers (and those of finalized
- * retained dependencies) dependency-first and clears finalized/pending.  A
- * loader-busy guard rejects re-entrant dlopen/dlclose/dlsym from an
- * initializer, a finalizer, or an IFUNC resolver; a finalizer that installs a
- * handler or creates a thread has its unload deferred.
+ * finalized; the handle stays reserved so a later dlclose of that handle
+ * re-attempts only the unmap and releases the handle once every pending
+ * module is gone.  Reopening a finalized retained module re-runs its
+ * initializers (and those of finalized retained dependencies)
+ * dependency-first and clears finalized/pending.  A loader-busy guard
+ * rejects re-entrant dlopen/dlclose/dlsym from an initializer, a finalizer,
+ * or an IFUNC resolver; a finalizer that installs a handler or creates a
+ * thread has its unload deferred.
  *
  * Relocations for a dlopen group see only that group's closure plus startup
  * and global-scope modules, so a RTLD_LOCAL image cannot bind to an
@@ -204,6 +206,7 @@ static int g_reloc_scope_active;
 
 struct ld_handle {
     int used;
+    int pending;
     int root;
     int refcount;
     int nodelete;
@@ -1836,7 +1839,7 @@ static int module_in_live_handle(int index) {
     for (int handle = 0; handle < LD_MAX_HANDLES; ++handle) {
         const struct ld_handle* entry = &g_handles[handle];
 
-        if (!entry->used)
+        if (!entry->used || entry->pending)
             continue;
 
         for (int dep = 0; dep < entry->ndeps; ++dep) {
@@ -2001,6 +2004,46 @@ fail:
     return 0;
 }
 
+static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address) {
+    int remaining = 0;
+
+    entry->used = 0;
+
+    for (int i = entry->ndeps - 1; i >= 0; --i) {
+        const int index = entry->deps[i];
+
+        ld_module* module = &g_modules[index];
+
+        if (!module->used || !module->pending)
+            continue;
+
+        if (module->refcount != 0 || !module->dynamic || module->nodelete ||
+            module_in_live_handle(index) || module_referenced(index) ||
+            !unload_safe(module, return_address)) {
+            module->in_global = 0;
+            module->pending   = 1;
+            remaining         = 1;
+
+            continue;
+        }
+
+        if (astia_dlunmap(module->base) < 0) {
+            module->in_global = 0;
+            module->pending   = 1;
+            remaining         = 1;
+
+            continue;
+        }
+
+        module->used      = 0;
+        module->in_global = 0;
+        module->pending   = 0;
+        module->finalized = 0;
+    }
+
+    return remaining;
+}
+
 int dlclose(void* handle) {
     if (g_loader_busy) {
         set_error("dlclose: loader busy");
@@ -2010,6 +2053,14 @@ int dlclose(void* handle) {
 
     struct ld_handle* entry = handle_from(handle);
     if (entry == 0) {
+        set_error("dlclose: invalid handle");
+
+        return -1;
+    }
+
+    const int handle_index = (int) (entry - g_handles);
+
+    if (entry->ndeps < 0 || entry->ndeps > LD_MAX_MODULES) {
         set_error("dlclose: invalid handle");
 
         return -1;
@@ -2025,10 +2076,25 @@ int dlclose(void* handle) {
        frame; it decides whether the caller still executes inside a module. */
     const uintptr_t return_address = (uintptr_t) __builtin_return_address(0);
 
-    int       group[LD_MAX_MODULES];
-    int       zero[LD_MAX_MODULES];
-    int       candidate[LD_MAX_MODULES];
-    const int count = entry->ndeps;
+    if (entry->pending) {
+        g_loader_busy = 1;
+
+        const int remaining = retry_pending_group(entry, return_address);
+
+        g_loader_busy = 0;
+
+        if (remaining)
+            entry->used = 1;
+        else
+            handle_release(handle_index);
+
+        return 0;
+    }
+
+    int       group[LD_MAX_MODULES]     = {0};
+    int       zero[LD_MAX_MODULES]      = {0};
+    int       candidate[LD_MAX_MODULES] = {0};
+    const int count                     = entry->ndeps;
 
     for (int i = 0; i < count; ++i) {
         group[i]     = entry->deps[i];
@@ -2038,6 +2104,8 @@ int dlclose(void* handle) {
 
     entry->used   = 0;
     g_loader_busy = 1;
+
+    int deferred = 0;
 
     for (int i = 0; i < count; ++i) {
         ld_module* module = &g_modules[group[i]];
@@ -2067,6 +2135,7 @@ int dlclose(void* handle) {
         if (!unload_safe(module, return_address)) {
             module->in_global = 0;
             module->pending   = 1;
+            deferred          = 1;
 
             continue;
         }
@@ -2112,6 +2181,7 @@ int dlclose(void* handle) {
             module_referenced(index) || !unload_safe(module, return_address)) {
             module->in_global = 0;
             module->pending   = 1;
+            deferred          = 1;
 
             continue;
         }
@@ -2119,6 +2189,7 @@ int dlclose(void* handle) {
         if (astia_dlunmap(module->base) < 0) {
             module->in_global = 0;
             module->pending   = 1;
+            deferred          = 1;
 
             continue;
         }
@@ -2130,6 +2201,14 @@ int dlclose(void* handle) {
     }
 
     g_loader_busy = 0;
+
+    if (deferred) {
+        entry->used    = 1;
+        entry->pending = 1;
+    }
+    else {
+        handle_release(handle_index);
+    }
 
     return 0;
 }

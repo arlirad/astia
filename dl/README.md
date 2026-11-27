@@ -117,12 +117,14 @@ finalization runs in reverse order (dependents first). `DT_FINI` and
 `DT_FINI_ARRAY` run only once for the candidates that will actually unload,
 and the full unload decision is rechecked after the finalizers return. They
 never run for `RTLD_NODELETE` or deferred images. A finalized module that is
-retained because the unmap was deferred is marked `finalized`; a later
-`dlclose` re-attempts only the unmap and never runs `DT_FINI` again. Reopening
-that module re-runs its initializers, and those of any finalized members of
-its retained dependency closure, dependency-first, then clears `finalized`
-and `pending` before returning the new handle. Startup modules are never
-unloaded. `dlerror` returns a static bounded message once and clears it.
+retained because the unmap was deferred is marked `finalized`, and its handle
+stays reserved; a later `dlclose` of that handle re-attempts only the unmap,
+never runs `DT_FINI` again, and releases the handle once every pending module
+is gone. Reopening that module re-runs its initializers, and those of any
+finalized members of its retained dependency closure, dependency-first, then
+clears `finalized` and `pending` before returning the new handle. Startup
+modules are never unloaded. `dlerror` returns a static bounded message once
+and clears it.
 
 The loader is single-entry: while `dlopen`/`dlclose` mutate the tables, and
 during every `dlsym` lookup (including an IFUNC resolver call),
@@ -159,11 +161,13 @@ module stays mapped unless all of these hold:
   references it.
 
 When a module cannot be unmapped it is kept mapped, removed from the global
-scope, marked `pending`, and `dlclose` still returns 0. A module whose
-finalizer has run is also marked `finalized`; reopening it re-initializes it
-as described above. This conservative fallback means an active frame or a
-handler can defer unload indefinitely; the process owns the image until it
-exits.
+scope, marked `pending`, and `dlclose` still returns 0. The handle remains
+reserved as the retry token: calling `dlclose` on it again retries the unmap
+and releases the handle only after every pending module is gone. A module
+whose finalizer has run is also marked `finalized`; reopening it
+re-initializes it as described above. This conservative fallback means an
+active frame or a handler can defer unload indefinitely; the process owns the
+image until it exits or the same handle is closed again once quiescent.
 
 ## Scope (v1)
 
