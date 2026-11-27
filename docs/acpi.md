@@ -71,6 +71,10 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 
 ## Validation and bounds
 
+- The reader's firmware-table window covers every firmware-described range
+  (usable, reserved, ACPI reclaimable, ACPI NVS) up to the arch direct-map
+  span, so tables in reserved memory above the highest usable region are read
+  through a temporary on-demand mapping instead of being rejected.
 - RSDP v1/v2 signatures, both checksums, declared length, and range checks.
 - RSDT/XSDT signature, checksum, length, entry alignment, duplicate/cyclic table
   addresses, table count, and maximum sizes.

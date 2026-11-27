@@ -36,29 +36,32 @@ namespace astia::acpi::detail {
     /// Highest end address of a usable region. False when any usable region
     /// wraps past the end of the address space.
     inline bool usable_top(const mm::memory_map& map, u64& top) {
-        top = 0;
-
-        for (const auto& region : map) {
-            if (region.type != mm::memory_type::usable)
-                continue;
-
-            u64 end = 0;
-
-            if (!checked_add(region.base, region.size, end))
-                return false;
-
-            if (end > top)
-                top = end;
-        }
-
-        return true;
+        return mm::usable_top(map, top);
     }
 
-    /// Direct-map limit for the ACPI reader. False when the usable top cannot
-    /// be computed or rounded up without wrapping.
-    inline bool direct_map_limit(const mm::memory_map& map, u64& limit) {
+    /// Extent the arch direct map actually maps: the usable top rounded up.
+    /// False when the usable top cannot be rounded up without wrapping.
+    inline bool mapped_limit(const mm::memory_map& map, u64& limit) {
         u64 top = 0;
 
-        return usable_top(map, top) && checked_align_up(top, direct_map_alignment, limit);
+        return mm::usable_top(map, top) &&
+               checked_align_up(top, direct_map_alignment, limit);
+    }
+
+    /// Firmware-table window for the ACPI reader: the highest firmware-
+    /// described range, rounded up and capped at `cap` (the arch's direct-map
+    /// span). Reads inside the window but above `mapped_limit` go through the
+    /// on-demand mapping fallback. False when a range wraps or the rounded
+    /// top does not fit in a u64.
+    inline bool direct_map_limit(const mm::memory_map& map, u64 cap, u64& limit) {
+        u64 top = 0;
+
+        if (!mm::direct_map_top(map, top) ||
+            !checked_align_up(top, direct_map_alignment, top))
+            return false;
+
+        limit = top > cap ? cap : top;
+
+        return true;
     }
 } // namespace astia::acpi::detail
