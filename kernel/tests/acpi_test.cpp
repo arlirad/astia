@@ -5,6 +5,7 @@
 
 #include "acpi/aml.hpp"
 #include "acpi/limits.hpp"
+#include "acpi/madt.hpp"
 #include "acpi/power.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
@@ -44,6 +45,7 @@ namespace {
     constexpr usz root_offset = 0x040;
     constexpr usz fadt_offset = 0x100;
     constexpr usz dsdt_offset = 0x200;
+    constexpr usz madt_offset = 0x800;
 
     struct image {
         u8  bytes[image_size]{};
@@ -240,6 +242,34 @@ namespace {
             &source,
             image_base,
         };
+    }
+
+    void build_madt_tables(table_image& target, bool extended, const u8* entries,
+                           usz entry_bytes) {
+        u8 body[256]{};
+
+        store_u32(body, 0xFEE00000);
+        store_u32(body + 4, 1);
+
+        for (usz i = 0; i < entry_bytes; ++i) {
+            body[8 + i] = entries != nullptr ? entries[i] : 0;
+        }
+
+        add_table(target.data, madt_offset, "APIC", 5, body, 8 + entry_bytes);
+
+        u8 root_body[8]{};
+
+        if (extended) {
+            store_u64(root_body, image_base + madt_offset);
+            add_table(target.data, root_offset, "XSDT", 1, root_body, 8);
+        }
+        else {
+            store_u32(root_body, static_cast<u32>(image_base + madt_offset));
+            add_table(target.data, root_offset, "RSDT", 1, root_body, 4);
+        }
+
+        write_rsdp(target.data.bytes + rsdp_offset, image_base + root_offset,
+                   extended ? image_base + root_offset : 0, extended);
     }
 
     constexpr u8 name_s5_package[] = {
@@ -635,6 +665,273 @@ ASTIA_TEST(acpi_table_store_allocation_failure_cleans_up) {
     astia::acpi::detail::table missing{};
 
     ASTIA_CHECK(!target.tables.find(astia::acpi::detail::dsdt_signature, 0, missing));
+}
+
+ASTIA_TEST(acpi_madt_discovers_enabled_apic_ids) {
+    constexpr u8 entries[] = {
+        0, 8, 0, 6, 0, 0, 0, 0, 0, 8, 0, 2,  1, 0, 0, 0, 9, 16, 0, 0, 0, 1,
+        0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 12, 0, 0, 0, 0, 0, 0,  0, 0, 0, 0,
+    };
+
+    for (int extended = 0; extended < 2; ++extended) {
+        table_image target;
+
+        build_madt_tables(target, extended != 0, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::none);
+        ASTIA_CHECK(count == 2);
+        ASTIA_CHECK(apic_ids[0] == 2);
+        ASTIA_CHECK(apic_ids[1] == 0x100);
+    }
+}
+
+ASTIA_TEST(acpi_madt_rejects_oversized_lengths) {
+    constexpr u8 entries[] = {
+        0, 8, 0, 2, 1, 0, 0, 0,
+    };
+
+    {
+        table_image target;
+
+        build_madt_tables(target, false, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        store_u32(target.data.bytes + madt_offset + 4, 0xFFFFFFF0u);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_table_length);
+        ASTIA_CHECK(count == 0);
+    }
+
+    {
+        table_image target;
+
+        build_madt_tables(target, false, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        store_u32(target.data.bytes + root_offset + 4, 0xFFFFFFF0u);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_table_length);
+        ASTIA_CHECK(count == 0);
+    }
+
+    {
+        table_image target;
+
+        build_madt_tables(target, true, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        store_u32(target.data.bytes + rsdp_offset + 20, 0xFFFFFFF0u);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_rsdp);
+        ASTIA_CHECK(count == 0);
+    }
+}
+
+ASTIA_TEST(acpi_madt_rejects_bad_table_checksum) {
+    constexpr u8 entries[] = {
+        0, 8, 0, 2, 1, 0, 0, 0,
+    };
+
+    table_image target;
+
+    build_madt_tables(target, false, entries, sizeof(entries));
+
+    target.data.bytes[madt_offset + 10] ^= 0xFF;
+
+    raw_reader context = context_for(target.data);
+
+    u32 apic_ids[4]{};
+    u32 count = 0;
+
+    auto error = astia::acpi::detail::madt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+        reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+    ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_table_checksum);
+    ASTIA_CHECK(count == 0);
+}
+
+ASTIA_TEST(acpi_madt_rejects_malformed_entries) {
+    const auto check_rejected = [](const u8* entries, usz entry_bytes) {
+        table_image target;
+
+        build_madt_tables(target, false, entries, entry_bytes);
+
+        raw_reader context = context_for(target.data);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_entry);
+        ASTIA_CHECK(count == 0);
+    };
+
+    constexpr u8 short_entry[]      = {0x00, 0x01};
+    constexpr u8 entry_overruns[]   = {0x00, 0x08};
+    constexpr u8 short_local_apic[] = {0x00, 0x04, 0x00, 0x00};
+    constexpr u8 short_x2apic[]     = {0x09, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    constexpr u8 trailing_byte[]    = {
+        0x00, 0x08, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+    };
+
+    check_rejected(short_entry, sizeof(short_entry));
+    check_rejected(entry_overruns, sizeof(entry_overruns));
+    check_rejected(short_local_apic, sizeof(short_local_apic));
+    check_rejected(short_x2apic, sizeof(short_x2apic));
+    check_rejected(trailing_byte, sizeof(trailing_byte));
+}
+
+ASTIA_TEST(acpi_madt_rejects_duplicate_apic_ids) {
+    constexpr u8 entries[] = {
+        0, 8, 0, 2, 1, 0, 0, 0, 0, 8, 0, 2, 1, 0, 0, 0,
+    };
+
+    table_image target;
+
+    build_madt_tables(target, false, entries, sizeof(entries));
+
+    raw_reader context = context_for(target.data);
+
+    u32 apic_ids[4]{};
+    u32 count = 0;
+
+    auto error = astia::acpi::detail::madt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+        reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+    ASTIA_CHECK(error == astia::acpi::detail::madt_error::duplicate_apic_id);
+    ASTIA_CHECK(count == 0);
+}
+
+ASTIA_TEST(acpi_madt_rejects_missing_or_excess_cpus) {
+    constexpr u8 disabled[] = {
+        0, 8, 0, 2, 0, 0, 0, 0,
+    };
+    constexpr u8 two_enabled[] = {
+        0, 8, 0, 2, 1, 0, 0, 0, 0, 8, 0, 3, 1, 0, 0, 0,
+    };
+
+    {
+        table_image target;
+
+        build_madt_tables(target, false, disabled, sizeof(disabled));
+
+        raw_reader context = context_for(target.data);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::no_cpus);
+        ASTIA_CHECK(count == 0);
+    }
+
+    {
+        table_image target;
+
+        build_madt_tables(target, false, two_enabled, sizeof(two_enabled));
+
+        raw_reader context = context_for(target.data);
+
+        u32 apic_ids[1]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 1, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::too_many_cpus);
+        ASTIA_CHECK(count == 0);
+    }
+}
+
+ASTIA_TEST(acpi_madt_rejects_out_of_bound_table_and_root_entry) {
+    constexpr u8 entries[] = {
+        0, 8, 0, 2, 1, 0, 0, 0,
+    };
+
+    {
+        table_image target;
+
+        build_madt_tables(target, false, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        store_u32(target.data.bytes + madt_offset + 4, static_cast<u32>(image_size));
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_table_checksum);
+        ASTIA_CHECK(count == 0);
+    }
+
+    {
+        table_image target;
+
+        build_madt_tables(target, true, entries, sizeof(entries));
+
+        raw_reader context = context_for(target.data);
+
+        u8* root = target.data.bytes + root_offset;
+
+        store_u64(root + 36, 0xFFFFFFFFFF000000ull);
+        checksum_table(root, 44);
+
+        u32 apic_ids[4]{};
+        u32 count = 0;
+
+        auto error = astia::acpi::detail::madt_error::none;
+
+        ASTIA_CHECK(!astia::acpi::detail::discover_madt(
+            reader_for(context), image_base + rsdp_offset, apic_ids, 4, count, error));
+        ASTIA_CHECK(error == astia::acpi::detail::madt_error::bad_root_table);
+        ASTIA_CHECK(count == 0);
+    }
 }
 
 ASTIA_TEST(acpi_aml_finds_s5_name_package) {
