@@ -778,7 +778,11 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_dep_c.c
         dl_dep_a.c
         interp_dlopen.c
-        interp_dyntls.c)
+        interp_dyntls.c
+        fixture_versions.c
+        interp_ver.c
+        fixture_badver.c
+        interp_badver.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include
         ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include)
@@ -1544,12 +1548,42 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-soname,libfixture_ifunc.so -o ${_fix_dir}/libfixture_ifunc.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_ifunc.c
                 ${_fix_dir}/libfixture_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.map
+                -Wl,-soname,libfixture_versions.so
+                -o ${_fix_dir}/libfixture_versions.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
                 -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-rpath-link,${_fix_dir}
                 -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/interp_ifunc
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c ${_fix_dir}/libfixture_ifunc.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_ver
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ver.c ${_fix_dir}/libfixture_versions.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.map
+                -Wl,-soname,libverstub.so
+                -o ${_fix_dir}/libverstub_v1.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC -DONLY_V2
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver_v2.map
+                -Wl,-soname,libverstub.so
+                -o ${_fix_dir}/libverstub.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_badver
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c ${_fix_dir}/libverstub_v1.so
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
                 -fno-stack-protector -Wl,--hash-style=sysv
                 -Wl,-rpath-link,${_fix_dir}
@@ -1621,6 +1655,12 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
                 ${_fix_dir}/interp_dlopen
+                ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture_versions.so ${_fix_dir}/libverstub.so
+                ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_ver ${_fix_dir}/interp_badver
                 ${_fix_dir}/boot_stage/bin/
                 COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
@@ -1748,6 +1788,8 @@ if (ARCH STREQUAL "x86_64")
                 lib/libdl_dep_a.so
                 bin/interp_dlopen
                 lib/libfixture_dynamic_tls.so bin/interp_dyntls
+                lib/libfixture_versions.so lib/libverstub.so bin/interp_ver
+                bin/interp_badver
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
@@ -1779,18 +1821,16 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_global.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_nd.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_dep.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_user.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_base.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_b.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_c.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_a.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_dynamic_tls.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dyntls.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ver.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver_v2.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1926,6 +1966,8 @@ if (ARCH STREQUAL "x86_64")
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: relro ok"
+                "astia: ver ok"
+                "astia: ver reject ok"
                 "astia: ld ok"
                 "astia: dyntls ok"
                 "astia: ld nophdr ok"

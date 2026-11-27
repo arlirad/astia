@@ -4928,6 +4928,63 @@ int main(int argc, char** argv) {
             printf("astia: ifunc ok\n");
     }
 
+    /* Unversioned call binds the default VERS_2 definition; the .symver
+       reference binds the non-default VERS_1 definition. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 206;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_ver", NULL};
+
+            execv("/bin/interp_ver", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 206;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 206;
+        else
+            printf("astia: ver ok\n");
+    }
+
+    /* /bin/interp_badver needs bad_value@VERS_1 but /lib/libverstub.so only
+       defines VERS_2: the loader must reject it instead of binding the
+       unversioned driver.  Exit 0 from the payload is the failure. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 207;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_badver", NULL};
+
+            execv("/bin/interp_badver", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 207;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status == 0)
+            return 207;
+        else if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+            printf("astia: ver reject ok\n");
+        else
+            return 207;
+    }
+
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {

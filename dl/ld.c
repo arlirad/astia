@@ -47,10 +47,11 @@
  * prelinked interpreter); the payload has an empty dlpi_name.  A dlopen'ed
  * image containing PT_TLS is rejected until global-dynamic TLS exists.
  *
- * v1: eager binding, no lazy PLT, no symbol versioning, SysV hash only,
- * direct dependencies only.  PT_GNU_RELRO is applied after relocation, IFUNC
- * resolution and TLS setup, before constructors, including for dlopen'd
- * groups.  At most 32 modules, 16 handles, and 64-byte paths.
+ * v1: eager binding, no lazy PLT, SysV/GNU hash, direct dependencies only,
+ * and (name, version) symbol matching for the DT_VERSYM/DT_VERNEED/DT_VERDEF
+ * tables.  PT_GNU_RELRO is applied after relocation, IFUNC resolution and
+ * TLS setup, before constructors, including for dlopen'd groups.  At most 32
+ * modules, 16 handles, and 64-byte paths.
  * dlopen/dlclose are not safe against concurrent calls; unloading requires a
  * single-threaded, signal-free process.  There is no RTLD_NEXT.
  * Static TLS covers initial-exec DSOs; the per-thread DTV and
@@ -341,6 +342,11 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->fini            = 0;
     module->fini_array      = 0;
     module->fini_array_size = 0;
+    module->versym          = 0;
+    module->verneed         = 0;
+    module->verneednum      = 0;
+    module->verdef          = 0;
+    module->verdefnum       = 0;
     module->tls_vaddr       = 0;
     module->tls_filesz      = 0;
     module->tls_memsz       = 0;
@@ -459,6 +465,16 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
 
     module->soname = soname != 0 ? module->strtab + soname : 0;
 
+    const uint64_t versym  = dyn_tag(module, DT_VERSYM);
+    const uint64_t verneed = dyn_tag(module, DT_VERNEED);
+    const uint64_t verdef  = dyn_tag(module, DT_VERDEF);
+
+    module->versym     = versym != 0 ? (const uint16_t*) (base + versym) : 0;
+    module->verneed    = verneed != 0 ? (const Elf64_Verneed*) (base + verneed) : 0;
+    module->verneednum = (uint32_t) dyn_tag(module, DT_VERNEEDNUM);
+    module->verdef     = verdef != 0 ? (const Elf64_Verdef*) (base + verdef) : 0;
+    module->verdefnum  = (uint32_t) dyn_tag(module, DT_VERDEFNUM);
+
     const uint64_t rela   = dyn_tag(module, DT_RELA);
     const uint64_t jmprel = dyn_tag(module, DT_JMPREL);
 
@@ -497,30 +513,59 @@ static int relocation_scope_allows(int index) {
     return 0;
 }
 
-/// The symbol that defines `name` and the module that owns it.  Callers
-/// need the defining symbol itself for its type (IFUNC) and for its value
-/// relative to the owner's base; TLS relocations need the owner's block
-/// offset, not the referring module's.
-static const Elf64_Sym* find_symbol(const ld_module* modules, int count, const char* name,
-                                    const ld_module** owner) {
-    for (int m = 0; m < count; ++m) {
-        const ld_module* image = &modules[m];
+static const Elf64_Verdaux* verdef_aux(const Elf64_Verdef* def) {
+    return (const Elf64_Verdaux*) ((const char*) def + def->vd_aux);
+}
 
-        if (!image->used || !relocation_scope_allows(m))
-            continue;
+static const Elf64_Vernaux* verneed_aux(const Elf64_Verneed* need) {
+    return (const Elf64_Vernaux*) ((const char*) need + need->vn_aux);
+}
 
-        for (uint32_t i = 1; i < image->symbol_count; ++i) {
-            const Elf64_Sym* symbol = &image->symtab[i];
+static const Elf64_Verdef* verdef_next(const Elf64_Verdef* def) {
+    return def->vd_next != 0 ? (const Elf64_Verdef*) ((const char*) def + def->vd_next)
+                             : 0;
+}
 
-            if (symbol->st_shndx == 0 || (symbol->st_info >> 4) == 0)
-                continue;
+static const Elf64_Vernaux* vernaux_next(const Elf64_Vernaux* aux) {
+    return aux->vna_next != 0 ? (const Elf64_Vernaux*) ((const char*) aux + aux->vna_next)
+                              : 0;
+}
 
-            if (ld_streq(image->strtab + symbol->st_name, name)) {
-                *owner = image;
+static const Elf64_Verneed* verneed_next(const Elf64_Verneed* need) {
+    return need->vn_next != 0
+               ? (const Elf64_Verneed*) ((const char*) need + need->vn_next)
+               : 0;
+}
 
-                return symbol;
-            }
-        }
+/// The version name this module exports for symbol `index`.  A null return
+/// means the definition is unversioned (or `index` names a local symbol);
+/// *hidden reports the non-default bit so callers can skip a definition the
+/// link editor should not pick over the default one.
+static const char* define_version_name(const ld_module* module, uint32_t index,
+                                       int* hidden) {
+    *hidden = 0;
+
+    if (module->versym == 0 || index >= module->symbol_count)
+        return 0;
+
+    const uint16_t entry = module->versym[index];
+    const uint16_t idx   = entry & 0x7fff;
+
+    *hidden = (entry & 0x8000) != 0;
+
+    if (idx == 0 || module->verdef == 0)
+        return 0; /* local symbol, or no definitions to name */
+
+    const Elf64_Verdef* def = module->verdef;
+
+    for (uint32_t i = 0; def != 0; ++i) {
+        if (def->vd_ndx == idx)
+            return module->strtab + verdef_aux(def)->vda_name;
+
+        if (def->vd_next == 0 || (module->verdefnum != 0 && i + 1 >= module->verdefnum))
+            break;
+
+        def = verdef_next(def);
     }
 
     return 0;
@@ -600,6 +645,107 @@ static void set_module_name(ld_module* module, const char* fallback) {
         module->name[0] = '\0';
 }
 
+/// The version name this module's symbol `index` requires, or null for an
+/// unversioned (base) reference.  Version index 1 is the base version, which
+/// every unversioned definition can satisfy.
+static const char* reference_version_name(const ld_module* module, uint32_t index) {
+    if (module->versym == 0 || module->verneed == 0 || index >= module->symbol_count)
+        return 0;
+
+    const uint16_t idx = module->versym[index] & 0x7fff;
+    if (idx <= 1)
+        return 0;
+
+    const Elf64_Verneed* need = module->verneed;
+
+    for (uint32_t i = 0; need != 0; ++i) {
+        const Elf64_Vernaux* aux = verneed_aux(need);
+
+        for (uint32_t a = 0; aux != 0 && a < need->vn_cnt; ++a) {
+            if ((aux->vna_other & 0x7fff) == idx)
+                return module->strtab + aux->vna_name;
+
+            aux = vernaux_next(aux);
+        }
+
+        if (need->vn_next == 0 ||
+            (module->verneednum != 0 && i + 1 >= module->verneednum))
+            break;
+
+        need = verneed_next(need);
+    }
+
+    return 0;
+}
+
+/// Resolve `name` referenced by `referrer` at `referrer_sym_index`.
+///
+/// An unversioned reference accepts the first unversioned, base-version or
+/// non-hidden default definition.  A versioned reference accepts only a
+/// definition exporting the same version name: it never binds to an
+/// unversioned definition, and a different version keeps the search going.
+/// The defining symbol is returned so callers can inspect its type (IFUNC)
+/// and its value relative to the owner's base; TLS relocations need the
+/// owner's block offset, not the referring module's.
+static int find_symbol(const ld_module* modules, int count, const ld_module* referrer,
+                       uint32_t referrer_sym_index, const char* name,
+                       const Elf64_Sym** symbol_out, const ld_module** owner_out) {
+    const char* wanted = reference_version_name(referrer, referrer_sym_index);
+
+    const int versioned = wanted != 0;
+
+    for (int module = 0; module < count; ++module) {
+        const ld_module* image = &modules[module];
+
+        if (!image->used || !relocation_scope_allows(module))
+            continue;
+
+        for (uint32_t index = 1; index < image->symbol_count; ++index) {
+            const Elf64_Sym* symbol = &image->symtab[index];
+
+            if (symbol->st_shndx == 0)
+                continue; /* undefined */
+
+            if ((symbol->st_info >> 4) == 0)
+                continue; /* STB_LOCAL */
+
+            if (!ld_streq(image->strtab + symbol->st_name, name))
+                continue;
+
+            if (image->versym == 0) {
+                if (versioned)
+                    continue; /* never bind a versioned reference to an unversioned
+                                 definition */
+            }
+            else {
+                const uint16_t idx = image->versym[index] & 0x7fff;
+
+                int hidden = 0;
+
+                const char* definition = define_version_name(image, index, &hidden);
+
+                if (idx == 0)
+                    continue; /* local: not a usable definition */
+
+                if (!versioned) {
+                    if (idx > 1 && hidden)
+                        continue; /* non-default definition */
+                }
+                else if (definition == 0 || !ld_streq(definition, wanted)) {
+                    continue;
+                }
+            }
+
+            *symbol_out = symbol;
+            *owner_out  = image;
+
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
 /* IFUNC slots are filled in a second phase, once every image is relocated:
  * a resolver may call ordinary relocated functions, but not another IFUNC,
  * whose slot is still queued. */
@@ -658,7 +804,6 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             // The offset of the variable inside its block lives in st_value,
             // and a cross-DSO reference must use the provider's block offset.
             int64_t          value = 0;
-            const ld_module* owner = module;
             const Elf64_Sym* symbol =
                 index != 0 && index < module->symbol_count ? &module->symtab[index] : 0;
             if (symbol == 0) {
@@ -668,14 +813,17 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
                 value = module->tls_offset + (int64_t) symbol->st_value + entry->r_addend;
             }
             else {
-                const Elf64_Sym* definition = find_symbol(
-                    g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
-                if (definition == 0) {
+                const Elf64_Sym* definition = 0;
+                const ld_module* def_owner  = 0;
+
+                if (find_symbol(g_modules, g_module_count, module, index,
+                                module->strtab + symbol->st_name, &definition,
+                                &def_owner) != 0) {
                     if ((symbol->st_info >> 4) != 2)
                         return 3;
                 }
                 else {
-                    value = owner->tls_offset + (int64_t) definition->st_value +
+                    value = def_owner->tls_offset + (int64_t) definition->st_value +
                             entry->r_addend;
                 }
             }
@@ -708,9 +856,11 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             }
             else {
                 const ld_module* owner      = module;
-                const Elf64_Sym* definition = find_symbol(
-                    g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
-                if (definition == 0) {
+                const Elf64_Sym* definition = 0;
+
+                if (find_symbol(g_modules, g_module_count, module, index,
+                                module->strtab + symbol->st_name, &definition,
+                                &owner) != 0) {
                     if ((symbol->st_info >> 4) != 2)
                         return 3;
 
@@ -734,10 +884,11 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             return 2;
 
         const Elf64_Sym* symbol     = &module->symtab[index];
+        const Elf64_Sym* definition = 0;
         const ld_module* owner      = 0;
-        const Elf64_Sym* definition = find_symbol(
-            g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
-        if (definition == 0) {
+
+        if (find_symbol(g_modules, g_module_count, module, index,
+                        module->strtab + symbol->st_name, &definition, &owner) != 0) {
             /* STB_WEAK undefined references are allowed to resolve to zero. */
             if ((symbol->st_info >> 4) != 2)
                 return 3;
