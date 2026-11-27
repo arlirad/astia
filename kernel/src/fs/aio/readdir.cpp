@@ -17,6 +17,7 @@ namespace astia::io::aio::operations {
             mm::shptr<fs::open_file> handle;
 
             u64  index;
+            u64  inode = 0;
             long rc;
 
             if (by_handle) {
@@ -48,11 +49,12 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
 
             rc = by_handle ? fs::read_directory(handle, index, result.name,
-                                                sizeof result.name, &type)
+                                                sizeof result.name, &type, &inode)
                            : fs::read_directory(resolved, index, result.name,
-                                                sizeof result.name, &type);
+                                                sizeof result.name, &type, &inode);
 
             result.type = static_cast<u32>(type);
+            result.ino  = inode;
 
             if (rc > 0) {
                 u32 length = 0;

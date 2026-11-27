@@ -96,7 +96,7 @@ namespace astia::fs::filesystems {
         bool                 initialize();
         mm::shptr<open_file> open(const char* path, u32 flags) override;
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                 file_type* type) override;
+                                 file_type* type, u64* inode) override;
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
         u64       node_inode(const char* path) const override;

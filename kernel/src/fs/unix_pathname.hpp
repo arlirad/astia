@@ -18,5 +18,5 @@ namespace astia::fs {
                               file_permissions permissions);
     long      unix_chown_path(const char* canonical, mount* owner, uid_t uid, gid_t gid);
     long      read_unix_directory(const char* directory, mount* owner, u64 index,
-                                  astia::span<char> name, file_type* type);
+                                  astia::span<char> name, file_type* type, u64* inode);
 }

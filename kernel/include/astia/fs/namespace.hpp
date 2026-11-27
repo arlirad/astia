@@ -28,14 +28,18 @@ namespace astia::fs {
     /// True when the path resolves to a read-only mount.
     bool read_only_path(const char* path);
 
+    /* `inode` receives the filesystem identity of the returned entry, or 0
+       when the mount has no persistent inode identity (an initrd archive or a
+       UNIX pathname record).  The pointer may be null when the caller only
+       needs the name and type. */
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        file_type* type);
+                        file_type* type, u64* inode);
     /* Enumerate the directory an open descriptor was bound to.  The entry
        index is a property of the stream, not the directory, so it is the
        caller's to keep; the pathname resolved here is the one the handle
        captured at open time, never a caller-supplied path. */
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type);
+                        u32 capacity, file_type* type, u64* inode);
     long make_directory(const char* path, file_mode mode);
     long remove_path(const char* path, bool directory);
     /// Atomically rename within one mounted filesystem.  Different mounts

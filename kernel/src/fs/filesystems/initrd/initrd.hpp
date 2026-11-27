@@ -33,7 +33,7 @@ namespace astia::fs::filesystems {
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                 file_type* type) override;
+                                 file_type* type, u64* inode) override;
 
         private:
         struct entry {

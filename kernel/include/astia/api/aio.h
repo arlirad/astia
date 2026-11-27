@@ -224,6 +224,7 @@ typedef struct astia_dirent {
     uint32_t type;
     uint32_t namelen;
     char     name[256];
+    uint64_t ino; /* filesystem inode; 0 when the mount exposes none */
 } astia_dirent;
 
 typedef struct astia_spawn {
@@ -261,6 +262,7 @@ typedef struct astia_reg_buf {
 } astia_reg_buf;
 
 ASTIA_STATIC_ASSERT(sizeof(astia_timespec) == 16, "timespec ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_dirent) == 272, "dirent ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_iovec) == 16, "iovec ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_stat) == 128, "stat ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_spawn) == 40, "spawn ABI");

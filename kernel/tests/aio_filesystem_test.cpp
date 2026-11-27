@@ -583,6 +583,31 @@ ASTIA_TEST(aio_filesystem_readdir_reports_posix_d_type_values) {
     }
 }
 
+ASTIA_TEST(aio_filesystem_readdir_reports_entry_inode) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory_entry_inode(4242);
+
+    const auto file =
+        aio_test::make_open_file(new aio_test::fake_file(fs::file_type::directory));
+
+    const i32 fd = install_descriptor(file);
+
+    astia_dirent         entry{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_READDIR, fd);
+
+    sqe.address  = reinterpret_cast<u64>(&entry);
+    sqe.op_flags = ASTIA_AIO_READDIR_FD;
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 1);
+    ASTIA_CHECK(entry.ino == 4242);
+}
+
 ASTIA_TEST(aio_filesystem_chown_owner_sentinel_keeps_existing_owner) {
     using namespace aio::test_support;
 

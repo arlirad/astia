@@ -162,7 +162,7 @@ namespace astia::fs::filesystems {
                               mm::shptr<open_file>& result);
         long      unlink_shared(const char* path);
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                 file_type* type) override;
+                                 file_type* type, u64* inode) override;
         long      mkdir(const char* path, file_mode mode) override;
         long      unlink(const char* path, bool directory) override;
         long      rename(const char* old_path, const char* new_path) override;

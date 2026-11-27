@@ -517,6 +517,7 @@ long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
             out->name[length] = '\0';
             out->namelen      = length;
             out->type         = entry->d_type;
+            out->ino          = entry->d_ino;
 
             return 1;
         }

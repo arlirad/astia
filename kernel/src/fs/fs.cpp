@@ -380,7 +380,7 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
-    long mount::read_directory(const char*, u64, char*, u32, file_type*) {
+    long mount::read_directory(const char*, u64, char*, u32, file_type*, u64*) {
         return -ENOSYS;
     }
 
@@ -931,7 +931,7 @@ namespace astia::fs {
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        file_type* type) {
+                        file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -947,7 +947,8 @@ namespace astia::fs {
 
         const char* relative = relative_path(*operation.entry(), resolved);
 
-        rc = operation.instance()->read_directory(relative, index, name, capacity, type);
+        rc = operation.instance()->read_directory(relative, index, name, capacity, type,
+                                                  inode);
 
         if (rc > 0 || rc == -ENAMETOOLONG)
             return rc;
@@ -956,7 +957,7 @@ namespace astia::fs {
 
         while (true) {
             rc = operation.instance()->read_directory(relative, base, name, capacity,
-                                                      type);
+                                                      type, nullptr);
             if (rc > 0) {
                 ++base;
                 continue;
@@ -969,11 +970,11 @@ namespace astia::fs {
         }
 
         return read_unix_directory(resolved, operation.instance(), index - base,
-                                   astia::span<char>(name, capacity), type);
+                                   astia::span<char>(name, capacity), type, inode);
     }
 
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type) {
+                        u32 capacity, file_type* type, u64* inode) {
         if (!directory)
             return -EBADF;
 
@@ -985,7 +986,7 @@ namespace astia::fs {
         if (!directory->mode().is_directory())
             return -ENOTDIR;
 
-        return read_directory(path, index, name, capacity, type);
+        return read_directory(path, index, name, capacity, type, inode);
     }
 
     long make_directory(const char* path, file_mode mode) {

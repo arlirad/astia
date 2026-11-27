@@ -116,9 +116,13 @@ ASTIA_TEST(initrd_accepts_paths_at_path_max) {
 
     astia::fs::file_type listed_type = astia::fs::directory_unknown;
 
-    ASTIA_CHECK(mount.read_directory("/", 0, listed, sizeof listed, &listed_type) == 1);
+    astia::u64 listed_inode = 1;
+
+    ASTIA_CHECK(mount.read_directory("/", 0, listed, sizeof listed, &listed_type,
+                                     &listed_inode) == 1);
     ASTIA_CHECK(listed_type == astia::fs::file_type::regular);
     ASTIA_CHECK(std::strcmp(listed, name) == 0);
+    ASTIA_CHECK(listed_inode == 0);
 }
 
 ASTIA_TEST(initrd_mount_is_read_only) {
