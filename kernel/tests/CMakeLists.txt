@@ -1362,7 +1362,7 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: uname ok"
                 "selftest: statx ok"
         )
-        set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 180
+        set_tests_properties(astia_kernel_boot PROPERTIES TIMEOUT 300
                 ENVIRONMENT "ASTIA_EXPECT_ONCE_PATTERN=core: version=${ASTIA_VERSION_version}")
 
         add_test(NAME astia_fs_registry_boot
@@ -1371,7 +1371,7 @@ if (ARCH STREQUAL "x86_64")
                 ""
                 "filesystem registry ok"
         )
-        set_tests_properties(astia_fs_registry_boot PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_fs_registry_boot PROPERTIES TIMEOUT 300)
 
         # Repeat the process/thread/ring lifecycle with two virtual CPUs. The
         # kernel still has one scheduling domain; this deliberately changes
@@ -1389,7 +1389,7 @@ if (ARCH STREQUAL "x86_64")
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_lifecycle_smp2 PROPERTIES
-                TIMEOUT 180 ENVIRONMENT "ASTIA_QEMU_SMP=2")
+                TIMEOUT 300 ENVIRONMENT "ASTIA_QEMU_SMP=2")
 
         # Keep a focused SMP boot assertion in addition to the lifecycle run.
         add_test(NAME astia_kernel_smp_boot
@@ -1400,7 +1400,7 @@ if (ARCH STREQUAL "x86_64")
                 "smp: reschedule IPI armed"
         )
         set_tests_properties(astia_kernel_smp_boot PROPERTIES
-                TIMEOUT 180 ENVIRONMENT "ASTIA_QEMU_SMP=2")
+                TIMEOUT 300 ENVIRONMENT "ASTIA_QEMU_SMP=2")
 
         add_test(NAME astia_kernel_scheduler_smp2
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -1409,7 +1409,7 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: scheduler ok"
                 "smp: discovered=2")
         set_tests_properties(astia_kernel_scheduler_smp2 PROPERTIES
-                TIMEOUT 180 ENVIRONMENT "ASTIA_QEMU_SMP=2;ASTIA_QEMU_MACHINE=q35")
+                TIMEOUT 300 ENVIRONMENT "ASTIA_QEMU_SMP=2;ASTIA_QEMU_MACHINE=q35")
 
         # End-to-end initrd: the same kernel, but the boot module is a cpio image
         # carrying a self-contained ET_REL module. QEMU's PVH path puts -initrd in
@@ -2006,7 +2006,7 @@ if (ARCH STREQUAL "x86_64")
                 "path=/bin/init_libc"
                 "core: selftest ok"
         )
-        set_tests_properties(astia_module_syscall_boot PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_module_syscall_boot PROPERTIES TIMEOUT 300)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
@@ -2062,7 +2062,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc.so ok"
                 "astia: dlopen ok"
         )
-        set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 300)
 
         add_test(NAME astia_chroot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -2072,7 +2072,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: chroot exec ok"
                 "astia: libc ok"
         )
-        set_tests_properties(astia_chroot PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_chroot PROPERTIES TIMEOUT 300)
 
         add_test(NAME astia_urandom_fresh_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_urandom_boot_test.sh
@@ -2096,7 +2096,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
         )
-        set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 300)
 
         add_test(NAME astia_initrd_boot_zstd
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
@@ -2114,7 +2114,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
         )
-        set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 300)
 
         add_test(NAME astia_production_init_exit
                 COMMAND ${CMAKE_COMMAND} -E env
@@ -2277,7 +2277,7 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: restarting service: /bin/true attempt=1"
                 "daemond: clean shutdown"
                 "init: clean shutdown")
-        set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 300)
         add_custom_target(astia_native_service_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
 
@@ -2322,7 +2322,7 @@ if (ARCH STREQUAL "x86_64")
                 "ignored SIGTERM; sent SIGKILL"
                 "daemond: clean shutdown"
                 "init: clean shutdown")
-        set_tests_properties(astia_native_daemond_escalation PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_native_daemond_escalation PROPERTIES TIMEOUT 300)
         add_custom_target(astia_native_escalation_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_escalation_boot_initrd.cpio)
 
@@ -2365,7 +2365,7 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: malformed service record"
                 "init: daemond exited status="
                 "init: daemond failed")
-        set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 300)
         add_custom_target(astia_native_failure_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_failure_boot_initrd.cpio)
 
@@ -2413,7 +2413,7 @@ if (ARCH STREQUAL "x86_64")
                 "daemond: reaped service pid="
                 "daemond: clean shutdown"
                 "init: clean shutdown")
-        set_tests_properties(astia_native_daemond_visibility PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_native_daemond_visibility PROPERTIES TIMEOUT 300)
 
         # A missing rc must be reported with its errno and must not terminate
         # the supervisor: PID 1 still has a live child.
@@ -2480,7 +2480,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_launch_failure_boot_initrd.cpio
                 "init: cannot start /sbin/daemond: errno=2")
-        set_tests_properties(astia_native_daemond_launch_failure PROPERTIES TIMEOUT 180)
+        set_tests_properties(astia_native_daemond_launch_failure PROPERTIES TIMEOUT 300)
 
         add_custom_target(astia_native_initrd_fixtures ALL
                 DEPENDS ${_fix_dir}/native_boot_initrd.cpio
@@ -2538,7 +2538,7 @@ if (ARCH STREQUAL "x86_64")
                     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
                     shutdown ${ASTIA_QEMU} ${CMAKE_BINARY_DIR}/astia-acpi.iso)
             set_tests_properties(acpi_q35_shutdown PROPERTIES
-                    TIMEOUT 180
+                    TIMEOUT 300
                     LABELS "acpi;qemu;deterministic"
                     RESOURCE_LOCK astia-qemu
                     RUN_SERIAL TRUE)

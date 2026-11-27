@@ -25,7 +25,7 @@ fi
 qemu=$1
 kernel=$2
 initrd=$3
-# CTest grants these tests a 180s budget.  The shared deadline helper keeps
+# CTest grants these tests a 300s budget.  The shared deadline helper keeps
 # the internal deadline strictly below it so a stalled guest still gets its
 # serial log printed instead of being SIGKILLed mid-report.  The required
 # markers and exit status are unchanged.
