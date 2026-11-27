@@ -33,8 +33,10 @@ utilities and checks their exit status and output on the real kernel.
 
 `ls -l` prints native mode, link count, numeric owner IDs, size, timestamp, and
 symlink targets. `grep` supports `-n`, `-i`, and `-v` with the usual 0/1/2
-match/error statuses. `touch FILE...` creates missing files and updates the
-native modification timestamp through the Astia VFS/libc ABI. `-c` skips
+match/error statuses; `PATTERN` is a POSIX basic regular expression with
+anchors, `.`, `*`, bracket expressions, `\{m,n\}` intervals, `\(...\)` groups,
+and `\1`-`\9` back-references. `touch FILE...` creates missing files and
+updates the native modification timestamp through the Astia VFS/libc ABI. `-c` skips
 creation and `-m` selects that supported modification-time update; the current
 timestamp ABI has no access-time or explicit-time operation, so requests using
 `-a` are rejected rather than faked.
