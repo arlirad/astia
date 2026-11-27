@@ -123,8 +123,10 @@ never runs `DT_FINI` again, and releases the handle once every pending module
 is gone. Reopening that module re-runs its initializers, and those of any
 finalized members of its retained dependency closure, dependency-first, then
 clears `finalized` and `pending` before returning the new handle. Startup
-modules are never unloaded. `dlerror` returns a static bounded message once
-and clears it.
+modules are never unloaded. `dlerror` returns a bounded message once and
+clears it; the message is kept per thread (keyed by the thread pointer, with
+a shared fallback once 16 threads have reported errors), so concurrent
+failures do not overwrite each other.
 
 The loader is single-entry: while `dlopen`/`dlclose` mutate the tables, and
 during every `dlsym` lookup (including an IFUNC resolver call),

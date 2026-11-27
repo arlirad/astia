@@ -172,6 +172,7 @@ astia_add_test_label(astia_dl_mode_test "dl;host;deterministic")
 astia_add_host_test(astia_dl_unload_test
         dl_unload_test.cpp
         dl_unload_host.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
         ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
         ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
 set(_dl_unload_includes
@@ -181,6 +182,12 @@ set(_dl_unload_includes
 set_source_files_properties(dl_unload_host.c PROPERTIES
         INCLUDE_DIRECTORIES "${_dl_unload_includes}")
 astia_add_test_label(astia_dl_unload_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_error_test dl_error_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c)
+target_include_directories(astia_dl_error_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl)
+target_link_libraries(astia_dl_error_test PRIVATE Threads::Threads)
+astia_add_test_label(astia_dl_error_test "dl;host;deterministic")
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -1546,6 +1553,7 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/resolve.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
@@ -1823,6 +1831,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c

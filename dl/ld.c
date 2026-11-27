@@ -68,6 +68,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 
+#include "error.h"
 #include "mode.h"
 #include "reloc.h"
 #include "symcount.h"
@@ -221,37 +222,14 @@ static struct ld_handle g_handles[LD_MAX_HANDLES];
  * state. */
 static int g_loader_busy;
 
-static char g_error[160];
-static int  g_error_set;
+static uint64_t ld_thread_pointer(void);
 
 static void set_error(const char* text) {
-    unsigned long i = 0;
-
-    while (text[i] != '\0' && i + 1 < sizeof g_error) {
-        g_error[i] = text[i];
-
-        ++i;
-    }
-
-    g_error[i]  = '\0';
-    g_error_set = 1;
+    ld_error_set(ld_thread_pointer(), text);
 }
 
 static void set_error_path(const char* prefix, const char* path) {
-    unsigned long i = 0;
-
-    while (prefix[i] != '\0' && i + 1 < sizeof g_error) {
-        g_error[i] = prefix[i];
-
-        ++i;
-    }
-
-    for (unsigned long j = 0; path[j] != '\0' && i + 1 < sizeof g_error; ++j) {
-        g_error[i++] = path[j];
-    }
-
-    g_error[i]  = '\0';
-    g_error_set = 1;
+    ld_error_set_path(ld_thread_pointer(), prefix, path);
 }
 
 static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
@@ -2294,12 +2272,7 @@ void* dlsym(void* handle, const char* name) {
 }
 
 char* dlerror(void) {
-    if (!g_error_set)
-        return 0;
-
-    g_error_set = 0;
-
-    return g_error;
+    return ld_error_take(ld_thread_pointer());
 }
 
 int dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* data) {
