@@ -818,6 +818,8 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_dep_a.c
         interp_dlopen.c
         interp_dyntls.c
+        interp_copy.c
+        interp_copy_lib.c
         fixture_versions.c
         interp_ver.c
         fixture_badver.c
@@ -1582,6 +1584,18 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-soname,libfixture_base.so -o ${_fix_dir}/libfixture_base.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libcopyfixture.so -o ${_fix_dir}/libcopyfixture.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_copy_lib.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -no-pie -fno-pic
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-Ttext-segment=0x40000000
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_copy
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_copy.c ${_fix_dir}/libcopyfixture.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
                 -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libfixture.so -o ${_fix_dir}/libfixture.so
@@ -1695,7 +1709,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/libfixture.so ${_fix_dir}/libfixture_base.so
-                ${_fix_dir}/libfixture_ifunc.so
+                ${_fix_dir}/libfixture_ifunc.so ${_fix_dir}/libcopyfixture.so
                 ${_fix_dir}/libdlfixture.so ${_fix_dir}/libdlglobal.so
                 ${_fix_dir}/libdlnd.so ${_fix_dir}/libdlfixture_dep.so
                 ${_fix_dir}/libdlfixture_user.so
@@ -1704,7 +1718,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
-                ${_fix_dir}/interp_dlopen ${_fix_dir}/interp_now
+                ${_fix_dir}/interp_copy ${_fix_dir}/interp_dlopen ${_fix_dir}/interp_now
                 ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/libfixture_versions.so ${_fix_dir}/libverstub.so
@@ -1831,6 +1845,7 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
+                bin/interp_copy lib/libcopyfixture.so
                 bin/interp_relro bin/interp_relro_ok
                 lib/libdlfixture.so lib/libdlglobal.so lib/libdlnd.so
                 lib/libdlfixture_dep.so lib/libdlfixture_user.so
@@ -1871,6 +1886,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_copy.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_copy_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.c
@@ -2022,6 +2039,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: exec permission ok"
                 "astia: random ok"
                 "astia: interp ok"
+                "astia: copy reloc ok"
                 "astia: relro ok"
                 "astia: ver ok"
                 "astia: ver reject ok"

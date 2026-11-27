@@ -761,7 +761,7 @@ static const char* reference_version_name(const ld_module* module, uint32_t inde
 /// owner's block offset, not the referring module's.
 static int find_symbol_in_scope(const ld_module* modules, int count,
                                 const ld_module* referrer, uint32_t referrer_sym_index,
-                                const char* name, int global_only,
+                                const char* name, int global_only, int exclude_module,
                                 const Elf64_Sym** symbol_out,
                                 const ld_module** owner_out) {
     const char* wanted = reference_version_name(referrer, referrer_sym_index);
@@ -771,7 +771,7 @@ static int find_symbol_in_scope(const ld_module* modules, int count,
     for (int module = 0; module < count; ++module) {
         const ld_module* image = &modules[module];
 
-        if (!image->used)
+        if (!image->used || module == exclude_module)
             continue;
 
         if (global_only) {
@@ -831,7 +831,7 @@ static int find_symbol_in_scope(const ld_module* modules, int count,
 static int find_symbol(const ld_module* modules, int count, const ld_module* referrer,
                        uint32_t referrer_sym_index, const char* name,
                        const Elf64_Sym** symbol_out, const ld_module** owner_out) {
-    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 0,
+    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 0, -1,
                                 symbol_out, owner_out);
 }
 
@@ -842,7 +842,7 @@ static int find_symbol_global(const ld_module* modules, int count,
                               const ld_module* referrer, uint32_t referrer_sym_index,
                               const char* name, const Elf64_Sym** symbol_out,
                               const ld_module** owner_out) {
-    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 1,
+    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 1, -1,
                                 symbol_out, owner_out);
 }
 
@@ -1034,6 +1034,55 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             }
 
             *where = type == LD_R_DTPMOD64 ? (uint64_t) id : (uint64_t) offset;
+
+            continue;
+        }
+
+        if (type == LD_R_COPY) {
+            // A COPY relocation's target is the executable's own definition;
+            // find the provider after excluding that placeholder, then copy
+            // the initial bytes into the executable's storage.  Later lookups
+            // see the executable's definition first, so the copy is canonical.
+            if (index == 0 || index >= module->symbol_count)
+                return 2;
+
+            const Elf64_Sym* symbol = &module->symtab[index];
+
+            if (symbol->st_size != 0 &&
+                (entry->r_offset >= module->vaddr_end ||
+                 symbol->st_size > module->vaddr_end - entry->r_offset))
+                return 2;
+
+            const Elf64_Sym* definition = 0;
+            const ld_module* owner      = 0;
+
+            const int self = (int) (module - g_modules);
+
+            if (find_symbol_in_scope(g_modules, g_module_count, module, index,
+                                     module->strtab + symbol->st_name, 0, self,
+                                     &definition, &owner) != 0) {
+                if ((symbol->st_info >> 4) != 2)
+                    return 3;
+
+                continue; /* weak copy: leave the zero-filled storage */
+            }
+
+            if (definition->st_size < symbol->st_size)
+                return 2;
+
+            if (symbol->st_size != 0) {
+                if (definition->st_value >= owner->vaddr_end ||
+                    symbol->st_size > owner->vaddr_end - definition->st_value)
+                    return 2;
+
+                uint8_t*       target = (uint8_t*) (module->base + entry->r_offset);
+                const uint8_t* source =
+                    (const uint8_t*) (owner->base + definition->st_value);
+
+                for (uint64_t byte = 0; byte < symbol->st_size; ++byte) {
+                    target[byte] = source[byte];
+                }
+            }
 
             continue;
         }
