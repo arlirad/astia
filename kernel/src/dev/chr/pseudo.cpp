@@ -45,11 +45,21 @@ namespace astia::dev {
         if (buffer == nullptr && length != 0)
             return -EFAULT;
 
-        if (length > crypto::csprng::max_request)
-            return -EINVAL;
+        auto* out = static_cast<u8*>(buffer);
 
-        if (!crypto::random_bytes(buffer, length))
-            return -EAGAIN;
+        u32 done = 0;
+
+        while (done < length) {
+            const u32 remaining = length - done;
+            const u32 count     = remaining < crypto::csprng::max_request
+                                      ? remaining
+                                      : crypto::csprng::max_request;
+
+            if (!crypto::random_bytes(out + done, count))
+                return done == 0 ? -EAGAIN : static_cast<long>(done);
+
+            done += count;
+        }
 
         return static_cast<long>(length);
     }
