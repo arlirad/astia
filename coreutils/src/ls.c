@@ -5,6 +5,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,6 +107,55 @@ static int put_spaces(size_t count) {
     return 0;
 }
 
+static int print_symlink_target(const char* path) {
+    size_t capacity = 256;
+
+    char* target = malloc(capacity);
+
+    if (target == 0)
+        return cu_error("ls", "out of memory");
+
+    for (;;) {
+        long count = readlink(path, target, capacity);
+        if (count < 0) {
+            free(target);
+
+            return cu_error("ls", strerror(errno));
+        }
+
+        if ((size_t) count < capacity) {
+            int status = 0;
+
+            if (cu_puts(" -> ") < 0 ||
+                cu_write_all(CU_STDOUT, target, (size_t) count) < 0)
+                status = 1;
+
+            free(target);
+
+            return status;
+        }
+
+        if (capacity >= PATH_MAX) {
+            free(target);
+
+            return cu_error("ls", strerror(ENAMETOOLONG));
+        }
+
+        size_t next = capacity * 2 < PATH_MAX ? capacity * 2 : PATH_MAX;
+
+        char* grown = realloc(target, next);
+
+        if (grown == 0) {
+            free(target);
+
+            return cu_error("ls", "out of memory");
+        }
+
+        target   = grown;
+        capacity = next;
+    }
+}
+
 static int print_detailed(const char* path, const char* name, int color) {
     struct stat info;
 
@@ -128,17 +178,8 @@ static int print_detailed(const char* path, const char* name, int color) {
     if (put_name(name, info.st_mode, 1, color) < 0)
         return 1;
 
-    if (S_ISLNK(info.st_mode)) {
-        char target[256];
-        long n = readlink(path, target, sizeof target - 1);
-        if (n < 0)
-            return cu_error("ls", strerror(errno));
-
-        target[n] = '\0';
-
-        if (cu_puts(" -> ") < 0 || cu_puts(target) < 0)
-            return 1;
-    }
+    if (S_ISLNK(info.st_mode) && print_symlink_target(path) != 0)
+        return 1;
 
     return cu_puts("\n") < 0;
 }

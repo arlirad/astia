@@ -77,6 +77,19 @@ if "$out/host/mkdir" -p "$overlong_path" 2>"$out/host/mkdir_too_long.err"; then
 fi
 grep -qF 'File name too long' "$out/host/mkdir_too_long.err"
 
+# ls -l must print complete symlink targets; the old 256-byte buffer cut
+# targets longer than 255 bytes short.
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
+    "$root/coreutils/src/ls.c" -o "$out/host/ls"
+for target_length in 255 256 300 4095; do
+    long_target=$(repeat_character l "$target_length")
+    long_link="$long_path_root/link-$target_length"
+    ln -s "$long_target" "$long_link"
+    "$out/host/ls" -l "$long_link" >"$out/host/ls_long_target_$target_length.out"
+    grep -qF " -> $long_target" "$out/host/ls_long_target_$target_length.out"
+done
+
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
 $clang $common -fno-builtin -nostdinc -isystem "$resource/include" \
