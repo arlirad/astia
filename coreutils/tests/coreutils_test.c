@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 #define UNAME_FIELD_MAX 64
@@ -538,6 +539,109 @@ static int check_env(const char* name, char* const argv[], char* const envp[], i
 static int check_pty(const char* name, char* const argv[], char* const envp[],
                      unsigned short columns, const char* output) {
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
+}
+
+static void restore_descriptor(int target, int saved) {
+    if (saved >= 0) {
+        (void) dup2(saved, target);
+        close(saved);
+    }
+}
+
+/* login is the only utility here that reads from the controlling terminal.
+ * Raw mode makes each write a separate read() instead of one canonical line,
+ * so the username must be assembled across read calls. */
+static int run_login_pty(const char* name, const char* first, const char* second) {
+    int master = -1;
+    int slave  = -1;
+
+    struct winsize  window = {24, 80, 0, 0};
+    struct timespec pause  = {1, 0};
+
+    char output[1024];
+
+    if (openpty(&master, &slave, NULL, NULL, &window) != 0)
+        return fail(name);
+
+    struct termios settings;
+
+    if (tcgetattr(slave, &settings) != 0) {
+        close(master);
+        close(slave);
+
+        return fail(name);
+    }
+
+    settings.c_lflag &= ~(ECHO | ICANON);
+    settings.c_cc[VMIN]  = 1;
+    settings.c_cc[VTIME] = 0;
+
+    if (tcsetattr(slave, TCSANOW, &settings) != 0) {
+        close(master);
+        close(slave);
+
+        return fail(name);
+    }
+
+    int saved_stdin  = dup(0);
+    int saved_stdout = dup(1);
+    int saved_stderr = dup(2);
+
+    if (saved_stdin < 0 || saved_stdout < 0 || saved_stderr < 0 || dup2(slave, 0) < 0 ||
+        dup2(slave, 1) < 0 || dup2(slave, 2) < 0) {
+        restore_descriptor(0, saved_stdin);
+        restore_descriptor(1, saved_stdout);
+        restore_descriptor(2, saved_stderr);
+        close(master);
+        close(slave);
+
+        return fail(name);
+    }
+
+    close(slave);
+
+    char* login_argv[] = {"login", NULL};
+    char* login_envp[] = {"PATH=/bin", NULL};
+
+    int child = spawnve("/bin/login", login_argv, login_envp);
+
+    restore_descriptor(0, saved_stdin);
+    restore_descriptor(1, saved_stdout);
+    restore_descriptor(2, saved_stderr);
+
+    if (child < 0) {
+        close(master);
+
+        return fail(name);
+    }
+
+    if (write(master, first, strlen(first)) != (long) strlen(first)) {
+        close(master);
+
+        return fail(name);
+    }
+
+    (void) nanosleep(&pause, NULL);
+    (void) write(master, second, strlen(second));
+
+    read_all(master, output, sizeof output);
+
+    int status = 0;
+    int ok     = waitpid(child, &status, 0) == child && ((status >> 8) & 255) == 1;
+    int passed = ok && strstr(output, "login: ") != NULL &&
+                 strstr(output, "unknown local account") == NULL &&
+                 strstr(output, "invalid username") == NULL;
+
+    close(master);
+
+    if (!passed)
+        printf("run %s: status=%d output=[%s]\n", name, status >> 8 & 255, output);
+
+    return passed ? 0 : fail(name);
+}
+
+static int login_pty_checks(void) {
+    return run_login_pty("login split username", "ro", "ot\r");
 }
 
 static int check_output_excludes(const char* name, char* const argv[], int status,
@@ -1145,7 +1249,7 @@ int main(void) {
         check("pwd", pwd, NULL, 0, "/bin\n", 1) ||
         check("whoami", whoami, NULL, 0, "root\n", 1) ||
         check("login without controlling tty", login, "missing\n", 1, NULL, 0) ||
-        check("pwd invalid", pwd_bad, NULL, 2, NULL, 0) ||
+        login_pty_checks() != 0 || check("pwd invalid", pwd_bad, NULL, 2, NULL, 0) ||
         check("echo", echo, NULL, 0, "hello Astia\n", 1) ||
         check("echo -n", echo_n, NULL, 0, "hello", 1) ||
         check("env", env, NULL, 0, "COREUTILS_TEST=present\n", 0) ||

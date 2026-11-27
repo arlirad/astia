@@ -75,6 +75,10 @@ $clang $close_host_flags "$root/coreutils/tests/close_error_test.c" \
     "$out/host/sort_close.o" "$out/host/cp_close.o" "$out/host/mv_close.o" \
     -Wl,--wrap=close -o "$out/host/close_error_test"
 "$out/host/close_error_test"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
+    -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
+    "$root/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"
+"$out/host/login_read_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to

@@ -9,15 +9,32 @@
 /* There is no password backend yet. Only `x` (or an empty, explicitly
  * passwordless field) is supported; shadow, crypt, and PAM are not used. */
 static int read_name(char* name, unsigned long size) {
-    long length = read(0, name, size - 1);
-    if (length <= 0)
+    if (size == 0)
         return -1;
 
-    name[length] = '\0';
+    unsigned long length = 0;
 
-    while (length > 0 && (name[length - 1] == '\n' || name[length - 1] == '\r')) {
-        name[--length] = '\0';
+    for (;;) {
+        char byte;
+        long got = read(0, &byte, 1);
+
+        if (got < 0) {
+            if (errno == EINTR)
+                continue;
+
+            return -1;
+        }
+
+        if (got == 0 || byte == '\n' || byte == '\r')
+            break;
+
+        if (length + 1 >= size)
+            return -1;
+
+        name[length++] = byte;
     }
+
+    name[length] = '\0';
 
     return length == 0 || strchr(name, ':') != NULL ? -1 : 0;
 }
