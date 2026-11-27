@@ -13,6 +13,7 @@ add_custom_command(
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                 -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                -DASTIA_MODULE_ET_REL=1
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
@@ -37,6 +38,7 @@ add_custom_command(
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                 -mcmodel=large -fno-asynchronous-unwind-tables
+                -DASTIA_MODULE_ET_REL=1
                 -Wall -Wextra -Werror -pedantic
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}

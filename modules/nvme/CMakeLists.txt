@@ -13,6 +13,8 @@ endif ()
 set(ASTIA_NVME_COMMON_DEPENDS
         ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/resume_queue.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
@@ -24,10 +26,11 @@ function(astia_nvme_add_variant target output)
         add_custom_command(
                 OUTPUT ${output}
                 COMMAND ${CMAKE_CXX_COMPILER}
-                        -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie
+                        -std=c++20 -ffreestanding -fno-builtin -fno-pic -fno-pie -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-unwind-tables
                         -fno-exceptions -fno-rtti -fno-threadsafe-statics
                         -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                         -mcmodel=large -fno-asynchronous-unwind-tables -fno-use-cxa-atexit
+                        -DASTIA_MODULE_ET_REL=1
                         -Wall -Wextra -Werror -pedantic
                         ${ARGN}
                         -I${ASTIA_KERNEL_SOURCE_DIR}/include

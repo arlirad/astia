@@ -13,6 +13,67 @@ namespace astia::elf::loader {
             return *a == *b;
         }
 
+        bool starts_with(const char* value, const char* prefix) {
+            while (*prefix != '\0') {
+                if (*value != *prefix)
+                    return false;
+
+                ++value;
+                ++prefix;
+            }
+
+            return true;
+        }
+
+        bool ends_with(const char* value, const char* suffix) {
+            usize value_len = 0;
+
+            while (value[value_len] != '\0') {
+                ++value_len;
+            }
+
+            usize suffix_len = 0;
+
+            while (suffix[suffix_len] != '\0') {
+                ++suffix_len;
+            }
+
+            if (suffix_len > value_len)
+                return false;
+
+            return str_eq(value + value_len - suffix_len, suffix);
+        }
+
+        bool contains(const char* value, const char* needle) {
+            for (usize i = 0; value[i] != '\0'; ++i) {
+                if (starts_with(value + i, needle))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// Coroutine lowering leaves compiler-generated frame helpers beside
+        /// the entrypoint. GCC names them `<entry>.Frame.actor`/`.destroy`,
+        /// Clang `<entry>.resume`/`.destroy`; both survive optimization. This
+        /// is the strongest ABI evidence an ET_REL object exposes without
+        /// executing it: a plain `int module_main()` has none of them.
+        bool is_coroutine_frame_symbol(const char* name) {
+            constexpr const char* entry_symbol = "_Z11module_mainv";
+            constexpr const char* markers[]    = {".resume", ".destroy", ".Frame.actor",
+                                                  ".Frame.destroy"};
+
+            if (!contains(name, entry_symbol))
+                return false;
+
+            for (const char* marker : markers) {
+                if (ends_with(name, marker))
+                    return true;
+            }
+
+            return false;
+        }
+
         bool array_priority(const char* name, usize name_size, const char* base,
                             u16& priority) {
             usize i = 0;
@@ -326,14 +387,40 @@ namespace astia::elf::loader {
                 (v.sh[sym.st_shndx].sh_flags & (shf_alloc | shf_execinstr)) !=
                     (shf_alloc | shf_execinstr) ||
                 sym.st_value >= v.sh[sym.st_shndx].sh_size ||
-                (sym.st_size != 0 &&
-                 sym.st_size > v.sh[sym.st_shndx].sh_size - sym.st_value))
+                sym.st_size > v.sh[sym.st_shndx].sh_size - sym.st_value)
                 return false;
 
             entry_index = static_cast<u32>(i);
         }
 
         if (entry_index == ~u32{0})
+            return false;
+
+        bool coroutine_entry = false;
+
+        for (usize i = 0; i < v.symcount; ++i) {
+            const elf64_sym& sym = v.sym[i];
+
+            if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum)
+                continue;
+
+            const char* name = nullptr;
+
+            if (!symbol_name(v, sym, name))
+                return false;
+
+            if (!is_coroutine_frame_symbol(name))
+                continue;
+
+            if ((v.sh[sym.st_shndx].sh_flags & shf_execinstr) == 0)
+                continue;
+
+            coroutine_entry = true;
+
+            break;
+        }
+
+        if (!coroutine_entry)
             return false;
 
         auto executable_address = [&](u64 address) {

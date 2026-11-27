@@ -1,7 +1,8 @@
+#include <astia/core/task.hpp>
 extern "C" void lifecycle_wait_for_release();
 
-int module_main() {
+astia::core::task<void> module_main() {
     lifecycle_wait_for_release();
 
-    return 19;
+    co_return astia::error_t::enone;
 }

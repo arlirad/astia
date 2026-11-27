@@ -4,8 +4,10 @@ Loadable driver sources belong under this directory. Kernel-owned module
 loading lives under `kernel/src/mod`; the public C++ module contract is
 `kernel/include/astia/module.hpp`.
 
-ET_REL module entrypoints use C++ linkage and the exact signature
-`int module_main()`. Driver registration, PCI access, DMA ownership, interrupt
+ET_REL module entrypoints use C++ linkage and the exact coroutine signature
+`astia::core::task<void> module_main()`. A successful entry returns
+`astia::error_t::enone`; any other value fails the run. The synchronous
+`int module_main()` form is not part of the ABI. Driver registration, PCI access, DMA ownership, interrupt
 routes, user-buffer pinning, and logging are exposed as typed C++ interfaces
 under `astia::module` and the kernel device namespaces. There are no C module
 facade headers or compatibility aliases.

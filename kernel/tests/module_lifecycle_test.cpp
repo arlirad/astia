@@ -19,6 +19,12 @@
 #include <thread>
 #include <vector>
 
+#if defined(__clang__)
+#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
+#else
+#define ASTIA_NO_SANITIZE_FUNCTION
+#endif
+
 extern unsigned char module_lifecycle_blob[];
 extern unsigned int  module_lifecycle_blob_len;
 extern unsigned char module_lifecycle_atexit_blob[];
@@ -44,11 +50,8 @@ extern unsigned int  module_lifecycle_module_api_blob_len;
 extern unsigned char module_lifecycle_reloc32_blob[];
 extern unsigned int  module_lifecycle_reloc32_blob_len;
 
-#if defined(__clang__)
-#define ASTIA_NO_SANITIZE_FUNCTION __attribute__((no_sanitize("function")))
-#else
-#define ASTIA_NO_SANITIZE_FUNCTION
-#endif
+extern unsigned char module_lifecycle_async_blob[];
+extern unsigned int  module_lifecycle_async_blob_len;
 
 namespace {
     struct loader_state {
@@ -158,6 +161,11 @@ namespace {
     std::atomic<unsigned> lifecycle_outer_count{0};
     std::atomic<unsigned> lifecycle_inner_count{0};
     std::atomic<unsigned> lifecycle_external_count{0};
+    std::atomic<void*>    lifecycle_async_handle{nullptr};
+
+    void lifecycle_async_gate(void* handle) {
+        lifecycle_async_handle.store(handle, std::memory_order_release);
+    }
 
     void lifecycle_reentrant_inner_handler() {
         lifecycle_inner_count.fetch_add(1, std::memory_order_acq_rel);
@@ -231,6 +239,9 @@ namespace {
         if (std::strcmp(name, "lifecycle_module_api_probe") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_module_api_probe);
 
+        if (std::strcmp(name, "lifecycle_async_gate") == 0)
+            return reinterpret_cast<std::uintptr_t>(&lifecycle_async_gate);
+
         if (std::strcmp(name, "lifecycle_reentrant_outer_handler") == 0)
             return reinterpret_cast<std::uintptr_t>(&lifecycle_reentrant_outer_handler);
 
@@ -242,6 +253,18 @@ namespace {
 
         if (std::strcmp(name, "__cxa_finalize") == 0)
             return reinterpret_cast<std::uintptr_t>(&astia_test_cxa_finalize);
+
+        if (std::strcmp(name, "_Znwm") == 0)
+            return reinterpret_cast<std::uintptr_t>(
+                static_cast<void* (*) (astia::usize)>(&::operator new));
+
+        if (std::strcmp(name, "_ZdlPv") == 0)
+            return reinterpret_cast<std::uintptr_t>(
+                static_cast<void (*)(void*)>(&::operator delete));
+
+        if (std::strcmp(name, "_ZN5astia4core13cancel_resumeENSt7__n486116"
+                              "coroutine_handleIvEEy") == 0)
+            return reinterpret_cast<std::uintptr_t>(&astia::core::cancel_resume);
 
         return 0;
     }
@@ -256,12 +279,9 @@ namespace {
         if (active_observation->current != nullptr)
             active_observation->callbacks_pinned =
                 active_observation->callbacks_pinned && astia::mod::count() == 1 &&
-                astia::mod::at(0) == active_observation->current &&
+                astia::mod::inspect_for_test(active_observation->current->id) ==
+                    active_observation->current &&
                 active_observation->current->running;
-    }
-
-    ASTIA_NO_SANITIZE_FUNCTION int invoke_entry(int (*entry)()) {
-        return entry();
     }
 
     ASTIA_NO_SANITIZE_FUNCTION void
@@ -272,6 +292,11 @@ namespace {
     ASTIA_NO_SANITIZE_FUNCTION void
     invoke_finalizer(astia::elf::loader::init_fn finalizer) {
         finalizer();
+    }
+
+    ASTIA_NO_SANITIZE_FUNCTION astia::core::task<void>
+                               invoke_entry(astia::core::task<void> (*entry)()) {
+        return entry();
     }
 
     astia::elf::loader::env environment(loader_state& state) {
@@ -288,10 +313,54 @@ namespace {
     astia::span<const astia::u8> blob(unsigned char* data, unsigned length) {
         return {data, length};
     }
+
+    template <typename T>
+    T run_task_sync(astia::core::task<T> task) {
+        task.resume();
+
+        while (!task.done()) {
+            std::this_thread::yield();
+            task.resume();
+        }
+
+        return *task.value();
+    }
+
+    const astia::mod::loaded_module*
+    load_module_sync(astia::span<const astia::u8>   image,
+                     const astia::elf::loader::env& env) {
+        astia::mod::module_id id{};
+
+        if (astia::mod::load_image(image, env, {}, id) != astia::mod::module_error::ok)
+            return nullptr;
+
+        return astia::mod::inspect_for_test(id);
+    }
+
+    astia::mod::module_error run_loaded_sync(const astia::mod::loaded_module* module) {
+        return run_task_sync(astia::mod::run(module->id));
+    }
+
+    bool exit_loaded_sync(const astia::mod::loaded_module* module) {
+        return run_task_sync(astia::mod::exit(module->id)) ==
+               astia::mod::module_error::ok;
+    }
+
+    bool unload_module_sync(const astia::mod::loaded_module* module) {
+        return astia::mod::unload(module->id) == astia::mod::module_error::ok;
+    }
+
+    astia::mod::module_error run_id_sync(astia::mod::module_id id) {
+        return run_task_sync(astia::mod::run(id));
+    }
+
+    astia::mod::module_error exit_id_sync(astia::mod::module_id id) {
+        return run_task_sync(astia::mod::exit(id));
+    }
 }
 
 namespace astia::mod::host_test {
-    int invoke_entry(int (*entry)()) {
+    astia::core::task<void> invoke_entry(astia::core::task<void> (*entry)()) {
         return ::invoke_entry(entry);
     }
 
@@ -312,8 +381,8 @@ ASTIA_TEST(module_lifecycle_runs_loaded_image_and_unloads_after_exit) {
 
     const astia::elf::loader::env    env    = environment(state);
     const astia::usize               before = astia::mod::count();
-    const astia::mod::loaded_module* module = astia::mod::load_module(
-        blob(module_lifecycle_blob, module_lifecycle_blob_len), env);
+    const astia::mod::loaded_module* module =
+        load_module_sync(blob(module_lifecycle_blob, module_lifecycle_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
 
@@ -330,25 +399,25 @@ ASTIA_TEST(module_lifecycle_runs_loaded_image_and_unloads_after_exit) {
     ASTIA_CHECK(!module->running);
     ASTIA_CHECK(!module->initialized);
     ASTIA_CHECK(observation.event_count == 0);
-    ASTIA_CHECK(astia::mod::run_module(module) == 37);
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
     ASTIA_CHECK(observation.event_count == 3);
     ASTIA_CHECK(observation.events[0] == 101);
     ASTIA_CHECK(observation.events[1] == 102);
     ASTIA_CHECK(observation.events[2] == 103);
     ASTIA_CHECK(module->running);
     ASTIA_CHECK(module->initialized);
-    ASTIA_CHECK(astia::mod::run_module(module) == -1);
-    ASTIA_CHECK(!astia::mod::unload_module(module));
+    ASTIA_CHECK(run_loaded_sync(module) != astia::mod::module_error::ok);
+    ASTIA_CHECK(!unload_module_sync(module));
     ASTIA_CHECK(state.unmapped == 0);
-    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(exit_loaded_sync(module));
     ASTIA_CHECK(observation.event_count == 5);
     ASTIA_CHECK(observation.events[3] == 202);
     ASTIA_CHECK(observation.events[4] == 201);
     ASTIA_CHECK(observation.callbacks_pinned);
     ASTIA_CHECK(!module->running);
     ASTIA_CHECK(!module->initialized);
-    ASTIA_CHECK(!astia::mod::exit_module(module));
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(!exit_loaded_sync(module));
+    ASTIA_CHECK(unload_module_sync(module));
     ASTIA_CHECK(astia::mod::count() == before);
     ASTIA_CHECK(state.mapped == 1);
     ASTIA_CHECK(state.unmapped == 1);
@@ -363,7 +432,7 @@ ASTIA_TEST(module_lifecycle_runs_atexit_handlers_before_fini) {
     active_observation = &observation;
 
     const astia::elf::loader::env    env    = environment(state);
-    const astia::mod::loaded_module* module = astia::mod::load_module(
+    const astia::mod::loaded_module* module = load_module_sync(
         blob(module_lifecycle_atexit_blob, module_lifecycle_atexit_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
@@ -376,16 +445,16 @@ ASTIA_TEST(module_lifecycle_runs_atexit_handlers_before_fini) {
 
     observation.current = module;
 
-    ASTIA_CHECK(astia::mod::run_module(module) == 38);
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
     ASTIA_CHECK(observation.event_count == 1);
     ASTIA_CHECK(observation.events[0] == 300);
-    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(exit_loaded_sync(module));
     ASTIA_CHECK(observation.event_count == 5);
     ASTIA_CHECK(observation.events[1] == 304);
     ASTIA_CHECK(observation.events[2] == 302);
     ASTIA_CHECK(observation.events[3] == 303);
     ASTIA_CHECK(observation.events[4] == 301);
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(unload_module_sync(module));
 
     active_observation = nullptr;
 }
@@ -397,7 +466,7 @@ ASTIA_TEST(module_lifecycle_enforces_atexit_capacity) {
     active_observation = &observation;
 
     const astia::elf::loader::env    env    = environment(state);
-    const astia::mod::loaded_module* module = astia::mod::load_module(
+    const astia::mod::loaded_module* module = load_module_sync(
         blob(module_lifecycle_limit_blob, module_lifecycle_limit_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
@@ -410,13 +479,11 @@ ASTIA_TEST(module_lifecycle_enforces_atexit_capacity) {
 
     observation.current = module;
 
-    const int limit_result = astia::mod::run_module(module);
-
-    ASTIA_CHECK(limit_result == 0);
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
     ASTIA_CHECK(observation.event_count == 1);
     ASTIA_CHECK(observation.events[0] == 400);
-    ASTIA_CHECK(astia::mod::exit_module(module));
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(exit_loaded_sync(module));
+    ASTIA_CHECK(unload_module_sync(module));
 
     active_observation = nullptr;
 }
@@ -428,7 +495,7 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
     active_observation = &observation;
 
     const astia::elf::loader::env    env    = environment(state);
-    const astia::mod::loaded_module* module = astia::mod::load_module(
+    const astia::mod::loaded_module* module = load_module_sync(
         blob(module_lifecycle_dso_blob, module_lifecycle_dso_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
@@ -439,7 +506,7 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
         return;
     }
 
-    const astia::mod::loaded_module* second = astia::mod::load_module(
+    const astia::mod::loaded_module* second = load_module_sync(
         blob(module_lifecycle_no_fini_blob, module_lifecycle_no_fini_blob_len), env);
 
     ASTIA_CHECK(second != nullptr);
@@ -447,20 +514,20 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
     if (second != nullptr) {
         ASTIA_CHECK(module->dso_identity != nullptr);
         ASTIA_CHECK(module->dso_identity != second->dso_identity);
-        ASTIA_CHECK(astia::mod::unload_module(second));
+        ASTIA_CHECK(unload_module_sync(second));
     }
 
     observation.current = module;
 
-    ASTIA_CHECK(astia::mod::run_module(module) == 0);
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
     ASTIA_CHECK(observation.event_count == 2);
     ASTIA_CHECK(observation.events[0] == 411);
     ASTIA_CHECK(observation.events[1] == 410);
-    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(exit_loaded_sync(module));
     ASTIA_CHECK(observation.event_count == 4);
     ASTIA_CHECK(observation.events[2] == 413);
     ASTIA_CHECK(observation.events[3] == 412);
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(unload_module_sync(module));
 
     active_observation = nullptr;
 }
@@ -468,7 +535,7 @@ ASTIA_TEST(module_lifecycle_filters_external_dso_finalize) {
 ASTIA_TEST(module_lifecycle_allows_optional_exit_array) {
     loader_state                     state{};
     const astia::elf::loader::env    env    = environment(state);
-    const astia::mod::loaded_module* module = astia::mod::load_module(
+    const astia::mod::loaded_module* module = load_module_sync(
         blob(module_lifecycle_no_fini_blob, module_lifecycle_no_fini_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
@@ -478,9 +545,9 @@ ASTIA_TEST(module_lifecycle_allows_optional_exit_array) {
 
     ASTIA_CHECK(module->init_count == 0);
     ASTIA_CHECK(module->fini_count == 0);
-    ASTIA_CHECK(astia::mod::run_module(module) == 17);
-    ASTIA_CHECK(astia::mod::exit_module(module));
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
+    ASTIA_CHECK(exit_loaded_sync(module));
+    ASTIA_CHECK(unload_module_sync(module));
     ASTIA_CHECK(state.unmapped == 1);
 }
 
@@ -491,7 +558,7 @@ ASTIA_TEST(module_lifecycle_sorts_compiler_priority_sections) {
     active_observation = &observation;
 
     const astia::elf::loader::env    env    = environment(state);
-    const astia::mod::loaded_module* module = astia::mod::load_module(
+    const astia::mod::loaded_module* module = load_module_sync(
         blob(module_lifecycle_priority_blob, module_lifecycle_priority_blob_len), env);
 
     ASTIA_CHECK(module != nullptr);
@@ -506,19 +573,19 @@ ASTIA_TEST(module_lifecycle_sorts_compiler_priority_sections) {
 
     ASTIA_CHECK(module->init_count == 3);
     ASTIA_CHECK(module->fini_count == 3);
-    ASTIA_CHECK(astia::mod::run_module(module) == 47);
+    ASTIA_CHECK(run_loaded_sync(module) == astia::mod::module_error::ok);
     ASTIA_CHECK(observation.event_count == 4);
     ASTIA_CHECK(observation.events[0] == 101);
     ASTIA_CHECK(observation.events[1] == 102);
     ASTIA_CHECK(observation.events[2] == 199);
     ASTIA_CHECK(observation.events[3] == 103);
-    ASTIA_CHECK(astia::mod::exit_module(module));
+    ASTIA_CHECK(exit_loaded_sync(module));
     ASTIA_CHECK(observation.event_count == 7);
     ASTIA_CHECK(observation.events[4] == 299);
     ASTIA_CHECK(observation.events[5] == 202);
     ASTIA_CHECK(observation.events[6] == 201);
     ASTIA_CHECK(observation.callbacks_pinned);
-    ASTIA_CHECK(astia::mod::unload_module(module));
+    ASTIA_CHECK(unload_module_sync(module));
     ASTIA_CHECK(state.mapped == 1);
     ASTIA_CHECK(state.unmapped == 1);
 
@@ -533,9 +600,8 @@ ASTIA_TEST(module_lifecycle_rolls_back_failed_load) {
     const astia::elf::loader::env env    = environment(state);
     const astia::usize            before = astia::mod::count();
 
-    ASTIA_CHECK(
-        astia::mod::load_module(blob(module_lifecycle_blob, module_lifecycle_blob_len),
-                                env) == nullptr);
+    ASTIA_CHECK(load_module_sync(blob(module_lifecycle_blob, module_lifecycle_blob_len),
+                                 env) == nullptr);
     ASTIA_CHECK(astia::mod::count() == before);
     ASTIA_CHECK(state.mapped == 1);
     ASTIA_CHECK(state.unmapped == 1);
@@ -569,6 +635,84 @@ ASTIA_TEST(module_lifecycle_async_open_publishes_after_complete_load) {
     ASTIA_CHECK(astia::mod::lookup(result->id, info) ==
                 astia::mod::module_error::stale_id);
     ASTIA_CHECK(state.unmapped == 1);
+}
+
+ASTIA_TEST(module_lifecycle_async_entry_suspends_and_resumes) {
+    loader_state state{};
+    observation  observation{};
+
+    active_observation = &observation;
+
+    lifecycle_async_handle.store(nullptr, std::memory_order_release);
+
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+    const auto                    loaded = astia::mod::load_image(
+        blob(module_lifecycle_async_blob, module_lifecycle_async_blob_len), env, {}, id);
+
+    ASTIA_CHECK(loaded == astia::mod::module_error::ok);
+
+    if (loaded != astia::mod::module_error::ok) {
+        active_observation = nullptr;
+
+        return;
+    }
+
+    observation.current = astia::mod::inspect_for_test(id);
+
+    ASTIA_CHECK(observation.current != nullptr);
+
+    if (observation.current == nullptr) {
+        ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+
+        active_observation = nullptr;
+
+        return;
+    }
+
+    auto running = astia::mod::run(id);
+
+    running.resume();
+    ASTIA_CHECK(!running.done());
+    ASTIA_CHECK(observation.event_count == 2);
+    ASTIA_CHECK(observation.events[0] == 500);
+    ASTIA_CHECK(observation.events[1] == 501);
+
+    void* address = lifecycle_async_handle.exchange(nullptr, std::memory_order_acq_rel);
+
+    ASTIA_CHECK(address != nullptr);
+
+    if (address != nullptr)
+        std::coroutine_handle<>::from_address(address).resume();
+
+    if (!running.done()) {
+        ASTIA_CHECK(false);
+        running.reset();
+        ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+
+        active_observation = nullptr;
+
+        return;
+    }
+
+    ASTIA_CHECK(running.done());
+    ASTIA_CHECK(running.value() != nullptr);
+    ASTIA_CHECK(*running.value() == astia::mod::module_error::ok);
+    ASTIA_CHECK(observation.event_count == 4);
+    ASTIA_CHECK(observation.events[2] == 502);
+    ASTIA_CHECK(observation.events[3] == 504);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
+
+    astia::mod::module_info info{};
+
+    ASTIA_CHECK(astia::mod::lookup(id, info) == astia::mod::module_error::ok);
+    ASTIA_CHECK(!info.running);
+    ASTIA_CHECK(!info.initialized);
+    ASTIA_CHECK(observation.event_count == 5);
+    ASTIA_CHECK(observation.events[4] == 503);
+    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
+
+    active_observation = nullptr;
 }
 
 ASTIA_TEST(module_lifecycle_rolls_back_unpublished_dependency_failure) {
@@ -642,11 +786,7 @@ ASTIA_TEST(module_lifecycle_resident_modules_are_not_unloadable) {
     ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
                                             module_lifecycle_no_fini_blob_len),
                                        env, options, id) == astia::mod::module_error::ok);
-
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 17);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(id)) == astia::mod::module_error::ok);
 
     astia::mod::module_info info{};
 
@@ -662,7 +802,7 @@ ASTIA_TEST(module_lifecycle_resident_modules_are_not_unloadable) {
     ASTIA_CHECK(closing.value() != nullptr &&
                 *closing.value() == astia::mod::module_error::resident);
 
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::resident);
     ASTIA_CHECK(astia::mod::make_resident(id) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::resident);
@@ -1016,16 +1156,14 @@ ASTIA_TEST(module_lifecycle_serializes_execution_and_finalization_context) {
     std::atomic<bool> failed{false};
     auto              run_one = [&](astia::mod::module_id id) {
         while (true) {
-            int result = 0;
-
-            const auto error = astia::mod::run(id, result);
+            const auto error = run_task_sync(astia::mod::run(id));
 
             if (error == astia::mod::module_error::busy) {
                 std::this_thread::yield();
                 continue;
             }
 
-            if (error != astia::mod::module_error::ok || result != 38)
+            if (error != astia::mod::module_error::ok)
                 failed.store(true, std::memory_order_release);
 
             return;
@@ -1041,7 +1179,7 @@ ASTIA_TEST(module_lifecycle_serializes_execution_and_finalization_context) {
 
     auto exit_one = [&](astia::mod::module_id id) {
         while (true) {
-            const auto error = astia::mod::exit(id);
+            const auto error = run_task_sync(astia::mod::exit(id));
 
             if (error == astia::mod::module_error::busy) {
                 std::this_thread::yield();
@@ -1104,13 +1242,10 @@ ASTIA_TEST(module_lifecycle_c_abi_ownership_rejects_external_contexts) {
                                        reentrant) == astia::mod::module_error::ok);
 
     std::atomic<astia::mod::module_error> wait_error{astia::mod::module_error::ok};
-    std::atomic<int>                      wait_result{0};
 
     std::thread waiter([&]() {
-        int result = 0;
-
-        wait_error.store(astia::mod::run(waiting, result), std::memory_order_release);
-        wait_result.store(result, std::memory_order_release);
+        wait_error.store(run_task_sync(astia::mod::run(waiting)),
+                         std::memory_order_release);
     });
 
     while (!lifecycle_wait_started.load(std::memory_order_acquire)) {
@@ -1120,29 +1255,24 @@ ASTIA_TEST(module_lifecycle_c_abi_ownership_rejects_external_contexts) {
     ASTIA_CHECK(astia_test_atexit(lifecycle_external_handler) == -1);
     astia_test_cxa_finalize(nullptr);
     ASTIA_CHECK(lifecycle_external_count.load(std::memory_order_acquire) == 0);
-
-    int other_result = 0;
-
-    ASTIA_CHECK(astia::mod::run(reentrant, other_result) ==
+    ASTIA_CHECK(run_task_sync(astia::mod::run(reentrant)) ==
                 astia::mod::module_error::busy);
 
     lifecycle_wait_release.store(true, std::memory_order_release);
     waiter.join();
     ASTIA_CHECK(wait_error.load(std::memory_order_acquire) ==
                 astia::mod::module_error::ok);
-    ASTIA_CHECK(wait_result.load(std::memory_order_acquire) == 19);
-    ASTIA_CHECK(astia::mod::exit(waiting) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(waiting)) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(waiting) == astia::mod::module_error::ok);
 
-    int run_result = -1;
-
-    ASTIA_CHECK(astia::mod::run(reentrant, run_result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(run_result == 0);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(reentrant)) ==
+                astia::mod::module_error::ok);
 
     std::atomic<astia::mod::module_error> exit_error{astia::mod::module_error::ok};
 
     std::thread exiter([&]() {
-        exit_error.store(astia::mod::exit(reentrant), std::memory_order_release);
+        exit_error.store(run_task_sync(astia::mod::exit(reentrant)),
+                         std::memory_order_release);
     });
 
     while (!lifecycle_outer_entered.load(std::memory_order_acquire)) {
@@ -1280,9 +1410,7 @@ ASTIA_TEST(module_lifecycle_module_api_rejects_outside_context) {
     std::atomic<astia::mod::module_error> run_error{astia::mod::module_error::ok};
 
     std::thread runner([&]() {
-        int result = 0;
-
-        run_error.store(astia::mod::run(id, result), std::memory_order_release);
+        run_error.store(run_task_sync(astia::mod::run(id)), std::memory_order_release);
     });
 
     while (!lifecycle_wait_started.load(std::memory_order_acquire)) {
@@ -1302,7 +1430,7 @@ ASTIA_TEST(module_lifecycle_module_api_rejects_outside_context) {
 
     ASTIA_CHECK(run_error.load(std::memory_order_acquire) ==
                 astia::mod::module_error::ok);
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
 }
 
@@ -1317,13 +1445,10 @@ ASTIA_TEST(module_lifecycle_make_resident_marks_calling_module) {
                                             module_lifecycle_module_api_blob_len),
                                        env, {}, id) == astia::mod::module_error::ok);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(lifecycle_resident_result);
     ASTIA_CHECK(!lifecycle_resident_in_interrupt);
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
 
     auto closing = astia::mod::close(id);
 
@@ -1351,10 +1476,7 @@ ASTIA_TEST(module_lifecycle_claim_route_guards_and_releases) {
                                             module_lifecycle_module_api_blob_len),
                                        env, {}, id) == astia::mod::module_error::ok);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(lifecycle_claim_result);
     ASTIA_CHECK(!lifecycle_claim_in_interrupt);
     ASTIA_CHECK(!lifecycle_handler_ran);
@@ -1362,7 +1484,7 @@ ASTIA_TEST(module_lifecycle_claim_route_guards_and_releases) {
     astia::arch::host_test::dispatch_irq(1);
     ASTIA_CHECK(lifecycle_handler_ran);
 
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
 
     auto closing = astia::mod::close(id);
 
@@ -1393,17 +1515,14 @@ ASTIA_TEST(module_lifecycle_claim_rollback_leaves_line_unowned) {
                                             module_lifecycle_module_api_blob_len),
                                        env, {}, id) == astia::mod::module_error::ok);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(lifecycle_claim_result);
     ASTIA_CHECK(lifecycle_release_result);
     ASTIA_CHECK(!lifecycle_claim_in_interrupt);
     ASTIA_CHECK(!astia::arch::host_test::irq_registered(1));
     ASTIA_CHECK(astia::arch::host_test::irq_masked(1));
 
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::ok);
 }
 
@@ -1420,12 +1539,9 @@ ASTIA_TEST(module_lifecycle_close_waiter_defers_from_guarded_route) {
                                             module_lifecycle_module_api_blob_len),
                                        env, {}, id) == astia::mod::module_error::ok);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(id, result) == astia::mod::module_error::ok);
-    ASTIA_CHECK(result == 61);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(id)) == astia::mod::module_error::ok);
     ASTIA_CHECK(lifecycle_claim_result);
-    ASTIA_CHECK(astia::mod::exit(id) == astia::mod::module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::exit(id)) == astia::mod::module_error::ok);
 
     const auto filler   = std::noop_coroutine();
     astia::u32 accepted = 0;

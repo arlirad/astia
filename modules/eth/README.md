@@ -1,11 +1,9 @@
 # Ethernet layer module
 
-Scaffold for the loadable Ethernet layer. It currently exports only the
-lifecycle entrypoints: `module_main()` logs readiness and returns zero,
-`module_exit()` is the explicit teardown entrypoint kept for the
-module-lifecycle work.
+Scaffold for the loadable Ethernet layer. It exports only the task-shaped
+lifecycle entrypoint `core::task<void> module_main()`; success is
+`astia::error_t::enone` and teardown runs through the validated `.fini_array`
+path. There is no explicit `module_exit()` symbol.
 
-The loader's current ABI runs teardown through `.fini_array`; `module_exit()`
-is not invoked by the loader yet. Frame receive/transmit paths, device
-binding, and the link to the IP layer will be added on top of these
-entrypoints.
+Frame receive/transmit paths, device binding, and the link to the IP layer
+will be added on top of this entrypoint.

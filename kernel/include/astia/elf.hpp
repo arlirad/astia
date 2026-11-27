@@ -33,7 +33,9 @@ namespace astia::elf::loader {
     /// Number of bytes in the ELF identification array.
     inline constexpr usize elf_ident_size = 16;
 
-    /// Fixed caps used by the loader's stack-backed metadata tables.
+    /// Fixed caps used by the loader's stack-backed metadata tables. Real
+    /// modules built as C++20 coroutines carry many COMDAT function sections;
+    /// a task-shaped entry can take a hardware driver past 320 headers.
     inline constexpr usize max_sections           = 640;
     inline constexpr usize max_program_headers    = 64;
     inline constexpr usize max_init_array_entries = 64;

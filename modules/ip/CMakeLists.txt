@@ -11,7 +11,8 @@ add_custom_command(
                 -fno-exceptions -fno-rtti -fno-threadsafe-statics
                 -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                 -mcmodel=large -fno-asynchronous-unwind-tables
-                -fno-use-cxa-atexit -Wall -Wextra -Werror -pedantic
+                -fno-use-cxa-atexit -DASTIA_MODULE_ET_REL=1
+                -Wall -Wextra -Werror -pedantic
                 -MMD -MF ${ASTIA_IP_PART}.d -MT ${ASTIA_IP_PART}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
@@ -19,6 +20,7 @@ add_custom_command(
                 -o ${ASTIA_IP_PART}
         DEPFILE ${ASTIA_IP_PART}.d
         DEPENDS ${ASTIA_IP_SOURCE}
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         COMMENT "Compiling IP module ip.cpp"

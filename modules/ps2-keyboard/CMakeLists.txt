@@ -8,6 +8,7 @@ set(ASTIA_PS2_SOURCES
         module_main.cpp)
 
 set(ASTIA_PS2_ABI_HEADERS
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/capabilities.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/dev/tty_input.hpp)
@@ -32,7 +33,8 @@ foreach(_astia_ps2_source IN LISTS ASTIA_PS2_SOURCES)
                     -fno-exceptions -fno-rtti -fno-threadsafe-statics
                     -fno-stack-protector -fno-omit-frame-pointer -mno-red-zone
                     -mcmodel=large -fno-asynchronous-unwind-tables
-                    -fno-use-cxa-atexit -Wall -Wextra -Werror -pedantic
+                    -fno-use-cxa-atexit -DASTIA_MODULE_ET_REL=1
+                    -Wall -Wextra -Werror -pedantic
                     -MMD -MF ${_astia_ps2_object}.d -MT ${_astia_ps2_object}
                     -I${ASTIA_KERNEL_SOURCE_DIR}/include
                     -I${ASTIA_ARCH_INCLUDE_DIR}
