@@ -10,7 +10,7 @@ using astia::ps2::ps2_error;
 
 namespace {
     bool operation_at(const std::vector<astia::test::ps2_operation>& operations,
-                      astia::usize index, bool command, astia::u8 value) {
+                      astia::usz index, bool command, astia::u8 value) {
         return index < operations.size() && operations[index].command == command &&
                operations[index].value == value;
     }
@@ -90,9 +90,9 @@ ASTIA_TEST(ps2_controller_reapplies_disabled_config_after_self_test) {
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
     ASTIA_CHECK(controller.config() == 0x24);
 
-    astia::usize self_test = fake.operations.size();
+    astia::usz self_test = fake.operations.size();
 
-    for (astia::usize i = 0; i < fake.operations.size(); ++i) {
+    for (astia::usz i = 0; i < fake.operations.size(); ++i) {
         if (fake.operations[i].command && fake.operations[i].value == 0xAA) {
             self_test = i;
 
@@ -149,7 +149,7 @@ ASTIA_TEST(ps2_controller_keeps_both_ports_disabled_through_self_test) {
 
     astia::u32 config_writes = 0;
 
-    for (astia::usize i = 0; i + 1 < fake.operations.size(); ++i) {
+    for (astia::usz i = 0; i + 1 < fake.operations.size(); ++i) {
         if (!fake.operations[i].command || fake.operations[i].value != 0x60)
             continue;
 

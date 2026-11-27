@@ -502,7 +502,7 @@ namespace astia::dev {
         (void) tty_putc(byte);
     }
 
-    long tty::ioctl(u64 request, void* argp, usize size) {
+    long tty::ioctl(u64 request, void* argp, usz size) {
         if (request == TCGETS) {
             if (argp == nullptr || size != sizeof(struct termios))
                 return -EINVAL;

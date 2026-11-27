@@ -38,7 +38,7 @@ namespace astia::mm {
     /// later sit in front of it without changing callers.
     class frame_allocator {
         public:
-        static constexpr usize frame_size = page_size;
+        static constexpr usz frame_size = page_size;
 
         static constexpr u64 invalid_frame = ~u64{0};
 
@@ -51,7 +51,7 @@ namespace astia::mm {
 
         /// Allocate `count` contiguous frames. Returns the physical address
         /// of the first frame, or invalid_frame on failure.
-        u64 alloc(usize count = 1, frame_flags flags = frame_flags::none);
+        u64 alloc(usz count = 1, frame_flags flags = frame_flags::none);
 
         void configure_access(frame_access_fn   access,
                               frame_physical_fn physical = nullptr);
@@ -63,7 +63,7 @@ namespace astia::mm {
         /// before its page map is ever activated).
         void* to_virt(u64 physical) const {
             return _access == nullptr
-                       ? reinterpret_cast<void*>(static_cast<usize>(physical))
+                       ? reinterpret_cast<void*>(static_cast<usz>(physical))
                        : _access(physical);
         }
 
@@ -75,23 +75,23 @@ namespace astia::mm {
         }
 
         /// Release `count` frames starting at physical address `frame`.
-        void release(u64 frame, usize count = 1);
+        void release(u64 frame, usz count = 1);
 
         bool initialized() const {
             return _ready;
         }
 
-        usize total_frames() const {
+        usz total_frames() const {
             return _frame_count;
         }
 
-        usize available_frames() const {
+        usz available_frames() const {
             return _free_count;
         }
 
         private:
-        bool is_used(usize index) const;
-        void set_used(usize index, bool used);
+        bool is_used(usz index) const;
+        void set_used(usz index, bool used);
         void mark_range(u64 base, u64 size, bool used);
 
         core::spinlock    _lock{};
@@ -99,9 +99,9 @@ namespace astia::mm {
         u64               _bitmap_physical = 0;
         frame_access_fn   _access          = nullptr;
         frame_physical_fn _physical        = nullptr;
-        usize             _words           = 0;
-        usize             _frame_count     = 0;
-        usize             _free_count      = 0;
+        usz               _words           = 0;
+        usz               _frame_count     = 0;
+        usz               _free_count      = 0;
         bool              _ready           = false;
     };
 

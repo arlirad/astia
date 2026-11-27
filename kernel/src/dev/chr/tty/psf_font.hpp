@@ -24,7 +24,7 @@ namespace astia::dev {
 
         private:
         const u8* _bytes  = nullptr;
-        usize     _length = 0;
+        usz       _length = 0;
         u8        _height = 0;
         u16       _count  = 0;
     };

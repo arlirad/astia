@@ -19,7 +19,7 @@ namespace astia::core {
                       sizeof(T) == 8);
         T result = 0;
 
-        for (usize index = 0; index < sizeof(T); ++index) {
+        for (usz index = 0; index < sizeof(T); ++index) {
             result = static_cast<T>(result << 8);
             result = static_cast<T>(result | (value & static_cast<T>(0xff)));
             value  = static_cast<T>(value >> 8);
@@ -34,7 +34,7 @@ namespace astia::core {
             T     native{};
             auto* destination = reinterpret_cast<u8*>(&native);
 
-            for (usize index = 0; index < sizeof(T); ++index) {
+            for (usz index = 0; index < sizeof(T); ++index) {
                 destination[index] = source[index];
             }
 
@@ -53,7 +53,7 @@ namespace astia::core {
 
             const auto* source = reinterpret_cast<const u8*>(&value);
 
-            for (usize index = 0; index < sizeof(T); ++index) {
+            for (usz index = 0; index < sizeof(T); ++index) {
                 destination[index] = source[index];
             }
         }
@@ -78,7 +78,7 @@ namespace astia::core {
         T get() const volatile {
             u8 copy[sizeof(T)]{};
 
-            for (usize index = 0; index < sizeof(T); ++index) {
+            for (usz index = 0; index < sizeof(T); ++index) {
                 copy[index] = _bytes[index];
             }
 
@@ -134,7 +134,7 @@ namespace astia::core {
         T get() const volatile {
             u8 copy[sizeof(T)]{};
 
-            for (usize index = 0; index < sizeof(T); ++index) {
+            for (usz index = 0; index < sizeof(T); ++index) {
                 copy[index] = _bytes[index];
             }
 

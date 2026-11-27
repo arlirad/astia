@@ -36,7 +36,7 @@ namespace astia::proc::syscalls {
 
             auto value = owner->create_thread(
                 entry.address(), stack_top, argument0.address(), argument1.address(),
-                false, stack_base.address(), static_cast<usize>(stack_size));
+                false, stack_base.address(), static_cast<usz>(stack_size));
 
             return value ? static_cast<i64>(value->tid()) : -EAGAIN;
         }

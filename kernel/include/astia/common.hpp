@@ -12,8 +12,8 @@ namespace astia {
     using i32 = int;
     using i64 = long long;
 
-    using usize = __SIZE_TYPE__;
-    using isize = __PTRDIFF_TYPE__;
+    using usz = __SIZE_TYPE__;
+    using isz = __PTRDIFF_TYPE__;
 
     struct fd_t {
         i32 value        = -1;
@@ -75,21 +75,21 @@ namespace astia {
     /// or machine-sized integers at subsystem boundaries. These are aliases,
     /// not wrapper types, so they preserve the existing ABI and arithmetic.
     using byte_t   = u8;
-    using bytes_t  = usize;
-    using count_t  = usize;
-    using offset_t = usize;
+    using bytes_t  = usz;
+    using count_t  = usz;
+    using offset_t = usz;
     using paddr_t  = u64;
     using vaddr_t  = u64;
 
-    inline constexpr usize cache_line_bytes = 64;
+    inline constexpr usz cache_line_bytes = 64;
 
     /// Kernel page geometry.  Keep the size and its low-bit mask together so
     /// generic memory code does not grow independent copies of the geometry.
     namespace mm {
 #if defined(__x86_64__)
-        inline constexpr usize page_size = 4096;
+        inline constexpr usz page_size = 4096;
 #elif defined(__aarch64__)
-        inline constexpr usize page_size = 4096;
+        inline constexpr usz page_size = 4096;
 #else
 #error "Astia kernel page geometry is unsupported on this target"
 #endif

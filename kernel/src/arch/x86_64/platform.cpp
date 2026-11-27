@@ -34,7 +34,7 @@ namespace astia::dev {
     };
 
     io_port_window claim_io_window(u16 first, u16 last) {
-        constexpr usize grant_count =
+        constexpr usz grant_count =
             sizeof(granted_io_windows) / sizeof(granted_io_windows[0]);
 
         if (!io_window_is_granted(

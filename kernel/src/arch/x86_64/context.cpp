@@ -163,7 +163,7 @@ namespace astia::arch {
         static_assert(sizeof(user_context_layout) <= max_user_context_bytes);
     } // namespace
 
-    usize user_context_bytes() {
+    usz user_context_bytes() {
         return sizeof(user_context_layout);
     }
 
@@ -211,7 +211,7 @@ namespace astia::arch {
         }
     } // namespace
 
-    usize signal_context_bytes() {
+    usz signal_context_bytes() {
         return sizeof(astia_x86_64_signal_context_t);
     }
 

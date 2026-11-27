@@ -14,12 +14,12 @@ namespace astia::mm::heap {
     inline constexpr bytes_t region_bytes = 8_mib;
 
     /// Backing-page size used while wiring up the region.
-    inline constexpr usize page_bytes = page_size;
+    inline constexpr usz page_bytes = page_size;
 
     /// Register the region. The arch paging step calls this before init();
     /// init() then backs `base` page by page through `map`, taking the
     /// frames from the kernel frame allocator.
-    void configure(void* base, usize bytes, map_fn map);
+    void configure(void* base, usz bytes, map_fn map);
 
     /// Back the region with frames and build the free list. Registered as a
     /// DAG step (needs "paging"); also callable directly in tests.
@@ -31,18 +31,18 @@ namespace astia::mm::heap {
     /// heap cannot satisfy the request (including before init() ran),
     /// einval for a zero size. The optional-returning shape is the point —
     /// an allocation failure is the caller's to handle, not a kernel panic.
-    optional<u8*> alloc(usize bytes);
+    optional<u8*> alloc(usz bytes);
 
     /// Like alloc(), but zeroes the payload.
-    optional<u8*> alloc_zeroed(usize bytes);
+    optional<u8*> alloc_zeroed(usz bytes);
 
     /// Release a payload from alloc()/alloc_zeroed(). Pointers outside the
     /// region and double frees are ignored rather than corrupting the heap.
     void free(void* ptr);
 
     /// Payload bytes currently handed out to callers (excludes headers).
-    usize used();
+    usz used();
 
     /// Payload bytes the region can ever hand out (excludes one header).
-    usize capacity();
+    usz capacity();
 } // namespace astia::mm::heap

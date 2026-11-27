@@ -9,12 +9,12 @@ namespace astia::initrd {
             bool              ready     = false;
             bool              owned     = false;
             u64               physical  = 0;
-            usize             frames    = 0;
+            usz               frames    = 0;
             archive_container container = archive_container::raw;
             decode_error      error     = decode_error::ok;
             archive           value{};
-            usize             source_size = 0;
-            usize             stored_size = 0;
+            usz               source_size = 0;
+            usz               stored_size = 0;
         };
 
         boot_state g_state{};
@@ -42,7 +42,7 @@ namespace astia::initrd {
         bool publish_compressed(boot_state& boot, span<const u8> image) {
             decode_limits limits{};
 
-            usize size = 0;
+            usz size = 0;
 
             boot.error = decoded_size(boot.container, image, limits, size);
 
@@ -55,9 +55,9 @@ namespace astia::initrd {
                 return false;
             }
 
-            constexpr usize frame_size = mm::frame_allocator::frame_size;
-            const usize     frames     = (size + frame_size - 1) / frame_size;
-            const u64       physical =
+            constexpr usz frame_size = mm::frame_allocator::frame_size;
+            const usz     frames     = (size + frame_size - 1) / frame_size;
+            const u64     physical =
                 mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
 
             if (physical == mm::frame_allocator::invalid_frame) {
@@ -97,7 +97,7 @@ namespace astia::initrd {
         }
     } // namespace
 
-    bool load_boot_archive(const void* image, usize length) {
+    bool load_boot_archive(const void* image, usz length) {
         boot_state& boot = state();
 
         if (boot.attempted)
@@ -141,11 +141,11 @@ namespace astia::initrd {
         return state().container;
     }
 
-    usize boot_archive_source_size() {
+    usz boot_archive_source_size() {
         return state().source_size;
     }
 
-    usize boot_archive_stored_size() {
+    usz boot_archive_stored_size() {
         return state().stored_size;
     }
 

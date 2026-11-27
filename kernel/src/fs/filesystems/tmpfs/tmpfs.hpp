@@ -6,8 +6,8 @@
 #include "../../filesystem.hpp"
 
 namespace astia::fs::filesystems {
-    inline constexpr u32   tmpfs_max_entries = 32;
-    inline constexpr usize tmpfs_max_pages   = 16;
+    inline constexpr u32 tmpfs_max_entries = 32;
+    inline constexpr usz tmpfs_max_pages   = 16;
 
     class tmpfs_file final : public file,
                              public readable,
@@ -16,7 +16,7 @@ namespace astia::fs::filesystems {
                              public truncatable,
                              public syncable {
         public:
-        explicit tmpfs_file(usize     pages = tmpfs_max_pages,
+        explicit tmpfs_file(usz       pages = tmpfs_max_pages,
                             file_mode mode  = file_mode(file_type::regular,
                                                         default_file_permissions));
         ~tmpfs_file();

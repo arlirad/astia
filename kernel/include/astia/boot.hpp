@@ -8,7 +8,7 @@
 namespace astia::boot {
     /// Maximum number of loader modules kept in boot_info. Extra modules the
     /// loader reports are dropped, mirroring memory_map's fixed capacity.
-    inline constexpr usize max_modules = 8;
+    inline constexpr usz max_modules = 8;
 
     /// One module the loader handed to the kernel, described by physical
     /// address and size.
@@ -37,7 +37,7 @@ namespace astia::boot {
         /// after it.
         module_info      initrd;
         module_info      modules[max_modules]{}; ///< Loader modules besides the initrd.
-        usize            module_count = 0;       ///< Number of valid entries in modules.
+        usz              module_count = 0;       ///< Number of valid entries in modules.
         framebuffer_info framebuffer; ///< One loader-provided linear framebuffer.
     };
 } // namespace astia::boot

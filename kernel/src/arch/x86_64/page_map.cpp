@@ -46,13 +46,13 @@ namespace astia::arch {
         // Top-level slots [256, 512) form the canonical higher half — slot
         // 256 is exactly kernel_base (0xFFFF800000000000). That is the
         // "kernel half" create() shares from a parent into a child.
-        constexpr usize kernel_slot = 256;
+        constexpr usz kernel_slot = 256;
 
         // The one top-level slot each map keeps for itself: its entry points
         // back at the map's own root (recursive mapping; the window it opens
         // is arch::recursive_base). create() writes it after any parent copy,
         // and map_4k/map_2m/unmap refuse to operate inside the window.
-        constexpr usize recursive_slot = 510;
+        constexpr usz recursive_slot = 510;
 
         // Release only page-table frames. User leaf frames belong to VMAs;
         // higher-half tables may be shared with the kernel map.
@@ -62,7 +62,7 @@ namespace astia::arch {
                 return;
 
             if (level > 1) {
-                for (usize i = 0; i < 512; ++i) {
+                for (usz i = 0; i < 512; ++i) {
                     const u64 entry = table[i];
 
                     if ((entry & entry_present) == 0 || (entry & entry_huge) != 0)
@@ -88,19 +88,19 @@ namespace astia::arch {
             pt,
         };
 
-        constexpr usize pml4_index(vaddr_t virt) {
+        constexpr usz pml4_index(vaddr_t virt) {
             return (virt >> 39) & 0x1ff;
         }
 
-        constexpr usize pdpt_index(vaddr_t virt) {
+        constexpr usz pdpt_index(vaddr_t virt) {
             return (virt >> 30) & 0x1ff;
         }
 
-        constexpr usize pd_index(vaddr_t virt) {
+        constexpr usz pd_index(vaddr_t virt) {
             return (virt >> 21) & 0x1ff;
         }
 
-        constexpr usize pt_index(vaddr_t virt) {
+        constexpr usz pt_index(vaddr_t virt) {
             return (virt >> 12) & 0x1ff;
         }
 
@@ -275,7 +275,7 @@ namespace astia::arch {
 
             u64* table = next_table(owner, virt, table_level::pt, pde);
 
-            for (usize i = 0; i < 512; ++i) {
+            for (usz i = 0; i < 512; ++i) {
                 table[i] = (base + static_cast<u64>(i) * mm::page_size) | inherited |
                            entry_present;
             }
@@ -298,7 +298,7 @@ namespace astia::arch {
 #endif
         u64* root = root_table(*this);
 
-        for (usize i = 0; i < kernel_slot; ++i) {
+        for (usz i = 0; i < kernel_slot; ++i) {
             const u64 entry = root[i];
 
             if ((entry & entry_present) != 0 && (entry & entry_huge) == 0)
@@ -340,7 +340,7 @@ namespace astia::arch {
             // after this child was created (they land in the shared tables).
             const u64* src = root_table(*parent);
 
-            for (usize i = kernel_slot; i < 512; ++i) {
+            for (usz i = kernel_slot; i < 512; ++i) {
                 dst[i] = src[i];
             }
         }

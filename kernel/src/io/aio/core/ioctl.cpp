@@ -32,8 +32,8 @@ namespace astia::io::aio::operations {
             // may both read and write it.  Decode the ABI'sqe typed
             // requests here instead of passing a caller pointer into a
             // device (which was both a TOCTOU and kernel-pointer bug).
-            usize expected = 0;
-            bool  input = false, output = false;
+            usz  expected = 0;
+            bool input = false, output = false;
 
             if (sqe.offset == TCGETS || sqe.offset == TCSETS || sqe.offset == TCSETSW ||
                 sqe.offset == TCSETSF) {
@@ -80,7 +80,7 @@ namespace astia::io::aio::operations {
 
             astia::atomic_thread_fence(astia::memory_order::seq_cst);
 
-            constexpr usize ioctl_storage_size =
+            constexpr usz ioctl_storage_size =
                 sizeof(struct termios) > sizeof(struct astia_tty_name)
                     ? sizeof(struct termios)
                     : sizeof(struct astia_tty_name);

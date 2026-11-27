@@ -33,26 +33,26 @@ namespace astia::initrd {
     };
 
     /// Compressed boot input may not exceed this many bytes.
-    inline constexpr usize max_compressed_bytes = 32 * 1024 * 1024;
+    inline constexpr usz max_compressed_bytes = 32 * 1024 * 1024;
 
     /// Normalized archive may not exceed this many bytes.
-    inline constexpr usize max_decompressed_bytes = 64 * 1024 * 1024;
+    inline constexpr usz max_decompressed_bytes = 64 * 1024 * 1024;
 
     /// Maximum expansion ratio applied above `expansion_ratio_floor`.
-    inline constexpr usize max_expansion_ratio = 128;
+    inline constexpr usz max_expansion_ratio = 128;
 
     /// Outputs at or below this size bypass the ratio policy.
-    inline constexpr usize expansion_ratio_floor = 1024 * 1024;
+    inline constexpr usz expansion_ratio_floor = 1024 * 1024;
 
     /// Largest zstd window the kernel is willing to replay.
-    inline constexpr usize max_zstd_window = 16 * 1024 * 1024;
+    inline constexpr usz max_zstd_window = 16 * 1024 * 1024;
 
     struct decode_limits {
-        usize max_input   = max_compressed_bytes;
-        usize max_output  = max_decompressed_bytes;
-        usize max_ratio   = max_expansion_ratio;
-        usize ratio_floor = expansion_ratio_floor;
-        usize max_window  = max_zstd_window;
+        usz max_input   = max_compressed_bytes;
+        usz max_output  = max_decompressed_bytes;
+        usz max_ratio   = max_expansion_ratio;
+        usz ratio_floor = expansion_ratio_floor;
+        usz max_window  = max_zstd_window;
     };
 
     /// Diagnostics for logs and tests.
@@ -62,7 +62,7 @@ namespace astia::initrd {
     /// Report the declared decompressed size of a compressed container.
     /// `container` must be `gzip` or `zstd`; raw archives belong to `open()`.
     decode_error decoded_size(archive_container container, span<const u8> image,
-                              const decode_limits& limits, usize& size);
+                              const decode_limits& limits, usz& size);
 
     /// Decode into exactly `output`.  The caller obtains its size from
     /// `decoded_size()`, so a size mismatch is a contract violation.

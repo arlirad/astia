@@ -12,7 +12,7 @@
 // optional<u8*> carrying an error_t.
 
 namespace {
-    void* allocate(astia::usize size) {
+    void* allocate(astia::usz size) {
         if (size == 0) {
             size = 1; // `new` must return a unique pointer even for T() arrays
         }
@@ -22,21 +22,21 @@ namespace {
         return block ? static_cast<void*>(block.value) : nullptr;
     }
 
-    void* allocate_aligned(astia::usize size, astia::usize alignment) {
+    void* allocate_aligned(astia::usz size, astia::usz alignment) {
         if (alignment < 16)
             alignment = 16;
 
-        const astia::usize overhead = alignment + sizeof(void*);
+        const astia::usz overhead = alignment + sizeof(void*);
 
-        if (size > static_cast<astia::usize>(-1) - overhead)
+        if (size > static_cast<astia::usz>(-1) - overhead)
             return nullptr;
 
         auto block = astia::mm::heap::alloc(size + overhead);
         if (!block)
             return nullptr;
 
-        const astia::usize raw = reinterpret_cast<astia::usize>(block.value);
-        const astia::usize aligned =
+        const astia::usz raw = reinterpret_cast<astia::usz>(block.value);
+        const astia::usz aligned =
             (raw + sizeof(void*) + alignment - 1) & ~(alignment - 1);
 
         reinterpret_cast<void**>(aligned)[-1] = block.value;
@@ -54,41 +54,40 @@ namespace std {
     const nothrow_t nothrow{};
 }
 
-__attribute__((weak)) void* operator new(astia::usize size) {
+__attribute__((weak)) void* operator new(astia::usz size) {
     return allocate(size);
 }
 
-__attribute__((weak)) void* operator new[](astia::usize size) {
+__attribute__((weak)) void* operator new[](astia::usz size) {
     return allocate(size);
 }
 
-__attribute__((weak)) void* operator new(astia::usize size,
+__attribute__((weak)) void* operator new(astia::usz size,
                                          const std::nothrow_t&) noexcept {
     return allocate(size);
 }
 
-__attribute__((weak)) void* operator new[](astia::usize size,
+__attribute__((weak)) void* operator new[](astia::usz size,
                                            const std::nothrow_t&) noexcept {
     return allocate(size);
 }
 
-__attribute__((weak)) void* operator new(astia::usize size, std::align_val_t alignment) {
-    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+__attribute__((weak)) void* operator new(astia::usz size, std::align_val_t alignment) {
+    return allocate_aligned(size, static_cast<astia::usz>(alignment));
 }
 
-__attribute__((weak)) void* operator new[](astia::usize     size,
-                                           std::align_val_t alignment) {
-    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+__attribute__((weak)) void* operator new[](astia::usz size, std::align_val_t alignment) {
+    return allocate_aligned(size, static_cast<astia::usz>(alignment));
 }
 
-__attribute__((weak)) void* operator new(astia::usize size, std::align_val_t alignment,
+__attribute__((weak)) void* operator new(astia::usz size, std::align_val_t alignment,
                                          const std::nothrow_t&) noexcept {
-    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+    return allocate_aligned(size, static_cast<astia::usz>(alignment));
 }
 
-__attribute__((weak)) void* operator new[](astia::usize size, std::align_val_t alignment,
+__attribute__((weak)) void* operator new[](astia::usz size, std::align_val_t alignment,
                                            const std::nothrow_t&) noexcept {
-    return allocate_aligned(size, static_cast<astia::usize>(alignment));
+    return allocate_aligned(size, static_cast<astia::usz>(alignment));
 }
 
 __attribute__((weak)) void operator delete(void* ptr) noexcept {
@@ -107,20 +106,20 @@ __attribute__((weak)) void operator delete[](void* ptr, std::align_val_t) noexce
     free_aligned(ptr);
 }
 
-__attribute__((weak)) void operator delete(void* ptr, astia::usize,
+__attribute__((weak)) void operator delete(void* ptr, astia::usz,
                                            std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-__attribute__((weak)) void operator delete[](void* ptr, astia::usize,
+__attribute__((weak)) void operator delete[](void* ptr, astia::usz,
                                              std::align_val_t) noexcept {
     free_aligned(ptr);
 }
 
-__attribute__((weak)) void operator delete(void* ptr, astia::usize) noexcept {
+__attribute__((weak)) void operator delete(void* ptr, astia::usz) noexcept {
     astia::mm::heap::free(ptr);
 }
 
-__attribute__((weak)) void operator delete[](void* ptr, astia::usize) noexcept {
+__attribute__((weak)) void operator delete[](void* ptr, astia::usz) noexcept {
     astia::mm::heap::free(ptr);
 }

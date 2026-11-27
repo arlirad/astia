@@ -42,7 +42,7 @@ namespace astia::mod::syscalls {
             module_info info{};
             module_id   dependencies[ASTIA_MODULE_MAX_DEPENDENCIES]{};
 
-            usize dependency_total = 0;
+            usz dependency_total = 0;
 
             const module_error snap = snapshot_module(
                 id, info, span<module_id>(dependencies, ASTIA_MODULE_MAX_DEPENDENCIES),

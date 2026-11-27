@@ -33,8 +33,8 @@ namespace astia::fs::filesystems::ext4 {
             return core::le<u32>::load(p);
         }
 
-        void copy_bytes(u8* dst, const u8* src, usize length) {
-            for (usize i = 0; i < length; ++i) {
+        void copy_bytes(u8* dst, const u8* src, usz length) {
+            for (usz i = 0; i < length; ++i) {
                 dst[i] = src[i];
             }
         }
@@ -58,12 +58,12 @@ namespace astia::fs::filesystems::ext4 {
         }
     } // namespace
 
-    u32 reader::crc32c(u32 seed, const void* data, usize length) {
+    u32 reader::crc32c(u32 seed, const void* data, usz length) {
         u32 crc = seed;
 
         const auto* bytes = static_cast<const u8*>(data);
 
-        for (usize i = 0; i < length; ++i) {
+        for (usz i = 0; i < length; ++i) {
             crc ^= bytes[i];
 
             for (u32 bit = 0; bit < 8; ++bit) {
@@ -74,7 +74,7 @@ namespace astia::fs::filesystems::ext4 {
         return crc;
     }
 
-    bool reader::read_bytes(u64 offset, void* buffer, usize length) {
+    bool reader::read_bytes(u64 offset, void* buffer, usz length) {
         if (_read_at == nullptr || buffer == nullptr)
             return fail(error::invalid_argument);
 
@@ -497,7 +497,7 @@ namespace astia::fs::filesystems::ext4 {
 
         if (depth == 0) {
             for (u16 i = 0; i < entries; ++i) {
-                const u8* extent = node + 12 + static_cast<usize>(i) * 12;
+                const u8* extent = node + 12 + static_cast<usz>(i) * 12;
 
                 const u32 first          = get32(extent);
                 const u16 encoded_length = get16(extent + 4);
@@ -542,7 +542,7 @@ namespace astia::fs::filesystems::ext4 {
         const u8* selected = nullptr;
 
         for (u16 i = 0; i < entries; ++i) {
-            const u8* index = node + 12 + static_cast<usize>(i) * 12;
+            const u8* index = node + 12 + static_cast<usz>(i) * 12;
 
             const u32 first = get32(index);
             const u64 child = static_cast<u64>(get16(index + 8)) << 32 | get32(index + 4);
@@ -657,12 +657,12 @@ namespace astia::fs::filesystems::ext4 {
         return fail(error::corrupt);
     }
 
-    bool reader::read_file(const inode& node, u64 offset, void* buffer, usize length) {
+    bool reader::read_file(const inode& node, u64 offset, void* buffer, usz length) {
         if (buffer == nullptr || offset > node.size)
             return fail(error::invalid_argument);
 
         if (length > node.size - offset)
-            length = static_cast<usize>(node.size - offset);
+            length = static_cast<usz>(node.size - offset);
 
         auto* output = static_cast<u8*>(buffer);
 
@@ -674,9 +674,9 @@ namespace astia::fs::filesystems::ext4 {
             if (logical_wide > ~u32{0})
                 return fail(error::unsupported_feature);
 
-            const u32   logical = static_cast<u32>(logical_wide);
-            const u32   within  = static_cast<u32>(offset % _block_size);
-            const usize amount =
+            const u32 logical = static_cast<u32>(logical_wide);
+            const u32 within  = static_cast<u32>(offset % _block_size);
+            const usz amount =
                 (length < _block_size - within) ? length : _block_size - within;
             u64 physical = 0;
 
@@ -684,7 +684,7 @@ namespace astia::fs::filesystems::ext4 {
                 return false;
 
             if (physical == 0)
-                for (usize i = 0; i < amount; ++i) {
+                for (usz i = 0; i < amount; ++i) {
                     output[i] = 0;
                 }
             else if (!read_block(physical, block))

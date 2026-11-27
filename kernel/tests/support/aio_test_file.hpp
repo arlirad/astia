@@ -88,7 +88,7 @@ namespace aio_test {
             co_return sync_result;
         }
 
-        core::task<i64> ioctl(u64, void*, usize, core::cltoken) override {
+        core::task<i64> ioctl(u64, void*, usz, core::cltoken) override {
             co_return ioctl_result;
         }
 

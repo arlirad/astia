@@ -98,7 +98,7 @@ namespace astia::fs {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
 
-        long ioctl(u64 request, void* argp, usize size);
+        long ioctl(u64 request, void* argp, usz size);
         long acquire_controlling_terminal(i32 group);
         long size() const;
 

@@ -647,7 +647,7 @@ namespace astia::test {
                                                        0, 0, image));
             };
             auto equal = [](const char* field, const char* value) {
-                for (usize i = 0;; ++i) {
+                for (usz i = 0;; ++i) {
                     if (field[i] != value[i])
                         return false;
 
@@ -655,8 +655,8 @@ namespace astia::test {
                         return true;
                 }
             };
-            auto padded = [](const char* field, usize size) {
-                usize i = 0;
+            auto padded = [](const char* field, usz size) {
+                usz i = 0;
 
                 while (i < size && field[i] != '\0') {
                     ++i;
@@ -675,7 +675,7 @@ namespace astia::test {
 
             astia_utsname name;
 
-            for (usize i = 0; i < sizeof name; ++i) {
+            for (usz i = 0; i < sizeof name; ++i) {
                 reinterpret_cast<u8*>(&name)[i] = 0xA5;
             }
 
@@ -2111,7 +2111,7 @@ namespace astia::test {
         // creating the arena must cost only the payload's frames, and the
         // whole reserve must invalidate without allocating.
         bool tls_arena_checks() {
-            const usize before = mm::kernel_frames().available_frames();
+            const usz before = mm::kernel_frames().available_frames();
 
             proc::tls_arena layout{};
 
@@ -2128,10 +2128,10 @@ namespace astia::test {
                 return false;
             }
 
-            const usize allocated    = before - mm::kernel_frames().available_frames();
-            bool        reserve_lazy = true;
+            const usz allocated    = before - mm::kernel_frames().available_frames();
+            bool      reserve_lazy = true;
 
-            for (usize page = 0; page < layout.reserve_pages; ++page) {
+            for (usz page = 0; page < layout.reserve_pages; ++page) {
                 reserve_lazy = reserve_lazy && region->page_base(page) ==
                                                    mm::frame_allocator::invalid_frame;
             }

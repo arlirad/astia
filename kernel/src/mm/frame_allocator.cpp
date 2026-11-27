@@ -9,7 +9,7 @@ extern "C" char __kernel_end[];
 namespace astia::mm {
     namespace {
         void* identity_access(u64 physical) {
-            return reinterpret_cast<void*>(static_cast<usize>(physical));
+            return reinterpret_cast<void*>(static_cast<usz>(physical));
         }
 
         u64 identity_physical(const void* address) {
@@ -60,7 +60,7 @@ namespace astia::mm {
 
         _bitmap = bitmap;
 
-        for (usize i = 0; i < _words; ++i) {
+        for (usz i = 0; i < _words; ++i) {
             _bitmap[i] = ~u64{0};
         }
 
@@ -119,11 +119,11 @@ namespace astia::mm {
             mark_range(physical, size, true);
     }
 
-    bool frame_allocator::is_used(usize index) const {
+    bool frame_allocator::is_used(usz index) const {
         return (_bitmap[index / 64] >> (index % 64)) & u64{1};
     }
 
-    void frame_allocator::set_used(usize index, bool used) {
+    void frame_allocator::set_used(usz index, bool used) {
         u64& word = _bitmap[index / 64];
 
         const u64  mask     = u64{1} << (index % 64);
@@ -153,11 +153,11 @@ namespace astia::mm {
         const u64 stop  = last < _frame_count ? last : _frame_count;
 
         for (u64 index = first; index < stop; ++index) {
-            set_used(static_cast<usize>(index), used);
+            set_used(static_cast<usz>(index), used);
         }
     }
 
-    u64 frame_allocator::alloc(usize count, frame_flags flags) {
+    u64 frame_allocator::alloc(usz count, frame_flags flags) {
         if (count == 0)
             return invalid_frame;
 
@@ -167,11 +167,11 @@ namespace astia::mm {
             return invalid_frame;
 
         // Find the first run of `count` free frames.
-        usize found = 0;
-        usize run   = 0;
-        bool  have  = false;
+        usz  found = 0;
+        usz  run   = 0;
+        bool have  = false;
 
-        for (usize index = 0; index < _frame_count; ++index) {
+        for (usz index = 0; index < _frame_count; ++index) {
             if (is_used(index)) {
                 run = 0;
 
@@ -191,7 +191,7 @@ namespace astia::mm {
         if (!have)
             return invalid_frame;
 
-        for (usize index = found; index < found + count; ++index) {
+        for (usz index = found; index < found + count; ++index) {
             set_used(index, true);
         }
 
@@ -204,22 +204,21 @@ namespace astia::mm {
             const frame_access_fn access = _access;
 
             guard.unlock();
-            fill_zero(access(frame), static_cast<usize>(count) * frame_size);
+            fill_zero(access(frame), static_cast<usz>(count) * frame_size);
         }
 
         return frame;
     }
 
-    void frame_allocator::release(u64 frame, usize count) {
+    void frame_allocator::release(u64 frame, usz count) {
         arch::interrupt_spinlock_guard guard(_lock);
 
         if (!_ready)
             return;
 
-        const usize first = static_cast<usize>(frame / frame_size);
+        const usz first = static_cast<usz>(frame / frame_size);
 
-        for (usize index = first; index < first + count && index < _frame_count;
-             ++index) {
+        for (usz index = first; index < first + count && index < _frame_count; ++index) {
             set_used(index, false);
         }
     }

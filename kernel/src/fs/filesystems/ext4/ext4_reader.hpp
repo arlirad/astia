@@ -3,7 +3,7 @@
 #include <astia/common.hpp>
 
 namespace astia::fs::filesystems::ext4 {
-    using read_at_fn = bool (*)(void* context, u64 offset, void* buffer, usize length);
+    using read_at_fn = bool (*)(void* context, u64 offset, void* buffer, usz length);
 
     enum class error : u8 {
         none,
@@ -87,14 +87,14 @@ namespace astia::fs::filesystems::ext4 {
 
         bool read_inode(u32 number, inode& result);
         bool map_file_block(const inode& node, u32 logical_block, u64& physical_block);
-        bool read_file(const inode& node, u64 offset, void* buffer, usize length);
+        bool read_file(const inode& node, u64 offset, void* buffer, usz length);
         bool read_directory(const inode& node, directory_callback callback,
                             void* context);
 
-        static u32 crc32c(u32 seed, const void* data, usize length);
+        static u32 crc32c(u32 seed, const void* data, usz length);
 
         private:
-        bool read_bytes(u64 offset, void* buffer, usize length);
+        bool read_bytes(u64 offset, void* buffer, usz length);
         bool read_block(u64 number, void* buffer);
         bool read_group_inode_table(u32 group, u64& table_block);
         bool map_extent_node(const u8* node, u16 depth, u32 logical_block,

@@ -148,11 +148,11 @@ namespace astia::proc {
             return _kernel_stack_top;
         }
 
-        usize kernel_stack_size() const {
+        usz kernel_stack_size() const {
             return _kernel_stack_size;
         }
 
-        usize kernel_stack_high_water_bytes() const {
+        usz kernel_stack_high_water_bytes() const {
             return _kernel_stack_high_water;
         }
 
@@ -166,7 +166,7 @@ namespace astia::proc {
             return _user_stack_base;
         }
 
-        usize user_stack_size() const {
+        usz user_stack_size() const {
             return _user_stack_size;
         }
 
@@ -174,7 +174,7 @@ namespace astia::proc {
             return _user_stack_metadata_supported;
         }
 
-        void user_stack_metadata(u64 base, usize size) {
+        void user_stack_metadata(u64 base, usz size) {
             _user_stack_base               = base;
             _user_stack_size               = size;
             _user_stack_metadata_supported = base != 0 && size != 0;
@@ -194,7 +194,7 @@ namespace astia::proc {
             return _tls_mapping_base;
         }
 
-        usize tls_mapping_pages() const {
+        usz tls_mapping_pages() const {
             return _tls_mapping_pages;
         }
 
@@ -354,7 +354,7 @@ namespace astia::proc {
 
         bool wake_join_for_cancellation();
 
-        void tls_mapping(u64 base, usize pages) {
+        void tls_mapping(u64 base, usz pages) {
             _tls_mapping_base  = base;
             _tls_mapping_pages = pages;
         }
@@ -379,17 +379,17 @@ namespace astia::proc {
         u64                     _kernel_stack_top              = 0;
         u64                     _user_stack_top                = 0;
         u64                     _user_stack_base               = 0;
-        usize                   _user_stack_size               = 0;
+        usz                     _user_stack_size               = 0;
         bool                    _user_stack_metadata_supported = false;
         u64                     _tls_mapping_base              = 0;
-        usize                   _tls_mapping_pages             = 0;
+        usz                     _tls_mapping_pages             = 0;
         arch::context*          _context                       = nullptr;
         kernel_entry            _entry_function                = nullptr;
         void*                   _entry_argument                = nullptr;
         void*                   _kernel_stack                  = nullptr;
-        usize                   _kernel_stack_size             = 0;
-        usize                   _kernel_stack_high_water       = 0;
-        usize                   _kernel_stack_scan_offset      = 0;
+        usz                     _kernel_stack_size             = 0;
+        usz                     _kernel_stack_high_water       = 0;
+        usz                     _kernel_stack_scan_offset      = 0;
         u32                     _kernel_stack_sample_count     = 0;
         thread*                 _joiner                        = nullptr;
         std::coroutine_handle<> _async_join_handle{};

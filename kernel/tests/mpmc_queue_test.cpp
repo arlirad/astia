@@ -69,7 +69,7 @@ ASTIA_TEST(mpmc_queue_supports_concurrent_producers_and_consumers) {
                     if (value < 0 || value >= total)
                         invalid.fetch_add(1);
                     else
-                        seen[static_cast<astia::usize>(value)].fetch_add(1);
+                        seen[static_cast<astia::usz>(value)].fetch_add(1);
 
                     consumed.fetch_add(1);
                     continue;

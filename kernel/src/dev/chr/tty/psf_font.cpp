@@ -21,8 +21,8 @@ namespace astia::dev {
         const u8  height = bytes[3];
         const u16 count  = (mode & psf1_mode_512) != 0 ? 512 : 256;
 
-        if (height == 0 || count > (~usize{0} - 4) / height ||
-            4 + static_cast<usize>(count) * height > bytes.size())
+        if (height == 0 || count > (~usz{0} - 4) / height ||
+            4 + static_cast<usz>(count) * height > bytes.size())
             return false;
 
         _bytes  = bytes.data() + 4;
@@ -37,6 +37,6 @@ namespace astia::dev {
         if (!valid() || codepoint >= _count)
             return nullptr;
 
-        return _bytes + static_cast<usize>(codepoint) * _height;
+        return _bytes + static_cast<usz>(codepoint) * _height;
     }
 } // namespace astia::dev

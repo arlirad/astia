@@ -170,7 +170,7 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::read_u16(cursor& c, u16& value) {
-        if (c.position == nullptr || static_cast<usize>(c.end - c.position) < 2)
+        if (c.position == nullptr || static_cast<usz>(c.end - c.position) < 2)
             return fail(aml_error::truncated);
 
         value = load_u16(c.position);
@@ -180,7 +180,7 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::read_u32(cursor& c, u32& value) {
-        if (c.position == nullptr || static_cast<usize>(c.end - c.position) < 4)
+        if (c.position == nullptr || static_cast<usz>(c.end - c.position) < 4)
             return fail(aml_error::truncated);
 
         value = load_u32(c.position);
@@ -190,7 +190,7 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::read_u64(cursor& c, u64& value) {
-        if (c.position == nullptr || static_cast<usize>(c.end - c.position) < 8)
+        if (c.position == nullptr || static_cast<usz>(c.end - c.position) < 8)
             return fail(aml_error::truncated);
 
         value = load_u64(c.position);
@@ -215,7 +215,7 @@ namespace astia::acpi::detail {
 
         bytes = static_cast<u32>(form) + 1;
 
-        if (static_cast<usize>(c.end - c.position) < bytes - 1)
+        if (static_cast<usz>(c.end - c.position) < bytes - 1)
             return fail(aml_error::truncated);
 
         value = first & 0x0Fu;
@@ -273,7 +273,7 @@ namespace astia::acpi::detail {
     }
 
     bool interpreter::read_name_segment(cursor& c, u32& segment) {
-        if (c.position == nullptr || static_cast<usize>(c.end - c.position) < 4)
+        if (c.position == nullptr || static_cast<usz>(c.end - c.position) < 4)
             return fail(aml_error::truncated);
 
         if (!lead_name_char(c.position[0]) || !name_char(c.position[1]) ||
@@ -316,7 +316,7 @@ namespace astia::acpi::detail {
         if (prefix == op_dual_name) {
             ++c.position;
 
-            if (static_cast<usize>(reference.count) + 2 > max_aml_name_segments)
+            if (static_cast<usz>(reference.count) + 2 > max_aml_name_segments)
                 return fail(aml_error::name);
 
             for (u32 i = 0; i < 2; ++i) {
@@ -664,7 +664,7 @@ namespace astia::acpi::detail {
                 return false;
         }
 
-        for (usize i = 0; i < tables.ssdt_count; ++i) {
+        for (usz i = 0; i < tables.ssdt_count; ++i) {
             const table& ssdt = tables.ssdt[i];
 
             if (ssdt.bytes.size() <= sdt_header_size || ssdt.bytes.data() == nullptr)
@@ -727,7 +727,7 @@ namespace astia::acpi::detail {
 
             return parse_external(c, scope);
         case op_extended: {
-            if (static_cast<usize>(c.end - c.position) < 2)
+            if (static_cast<usz>(c.end - c.position) < 2)
                 return fail(aml_error::truncated);
 
             const u8 extended = c.position[1];
@@ -1261,7 +1261,7 @@ namespace astia::acpi::detail {
             break;
         }
         case op_extended:
-            if (static_cast<usize>(c.end - c.position) < 2)
+            if (static_cast<usz>(c.end - c.position) < 2)
                 return fail(aml_error::truncated);
 
             if (c.position[1] == ext_revision) {
@@ -1964,7 +1964,7 @@ namespace astia::acpi::detail {
             return out != no_value || fail(aml_error::value_limit);
         }
         case op_extended: {
-            if (static_cast<usize>(c.end - c.position) < 2)
+            if (static_cast<usz>(c.end - c.position) < 2)
                 return fail(aml_error::truncated);
 
             const u8 extended = c.position[1];
@@ -2185,7 +2185,7 @@ namespace astia::acpi::detail {
             return eval_target_for_node(target_id, out);
         }
 
-        if (opcode == op_extended && static_cast<usize>(c.end - c.position) >= 2 &&
+        if (opcode == op_extended && static_cast<usz>(c.end - c.position) >= 2 &&
             c.position[1] == ext_debug) {
             c.position += 2;
             out.discard = true;
@@ -2262,7 +2262,7 @@ namespace astia::acpi::detail {
             return eval_term(c, e, ignored);
         }
         case op_extended: {
-            if (static_cast<usize>(c.end - c.position) < 2)
+            if (static_cast<usz>(c.end - c.position) < 2)
                 return fail(aml_error::truncated);
 
             const u8 extended = c.position[1];
@@ -2396,8 +2396,8 @@ namespace astia::acpi::detail {
         return close_package(c, package_end);
     }
 
-    bool interpreter::execute_method(node_id method, const value_id* arguments,
-                                     usize count, value_id& out) {
+    bool interpreter::execute_method(node_id method, const value_id* arguments, usz count,
+                                     value_id& out) {
         if (method >= _node_count ||
             _nodes[method].kind != static_cast<u8>(node_kind::method))
             return fail(aml_error::wrong_type);
@@ -2418,7 +2418,7 @@ namespace astia::acpi::detail {
                 return fail(aml_error::value_limit);
         }
 
-        for (usize i = 0; i < count && i < 7; ++i) {
+        for (usz i = 0; i < count && i < 7; ++i) {
             e.argument[i] = arguments[i];
         }
 

@@ -36,7 +36,7 @@ namespace astia::acpi {
             u64 direct_limit   = 0;
         };
 
-        bool read_physical(void* context, u64 address, u8* destination, usize length) {
+        bool read_physical(void* context, u64 address, u8* destination, usz length) {
             const auto* reader = static_cast<const kernel_reader*>(context);
 
             if (reader == nullptr || destination == nullptr || address > ~u64{0} - length)
@@ -63,7 +63,7 @@ namespace astia::acpi {
             return false;
         }
 
-        void* heap_allocate(void*, usize bytes) {
+        void* heap_allocate(void*, usz bytes) {
             auto allocation = astia::mm::heap::alloc(bytes);
 
             return allocation ? static_cast<void*>(allocation.value) : nullptr;
@@ -96,7 +96,7 @@ namespace astia::acpi {
             const u64 page   = physical - offset;
 
             auto mapping =
-                astia::hw::mmio_mapping::map(page, static_cast<usize>(offset) + 2);
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 2);
 
             if (!mapping)
                 return false;
@@ -119,7 +119,7 @@ namespace astia::acpi {
             const u64 page   = physical - offset;
 
             auto mapping =
-                astia::hw::mmio_mapping::map(page, static_cast<usize>(offset) + 1);
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 1);
 
             if (!mapping)
                 return false;
@@ -197,7 +197,7 @@ namespace astia::acpi {
 
             validated_rsdp = rsdp_address;
 
-            for (usize i = 0; i < tables.inventory_count; ++i) {
+            for (usz i = 0; i < tables.inventory_count; ++i) {
                 const detail::inventory_entry& entry = tables.inventory[i];
 
                 logs::info("table %c%c%c%c length=%u revision=%u",

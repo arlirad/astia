@@ -10,9 +10,9 @@ namespace astia::boot::virt {
     namespace {
         constexpr u32 hvm_start_magic = 0x336EC578u;
 
-        constexpr usize start_info_size    = 56;
-        constexpr usize memmap_entry_size  = 24;
-        constexpr usize modlist_entry_size = 32;
+        constexpr usz start_info_size    = 56;
+        constexpr usz memmap_entry_size  = 24;
+        constexpr usz modlist_entry_size = 32;
 
         template <typename T>
         T load(const u8* bytes) {
@@ -31,7 +31,7 @@ namespace astia::boot::virt {
                    length <= size - (address - base);
         }
 
-        const u8* address_ptr(span<const u8> memory, u64 address, usize length) {
+        const u8* address_ptr(span<const u8> memory, u64 address, usz length) {
             if (!range_ok(memory, address, length))
                 return nullptr;
 
@@ -44,10 +44,10 @@ namespace astia::boot::virt {
 
             const u8* bytes = reinterpret_cast<const u8*>(address);
 
-            const usize length =
-                memory.size() - static_cast<usize>(address - memory.address());
+            const usz length =
+                memory.size() - static_cast<usz>(address - memory.address());
 
-            for (usize i = 0; i < length; ++i) {
+            for (usz i = 0; i < length; ++i) {
                 if (bytes[i] == 0)
                     return reinterpret_cast<const char*>(bytes);
             }
@@ -56,17 +56,17 @@ namespace astia::boot::virt {
         }
 
         bool descriptor_range(span<const u8> memory, u64 address, u64 count,
-                              usize entry_size, const u8*& table) {
+                              usz entry_size, const u8*& table) {
             if (count > static_cast<u64>(-1) / entry_size)
                 return false;
 
             const u64 length = count * entry_size;
 
-            if (length > static_cast<u64>(static_cast<usize>(-1)) ||
+            if (length > static_cast<u64>(static_cast<usz>(-1)) ||
                 !range_ok(memory, address, length))
                 return false;
 
-            table = address_ptr(memory, address, static_cast<usize>(length));
+            table = address_ptr(memory, address, static_cast<usz>(length));
 
             return table != nullptr || length == 0;
         }
@@ -114,7 +114,7 @@ namespace astia::boot::virt {
         boot_info parsed{};
 
         for (u32 i = 0; i < memory_map_count; ++i) {
-            const u8* entry = entries + static_cast<usize>(i) * memmap_entry_size;
+            const u8* entry = entries + static_cast<usz>(i) * memmap_entry_size;
 
             parsed.memory.add(load<u64>(entry), load<u64>(entry + 8),
                               static_cast<mm::memory_type>(load<u32>(entry + 16)));
@@ -142,7 +142,7 @@ namespace astia::boot::virt {
             parsed.initrd = {initrd_address, initrd_size};
 
             for (u32 i = 1; i < module_count && parsed.module_count < max_modules; ++i) {
-                const u8* module = modules + static_cast<usize>(i) * modlist_entry_size;
+                const u8* module = modules + static_cast<usz>(i) * modlist_entry_size;
 
                 const u64 address = load<u64>(module);
                 const u64 size    = load<u64>(module + 8);

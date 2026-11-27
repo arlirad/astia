@@ -7,7 +7,7 @@
 #include <cstdlib>
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 
@@ -67,13 +67,13 @@ namespace {
         return static_cast<astia::i64>(*task.value());
     }
 
-    astia::i64 fill(open_file& writer, astia::u8* buffer, astia::usize length) {
+    astia::i64 fill(open_file& writer, astia::u8* buffer, astia::usz length) {
         auto task = writer.write(astia::span<const astia::u8>(buffer, length));
 
         return run_now(task);
     }
 
-    astia::i64 drain(open_file& reader, astia::u8* buffer, astia::usize length) {
+    astia::i64 drain(open_file& reader, astia::u8* buffer, astia::usz length) {
         auto task = reader.read(astia::span<astia::u8>(buffer, length));
 
         return run_now(task);
@@ -90,7 +90,7 @@ ASTIA_TEST(pipe_blocking_small_write_parks_without_writing_partial_bytes) {
 
     astia::u8 fill_data[pipe_capacity]{};
 
-    for (astia::usize i = 0; i < sizeof fill_data; ++i) {
+    for (astia::usz i = 0; i < sizeof fill_data; ++i) {
         fill_data[i] = 0x11;
     }
 
@@ -103,7 +103,7 @@ ASTIA_TEST(pipe_blocking_small_write_parks_without_writing_partial_bytes) {
 
     astia::u8 record[100]{};
 
-    for (astia::usize i = 0; i < sizeof record; ++i) {
+    for (astia::usz i = 0; i < sizeof record; ++i) {
         record[i] = 0xab;
     }
 
@@ -116,7 +116,7 @@ ASTIA_TEST(pipe_blocking_small_write_parks_without_writing_partial_bytes) {
     ASTIA_CHECK(drain(*endpoints.value.read, drained, sizeof drained) ==
                 pipe_capacity - 50);
 
-    for (astia::usize i = 0; i < pipe_capacity - 50; ++i) {
+    for (astia::usz i = 0; i < pipe_capacity - 50; ++i) {
         ASTIA_CHECK(drained[i] == 0x11);
     }
 
@@ -129,7 +129,7 @@ ASTIA_TEST(pipe_blocking_small_write_parks_without_writing_partial_bytes) {
     ASTIA_CHECK(drain(*endpoints.value.read, drained, sizeof record) ==
                 static_cast<astia::i64>(sizeof record));
 
-    for (astia::usize i = 0; i < sizeof record; ++i) {
+    for (astia::usz i = 0; i < sizeof record; ++i) {
         ASTIA_CHECK(drained[i] == 0xab);
     }
 }
@@ -144,7 +144,7 @@ ASTIA_TEST(pipe_blocking_write_larger_than_capacity_still_returns_partial) {
 
     astia::u8 fill_data[pipe_capacity]{};
 
-    for (astia::usize i = 0; i < sizeof fill_data; ++i) {
+    for (astia::usz i = 0; i < sizeof fill_data; ++i) {
         fill_data[i] = 0x22;
     }
 
@@ -157,7 +157,7 @@ ASTIA_TEST(pipe_blocking_write_larger_than_capacity_still_returns_partial) {
 
     astia::u8 large[pipe_capacity + 50]{};
 
-    for (astia::usize i = 0; i < sizeof large; ++i) {
+    for (astia::usz i = 0; i < sizeof large; ++i) {
         large[i] = 0x33;
     }
 
@@ -177,7 +177,7 @@ ASTIA_TEST(pipe_nonblocking_small_write_returns_available_space) {
 
     astia::u8 fill_data[pipe_capacity]{};
 
-    for (astia::usize i = 0; i < sizeof fill_data; ++i) {
+    for (astia::usz i = 0; i < sizeof fill_data; ++i) {
         fill_data[i] = 0x44;
     }
 
@@ -190,7 +190,7 @@ ASTIA_TEST(pipe_nonblocking_small_write_returns_available_space) {
 
     astia::u8 record[100]{};
 
-    for (astia::usize i = 0; i < sizeof record; ++i) {
+    for (astia::usz i = 0; i < sizeof record; ++i) {
         record[i] = 0x55;
     }
 
@@ -207,7 +207,7 @@ ASTIA_TEST(pipe_blocking_small_write_with_free_space_writes_all) {
 
     astia::u8 record[100]{};
 
-    for (astia::usize i = 0; i < sizeof record; ++i) {
+    for (astia::usz i = 0; i < sizeof record; ++i) {
         record[i] = 0x66;
     }
 
@@ -219,7 +219,7 @@ ASTIA_TEST(pipe_blocking_small_write_with_free_space_writes_all) {
     ASTIA_CHECK(drain(*endpoints.value.read, drained, sizeof drained) ==
                 static_cast<astia::i64>(sizeof drained));
 
-    for (astia::usize i = 0; i < sizeof drained; ++i) {
+    for (astia::usz i = 0; i < sizeof drained; ++i) {
         ASTIA_CHECK(drained[i] == 0x66);
     }
 }

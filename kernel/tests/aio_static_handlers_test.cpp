@@ -481,7 +481,7 @@ ASTIA_TEST(aio_production_handler_crtp_descriptors_are_stable) {
 ASTIA_TEST(aio_production_handler_rejects_duplicate_descriptors) {
     aio::operation_descriptor malformed[aio::opcode_count]{};
 
-    for (astia::usize i = 0; i < aio::registry::size(); ++i) {
+    for (astia::usz i = 0; i < aio::registry::size(); ++i) {
         malformed[i] = aio::registry::entries()[i];
     }
 
@@ -495,7 +495,7 @@ ASTIA_TEST(aio_production_handler_rejects_duplicate_descriptors) {
 ASTIA_TEST(aio_production_registry_dispatches_every_operation_to_cq) {
     using namespace aio::test_support;
 
-    for (astia::usize i = 0; i < aio::registry::size(); ++i) {
+    for (astia::usz i = 0; i < aio::registry::size(); ++i) {
         reset_environment();
 
         cq_capture           capture;

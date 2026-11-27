@@ -36,7 +36,7 @@ ASTIA_TEST(memory_map_iteration) {
 ASTIA_TEST(memory_map_ignores_overflow) {
     astia::mm::memory_map map;
 
-    for (astia::usize i = 0; i < astia::mm::memory_map::max_regions + 10; ++i) {
+    for (astia::usz i = 0; i < astia::mm::memory_map::max_regions + 10; ++i) {
         map.add(i * 4096, 4096, astia::mm::memory_type::usable);
     }
 

@@ -64,7 +64,7 @@ namespace {
 namespace astia::fs {
     namespace {
         bool drop_component(char* path) {
-            usize length = std::strlen(path);
+            usz length = std::strlen(path);
 
             while (length > 1 && path[length - 1] == '/') {
                 --length;
@@ -83,8 +83,8 @@ namespace astia::fs {
         }
 
         long join_root(const char* root, const char* path, char* buffer, u32 capacity) {
-            char  joined[64]{};
-            usize at = 0;
+            char joined[64]{};
+            usz  at = 0;
 
             if (std::strcmp(root, "/") == 0) {
                 for (; path[at] != '\0' && at + 1 < sizeof joined; ++at) {
@@ -101,7 +101,7 @@ namespace astia::fs {
                     joined[at] = root[at];
                 }
 
-                for (usize i = 0; path[i] != '\0' && at + 1 < sizeof joined; ++i) {
+                for (usz i = 0; path[i] != '\0' && at + 1 < sizeof joined; ++i) {
                     joined[at++] = path[i];
                 }
             }
@@ -109,8 +109,8 @@ namespace astia::fs {
             joined[at] = '\0';
 
             while (true) {
-                usize length = std::strlen(joined);
-                char  candidate[64];
+                usz  length = std::strlen(joined);
+                char candidate[64];
 
                 std::strcpy(candidate, joined);
 
@@ -346,7 +346,7 @@ ASTIA_TEST(cwd_context_binds_an_open_directory_without_resolving) {
 
     ASTIA_CHECK(context.bind_directory("relative", make_anchor()) == -EINVAL);
 
-    for (astia::usize i = 0; i < sizeof(long_path) - 1; ++i) {
+    for (astia::usz i = 0; i < sizeof(long_path) - 1; ++i) {
         long_path[i] = 'x';
     }
 

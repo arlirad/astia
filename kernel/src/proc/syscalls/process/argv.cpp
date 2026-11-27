@@ -10,8 +10,8 @@ namespace astia::proc::syscalls::detail {
     }
 
     bool argument_staging::allocate() {
-        const usize vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
-        const usize pool_bytes = 2 * vec_max * arg_cap;
+        const usz vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
+        const usz pool_bytes = 2 * vec_max * arg_cap;
 
         auto storage = mm::heap::alloc(vec_bytes + pool_bytes);
         if (!storage)
@@ -41,7 +41,7 @@ namespace astia::proc::syscalls::detail {
             return 0;
         }
 
-        for (usize i = 0; i < vec_max; ++i) {
+        for (usz i = 0; i < vec_max; ++i) {
             char* element = nullptr;
 
             const u64 delta = static_cast<u64>(i) * sizeof(char*);

@@ -18,7 +18,7 @@ namespace astia_test {
         }
 
         bool acquire() {
-            astia::usize wanted = astia::mm::heap::capacity() - astia::mm::heap::used();
+            astia::usz wanted = astia::mm::heap::capacity() - astia::mm::heap::used();
 
             while (wanted >= 16) {
                 auto block = astia::mm::heap::alloc(wanted);

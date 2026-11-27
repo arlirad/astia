@@ -58,8 +58,8 @@ namespace astia::mm {
         bool    writable(vaddr_t virt) const;
         bool    user_accessible(vaddr_t virt) const;
         bool    executable(vaddr_t virt) const;
-        bool    valid_user_range(u64 address, usize length) const;
-        bool    validate(u64 address, usize length, access required) const;
+        bool    valid_user_range(u64 address, usz length) const;
+        bool    validate(u64 address, usz length, access required) const;
 
         void        activate() const;
         static void invalidate(vaddr_t virt);
@@ -74,7 +74,7 @@ namespace astia::mm {
 
     class mapping_transaction {
         public:
-        mapping_transaction(address_space& space, vaddr_t first, usize pages);
+        mapping_transaction(address_space& space, vaddr_t first, usz pages);
         ~mapping_transaction();
 
         mapping_transaction(const mapping_transaction&)            = delete;
@@ -91,8 +91,8 @@ namespace astia::mm {
         private:
         address_space* _space    = nullptr;
         vaddr_t        _first    = 0;
-        usize          _pages    = 0;
-        usize          _mapped   = 0;
+        usz            _pages    = 0;
+        usz            _mapped   = 0;
         bool           _finished = false;
     };
 } // namespace astia::mm

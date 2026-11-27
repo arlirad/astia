@@ -19,7 +19,7 @@ namespace astia::mm {
 
         kernel_frames().reserve(ctx.info->initrd.paddr, ctx.info->initrd.size);
 
-        for (usize i = 0; i < ctx.info->module_count; ++i) {
+        for (usz i = 0; i < ctx.info->module_count; ++i) {
             kernel_frames().reserve(ctx.info->modules[i].paddr,
                                     ctx.info->modules[i].size);
         }

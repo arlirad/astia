@@ -87,18 +87,18 @@ ASTIA_TEST(initrd_open_returns_empty_when_file_allocation_fails) {
 }
 
 ASTIA_TEST(initrd_accepts_paths_at_path_max) {
-    constexpr astia::usize name_length = astia::fs::path_max - 2;
+    constexpr astia::usz name_length = astia::fs::path_max - 2;
 
     char name[name_length + 1]{};
     char absolute[astia::fs::path_max]{};
 
-    for (astia::usize i = 0; i < name_length; ++i) {
+    for (astia::usz i = 0; i < name_length; ++i) {
         name[i] = static_cast<char>('a' + i % 26);
     }
 
     absolute[0] = '/';
 
-    for (astia::usize i = 0; i < name_length; ++i) {
+    for (astia::usz i = 0; i < name_length; ++i) {
         absolute[i + 1] = name[i];
     }
 

@@ -48,7 +48,7 @@ ASTIA_TEST(heap_before_init_reports_enomem) {
 
 ASTIA_TEST(heap_configure_and_init) {
     // Poison the payload so both split-copies and zeroing are observable.
-    for (astia::usize i = 0; i < sizeof(region); ++i) {
+    for (astia::usz i = 0; i < sizeof(region); ++i) {
         region[i] = 0xaa;
     }
 
@@ -76,7 +76,7 @@ ASTIA_TEST(heap_alloc_zeroed_clears_payload) {
 
     ASTIA_CHECK(got);
 
-    for (astia::usize i = 0; i < 64; ++i) {
+    for (astia::usz i = 0; i < 64; ++i) {
         ASTIA_CHECK(got.value[i] == 0);
     }
 
@@ -145,7 +145,7 @@ namespace {
 ASTIA_TEST(shptr_share_releases_value_when_control_block_allocation_fails) {
     int destroyed = 0;
 
-    const astia::usize used_before = astia::mm::heap::used();
+    const astia::usz used_before = astia::mm::heap::used();
 
     astia_test::fail_next_allocation();
 

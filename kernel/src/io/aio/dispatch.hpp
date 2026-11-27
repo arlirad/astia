@@ -8,9 +8,9 @@ namespace astia::io::aio::dispatch {
     mm::shptr<fs::open_file> file_for(proc::process* current, i32 fd);
     mm::shptr<fs::open_file> file_for(i32 fd);
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
-                    usize capacity, bool follow_final = true);
+                    usz capacity, bool follow_final = true);
     long resolve_path_for(proc::process* current, const char* path, char* out,
-                          usize capacity, bool follow_final);
+                          usz capacity, bool follow_final);
     bool parent_writable(proc::process* current, const char* path);
     bool parent_searchable(proc::process* current, const char* path);
     bool directory_listable(proc::process* current, const char* path);
@@ -33,7 +33,7 @@ namespace astia::io::aio::dispatch {
         mm::iovec                entries;
         fs::buffer               buffers[mm::iovec::max_segments]{};
         u32                      buffered = 0;
-        usize                    bytes    = 0;
+        usz                      bytes    = 0;
 
         pinned_io()                            = default;
         pinned_io(pinned_io&&)                 = default;

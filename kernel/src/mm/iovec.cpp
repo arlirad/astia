@@ -2,7 +2,7 @@
 
 namespace astia::mm {
     iovec::iovec(iovec&& other) noexcept {
-        for (usize i = 0; i < other._count; ++i) {
+        for (usz i = 0; i < other._count; ++i) {
             _segments[i] = static_cast<pinned_segment&&>(other._segments[i]);
         }
 
@@ -22,7 +22,7 @@ namespace astia::mm {
         if (this != &other) {
             release();
 
-            for (usize i = 0; i < other._count; ++i) {
+            for (usz i = 0; i < other._count; ++i) {
                 _segments[i] = static_cast<pinned_segment&&>(other._segments[i]);
             }
 
@@ -41,8 +41,8 @@ namespace astia::mm {
         return *this;
     }
 
-    bool iovec::append(phys_region* region, usize first, usize count, usize offset,
-                       usize length, bool destination) {
+    bool iovec::append(phys_region* region, usz first, usz count, usz offset, usz length,
+                       bool destination) {
         if (_count >= max_segments)
             return false;
 
@@ -59,7 +59,7 @@ namespace astia::mm {
         // that runs past them is a caller bug, not a short operation, and
         // keeping the pin alive past the end of its own region is exactly how
         // a device walks off into unrelated memory.
-        const usize window = segment.frames.pages() * phys_region::frame_size;
+        const usz window = segment.frames.pages() * phys_region::frame_size;
 
         if (offset >= window || length > window - offset) {
             segment.frames.release();
@@ -81,7 +81,7 @@ namespace astia::mm {
         return true;
     }
 
-    bool iovec::append_kernel(void* address, usize length) {
+    bool iovec::append_kernel(void* address, usz length) {
         if (_count >= max_segments)
             return false;
 
@@ -103,7 +103,7 @@ namespace astia::mm {
     }
 
     void iovec::release() {
-        for (usize i = 0; i < _count; ++i) {
+        for (usz i = 0; i < _count; ++i) {
             _segments[i].frames.release();
         }
 
@@ -120,21 +120,21 @@ namespace astia::mm {
         return _count == 0;
     }
 
-    usize iovec::count() const {
+    usz iovec::count() const {
         return _count;
     }
 
-    usize iovec::bytes() const {
+    usz iovec::bytes() const {
         return _total;
     }
 
-    void iovec::aim(usize length) {
+    void iovec::aim(usz length) {
         _index     = 0;
         _offset    = 0;
         _remaining = length < _total ? length : _total;
     }
 
-    usize iovec::remaining() const {
+    usz iovec::remaining() const {
         return _remaining;
     }
 
@@ -148,7 +148,7 @@ namespace astia::mm {
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize byte = segment.offset + _offset;
+        const usz byte = segment.offset + _offset;
 
         if (!segment.frames.valid()) {
             return segment.base + byte; // kernel memory: nothing was pinned
@@ -166,39 +166,39 @@ namespace astia::mm {
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize byte = segment.offset + _offset;
+        const usz byte = segment.offset + _offset;
 
         return segment.frames.phys(byte / phys_region::frame_size) +
                static_cast<u64>(byte % phys_region::frame_size);
     }
 
-    usize iovec::chunk() const {
+    usz iovec::chunk() const {
         if (_remaining == 0 || _index >= _count)
             return 0;
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize left      = segment.length - _offset;
-        const usize available = left < _remaining ? left : _remaining;
+        const usz left      = segment.length - _offset;
+        const usz available = left < _remaining ? left : _remaining;
 
         if (!segment.frames.valid() || segment.frames.contiguous())
             return available;
 
-        const usize byte      = segment.offset + _offset;
-        const usize page_left = phys_region::frame_size - byte % phys_region::frame_size;
+        const usz byte      = segment.offset + _offset;
+        const usz page_left = phys_region::frame_size - byte % phys_region::frame_size;
 
         return available < page_left ? available : page_left;
     }
 
-    usize iovec::advance(usize bytes) {
-        usize moved = 0;
+    usz iovec::advance(usz bytes) {
+        usz moved = 0;
 
         while (moved < bytes && _remaining != 0 && _index < _count) {
-            const usize take = chunk();
+            const usz take = chunk();
             if (take == 0)
                 break;
 
-            const usize step = take < bytes - moved ? take : bytes - moved;
+            const usz step = take < bytes - moved ? take : bytes - moved;
 
             _offset += step;
             _remaining -= step;

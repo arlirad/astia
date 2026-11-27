@@ -16,7 +16,7 @@ namespace astia::log::detail {
 } // namespace astia::log::detail
 
 namespace {
-    void* host_allocate(void*, astia::usize bytes) {
+    void* host_allocate(void*, astia::usz bytes) {
         return std::malloc(bytes);
     }
 
@@ -34,54 +34,54 @@ namespace {
     using astia::u32;
     using astia::u64;
     using astia::u8;
-    using astia::usize;
+    using astia::usz;
 
-    constexpr u64   image_base  = 0x100000;
-    constexpr usize image_size  = 64 * 1024;
-    constexpr usize rsdp_offset = 0x000;
-    constexpr usize root_offset = 0x040;
-    constexpr usize fadt_offset = 0x100;
-    constexpr usize dsdt_offset = 0x200;
+    constexpr u64 image_base  = 0x100000;
+    constexpr usz image_size  = 64 * 1024;
+    constexpr usz rsdp_offset = 0x000;
+    constexpr usz root_offset = 0x040;
+    constexpr usz fadt_offset = 0x100;
+    constexpr usz dsdt_offset = 0x200;
 
     struct image {
-        u8    bytes[image_size]{};
-        usize used = 0;
+        u8  bytes[image_size]{};
+        usz used = 0;
     };
 
     void store_u32(u8* bytes, u32 value) {
-        for (usize i = 0; i < 4; ++i) {
+        for (usz i = 0; i < 4; ++i) {
             bytes[i] = static_cast<u8>(value >> (i * 8));
         }
     }
 
     void store_u64(u8* bytes, u64 value) {
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             bytes[i] = static_cast<u8>(value >> (i * 8));
         }
     }
 
-    u8 sum(const u8* bytes, usize length) {
+    u8 sum(const u8* bytes, usz length) {
         u8 value = 0;
 
-        for (usize i = 0; i < length; ++i) {
+        for (usz i = 0; i < length; ++i) {
             value = static_cast<u8>(value + bytes[i]);
         }
 
         return value;
     }
 
-    void checksum_table(u8* table, usize length) {
+    void checksum_table(u8* table, usz length) {
         table[9] = 0;
         table[9] = static_cast<u8>(0x100 - sum(table, length));
     }
 
-    usize add_table(image& target, usize offset, const char (&signature)[5], u8 revision,
-                    const u8* body, usize body_length) {
+    usz add_table(image& target, usz offset, const char (&signature)[5], u8 revision,
+                  const u8* body, usz body_length) {
         u8* const table = target.bytes + offset;
 
-        const usize length = 36 + body_length;
+        const usz length = 36 + body_length;
 
-        for (usize i = 0; i < 4; ++i) {
+        for (usz i = 0; i < 4; ++i) {
             table[i] = static_cast<u8>(signature[i]);
         }
 
@@ -95,7 +95,7 @@ namespace {
         table[13] = 'I';
         table[14] = 'A';
 
-        for (usize i = 0; i < body_length; ++i) {
+        for (usz i = 0; i < body_length; ++i) {
             table[36 + i] = body != nullptr ? body[i] : 0;
         }
 
@@ -112,7 +112,7 @@ namespace {
         u64          base   = 0;
     };
 
-    bool read_image(void* context, u64 address, u8* destination, usize length) {
+    bool read_image(void* context, u64 address, u8* destination, usz length) {
         const auto* reader = static_cast<const raw_reader*>(context);
 
         if (reader == nullptr || reader->target == nullptr || address < reader->base)
@@ -136,7 +136,7 @@ namespace {
     }
 
     void write_rsdp(u8* rsdp, u64 rsdt, u64 xsdt, bool extended) {
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             rsdp[i] = static_cast<u8>("RSD PTR "[i]);
         }
 
@@ -163,13 +163,12 @@ namespace {
     };
 
     void build_standard_tables(table_image& target, bool extended_rsdp,
-                               bool include_dsdt_in_root, const u8* aml,
-                               usize aml_length) {
+                               bool include_dsdt_in_root, const u8* aml, usz aml_length) {
         const u64 root_address = image_base + root_offset;
         const u64 fadt_address = image_base + fadt_offset;
         const u64 dsdt_address = image_base + dsdt_offset;
 
-        const usize dsdt_length =
+        const usz dsdt_length =
             add_table(target.data, dsdt_offset, "DSDT", 2, aml, aml_length);
 
         u8 fadt_body[80]{};
@@ -188,7 +187,7 @@ namespace {
             store_u32(root_body + 4, static_cast<u32>(dsdt_address));
 
             if (extended_rsdp) {
-                const usize length =
+                const usz length =
                     add_table(target.data, root_offset, "XSDT", 1, nullptr, 0);
 
                 u8* root = target.data.bytes + root_offset;
@@ -214,7 +213,7 @@ namespace {
 
             u8* root = target.data.bytes + root_offset;
 
-            const usize length = extended_rsdp ? 44 : 40;
+            const usz length = extended_rsdp ? 44 : 40;
 
             store_u32(root + 4, static_cast<u32>(length));
 
@@ -281,7 +280,7 @@ namespace {
 
     constexpr u8 unsupported_aml[] = {0x5B, 0x2A};
 
-    void build_fadt_with_dsdt(u64 dsdt_address, u8* fadt, usize length) {
+    void build_fadt_with_dsdt(u64 dsdt_address, u8* fadt, usz length) {
         store_u32(fadt + 40, static_cast<u32>(dsdt_address));
         store_u32(fadt + 64, 0x604);
 
@@ -452,11 +451,11 @@ ASTIA_TEST(acpi_table_store_owns_bytes_after_source_changes) {
 
 namespace {
     struct failing_allocator {
-        usize calls   = 0;
-        usize fail_at = 0;
+        usz calls   = 0;
+        usz fail_at = 0;
     };
 
-    void* fail_allocate(void* context, usize bytes) {
+    void* fail_allocate(void* context, usz bytes) {
         auto* state = static_cast<failing_allocator*>(context);
 
         ++state->calls;
@@ -475,7 +474,7 @@ namespace {
         int    header_reads     = 0;
     };
 
-    bool read_mutating(void* context, u64 address, u8* destination, usize length) {
+    bool read_mutating(void* context, u64 address, u8* destination, usz length) {
         auto* reader = static_cast<mutating_reader*>(context);
 
         if (reader == nullptr || reader->target == nullptr || address < image_base)
@@ -712,13 +711,13 @@ ASTIA_TEST(acpi_aml_alias_does_not_mutate_namespace) {
 }
 
 ASTIA_TEST(acpi_aml_rejects_deep_expression_recursion) {
-    u8              aml[256]{};
-    usize           length     = 0;
-    constexpr usize lnot_count = 80;
+    u8            aml[256]{};
+    usz           length     = 0;
+    constexpr usz lnot_count = 80;
 
-    const usize body_length   = 1 + lnot_count + 1;
-    const usize method_total  = 1 + 2 + 4 + 1 + body_length;
-    const usize package_value = method_total - 1;
+    const usz body_length   = 1 + lnot_count + 1;
+    const usz method_total  = 1 + 2 + 4 + 1 + body_length;
+    const usz package_value = method_total - 1;
 
     aml[length++] = 0x14;
     aml[length++] = static_cast<u8>(0x40 | (package_value & 0x0F));
@@ -730,7 +729,7 @@ ASTIA_TEST(acpi_aml_rejects_deep_expression_recursion) {
     aml[length++] = 0x00;
     aml[length++] = 0xA4;
 
-    for (usize i = 0; i < lnot_count; ++i) {
+    for (usz i = 0; i < lnot_count; ++i) {
         aml[length++] = 0x92;
     }
 
@@ -756,12 +755,12 @@ ASTIA_TEST(acpi_aml_rejects_deep_expression_recursion) {
 
 namespace {
     struct write_log {
-        u16   io_port[8]{};
-        u16   io_value[8]{};
-        usize io_count       = 0;
-        u64   memory_address = 0;
-        u16   memory_value   = 0;
-        usize memory_count   = 0;
+        u16 io_port[8]{};
+        u16 io_value[8]{};
+        usz io_count       = 0;
+        u64 memory_address = 0;
+        u16 memory_value   = 0;
+        usz memory_count   = 0;
     };
 
     bool record_io(void* context, u16 port, u16 value) {
@@ -789,8 +788,8 @@ namespace {
     }
 
     void make_fadt(table_image& target, bool extended) {
-        const usize length       = extended ? 244 : 116;
-        const u64   dsdt_address = image_base + dsdt_offset;
+        const usz length       = extended ? 244 : 116;
+        const u64 dsdt_address = image_base + dsdt_offset;
 
         add_table(target.data, fadt_offset, "FACP", 3, nullptr, length - 36);
 
@@ -848,12 +847,12 @@ namespace {
     }
 
     struct reset_log {
-        u16   io_port        = 0;
-        u8    io_value       = 0;
-        usize io_count       = 0;
-        u64   memory_address = 0;
-        u8    memory_value   = 0;
-        usize memory_count   = 0;
+        u16 io_port        = 0;
+        u8  io_value       = 0;
+        usz io_count       = 0;
+        u64 memory_address = 0;
+        u8  memory_value   = 0;
+        usz memory_count   = 0;
     };
 
     bool record_io8(void* context, u16 port, u8 value) {
@@ -1106,9 +1105,9 @@ ASTIA_TEST(acpi_power_reset_plan_is_independent_of_aml) {
 ASTIA_TEST(acpi_power_invalid_sleep_type_rejects) {
     table_image target;
 
-    const usize dsdt_length = add_table(target.data, dsdt_offset, "DSDT", 2,
-                                        name_s5_invalid, sizeof(name_s5_invalid));
-    const usize fadt_length = 116;
+    const usz dsdt_length = add_table(target.data, dsdt_offset, "DSDT", 2,
+                                      name_s5_invalid, sizeof(name_s5_invalid));
+    const usz fadt_length = 116;
 
     add_table(target.data, fadt_offset, "FACP", 3, nullptr, fadt_length - 36);
 

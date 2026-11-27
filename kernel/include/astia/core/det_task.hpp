@@ -48,11 +48,11 @@ namespace astia::core {
                 __builtin_trap();
             }
 
-            static void* operator new(usize size) noexcept {
+            static void* operator new(usz size) noexcept {
                 return ::operator new(size);
             }
 
-            static void* operator new(usize size, const std::nothrow_t&) noexcept {
+            static void* operator new(usz size, const std::nothrow_t&) noexcept {
                 return ::operator new(size, std::nothrow);
             }
 

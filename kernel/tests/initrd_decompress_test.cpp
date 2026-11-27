@@ -25,9 +25,9 @@ namespace {
     };
 
     decoded decode_all(archive_container container, const unsigned char* data,
-                       astia::usize size, decode_limits limits = {}) {
-        decoded      result;
-        astia::usize expected = 0;
+                       astia::usz size, decode_limits limits = {}) {
+        decoded    result;
+        astia::usz expected = 0;
 
         result.error = astia::initrd::decoded_size(
             container,
@@ -82,13 +82,13 @@ ASTIA_TEST(initrd_decoded_archive_passes_full_validation) {
 }
 
 ASTIA_TEST(initrd_rejects_truncated_compressed_input) {
-    for (astia::usize cut = 1; cut <= 8; ++cut) {
+    for (astia::usz cut = 1; cut <= 8; ++cut) {
         const decoded gzip =
             decode_all(archive_container::gzip, initrd_gzip_blob,
-                       static_cast<astia::usize>(initrd_gzip_blob_len) - cut);
+                       static_cast<astia::usz>(initrd_gzip_blob_len) - cut);
         const decoded zstd =
             decode_all(archive_container::zstd, initrd_zstd_blob,
-                       static_cast<astia::usize>(initrd_zstd_blob_len) - cut);
+                       static_cast<astia::usz>(initrd_zstd_blob_len) - cut);
 
         ASTIA_CHECK(gzip.error != decode_error::ok);
         ASTIA_CHECK(zstd.error != decode_error::ok);
@@ -142,12 +142,12 @@ ASTIA_TEST(initrd_rejects_gzip_trailing_data) {
 }
 
 ASTIA_TEST(initrd_rejects_zstd_without_content_size) {
-    astia::usize       expected = 0;
+    astia::usz         expected = 0;
     const decode_error error    = astia::initrd::decoded_size(
         archive_container::zstd,
         astia::span<const astia::u8>(
             static_cast<const astia::u8*>(initrd_zstd_nosize_blob),
-            static_cast<astia::usize>(initrd_zstd_nosize_blob_len)),
+            static_cast<astia::usz>(initrd_zstd_nosize_blob_len)),
         decode_limits{}, expected);
 
     ASTIA_CHECK(error == decode_error::unsupported);
@@ -193,11 +193,11 @@ ASTIA_TEST(initrd_enforces_decode_limits) {
 }
 
 ASTIA_TEST(initrd_decode_requires_the_declared_output_size) {
-    astia::usize       expected = 0;
+    astia::usz         expected = 0;
     const decode_error error    = astia::initrd::decoded_size(
         archive_container::gzip,
         astia::span<const astia::u8>(static_cast<const astia::u8*>(initrd_gzip_blob),
-                                        static_cast<astia::usize>(initrd_gzip_blob_len)),
+                                        static_cast<astia::usz>(initrd_gzip_blob_len)),
         decode_limits{}, expected);
 
     ASTIA_CHECK(error == decode_error::ok);
@@ -209,7 +209,7 @@ ASTIA_TEST(initrd_decode_requires_the_declared_output_size) {
         astia::initrd::decode(
             archive_container::gzip,
             astia::span<const astia::u8>(static_cast<const astia::u8*>(initrd_gzip_blob),
-                                         static_cast<astia::usize>(initrd_gzip_blob_len)),
+                                         static_cast<astia::usz>(initrd_gzip_blob_len)),
             astia::span<astia::u8>(short_output.data(), short_output.size()),
             decode_limits{}) == decode_error::malformed);
 }
@@ -237,7 +237,7 @@ ASTIA_TEST(initrd_rejects_malformed_gzip_framing) {
 
 ASTIA_TEST(initrd_rejects_zstd_skippable_frame) {
     const astia::u8 frame[]  = {0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0};
-    astia::usize    expected = 0;
+    astia::usz      expected = 0;
 
     ASTIA_CHECK(astia::initrd::detect_container(frame, sizeof(frame)) ==
                 archive_container::zstd_skippable);
@@ -248,12 +248,12 @@ ASTIA_TEST(initrd_rejects_zstd_skippable_frame) {
 }
 
 ASTIA_TEST(initrd_rejects_raw_container_for_compressed_decoder) {
-    astia::usize expected = 0;
+    astia::usz expected = 0;
 
     ASTIA_CHECK(
         astia::initrd::decoded_size(
             archive_container::raw,
             astia::span<const astia::u8>(static_cast<const astia::u8*>(initrd_newc_blob),
-                                         static_cast<astia::usize>(initrd_newc_blob_len)),
+                                         static_cast<astia::usz>(initrd_newc_blob_len)),
             decode_limits{}, expected) == decode_error::unsupported);
 }
