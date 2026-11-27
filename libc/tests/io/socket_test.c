@@ -1,7 +1,9 @@
 #include <sys/socket.h>
+#include <sys/un.h>
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -57,6 +59,129 @@ int main(void) {
 
         CHECK(getsockopt(fds[0], SOL_SOCKET, 0x7fff, &value, &length) == -1);
         CHECK(errno == ENOPROTOOPT);
+    }
+
+    {
+        int rf[2] = {-1, -1};
+
+        CHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, rf) == 0);
+
+        if (rf[0] >= 0) {
+            struct sockaddr_un bound;
+
+            char peer_path[64];
+            int  written;
+
+            __builtin_memset(&bound, 0, sizeof bound);
+
+            written = snprintf(peer_path, sizeof peer_path, "/tmp/astia-rf-%012lx.sock",
+                               (unsigned long) (uintptr_t) &bound);
+
+            CHECK(written > 0 && written < (int) sizeof peer_path);
+
+            if (written > 0 && written < (int) sizeof peer_path) {
+                bound.sun_family = AF_UNIX;
+
+                __builtin_memcpy(bound.sun_path, peer_path, (unsigned long) written + 1);
+
+                unlink(peer_path);
+                CHECK(bind(rf[0], (struct sockaddr*) &bound, sizeof bound) == 0);
+
+                {
+                    static const char payload[] = "full-address";
+                    char              received[sizeof payload];
+
+                    struct sockaddr_un from;
+                    socklen_t          from_len = sizeof from;
+
+                    __builtin_memset(&from, 0, sizeof from);
+
+                    CHECK(send(rf[0], payload, sizeof payload, 0) ==
+                          (long) sizeof payload);
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0,
+                                   (struct sockaddr*) &from,
+                                   &from_len) == (long) sizeof payload);
+                    CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+                    CHECK(from_len == (socklen_t) written + 3);
+                    CHECK(from.sun_family == AF_UNIX);
+                    CHECK(__builtin_memcmp(from.sun_path, peer_path,
+                                           (unsigned long) written + 1) == 0);
+                }
+
+                {
+                    static const char payload[] = "truncated";
+                    char              received[sizeof payload];
+
+                    struct sockaddr from;
+                    socklen_t       from_len = sizeof from;
+
+                    __builtin_memset(&from, 0, sizeof from);
+
+                    CHECK(send(rf[0], payload, sizeof payload, 0) ==
+                          (long) sizeof payload);
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0, &from,
+                                   &from_len) == (long) sizeof payload);
+                    CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+                    CHECK(from_len == sizeof from);
+                    CHECK(from.sa_family == AF_UNIX);
+                    CHECK(__builtin_memcmp(from.sa_data, peer_path,
+                                           sizeof from.sa_data) == 0);
+                }
+
+                {
+                    static const char payload[] = "not-consumed";
+                    char              received[sizeof payload];
+
+                    struct sockaddr_un from;
+                    socklen_t          from_len = 1;
+
+                    __builtin_memset(&from, 0, sizeof from);
+
+                    CHECK(send(rf[0], payload, sizeof payload, 0) ==
+                          (long) sizeof payload);
+
+                    errno = 0;
+
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0,
+                                   (struct sockaddr*) &from, &from_len) == -1);
+                    CHECK(errno == EINVAL);
+                    CHECK(from_len == 1);
+
+                    from_len = sizeof from;
+
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0,
+                                   (struct sockaddr*) &from,
+                                   &from_len) == (long) sizeof payload);
+                    CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+                }
+
+                {
+                    static const char payload[] = "missing-length";
+                    char              received[sizeof payload];
+
+                    struct sockaddr_un from;
+
+                    __builtin_memset(&from, 0, sizeof from);
+
+                    CHECK(send(rf[0], payload, sizeof payload, 0) ==
+                          (long) sizeof payload);
+
+                    errno = 0;
+
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0,
+                                   (struct sockaddr*) &from, NULL) == -1);
+                    CHECK(errno == EFAULT);
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0, NULL, NULL) ==
+                          (long) sizeof payload);
+                    CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+                }
+
+                unlink(peer_path);
+            }
+
+            close(rf[0]);
+            close(rf[1]);
+        }
     }
 
     length = sizeof value;

@@ -88,12 +88,62 @@ long __astia_fio_getsockopt(int fd, int level, int option, void* value, uint32_t
         return -ENOSYS;              \
     }
 
+typedef struct {
+    uint32_t      length;
+    uint32_t      family;
+    unsigned char data[120];
+} astia_sockaddr_shim;
+
+long __astia_fio_bind(int fd, const void* address, uint32_t length) {
+    const astia_sockaddr_shim* in = address;
+
+    unsigned char raw[2 + 108];
+    unsigned int  n;
+
+    if (!in || in->family != AF_UNIX || in->length < 3 || in->length > sizeof raw)
+        return -EINVAL;
+
+    n      = in->length;
+    raw[0] = (unsigned char) (in->family & 0xff);
+    raw[1] = (unsigned char) ((in->family >> 8) & 0xff);
+
+    __builtin_memcpy(raw + 2, in->data, n - 2);
+
+    long rc = syscall(SYS_bind, fd, raw, n);
+
+    return rc < 0 ? -HOST_ERRNO : rc;
+}
+
+long __astia_fio_recvfrom(int fd, void* buffer, unsigned long length, int flags,
+                          void* address, uint32_t* address_length) {
+    unsigned char raw[2 + 108];
+    unsigned int  raw_length = sizeof raw;
+
+    astia_sockaddr_shim* out = address;
+
+    (void) address_length;
+
+    long rc = syscall(SYS_recvfrom, fd, buffer, length, flags, raw, &raw_length);
+    if (rc < 0)
+        return -HOST_ERRNO;
+
+    __builtin_memset(out, 0, sizeof *out);
+
+    out->length = raw_length;
+
+    if (raw_length >= 2) {
+        out->family = (uint32_t) raw[0] | ((uint32_t) raw[1] << 8);
+
+        if (raw_length > 2)
+            __builtin_memcpy(out->data, raw + 2, raw_length - 2);
+    }
+
+    return rc;
+}
+
 UNSUPPORTED(__astia_fio_shutdown, (int fd, int how))
-UNSUPPORTED(__astia_fio_bind, (int fd, const void* address, uint32_t length))
 UNSUPPORTED(__astia_fio_listen, (int fd, int backlog))
 UNSUPPORTED(__astia_fio_accept, (int fd, void* address, uint32_t* length))
 UNSUPPORTED(__astia_fio_connect, (int fd, const void* address, uint32_t length))
 UNSUPPORTED(__astia_fio_sendto, (int fd, const void* buffer, unsigned long length,
                                  int flags, const void* address, uint32_t address_length))
-UNSUPPORTED(__astia_fio_recvfrom, (int fd, void* buffer, unsigned long length, int flags,
-                                   void* address, uint32_t* address_length))
