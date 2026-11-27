@@ -10,6 +10,12 @@ namespace astia::io::aio::ring {
 }
 
 namespace astia::io::aio::test_support {
+    struct touch_record {
+        char                path[128]{};
+        fs::file_timestamps times{};
+        bool                follow_final = true;
+    };
+
     struct cq_capture {
         astia_rings           ring{};
         mutable astia_cq_ring cq{};
@@ -58,4 +64,8 @@ namespace astia::io::aio::test_support {
     void set_timer(u64 hz, u64 ticks);
     void add_timer_ticks(u64 ticks);
     void release_parked(ring::ring_slot& slot);
+
+    bool                touch_called();
+    const touch_record& last_touch();
+    void                clear_touch_record();
 } // namespace astia::io::aio::test_support

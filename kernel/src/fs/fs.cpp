@@ -1350,7 +1350,7 @@ namespace astia::fs {
                                            uid, gid);
     }
 
-    long touch_path(const char* path, u64 sec, u64 nsec) {
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
 
@@ -1364,10 +1364,14 @@ namespace astia::fs {
 
         auto handle =
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
-        if (!handle)
-            return -ENOENT;
+        if (!handle) {
+            if (!follow_final && node_type(path) == directory_lnk)
+                return 0;
 
-        return handle->parent()->touch(sec, nsec);
+            return -ENOENT;
+        }
+
+        return handle->parent()->touch(times);
     }
 
     // The remaining file/open-file implementation stays in this TU.
@@ -1413,7 +1417,7 @@ namespace astia::fs {
         return 0;
     }
 
-    long file::touch(u64, u64) {
+    long file::touch(const file_timestamps&) {
         return -EROFS;
     }
 

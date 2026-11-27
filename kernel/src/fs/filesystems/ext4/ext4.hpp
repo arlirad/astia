@@ -70,7 +70,7 @@ namespace astia::fs::filesystems {
             return -EROFS;
         }
 
-        long touch(u64, u64) override {
+        long touch(const file_timestamps&) override {
             return -EROFS;
         }
 

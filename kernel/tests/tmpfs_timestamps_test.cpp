@@ -133,7 +133,8 @@ ASTIA_TEST(tmpfs_timestamps_track_read_write_and_metadata_changes) {
 
     set_clock(1005, 0);
 
-    ASTIA_CHECK(file->parent()->touch(2000, 6) == 0);
+    ASTIA_CHECK(
+        file->parent()->touch(astia::fs::file_timestamps{2000, 6, 2000, 6, 0, 0}) == 0);
 
     times = file->timestamps();
 

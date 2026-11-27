@@ -212,6 +212,24 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_utimensat_times(char* path, i32 dirfd, const astia_timespec* times,
+                               u32 flags) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_UTIMENSAT, dirfd);
+
+        sqe.address  = reinterpret_cast<u64>(path);
+        sqe.offset   = reinterpret_cast<u64>(times);
+        sqe.op_flags = flags;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     void set_directory(const char* path, u16 permissions, uid_t owner, gid_t group) {
         using namespace aio::test_support;
 
@@ -1276,6 +1294,163 @@ ASTIA_TEST(aio_filesystem_fchown_group_sentinel_keeps_existing_group) {
     ASTIA_CHECK(node->chown_called);
     ASTIA_CHECK(node->chown_uid == uid_t{1000});
     ASTIA_CHECK(node->chown_gid == gid_t{4242});
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_applies_requested_times) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode("/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_node_owner("/file", uid_t{0}, gid_t{0});
+
+    astia_timespec times[2] = {{1234, 111}, {5678, 222}};
+
+    char path[] = "/file";
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(path, AT_FDCWD, times, 0) == 0);
+    ASTIA_CHECK(touch_called());
+    ASTIA_CHECK(__builtin_strcmp(last_touch().path, "/file") == 0);
+    ASTIA_CHECK(last_touch().follow_final);
+    ASTIA_CHECK(last_touch().times.atime_sec == 1234);
+    ASTIA_CHECK(last_touch().times.atime_nsec == 111);
+    ASTIA_CHECK(last_touch().times.mtime_sec == 5678);
+    ASTIA_CHECK(last_touch().times.mtime_nsec == 222);
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_null_times_use_realtime) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode("/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_node_owner("/file", uid_t{0}, gid_t{0});
+
+    char path[] = "/file";
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(path, AT_FDCWD, nullptr, 0) == 0);
+    ASTIA_CHECK(touch_called());
+    ASTIA_CHECK(last_touch().times.atime_sec == 100);
+    ASTIA_CHECK(last_touch().times.mtime_sec == 100);
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_honours_omit) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode("/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0000)));
+    set_node_owner("/file", uid_t{0}, gid_t{0});
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+
+    char path[] = "/file";
+
+    astia_timespec omit_both[2] = {
+        {0, ASTIA_UTIME_OMIT},
+        {0, ASTIA_UTIME_OMIT},
+    };
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(path, AT_FDCWD, omit_both, 0) == 0);
+    ASTIA_CHECK(!touch_called());
+
+    astia_timespec omit_atime[2] = {
+        {0, ASTIA_UTIME_OMIT},
+        {4321, 7},
+    };
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(path, AT_FDCWD, omit_atime, 0) == -EPERM);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_accepts_dirfd_and_nofollow) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/base", 0755, uid_t{0}, gid_t{0});
+    set_node_mode("/base/file",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_node_owner("/base/file", uid_t{0}, gid_t{0});
+
+    auto directory =
+        aio_test::make_open_file(new aio_test::fake_file(fs::file_type::directory));
+
+    directory->set_path("/base");
+
+    const i32 fd = install_descriptor(directory);
+
+    ASTIA_CHECK(fd >= 3);
+
+    astia_timespec times[2] = {{1111, 0}, {2222, 0}};
+
+    char path[] = "file";
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(path, fd, times, AT_SYMLINK_NOFOLLOW) == 0);
+    ASTIA_CHECK(__builtin_strcmp(last_touch().path, "/base/file") == 0);
+    ASTIA_CHECK(!last_touch().follow_final);
+
+    ASTIA_CHECK(submit_utimensat_times(path, 0x40000000, times, 0) == -EBADF);
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_checks_permissions) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_mode("/private",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0600)));
+    set_node_owner("/private", uid_t{0}, gid_t{0});
+    set_node_mode("/shared",
+                  fs::file_mode(fs::file_type::regular, fs::file_permissions(0666)));
+    set_node_owner("/shared", uid_t{0}, gid_t{0});
+
+    astia_timespec explicit_times[2] = {{10, 0}, {20, 0}};
+
+    char private_path[] = "/private";
+    char shared_path[]  = "/shared";
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(private_path, AT_FDCWD, explicit_times, 0) ==
+                -EPERM);
+    ASTIA_CHECK(!touch_called());
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(private_path, AT_FDCWD, nullptr, 0) == -EACCES);
+    ASTIA_CHECK(!touch_called());
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(shared_path, AT_FDCWD, nullptr, 0) == 0);
+    ASTIA_CHECK(touch_called());
+
+    astia_timespec omit_both[2] = {
+        {0, ASTIA_UTIME_OMIT},
+        {0, ASTIA_UTIME_OMIT},
+    };
+
+    clear_touch_record();
+
+    ASTIA_CHECK(submit_utimensat_times(private_path, AT_FDCWD, omit_both, 0) == 0);
+    ASTIA_CHECK(!touch_called());
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_errors_stay_on_production_path) {

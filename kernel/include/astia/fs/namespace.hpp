@@ -73,7 +73,7 @@ namespace astia::fs {
     file_timestamps node_timestamps(const char* path);
     long            chmod_path(const char* path, file_permissions permissions);
     long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
-    long touch_path(const char* path, u64 sec, u64 nsec);
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final);
     long make_symlink(const char* target, const char* path);
     long read_symlink(const char* path, char* buffer, u32 capacity);
     long resolve_path(const char* path, char* buffer, u32 capacity,

@@ -679,8 +679,10 @@ long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
     return transact(OP_CHOWN, fd, gid, NULL, 0, 0, uid);
 }
 
-long __astia_fio_utime(const char* path) {
-    return transact(OP_UTIMENSAT, AT_FDCWD, 0, path, 0, 0, 0);
+long __astia_fio_utimensat(int dirfd, const char* path,
+                           const struct astia_timespec times[2], int flags) {
+    return transact(OP_UTIMENSAT, dirfd, (uint64_t) (uintptr_t) times, path, 0,
+                    (uint32_t) flags, 0);
 }
 
 long __astia_fio_unlink(const char* path, int directory) {

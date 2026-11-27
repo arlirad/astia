@@ -118,7 +118,7 @@ namespace astia::fs::filesystems {
             return _times;
         }
 
-        long touch(u64 sec, u64 nsec) override;
+        long touch(const file_timestamps& times) override;
 
         void set_mode(file_mode mode) {
             core::spinlock_guard guard(_lock);

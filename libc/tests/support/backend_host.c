@@ -383,8 +383,20 @@ long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
     return rc < 0 ? -HOST_ERRNO : rc;
 }
 
-long __astia_fio_utime(const char* path) {
-    long rc = syscall(SYS_utimensat, -100, path, 0, 0);
+long __astia_fio_utimensat(int dirfd, const char* path,
+                           const struct astia_timespec times[2], int flags) {
+    struct host_timespec        value[2];
+    const struct host_timespec* requested = 0;
+
+    if (times != 0) {
+        value[0].tv_sec  = (long) times[0].tv_sec;
+        value[0].tv_nsec = (long) times[0].tv_nsec;
+        value[1].tv_sec  = (long) times[1].tv_sec;
+        value[1].tv_nsec = (long) times[1].tv_nsec;
+        requested        = value;
+    }
+
+    long rc = syscall(SYS_utimensat, dirfd, path, requested, flags);
 
     return rc < 0 ? -HOST_ERRNO : 0;
 }

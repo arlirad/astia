@@ -94,7 +94,8 @@ long __astia_fio_fchmod(int fd, int mode);
 long __astia_fio_chown(const char* path, unsigned int uid, unsigned int gid,
                        int nofollow);
 long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid);
-long __astia_fio_utime(const char* path);
+long __astia_fio_utimensat(int dirfd, const char* path,
+                           const struct astia_timespec times[2], int flags);
 long __astia_fio_unlink(const char* path, int directory);
 long __astia_fio_unlinkat(int dirfd, const char* path, int directory);
 long __astia_fio_rename(const char* old_path, const char* new_path);

@@ -55,6 +55,8 @@ struct stat {
 #define S_IXUGO 0111
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200
+#define UTIME_NOW ((1L << 30) - 1L)
+#define UTIME_OMIT ((1L << 30) - 2L)
 
 int stat(const char* path, struct stat* result);
 int lstat(const char* path, struct stat* result);
