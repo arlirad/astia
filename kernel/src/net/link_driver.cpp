@@ -35,6 +35,38 @@ namespace astia::net {
 
             return nullptr;
         }
+
+        /// Removes the driver from the table and steals its bindings into
+        /// `removed`.  Returns false when the driver was not registered.
+        bool take_bindings_locked(link_driver& driver, binding (&removed)[max_bindings],
+                                  u32&         count) {
+            count = 0;
+
+            bool found = false;
+
+            for (link_driver*& slot : drivers) {
+                if (slot != &driver)
+                    continue;
+
+                slot  = nullptr;
+                found = true;
+
+                break;
+            }
+
+            if (!found)
+                return false;
+
+            for (binding& value : bindings) {
+                if (value.driver != &driver)
+                    continue;
+
+                removed[count++] = value;
+                value            = {};
+            }
+
+            return true;
+        }
     } // namespace
 
     core::task<bool> link_bus::bind(netdev& device) {
@@ -182,27 +214,8 @@ namespace astia::net {
         {
             core::spinlock_guard guard(bus_lock);
 
-            bool found = false;
-
-            for (link_driver*& slot : drivers) {
-                if (slot == &driver) {
-                    slot  = nullptr;
-                    found = true;
-
-                    break;
-                }
-            }
-
-            if (!found)
+            if (!take_bindings_locked(driver, removed, count))
                 return;
-
-            for (binding& value : bindings) {
-                if (value.driver != &driver)
-                    continue;
-
-                removed[count++] = value;
-                value            = {};
-            }
         }
 
         for (u32 i = 0; i < count; ++i) {
@@ -222,27 +235,8 @@ namespace astia::net {
         {
             core::spinlock_guard guard(bus_lock);
 
-            bool found = false;
-
-            for (link_driver*& slot : drivers) {
-                if (slot == &driver) {
-                    slot  = nullptr;
-                    found = true;
-
-                    break;
-                }
-            }
-
-            if (!found)
+            if (!take_bindings_locked(driver, removed, count))
                 co_return error_t::enone;
-
-            for (binding& value : bindings) {
-                if (value.driver != &driver)
-                    continue;
-
-                removed[count++] = value;
-                value            = {};
-            }
         }
 
         for (u32 i = 0; i < count; ++i) {

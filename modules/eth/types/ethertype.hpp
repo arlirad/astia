@@ -1,6 +1,6 @@
 #pragma once
 
-#include <astia/net/link.hpp>
+#include <astia/common.hpp>
 
 namespace astia::eth {
     /// Assigned Ethernet II EtherTypes (>= 0x0600).  Lower values are 802.3

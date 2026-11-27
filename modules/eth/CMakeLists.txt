@@ -17,10 +17,14 @@ set(ASTIA_ETH_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/mapping.hpp)
 
 set(ASTIA_ETH_ABI_HEADERS
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/atomic.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/common.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/endian.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/error.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shptr.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/shweak.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/address.hpp
@@ -29,7 +33,8 @@ set(ASTIA_ETH_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/types.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/link_bus.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/link_driver.hpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/protocol.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/protocol.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/span.hpp)
 
 set(ASTIA_ETH_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/eth.o)
 set(ASTIA_ETH_OBJECTS)

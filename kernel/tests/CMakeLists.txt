@@ -1644,6 +1644,7 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
+                ${_fix_dir}/crt0.o
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh

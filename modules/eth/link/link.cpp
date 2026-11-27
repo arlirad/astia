@@ -189,11 +189,8 @@ namespace astia::eth {
         const net::link_address& local = local_address();
 
         if (local.valid() && local.length == 6) {
-            bool broadcast = true;
-            bool own       = true;
-
-            broadcast = header.destination.broadcast();
-            own       = header.destination == _mac;
+            const bool broadcast = header.destination.broadcast();
+            const bool own       = header.destination == _mac;
 
             if (!broadcast && !own)
                 return;
@@ -201,7 +198,7 @@ namespace astia::eth {
 
         const auto protocol =
             mapper<net::protocol_id, ethertype>::from(header.protocol.get());
-        if (!protocol)
+        if (!protocol.has_value)
             return;
 
         if (!packet.advance(14))
