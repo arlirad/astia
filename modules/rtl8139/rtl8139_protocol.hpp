@@ -298,7 +298,7 @@ namespace astia::rtl8139 {
         }
     };
 
-    using tx_request           = astia::net::tx_request;
+    using tx_request = astia::net::tx_request;
 
     struct tx_completion {
         tx_request request{};

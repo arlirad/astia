@@ -1,7 +1,7 @@
 #include <astia/atomic.hpp>
 #include <astia/core/task.hpp>
-#include <astia/net/link_bus.hpp>
 #include <astia/module.hpp>
+#include <astia/net/link_bus.hpp>
 
 #include "rtl8139_protocol.hpp"
 
@@ -28,18 +28,18 @@ namespace {
     }
 
     class rtl8139_controller final {
-        astia::hw::pci_device*                                           _pci = nullptr;
-        register_file                                                    _registers;
-        dma_buffer                                                       _rx_ring_dma;
-        rx_ring                                                          _rx_ring;
-        tx_ring                                                          _tx_ring;
-        astia::module::msix_route                                        _irq_route{};
-        net_device   _net_device{"rtl8139", this};
-        device_state _state                 = device_state::detached;
-        bool         _irq_active            = false;
-        uint64_t     _generation            = 1;
-        uint32_t     _process_lock          = 0;
-        unsigned     _tx_selftest_reclaimed = 0;
+        astia::hw::pci_device*    _pci = nullptr;
+        register_file             _registers;
+        dma_buffer                _rx_ring_dma;
+        rx_ring                   _rx_ring;
+        tx_ring                   _tx_ring;
+        astia::module::msix_route _irq_route{};
+        net_device                _net_device{"rtl8139", this};
+        device_state              _state                 = device_state::detached;
+        bool                      _irq_active            = false;
+        uint64_t                  _generation            = 1;
+        uint32_t                  _process_lock          = 0;
+        unsigned                  _tx_selftest_reclaimed = 0;
 
         static void tx_selftest_reclaim(void* context, const tx_request*, int status) {
             auto* controller = static_cast<rtl8139_controller*>(context);

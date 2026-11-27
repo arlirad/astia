@@ -608,8 +608,7 @@ namespace astia::core {
                 return {};
             }
 
-            void return_value(error_t error) noexcept
-            {
+            void return_value(error_t error) noexcept {
                 result = error;
             }
 
