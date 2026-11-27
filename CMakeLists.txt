@@ -577,6 +577,13 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(astia_coreutils_qemu PROPERTIES
             DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu)
 
+    astia_register_script_test(astia_daemond_stop
+            "daemond;host;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/daemond/tests/run.sh
+            TIMEOUT 120
+            ENV
+                DAEMOND_TEST_BUILD=${CMAKE_BINARY_DIR}/daemond-test)
+
     astia_register_script_test(astia_sysutils_qemu
             "sysutils;qemu;deterministic"
             ${CMAKE_CURRENT_SOURCE_DIR}/sysutils/tests/run.sh
@@ -821,6 +828,7 @@ if(ASTIA_BUILD_TESTS)
             astia_native_daemond_boot
             astia_native_daemond_service
             astia_native_daemond_failure
+            astia_native_daemond_escalation
             astia_grub_smp_boot
             astia_grub_framebuffer_boot
             astia_grub_smp4_boot

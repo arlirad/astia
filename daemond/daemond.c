@@ -1,5 +1,6 @@
 #include "daemond.h"
 
+#include "stop.h"
 #include <daemon_protocol.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -19,7 +20,9 @@ enum {
     SERVICE_MAX              = 32,
     SERVICE_ARG_MAX          = 16,
     SERVICE_RESTART_MAX      = 16,
-    SERVICE_DEFAULT_RESTARTS = 3
+    SERVICE_DEFAULT_RESTARTS = 3,
+    SERVICE_STOP_GRACE_MS    = 2000,
+    SERVICE_STOP_KILL_MS     = 1000
 };
 
 struct service {
@@ -219,19 +222,6 @@ static int start_service(struct service* service) {
     return service->pid >= 0 ? 0 : -1;
 }
 
-static void stop_service(struct service* service) {
-    if (service->pid < 0)
-        return;
-
-    if (service->pgid >= 0) {
-        if (kill(-service->pgid, SIGTERM) < 0 && errno != ESRCH)
-            service->last_error = errno;
-    }
-    else if (kill(service->pid, SIGTERM) < 0 && errno != ESRCH) {
-        service->last_error = errno;
-    }
-}
-
 static void report(const char* what, const struct service* service, int error) {
     const char* name = service->argc ? service->argv[0] : "?";
 
@@ -270,6 +260,76 @@ static void reap_child(struct service* services, int count, int pid, int status)
 
         return;
     }
+}
+
+/* Stop every running service, escalating to SIGKILL when SIGTERM is ignored.
+ * With restart set, services that were running are started again afterwards;
+ * a stop failure leaves them stopped and is reported to the caller. */
+static int stop_all_services(struct service* services, int count, int restart) {
+    struct stop_process targets[SERVICE_MAX];
+
+    int stop_error = 0;
+    int stop_failed;
+
+    for (int i = 0; i < count; ++i) {
+        targets[i].pid       = services[i].pid;
+        targets[i].pgid      = services[i].pgid;
+        targets[i].status    = 0;
+        targets[i].exited    = 0;
+        targets[i].escalated = 0;
+
+        services[i].enabled       = restart;
+        services[i].start_on_exit = 0;
+    }
+
+    stop_failed =
+        stop_processes(targets, count, SERVICE_STOP_GRACE_MS, SERVICE_STOP_KILL_MS) < 0;
+    if (stop_failed)
+        stop_error = errno;
+
+    for (int i = 0; i < count; ++i) {
+        if (services[i].pid < 0)
+            continue;
+
+        if (!targets[i].exited) {
+            services[i].last_error = stop_error;
+
+            report("cannot stop service", &services[i], services[i].last_error);
+            continue;
+        }
+
+        fprintf(stderr, "daemond: reaped service pid=%d status=%d\n", services[i].pid,
+                targets[i].status);
+
+        if (targets[i].escalated)
+            fprintf(stderr, "daemond: service pid=%d ignored SIGTERM; sent SIGKILL\n",
+                    services[i].pid);
+
+        services[i].pid = services[i].pgid = -1;
+    }
+
+    if (stop_failed) {
+        errno = stop_error;
+
+        return -1;
+    }
+
+    if (restart) {
+        for (int i = 0; i < count; ++i) {
+            if (services[i].pid >= 0 || !targets[i].exited)
+                continue;
+
+            if (start_service(&services[i]) < 0) {
+                services[i].last_error = errno;
+
+                report("cannot restart service", &services[i], services[i].last_error);
+
+                return -1;
+            }
+        }
+    }
+
+    return 0;
 }
 
 static int open_control(void) {
@@ -460,19 +520,21 @@ static void handle_client(int client, struct service* services, int count) {
         strcpy(reply, "OK valid\n");
     }
     else if (command.kind == CMD_STOP || command.kind == CMD_RESTART) {
-        for (int i = 0; i < count; ++i) {
-            services[i].enabled       = command.kind == CMD_RESTART;
-            services[i].start_on_exit = command.kind == CMD_RESTART;
-
-            stop_service(&services[i]);
-        }
+        const int restart = command.kind == CMD_RESTART;
 
         /* With no configured services there is no child to wait for; STOP
          * is the explicit shutdown request for a resident idle supervisor. */
         if (command.kind == CMD_STOP && count == 0)
             shutdown_pending = 1;
 
-        strcpy(reply, command.kind == CMD_STOP ? "OK stopped\n" : "OK restarting\n");
+        if (stop_all_services(services, count, restart) < 0) {
+            fprintf(stderr, "daemond: cannot stop services: errno=%d\n", errno);
+
+            strcpy(reply, "ERR stop failed\n");
+        }
+        else {
+            strcpy(reply, restart ? "OK restarting\n" : "OK stopped\n");
+        }
     }
     else if (command.kind == CMD_START) {
         int ok = 1;
@@ -605,15 +667,13 @@ int astia_daemon_run(const char* rc_path) {
         }
 
         if (shutdown_pending) {
-            for (int i = 0; i < count; ++i) {
-                services[i].enabled       = 0;
-                services[i].start_on_exit = 0;
+            if (stop_all_services(services, count, 0) < 0) {
+                fprintf(stderr, "daemond: cannot stop all services: errno=%d\n", errno);
 
-                stop_service(&services[i]);
+                ++failures;
             }
 
-            if (running == 0)
-                break;
+            break;
         }
         else if (count > 0 && running == 0) {
             /* Every configured service has exited and none was restarted.
@@ -658,6 +718,16 @@ int astia_daemon_run(const char* rc_path) {
         if (client < 0) {
             if (errno != EINTR)
                 fprintf(stderr, "daemond: control accept failed: errno=%d\n", errno);
+
+            continue;
+        }
+
+        /* A restart or start spawns services while this request is being
+         * handled; the new child must not inherit the control connection. */
+        if (fcntl(client, F_SETFD, FD_CLOEXEC) < 0) {
+            fprintf(stderr, "daemond: control client setup failed: errno=%d\n", errno);
+
+            close(client);
 
             continue;
         }
