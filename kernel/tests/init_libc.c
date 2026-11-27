@@ -8,8 +8,8 @@
  */
 #include <astia/api/errno.h>
 #include <astia/api/signal_stack.h>
+#include <astia/api/syscalls.h>
 
-#include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/random.h>
@@ -38,6 +38,9 @@
 
 extern long __astia_process_futex(unsigned int* address, unsigned int operation,
                                   unsigned int value, const int64_t* timeout);
+
+int futex_wait(uint32_t* address, uint32_t expected);
+int futex_wake(uint32_t* address, uint32_t count);
 
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
@@ -5006,6 +5009,126 @@ int main(int argc, char** argv) {
             return 227;
 
         printf("astia: dlmap access ok\n");
+    }
+
+    /* 58: a full binding table reports ENOSPC instead of wedging on the
+       registry lock.  Each copy of the fixture is a distinct image, so the
+       loop drives the process past its eight bindings and then retries the
+       rejected image after one handle is released. */
+    {
+        const char* source = "/lib/libfixture.so";
+
+        char paths[9][32];
+        int  files[9];
+
+        uint64_t bases[9];
+
+        char buffer[4096];
+
+        struct stat image;
+
+        int in = open(source, O_RDONLY);
+
+        if (in >= 0) {
+            if (fstat(in, &image) != 0 || image.st_size <= 0)
+                return 234;
+
+            for (int i = 0; i < 9; ++i) {
+                snprintf(paths[i], sizeof paths[i], "/tmp/dl-bind-%d", i);
+                (void) unlink(paths[i]);
+
+                int out = open(paths[i], O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                if (out < 0)
+                    return 234;
+
+                if (lseek(in, 0, SEEK_SET) < 0)
+                    return 234;
+
+                off_t copied = 0;
+
+                while (copied < image.st_size) {
+                    size_t want = (size_t) (image.st_size - copied);
+
+                    if (want > sizeof buffer)
+                        want = sizeof buffer;
+
+                    ssize_t got = read(in, buffer, want);
+                    if (got <= 0)
+                        return 234;
+
+                    ssize_t written = 0;
+
+                    while (written < got) {
+                        ssize_t step =
+                            write(out, buffer + written, (size_t) (got - written));
+                        if (step <= 0)
+                            return 234;
+
+                        written += step;
+                    }
+
+                    copied += got;
+                }
+
+                if (close(out) != 0)
+                    return 234;
+
+                files[i] = open(paths[i], O_RDONLY);
+
+                if (files[i] < 0)
+                    return 234;
+
+                bases[i] = 0;
+            }
+
+            close(in);
+
+            int  mapped = 0;
+            int  failed = -1;
+            long result = 0;
+
+            for (int i = 0; i < 9; ++i) {
+                astia_dl_info info;
+
+                result = astia_dlmap(files[i], 0, &info);
+                if (result <= 0) {
+                    failed = i;
+
+                    break;
+                }
+
+                bases[i] = (uint64_t) result;
+
+                ++mapped;
+            }
+
+            if (failed < 0 || result != -ENOSPC || mapped == 0 || mapped > 8)
+                return 235;
+
+            if (astia_dlunmap(bases[0]) != 0)
+                return 236;
+
+            astia_dl_info retry;
+
+            result = astia_dlmap(files[failed], 0, &retry);
+            if (result <= 0)
+                return 237;
+
+            for (int i = 1; i < 9; ++i) {
+                if (i != failed && bases[i] != 0 && astia_dlunmap(bases[i]) != 0)
+                    return 238;
+            }
+
+            if (astia_dlunmap((uint64_t) result) != 0)
+                return 239;
+
+            for (int i = 0; i < 9; ++i) {
+                close(files[i]);
+                (void) unlink(paths[i]);
+            }
+
+            printf("astia: dl binding enospc ok\n");
+        }
     }
 
     /* 54: the initrd namespace is immutable: create and mutation calls
