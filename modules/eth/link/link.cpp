@@ -101,9 +101,9 @@ namespace astia::eth {
         if (!native.has_value)
             co_return error_t::einval;
 
-        const usize total = 14 + payload.size();
+        const usz total = 14 + payload.size();
 
-        if (total > max_frame || total > static_cast<usize>(device->mtu().value) + 14)
+        if (total > max_frame || total > static_cast<usz>(device->mtu().value) + 14)
             co_return error_t::e2big;
 
         tx_slot* slot = acquire_slot();
