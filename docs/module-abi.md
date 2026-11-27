@@ -5,7 +5,7 @@
 | Header | Contract |
 |---|---|
 | `<astia/module.hpp>` | Generic lifecycle and typed ownership: `module_main`, PCI/MSI-X helpers, net device aliases, copy-in/out, logging, `make_resident()`. |
-| `<astia/dev/capabilities.hpp>` | Generic capabilities: PIO access (`pio_bus`, `io_port`, `io_port_window`), IRQ lines (`irq_line`), module-owned routes (`irq_route`). |
+| `<astia/dev/capabilities.hpp>` | Generic capabilities: granted PIO windows (`io_port_window`, `claim_io_window`), IRQ lines (`irq_line`), module-owned routes (`irq_route`). |
 | `<astia/dev/uart_platform.hpp>` | UART platform capability line. |
 | `<astia/dev/tty_input.hpp>` | Input sink (`tty_input_write`). |
 | `<astia/mm/*>`, `<astia/io.hpp>`, `<astia/net.hpp>` | Memory, I/O and network contracts as before. |
@@ -14,6 +14,11 @@ The generic module header carries no device-specific entry points. A device
 module owns its device identity (line numbers, port addresses, protocol and
 decoding) and includes the generic capability headers it uses. A new kernel
 capability is added to the capability header, not to `module.hpp`.
+
+Modules state the resources they need; the platform grants them only from its
+resource policy. A module never receives the raw bus, and never a port range
+it did not ask for: `claim_io_window(first, last)` returns an invalid window
+when the request is not fully inside a granted range.
 
 `astia::module::msix_route`, `astia::module::user_pin`, and
 `astia::mm::dma_buffer` are move-only ownership types; release, unpin,
@@ -85,8 +90,9 @@ retries unregistration, and drops the claim. A route is a value constructed
 with its line, e.g. `astia::dev::irq_route route{1}`. One route owns a line.
 
 `dev::io_port_window` is a restricted byte-access window over a granted
-absolute port range; the platform provides one through
-`dev::platform_input_window()`. The raw `pio_bus` is kernel-private.
+absolute port range. A module asks for the range it owns with
+`dev::claim_io_window(first, last)`; the platform grants only ranges in its
+policy. The raw `pio_bus` is kernel-private.
 `dev::tty_input_write()` is the input sink into the terminal line discipline.
 
 The PS/2 keyboard module is the example consumer: it owns line 1 and the 8042

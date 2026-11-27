@@ -25,6 +25,10 @@ namespace {
     // The module owns the device identity: line 1 and the 8042 port pair.
     constinit astia::dev::irq_route route{1};
 
+    // The module owns the device identity: it requests the 8042 port range and
+    // keeps the granted window for the image's lifetime.
+    constinit astia::dev::io_port_window input_ports;
+
     const char* error_text(ps2_error error) {
         switch (error) {
         case ps2_error::none:
@@ -69,15 +73,17 @@ namespace {
 int module_main() {
     logs::info("resident module loaded");
 
-    const astia::dev::io_port_window& ports = astia::dev::platform_input_window();
+    input_ports = astia::dev::claim_io_window(ps2_controller::data_port,
+                                              ps2_controller::command_port);
 
-    if (!ports.valid()) {
+    if (!input_ports.valid()) {
         logs::info("unavailable");
+        logs::info("window denied");
 
-        return -19;
+        return -22;
     }
 
-    controller.attach(ports);
+    controller.attach(input_ports);
 
     ps2_error result = controller.initialize();
 
