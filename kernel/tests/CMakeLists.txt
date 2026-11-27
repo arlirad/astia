@@ -815,6 +815,8 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_dep_a.c
         interp_dlopen.c
         interp_dyntls.c
+        interp_copy.c
+        interp_copy_lib.c
         fixture_versions.c
         interp_ver.c
         fixture_badver.c

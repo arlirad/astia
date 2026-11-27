@@ -43,8 +43,6 @@ UNSUPPORTED_FILES = {
     "kernel/tests/interp_ver.c",
     "kernel/tests/fixture_badver.c",
     "kernel/tests/interp_badver.c",
-    "kernel/tests/interp_copy.c",
-    "kernel/tests/interp_copy_lib.c",
     "kernel/tests/fixture_exec.c",
     "kernel/tests/support/file_host.cpp",
 }
