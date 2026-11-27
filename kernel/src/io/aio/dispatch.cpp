@@ -101,6 +101,17 @@ namespace astia::io::aio::dispatch {
             return search_check(current, out, false);
         }
 
+        bool credential_allows(proc::process* current, const fs::file_mode& mode,
+                               const char* path, fs::permission_bits want) {
+            // Root bypasses directory search and access checks, matching the
+            // process_search_permission policy: no execute bit is required.
+            if (current->euid() == 0)
+                return true;
+
+            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
+                                       want);
+        }
+
         bool parent_allows(proc::process* current, const char* path,
                            fs::permission_bits want) {
             if (current == nullptr || path == nullptr)
@@ -128,8 +139,7 @@ namespace astia::io::aio::dispatch {
             if (!mode.is_directory())
                 return false;
 
-            return current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
-                                       want);
+            return credential_allows(current, mode, parent, want);
         }
 
         bool parent_writable(proc::process* current, const char* path) {
@@ -153,8 +163,7 @@ namespace astia::io::aio::dispatch {
             if (!mode.exists())
                 return true;
 
-            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
-                                       want);
+            return credential_allows(current, mode, path, want);
         }
 
         bool directory_listable(proc::process* current, const char* path) {

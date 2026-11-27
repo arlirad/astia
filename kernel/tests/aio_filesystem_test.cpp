@@ -359,6 +359,7 @@ ASTIA_TEST(aio_filesystem_openat_create_requires_parent_search) {
 
     reset_environment();
     install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
     set_node_mode(fs::file_mode{});
     set_directory("/private", 0600, uid_t{0}, gid_t{0});
     set_open_file(aio_test::make_open_file(new aio_test::fake_file));
@@ -366,6 +367,8 @@ ASTIA_TEST(aio_filesystem_openat_create_requires_parent_search) {
     char path[] = "/private/new";
 
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == -EACCES);
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
@@ -708,7 +711,7 @@ ASTIA_TEST(aio_filesystem_unlinkat_root_bypasses_writable_parent) {
 
     reset_environment();
     install_current_process();
-    set_directory("/root", 0555, uid_t{0}, gid_t{0});
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
     set_file("/root/victim", 0644, uid_t{0}, gid_t{0});
 
     char path[] = "/root/victim";
@@ -751,7 +754,7 @@ ASTIA_TEST(aio_filesystem_mkdirat_root_bypasses_writable_parent) {
 
     reset_environment();
     install_current_process();
-    set_directory("/root", 0555, uid_t{0}, gid_t{0});
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
 
     char path[] = "/root/new";
 
@@ -795,7 +798,7 @@ ASTIA_TEST(aio_filesystem_symlinkat_root_bypasses_writable_parent) {
 
     reset_environment();
     install_current_process();
-    set_directory("/root", 0555, uid_t{0}, gid_t{0});
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
 
     char target[] = "/etc/passwd";
     char path[]   = "/root/link";
@@ -916,7 +919,7 @@ ASTIA_TEST(aio_filesystem_readdir_root_bypasses_permissions) {
 
     reset_environment();
     install_current_process();
-    set_directory("/root", 0700, uid_t{0}, gid_t{0});
+    set_directory("/root", 0600, uid_t{0}, gid_t{0});
 
     astia_dirent entry{};
 
@@ -967,7 +970,7 @@ ASTIA_TEST(aio_filesystem_statx_root_bypasses_search) {
 
     reset_environment();
     install_current_process();
-    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
+    set_directory("/secret", 0600, uid_t{0}, gid_t{0});
     set_node_mode(fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
     set_open_file(aio_test::make_open_file(new aio_test::fake_file));
 
