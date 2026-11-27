@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/arch/cpu.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
 
@@ -11,8 +12,33 @@
 namespace {
     alignas(16) astia::u8 cwd_context_heap_storage[64 * 1024];
 
+    bool resolution_irq_open   = false;
+    bool resolution_irq_masked = false;
+
+    void note_resolution_irq_state() {
+        if (astia::arch::cpu::check_interrupts())
+            resolution_irq_open = true;
+        else
+            resolution_irq_masked = true;
+    }
+
     bool no_mapping(astia::u64, astia::u64) {
         return true;
+    }
+
+    astia::i64 run(astia::core::task<astia::i64> operation) {
+        if (!operation.valid())
+            return -ENOMEM;
+
+        operation.resume();
+
+        if (!operation.done())
+            return -EAGAIN;
+
+        if (operation.failed())
+            return -astia::error_errno(operation.error());
+
+        return *operation.value();
     }
 
     void initialize_heap() {
@@ -135,6 +161,8 @@ namespace astia::fs {
 
     long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
                            bool) {
+        note_resolution_irq_state();
+
         if (root == nullptr || path == nullptr || buffer == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -145,6 +173,8 @@ namespace astia::fs {
     }
 
     file_type node_type(const char* path) {
+        note_resolution_irq_state();
+
         if (std::strcmp(path, "/") == 0 || std::strcmp(path, "/good") == 0 ||
             std::strcmp(path, "/jail") == 0 || std::strcmp(path, "/jail/etc") == 0)
             return directory_dir;
@@ -200,17 +230,53 @@ ASTIA_TEST(cwd_context_commits_only_successful_directory_changes) {
 
     char output[32];
 
-    ASTIA_CHECK(context.change_directory("/good") == 0);
+    ASTIA_CHECK(run(context.change_directory("/good")) == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 6);
     ASTIA_CHECK(std::strcmp(output, "/good") == 0);
-    ASTIA_CHECK(context.change_directory("/file") == -ENOTDIR);
-    ASTIA_CHECK(context.change_directory("/missing") == -ENOENT);
+    ASTIA_CHECK(run(context.change_directory("/file")) == -ENOTDIR);
+    ASTIA_CHECK(run(context.change_directory("/missing")) == -ENOENT);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 6);
     ASTIA_CHECK(std::strcmp(output, "/good") == 0);
-    ASTIA_CHECK(context.change_directory("..") == 0);
+    ASTIA_CHECK(run(context.change_directory("..")) == 0);
     ASTIA_CHECK(std::strcmp(output, "/good") == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
     ASTIA_CHECK(std::strcmp(output, "/") == 0);
+}
+
+ASTIA_TEST(cwd_context_resolves_paths_with_interrupts_enabled) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    resolution_irq_open   = false;
+    resolution_irq_masked = false;
+
+    ASTIA_CHECK(run(context.change_directory("/good")) == 0);
+    ASTIA_CHECK(resolution_irq_open);
+    ASTIA_CHECK(!resolution_irq_masked);
+}
+
+ASTIA_TEST(cwd_context_keeps_the_anchor_after_a_failed_directory_change) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    astia::fs::directory_matches_stale = false;
+
+    char output[32];
+
+    ASTIA_CHECK(context.bind_directory("/anchored", make_anchor()) == 0);
+    ASTIA_CHECK(run(context.change_directory("/missing")) == -ENOENT);
+    ASTIA_CHECK(run(context.change_directory("/file")) == -ENOTDIR);
+
+    astia::fs::directory_matches_stale = true;
+
+    ASTIA_CHECK(context.compose_path("child", output, sizeof output) == -ENOENT);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) ==
+                static_cast<astia::i64>(std::strlen("/anchored") + 1));
+    ASTIA_CHECK(std::strcmp(output, "/anchored") == 0);
+
+    astia::fs::directory_matches_stale = false;
 }
 
 ASTIA_TEST(cwd_context_inherits_a_snapshot) {
@@ -221,7 +287,7 @@ ASTIA_TEST(cwd_context_inherits_a_snapshot) {
 
     char output[32];
 
-    ASTIA_CHECK(parent.change_directory("/good") == 0);
+    ASTIA_CHECK(run(parent.change_directory("/good")) == 0);
     child.inherit_from(parent);
     ASTIA_CHECK(child.copy_cwd(output, sizeof output) == 6);
     ASTIA_CHECK(std::strcmp(output, "/good") == 0);
@@ -273,7 +339,7 @@ ASTIA_TEST(cwd_context_rejects_a_recycled_directory_name) {
     astia::fs::directory_matches_stale = true;
 
     ASTIA_CHECK(context.compose_path("child", output, sizeof output) == -ENOENT);
-    ASTIA_CHECK(context.change_directory("child") == -ENOENT);
+    ASTIA_CHECK(run(context.change_directory("child")) == -ENOENT);
     ASTIA_CHECK(context.compose_path("/absolute", output, sizeof output) == 0);
     ASTIA_CHECK(std::strcmp(output, "/absolute") == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) ==
@@ -306,7 +372,7 @@ ASTIA_TEST(cwd_context_inherits_a_bound_directory) {
 
     astia::fs::directory_matches_stale = false;
 
-    ASTIA_CHECK(parent.change_directory("/good") == 0);
+    ASTIA_CHECK(run(parent.change_directory("/good")) == 0);
 
     astia::fs::directory_matches_stale = true;
 
@@ -329,19 +395,19 @@ ASTIA_TEST(cwd_context_clamps_paths_to_the_process_root) {
     ASTIA_CHECK(std::strcmp(output, "/jail") == 0);
 
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == -ENOENT);
-    ASTIA_CHECK(context.change_directory("etc") == -ENOENT);
+    ASTIA_CHECK(run(context.change_directory("etc")) == -ENOENT);
 
-    ASTIA_CHECK(context.change_directory("/") == 0);
+    ASTIA_CHECK(run(context.change_directory("/")) == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
     ASTIA_CHECK(std::strcmp(output, "/") == 0);
 
-    ASTIA_CHECK(context.change_directory("etc") == 0);
+    ASTIA_CHECK(run(context.change_directory("etc")) == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 5);
     ASTIA_CHECK(std::strcmp(output, "/etc") == 0);
 
-    ASTIA_CHECK(context.change_directory("..") == 0);
+    ASTIA_CHECK(run(context.change_directory("..")) == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
-    ASTIA_CHECK(context.change_directory("../..") == 0);
+    ASTIA_CHECK(run(context.change_directory("../..")) == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
 
     ASTIA_CHECK(context.resolve_path("/etc/passwd", resolved, sizeof resolved, true) ==
@@ -362,7 +428,7 @@ ASTIA_TEST(cwd_context_inherits_root_state) {
 
     char output[32];
 
-    ASTIA_CHECK(parent.change_directory("/") == 0);
+    ASTIA_CHECK(run(parent.change_directory("/")) == 0);
     ASTIA_CHECK(parent.change_root("/jail") == 0);
     child.inherit_from(parent);
 

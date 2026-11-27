@@ -21,8 +21,10 @@
 void* operator new[](astia::usize size, void* where) noexcept;
 
 namespace astia::proc {
-    i64 process::change_directory(const char* path) {
-        return _cwd.change_directory(path);
+    core::task<i64> process::change_directory(const char* path) {
+        auto result = co_await _cwd.change_directory(path);
+
+        co_return result ? result.value : -error_errno(result.error);
     }
 
     i64 process::change_directory(const fs::open_file& directory) {

@@ -281,32 +281,34 @@ namespace astia::proc {
                                      buffer.data(), buffer.size(), follow_final);
     }
 
-    i64 cwd_context::change_directory(const char* path) {
+    core::task<i64> cwd_context::change_directory(const char* path) {
         if (path == nullptr || path[0] == '\0')
-            return -EINVAL;
+            co_return -EINVAL;
 
         char      full[fs::path_max]{};
         const i64 resolve_rc = resolve_path(path, span<char>(full, sizeof full), true);
         if (resolve_rc < 0)
-            return resolve_rc;
+            co_return resolve_rc;
 
         const fs::file_type type = fs::node_type(full);
 
         if (type == fs::directory_unknown)
-            return -ENOENT;
+            co_return -ENOENT;
 
         if (type != fs::directory_dir)
-            return -ENOTDIR;
+            co_return -ENOTDIR;
 
-        arch::interrupt_spinlock_guard guard(_lock);
+        {
+            arch::interrupt_spinlock_guard guard(_lock);
 
-        const i64 store_rc = store_path_locked(full);
-        if (store_rc < 0)
-            return store_rc;
+            const i64 store_rc = store_path_locked(full);
+            if (store_rc < 0)
+                co_return store_rc;
 
-        _anchor = directory_anchor{};
+            _anchor = directory_anchor{};
+        }
 
-        return 0;
+        co_return 0;
     }
 
     i64 cwd_context::bind_directory(const char* path, const directory_anchor& anchor) {

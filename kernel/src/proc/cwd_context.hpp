@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/task.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/span.hpp>
@@ -26,7 +27,7 @@ namespace astia::proc {
         public:
         cwd_context();
 
-        i64 change_directory(const char* path);
+        core::task<i64> change_directory(const char* path);
         /// Bind the working directory to an already open directory.  The
         /// supplied path is recorded verbatim and never resolved again.
         i64 bind_directory(const char* path, const directory_anchor& anchor);

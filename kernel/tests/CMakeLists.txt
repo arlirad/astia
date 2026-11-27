@@ -316,6 +316,7 @@ astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/cwd_context.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
