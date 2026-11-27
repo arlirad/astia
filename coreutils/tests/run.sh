@@ -45,6 +45,12 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
 "$out/host/sort_growth_test"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I "$root/coreutils/src" \
+    -Dmain=cu_tee_main -c "$root/coreutils/src/tee.c" -o "$out/host/tee_eintr_tee.o"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
+    "$root/coreutils/tests/tee_eintr_test.c" "$out/host/tee_eintr_tee.o" \
+    -o "$out/host/tee_eintr_test"
+"$out/host/tee_eintr_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to
