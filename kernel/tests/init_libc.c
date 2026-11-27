@@ -5636,6 +5636,39 @@ int main(int argc, char** argv) {
 
         close(fd);
 
+        unsigned char* bulk = mmap(NULL, 2u * 1024u * 1024u, PROT_READ | PROT_WRITE,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (bulk == MAP_FAILED)
+            return 118;
+
+        fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0) {
+            (void) munmap(bulk, 2u * 1024u * 1024u);
+
+            return 119;
+        }
+
+        got = read(fd, bulk, (1024 * 1024) + 1);
+
+        if (got != (ssize_t) ((1024 * 1024) + 1)) {
+            (void) close(fd);
+            (void) munmap(bulk, 2u * 1024u * 1024u);
+
+            return 120;
+        }
+
+        got = read(fd, bulk, 2 * 1024 * 1024);
+
+        if (got != (ssize_t) (2 * 1024 * 1024)) {
+            (void) close(fd);
+            (void) munmap(bulk, 2u * 1024u * 1024u);
+
+            return 121;
+        }
+
+        if (close(fd) != 0 || munmap(bulk, 2u * 1024u * 1024u) != 0)
+            return 122;
+
         unsigned long long probe = 0;
 
         for (int i = 0; i < 8; ++i) {

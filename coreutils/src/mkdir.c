@@ -1,6 +1,8 @@
 #include "common.h"
 #include <sys/stat.h>
 
+#include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 static unsigned int current_umask(void) {
@@ -12,17 +14,20 @@ static unsigned int current_umask(void) {
 }
 
 static int make_parents(const char* path) {
-    char   parent[256];
-    size_t length = __builtin_strlen(path);
-
-    if (length == 0 || length >= sizeof parent)
+    size_t length = strlen(path);
+    if (length == 0)
         return cu_error("mkdir", path);
 
-    for (size_t i = 0; i < length; ++i) {
-        parent[i] = path[i];
-    }
+    if (length >= PATH_MAX)
+        return cu_error("mkdir", strerror(ENAMETOOLONG));
 
-    parent[length] = '\0';
+    char* parent = (char*) malloc(length + 1);
+    if (parent == 0)
+        return cu_error("mkdir", "out of memory");
+
+    memcpy(parent, path, length + 1);
+
+    int status = 0;
 
     for (size_t i = 1; i < length; ++i) {
         if (parent[i] != '/')
@@ -35,7 +40,9 @@ static int make_parents(const char* path) {
                 if (errno != EEXIST) {
                     parent[i] = '/';
 
-                    return cu_error("mkdir", strerror(errno));
+                    status = cu_error("mkdir", strerror(errno));
+
+                    goto done;
                 }
 
                 struct stat info;
@@ -43,13 +50,17 @@ static int make_parents(const char* path) {
                 if (stat(parent, &info) < 0 || !S_ISDIR(info.st_mode)) {
                     parent[i] = '/';
 
-                    return cu_error("mkdir", parent);
+                    status = cu_error("mkdir", parent);
+
+                    goto done;
                 }
             }
             else if (chmod(parent, 0300 | (0777 & ~current_umask())) < 0) {
                 parent[i] = '/';
 
-                return cu_error("mkdir", strerror(errno));
+                status = cu_error("mkdir", strerror(errno));
+
+                goto done;
             }
         }
 
@@ -57,16 +68,21 @@ static int make_parents(const char* path) {
     }
 
     if (mkdir(parent, 0777) < 0) {
-        if (errno != EEXIST)
-            return cu_error("mkdir", strerror(errno));
+        if (errno != EEXIST) {
+            status = cu_error("mkdir", strerror(errno));
+        }
+        else {
+            struct stat info;
 
-        struct stat info;
-
-        if (stat(parent, &info) < 0 || !S_ISDIR(info.st_mode))
-            return cu_error("mkdir", strerror(errno));
+            if (stat(parent, &info) < 0 || !S_ISDIR(info.st_mode))
+                status = cu_error("mkdir", strerror(errno));
+        }
     }
 
-    return 0;
+done:
+    free(parent);
+
+    return status;
 }
 
 int main(int argc, char** argv) {
