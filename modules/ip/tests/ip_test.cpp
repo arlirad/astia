@@ -37,7 +37,10 @@ namespace {
     constexpr u8 local_mac[6]  = {0x52, 0x54, 0x00, 0xaa, 0xbb, 0xcc};
     constexpr u8 peer_mac[6]   = {0x52, 0x55, 0x0a, 0x00, 0x02, 0x02};
     constexpr u8 peer_ip[4]    = {10, 0, 2, 2};
-    constexpr u8 our_ip[4]     = {10, 0, 2, 15};
+    constexpr u8 our_ip[4]     = {static_cast<u8>(astia::ip::default_local_address >> 24),
+                                  static_cast<u8>(astia::ip::default_local_address >> 16),
+                                  static_cast<u8>(astia::ip::default_local_address >> 8),
+                                  static_cast<u8>(astia::ip::default_local_address)};
 
     void put16(u8* data, u16 value) {
         data[0] = static_cast<u8>(value >> 8);
@@ -75,10 +78,10 @@ namespace {
         packet[13] = 168;
         packet[14] = 1;
         packet[15] = 10; // source
-        packet[16] = 10;
-        packet[17] = 0;
-        packet[18] = 2;
-        packet[19] = 15; // destination
+        packet[16] = our_ip[0];
+        packet[17] = our_ip[1];
+        packet[18] = our_ip[2];
+        packet[19] = our_ip[3]; // destination
 
         refresh_ip_checksum(packet);
     }
@@ -275,8 +278,8 @@ namespace {
         }
 
         // The IPv4 layer built the header: addresses are swapped.
-        assert(link.capture[12] == 10 && link.capture[13] == 0 && link.capture[14] == 2 &&
-               link.capture[15] == 15);
+        assert(link.capture[12] == our_ip[0] && link.capture[13] == our_ip[1] &&
+               link.capture[14] == our_ip[2] && link.capture[15] == our_ip[3]);
         assert(link.capture[16] == 192 && link.capture[17] == 168 &&
                link.capture[18] == 1 && link.capture[19] == 10);
         assert(get16(link.capture + 2) == datagram_size);

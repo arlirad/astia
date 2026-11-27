@@ -24,10 +24,12 @@ namespace {
         if (value.kind() == astia::net::link_kind::ethernet) {
             const astia::ip::ipv4_address local{astia::ip::default_local_address};
 
-            (void) value.assign_address(
-                astia::net::protocol_id::ipv4,
-                astia::span<const astia::u8>(local.bytes(),
-                                             astia::ip::ipv4_address::size));
+            const bool assigned =
+                value.assign_address(astia::net::protocol_id::ipv4,
+                                     astia::span<const astia::u8>(
+                                         local.bytes(), astia::ip::ipv4_address::size));
+
+            logs::info("ethernet link bound, address %s", assigned ? "ok" : "failed");
         }
 
         return astia::core::hook::outcome::pass;

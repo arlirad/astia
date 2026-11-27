@@ -57,7 +57,10 @@ namespace astia::ip {
             if (!view.copy_to(reinterpret_cast<u8*>(&out), view.length))
                 return false;
 
-            return out.header.length() == view.length;
+            // Ethernet pads short frames: accept any message at least as long
+            // as the ARP prologue plus its declared addresses.
+            return out.header.length() >= sizeof(arp_header) &&
+                   out.header.length() <= view.length;
         }
 
         u32 length() const {
