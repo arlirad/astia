@@ -97,13 +97,15 @@ namespace astia::net {
             return !(*this == other);
         }
 
-        static constexpr link_address from_packet(const u8* value, u8 size) {
+        static constexpr link_address from_address(address_family family, const u8* value,
+                                                   u8 size) {
             link_address result{};
 
-            if (value == nullptr || size == 0 || size > max_length)
+            if (family == address_family::unspecified || value == nullptr || size == 0 ||
+                size > max_length)
                 return result;
 
-            result.family = address_family::packet;
+            result.family = family;
             result.length = size;
 
             for (u8 i = 0; i < size; ++i) {
@@ -111,6 +113,10 @@ namespace astia::net {
             }
 
             return result;
+        }
+
+        static constexpr link_address from_packet(const u8* value, u8 size) {
+            return from_address(address_family::packet, value, size);
         }
     };
 } // namespace astia::net

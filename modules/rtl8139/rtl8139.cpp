@@ -1,7 +1,10 @@
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/atomic.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/module.hpp>
-#include <astia/net/link_bus.hpp>
+#include <astia/net/bus.hpp>
+#include <astia/net/registry.hpp>
 
 #include "rtl8139_protocol.hpp"
 
@@ -35,10 +38,10 @@ namespace {
         tx_ring                   _tx_ring;
         astia::module::msix_route _irq_route{};
         net_device                _net_device{"rtl8139", this};
-        device_state              _state                 = device_state::detached;
-        bool                      _irq_active            = false;
-        uint64_t                  _generation            = 1;
-        uint32_t                  _process_lock          = 0;
+        device_state              _state      = device_state::detached;
+        bool                      _irq_active = false;
+        uint64_t                  _generation = 1;
+        astia::core::spinlock     _process{};
         unsigned                  _tx_selftest_reclaimed = 0;
 
         static void tx_selftest_reclaim(void* context, const tx_request*, int status) {
@@ -46,24 +49,6 @@ namespace {
 
             if (controller != nullptr && status == 0)
                 ++controller->_tx_selftest_reclaimed;
-        }
-
-        void lock_process() {
-            uint32_t expected = 0;
-
-            while (!astia::atomic_ref<uint32_t>(_process_lock)
-                        .compare_exchange_strong(expected, 1,
-                                                 astia::memory_order::acquire,
-                                                 astia::memory_order::relaxed)) {
-                expected = 0;
-
-                asm volatile("pause");
-            }
-        }
-
-        void unlock_process() {
-            astia::atomic_ref<uint32_t>(_process_lock)
-                .store(0, astia::memory_order::release);
         }
 
         uint8_t* rx_buffer() const {
@@ -184,7 +169,6 @@ namespace {
             view.second      = {packet.view.second.data, packet.view.second.length};
             view.length      = packet.view.length;
             view.wire_length = packet.view.wire_length;
-            view.generation  = _net_device.generation();
 
             _net_device.dispatch_rx(view);
 
@@ -208,6 +192,8 @@ namespace {
         }
 
         void drain_tx_irq() {
+            astia::arch::interrupt_spinlock_guard guard(_process);
+
             for (uint32_t index = 0; index < astia::rtl8139::tx_descriptor_count;
                  ++index) {
                 if (_tx_ring.state(index) != tx_slot_state::device)
@@ -237,7 +223,13 @@ namespace {
             return _tx_ring.available();
         }
 
-        void cancel_all_process() {
+        /// Called with `_process` held: stops the transmitter and aborts
+        /// every descriptor the device may still be DMA-ing from.
+        void quiesce_tx_locked() {
+            _registers.write8(register_offset::command,
+                              _registers.read8(register_offset::command) &
+                                  ~astia::rtl8139::command_transmitter_enable);
+
             for (uint32_t index = 0; index < astia::rtl8139::tx_descriptor_count;
                  ++index) {
                 const tx_request* request = _tx_ring.request(index);
@@ -249,8 +241,17 @@ namespace {
 
                 _tx_ring.release(index);
             }
+        }
 
-            _net_device.tx().reset();
+        static void quiesce_tx(void* context) {
+            auto* self = static_cast<rtl8139_controller*>(context);
+
+            astia::arch::interrupt_spinlock_guard guard(self->_process);
+
+            if (self->_state == device_state::detached)
+                return;
+
+            self->quiesce_tx_locked();
         }
 
         int attach(astia::hw::pci_device* device) {
@@ -301,9 +302,10 @@ namespace {
             _net_device.set_kind(astia::net::link_kind::ethernet);
             _net_device.set_mac(mac);
             _net_device.set_mtu(1500);
-            _net_device.set_link_flags(astia::net::link_up | astia::net::link_running);
+            _net_device.set_link_flags(astia::net::link_up);
             _net_device.set_generation(_generation);
-            _net_device.set_running(true);
+            _net_device.tx().set_quiesce(&rtl8139_controller::quiesce_tx, this);
+            _net_device.tx().set_kick(&rtl8139_controller::kick_tx, this);
 
             _state = request_irq() ? device_state::running : device_state::probed_no_irq;
 
@@ -315,6 +317,10 @@ namespace {
         public:
         static void irq_entry(void* context) {
             static_cast<rtl8139_controller*>(context)->interrupt();
+        }
+
+        static void kick_tx(void* context) {
+            (void) static_cast<rtl8139_controller*>(context)->service_tx();
         }
 
         int probe(astia::hw::pci_device* device) {
@@ -333,7 +339,7 @@ namespace {
         }
 
         unsigned service_tx() {
-            lock_process();
+            astia::arch::interrupt_spinlock_guard guard(_process);
 
             unsigned submitted = 0;
 
@@ -356,19 +362,13 @@ namespace {
                 ++submitted;
             }
 
-            unlock_process();
-
             return submitted;
         }
 
         unsigned poll_completions() {
-            lock_process();
+            astia::arch::interrupt_spinlock_guard guard(_process);
 
-            unsigned count = _net_device.tx().poll();
-
-            unlock_process();
-
-            return count;
+            return _net_device.tx().poll();
         }
 
         void interrupt() {
@@ -389,39 +389,46 @@ namespace {
                 drain_rx_irq();
 
             if ((status & (astia::rtl8139::interrupt_tx_ok |
-                           astia::rtl8139::interrupt_tx_error)) != 0)
+                           astia::rtl8139::interrupt_tx_error)) != 0) {
                 drain_tx_irq();
+                (void) service_tx();
+            }
         }
 
         int reset_process() {
             if (_state == device_state::detached)
                 return -19;
 
-            lock_process();
+            _net_device.tx().set_kick(nullptr, nullptr);
+
             release_irq();
-            _registers.write16(register_offset::interrupt_mask, 0);
-            _registers.write8(register_offset::command, 0);
-            cancel_all_process();
-            ++_generation;
+            _net_device.tx().reset();
 
-            if (_generation == 0)
-                _generation = 1;
+            {
+                astia::arch::interrupt_spinlock_guard guard(_process);
 
-            _net_device.set_generation(_generation);
+                _registers.write16(register_offset::interrupt_mask, 0);
+                _registers.write8(register_offset::command, 0);
 
-            if (!reset_hardware() || !configure_hardware()) {
-                _state = device_state::reset;
+                ++_generation;
 
-                _net_device.set_running(false);
-                unlock_process();
+                if (_generation == 0)
+                    _generation = 1;
 
-                return -5;
+                _net_device.set_generation(_generation);
+
+                if (!reset_hardware() || !configure_hardware()) {
+                    _state = device_state::reset;
+
+                    return -5;
+                }
+
+                _state =
+                    request_irq() ? device_state::running : device_state::probed_no_irq;
+
+                _net_device.tx().set_quiesce(&rtl8139_controller::quiesce_tx, this);
+                _net_device.tx().set_kick(&rtl8139_controller::kick_tx, this);
             }
-
-            _state = request_irq() ? device_state::running : device_state::probed_no_irq;
-
-            _net_device.set_running(true);
-            unlock_process();
 
             return 0;
         }
@@ -430,26 +437,40 @@ namespace {
             if (_state == device_state::detached)
                 return 0;
 
-            lock_process();
+            _net_device.tx().set_kick(nullptr, nullptr);
+
             release_irq();
-            _registers.write16(register_offset::interrupt_mask, 0);
-            _registers.write8(register_offset::command, 0);
-            cancel_all_process();
-            _rx_ring_dma.release();
+            _net_device.tx().reset();
 
-            _pci       = nullptr;
-            _registers = {};
+            {
+                astia::arch::interrupt_spinlock_guard guard(_process);
 
-            _net_device.set_running(false);
+                _registers.write16(register_offset::interrupt_mask, 0);
+                _registers.write8(register_offset::command, 0);
+                _rx_ring_dma.release();
 
-            _state = device_state::detached;
+                _pci       = nullptr;
+                _registers = {};
 
-            unlock_process();
+                _state = device_state::detached;
+            }
 
             return 0;
         }
 
         int selftest() {
+            // The selftest drives the public queue by hand; the production
+            // kick would dequeue and program the device behind its back.
+            struct kick_guard {
+                rtl8139_controller* self;
+
+                ~kick_guard() {
+                    self->_net_device.tx().set_kick(&rtl8139_controller::kick_tx, self);
+                }
+            } guard{this};
+
+            _net_device.tx().set_kick(nullptr, nullptr);
+
             uint8_t    byte = 0;
             tx_request request{};
 
@@ -527,7 +548,7 @@ class rtl8139_driver final : public astia::hw::driver {
             co_return -ENODEV;
         }
 
-        (void) co_await astia::net::link_bus::bind(*controller.device());
+        (void) co_await astia::net::bus::bind(*controller.device());
 
         co_return 0;
     }
@@ -545,9 +566,9 @@ class rtl8139_driver final : public astia::hw::driver {
     }
 
     astia::core::task<void> remove(const astia::hw::device_info&) override {
-        (void) co_await astia::net::link_bus::unbind(*controller.device());
-        astia::net::devices().unregister_device(*controller.device());
         controller.detach_process();
+        (void) co_await astia::net::bus::unbind(*controller.device());
+        astia::net::devices().unregister_device(*controller.device());
         co_return astia::error_t::enone;
     }
 

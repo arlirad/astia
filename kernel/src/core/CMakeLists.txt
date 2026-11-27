@@ -3,6 +3,7 @@ set(_astia_core_sources
         name.cpp
         resume_queue.cpp
         rcu_runtime.cpp
+        timer.cpp
         shutdown.cpp
 )
 

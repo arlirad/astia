@@ -4,7 +4,8 @@ file(GLOB ASTIA_NET_AIO_SOURCES CONFIGURE_DEPENDS
 add_library(net STATIC
         ${ASTIA_NET_AIO_SOURCES}
         net.cpp
-        link_driver.cpp
+        driver.cpp
+        neighbour.cpp
         protocol.cpp)
 
 target_include_directories(net PUBLIC

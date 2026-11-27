@@ -22,8 +22,6 @@ namespace astia::rtl8139 {
     constexpr uint32_t rx_max_frame_with_crc = 4096;
     constexpr uint32_t tx_descriptor_count   = 4;
     constexpr uint32_t tx_max_frame          = 1792;
-    constexpr uint32_t tx_queue_depth        = 16;
-    constexpr uint32_t tx_completion_depth   = tx_descriptor_count;
 
     enum class register_offset : uint16_t {
         id0              = 0x00,
@@ -387,10 +385,10 @@ namespace astia::rtl8139 {
     };
 
     template <typename T, uint32_t Capacity>
-    using bounded_mpsc_queue = astia::net::bounded_mpsc_queue<T, Capacity>;
+    using bounded_mpsc_queue = astia::core::bounded_mpsc_queue<T, Capacity>;
 
     template <typename T, uint32_t Capacity>
-    using bounded_spsc_queue = astia::net::bounded_spsc_queue<T, Capacity>;
+    using bounded_spsc_queue = astia::core::bounded_spsc_queue<T, Capacity>;
 
     enum class device_state : uint8_t {
         detached,

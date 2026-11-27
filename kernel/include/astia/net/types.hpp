@@ -29,6 +29,13 @@ namespace astia::net {
 
     static_assert(sizeof(length) == 2);
 
+    /// MTU assumed before a link reports its own.
+    inline constexpr u16 default_mtu = 1500;
+
+    /// Capacity of the stack's static datagram buffers.  Larger than the
+    /// default MTU so links with a bigger MTU fit without reallocation.
+    inline constexpr u16 datagram_capacity = 2048;
+
     /// Host-order link MTU in bytes.
     struct mtu {
         u16 value = 0;

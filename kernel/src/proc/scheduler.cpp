@@ -4,9 +4,11 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/arch/timer.hpp>
 #include <astia/core/rcu_runtime.hpp>
 #include <astia/core/resume_queue.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/timer.hpp>
 #include <astia/mm/share.hpp>
 
 #include "../ipc/futex.hpp"
@@ -397,6 +399,8 @@ namespace astia::proc::scheduler {
     }
 
     void tick() {
+        core::run_timers(arch::timer_ticks());
+
         sys::io_poll_tick();
         futex_tick();
         proc::expire_signal_waiters();

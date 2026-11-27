@@ -57,8 +57,17 @@ namespace astia::core {
             if (continuation != nullptr) {
                 const auto handle = std::coroutine_handle<>::from_address(continuation);
 
-                if (!schedule_resume(handle, generation))
+                if (!schedule_resume(handle, generation)) {
+                    // The fallback resumes inline: the awaiter (and this
+                    // completion) may be destroyed by the call, so release the
+                    // in-flight flag first and never touch this object again.
+                    astia::atomic_ref<u8>(deferred_inflight_)
+                        .store(0, astia::memory_order::release);
+
                     handle.resume();
+
+                    return;
+                }
             }
 
             astia::atomic_ref<u8>(deferred_inflight_)

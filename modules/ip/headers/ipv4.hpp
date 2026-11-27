@@ -6,6 +6,7 @@
 #include <astia/net/types.hpp>
 
 #include "../types/address.hpp"
+#include "../types/protocol.hpp"
 
 namespace astia::ip {
     /// IPv4 header without options (20 bytes).
@@ -16,7 +17,7 @@ namespace astia::ip {
         core::be<u16>          identification{};
         core::be<u16>          flags_fragment{};
         u8                     ttl{};
-        u8                     protocol{};
+        core::be<ip_protocol>  protocol{};
         net::internet_checksum checksum_value{};
         ipv4_address           source{};
         ipv4_address           destination{};
