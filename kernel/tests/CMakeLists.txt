@@ -762,9 +762,20 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         interp_relative_ro.c
         interp_relro.c
         interp_tpoff32.c
-        interp_ifunc.c)
+        interp_ifunc.c
+        dl_fixture.c
+        dl_fixture_dep.c
+        dl_fixture_global.c
+        dl_fixture_nd.c
+        dl_fixture_user.c
+        dl_dep_base.c
+        dl_dep_b.c
+        dl_dep_c.c
+        dl_dep_a.c
+        interp_dlopen.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
-        ${ASTIA_KERNEL_SOURCE_DIR}/include)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include
+        ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include)
 target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
         -ffreestanding -fno-builtin -fno-stack-protector
         -fno-asynchronous-unwind-tables -mno-red-zone)
@@ -1505,6 +1516,7 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-e,ld_start
                 -Wl,--hash-style=sysv -Wl,-Bsymbolic -Wl,-z,now
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
@@ -1538,14 +1550,71 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/interp_link
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c ${_fix_dir}/libfixture.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlfixture.so -o ${_fix_dir}/libdlfixture.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlglobal.so -o ${_fix_dir}/libdlglobal.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_global.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlnd.so -o ${_fix_dir}/libdlnd.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_nd.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlfixture_dep.so -o ${_fix_dir}/libdlfixture_dep.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_dep.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlfixture_user.so -Wl,-rpath-link,${_fix_dir}
+                -o ${_fix_dir}/libdlfixture_user.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_user.c
+                ${_fix_dir}/libdlfixture_dep.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdl_dep_base.so -o ${_fix_dir}/libdl_dep_base.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_base.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdl_dep_b.so -Wl,-rpath-link,${_fix_dir}
+                -o ${_fix_dir}/libdl_dep_b.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_b.c
+                ${_fix_dir}/libdl_dep_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdl_dep_c.so -Wl,-rpath-link,${_fix_dir}
+                -o ${_fix_dir}/libdl_dep_c.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_c.c
+                ${_fix_dir}/libdl_dep_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdl_dep_a.so -Wl,-rpath-link,${_fix_dir}
+                -o ${_fix_dir}/libdl_dep_a.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_a.c
+                ${_fix_dir}/libdl_dep_b.so ${_fix_dir}/libdl_dep_c.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                -o ${_fix_dir}/interp_dlopen
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/libfixture.so ${_fix_dir}/libfixture_base.so
                 ${_fix_dir}/libfixture_ifunc.so
+                ${_fix_dir}/libdlfixture.so ${_fix_dir}/libdlglobal.so
+                ${_fix_dir}/libdlnd.so ${_fix_dir}/libdlfixture_dep.so
+                ${_fix_dir}/libdlfixture_user.so
+                ${_fix_dir}/libdl_dep_base.so ${_fix_dir}/libdl_dep_b.so
+                ${_fix_dir}/libdl_dep_c.so ${_fix_dir}/libdl_dep_a.so
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
+                ${_fix_dir}/interp_dlopen
                 ${_fix_dir}/boot_stage/bin/
                 COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
@@ -1649,8 +1718,13 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_nophdr bin/interp_ifunc
-                bin/interp_relro bin/interp_relro_ok lib/libc.so bin/dyn_libc
-                etc/passwd etc/group
+                bin/interp_relro bin/interp_relro_ok
+                lib/libdlfixture.so lib/libdlglobal.so lib/libdlnd.so
+                lib/libdlfixture_dep.so lib/libdlfixture_user.so
+                lib/libdl_dep_base.so lib/libdl_dep_b.so lib/libdl_dep_c.so
+                lib/libdl_dep_a.so
+                bin/interp_dlopen
+                lib/libc.so bin/dyn_libc etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
                 bin/interp_relative_ro
@@ -1664,6 +1738,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/dlfcn.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
@@ -1680,6 +1755,16 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_global.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_nd.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_dep.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_user.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_base.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_b.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_c.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_a.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1827,6 +1912,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: sigpipe ok"
                 "astia: setpgid exec ok"
                 "astia: libc.so ok"
+                "astia: dlopen ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
 

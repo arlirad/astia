@@ -23,7 +23,7 @@ const EXCLUDED_DOCS = new Set(['aarch64-virt-boot.md']);
 const AUTHORED_SYSCALL_IDS = [...Array.from({ length: 71 }, (_, index) => index), 77, 78, 79];
 const DL_SYSCALL_IDS = [71, 72];
 const MOD_SYSCALL_IDS = [73, 74, 75, 76];
-const CANONICAL_SYSCALL_IDS = Array.from({ length: 80 }, (_, index) => index);
+const CANONICAL_SYSCALL_IDS = Array.from({ length: 81 }, (_, index) => index);
 
 if (!existsSync(docsDir)) {
   console.log('Documentation sources are unavailable; keeping the existing docs manifest.');
@@ -103,13 +103,13 @@ const slugOf = (path) =>
 const readAuthoredManifest = () => {
   requireValue(existsSync(authoredManifestPath), `missing authored docs manifest: ${authoredManifestPath}`);
   const manifest = JSON.parse(readFileSync(authoredManifestPath, 'utf8'));
-  requireValue(manifest?.section2?.pages?.length === CANONICAL_SYSCALL_IDS.length, 'authored manifest must contain 74 syscall pages, 2 dl pages, and 4 mod pages');
+  requireValue(manifest?.section2?.pages?.length === CANONICAL_SYSCALL_IDS.length, 'authored manifest must contain 75 syscall pages, 2 dl pages, and 4 mod pages');
   const authoredIds = manifest.section2.pages
     .filter((page) => AUTHORED_SYSCALL_IDS.includes(page.id))
     .map((page) => page.id);
   const dlPages = manifest.section2.pages.filter((page) => DL_SYSCALL_IDS.includes(page.id));
   const modPages = manifest.section2.pages.filter((page) => MOD_SYSCALL_IDS.includes(page.id));
-  requireValue(authoredIds.length === AUTHORED_SYSCALL_IDS.length, 'authored manifest must contain 74 syscall pages');
+  requireValue(authoredIds.length === AUTHORED_SYSCALL_IDS.length, 'authored manifest must contain 75 syscall pages');
   requireValue(dlPages.length === DL_SYSCALL_IDS.length, 'authored manifest must contain 2 dl pages');
   requireValue(modPages.length === MOD_SYSCALL_IDS.length, 'authored manifest must contain 4 mod pages');
   for (const page of dlPages) {
@@ -192,7 +192,7 @@ requireValue(manifest.pages.length === CANONICAL_SYSCALL_IDS.length, 'section-2 
 const syscallIds = manifest.pages.map((page) => page.id);
 const sortedSyscallIds = [...syscallIds].sort((a, b) => a - b);
 requireValue(new Set(syscallIds).size === CANONICAL_SYSCALL_IDS.length, 'section-2 export has duplicate IDs');
-requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..79');
+requireValue(sortedSyscallIds.every((id, index) => id === CANONICAL_SYSCALL_IDS[index]), 'section-2 export IDs must be 0..80');
 
 const seenSlugs = new Set(basePages.map((page) => page.slug));
 const seenSourcePaths = new Set(basePages.map((page) => page.sourcePath));

@@ -1,5 +1,5 @@
 /*
- * ld.astia.so — the userspace ELF interpreter.
+ * ld.astia.so — the userspace ELF interpreter and dynamic loader.
  *
  * The kernel already loaded (and RELATIVE-relocated) the payload and this
  * interpreter.  The linker's job is the part the kernel refuses to do:
@@ -9,10 +9,50 @@
  * the resolver, then, once every image is relocated and before any
  * DT_INIT, the resolvers run and their results land in the slots.
  *
+ * At startup the module table is populated from the payload, its DT_NEEDED
+ * closure, and finally this interpreter (prelinked: its relocations were
+ * resolved at link time).  The same table backs the public dlopen family:
+ * handles reference a module and its dependency closure, dlopen maps and
+ * relocates a new group, and dlclose finalizes and (when the process is
+ * quiescent) unmaps modules nobody references any more.
+ *
+ * Scopes: RTLD_LOCAL (the default) keeps a loaded group out of the default
+ * symbol scope; RTLD_GLOBAL adds every module in the group to it.  dlsym on
+ * a handle searches the root and then the stored dependency-first group;
+ * dlsym with RTLD_DEFAULT searches used, non-prelinked global modules in load
+ * order.  RTLD_NODELETE keeps a group mapped after its last handle closes.
+ *
+ * The handle group is post-order (dependencies before dependents, root last);
+ * initialization walks it forward and finalization walks it backward.
+ *
+ * Unload: dlclose decrements the group, finds the loadable candidate set,
+ * runs DT_FINI/DT_FINI_ARRAY dependents-first, then rechecks every candidate
+ * immediately before astia_dlunmap.  A commit requires refcount zero, no used
+ * DT_NEEDED reference, no live handle, exactly one live thread
+ * (astia_thread_count), no installed signal handler, and the dlclose caller
+ * not executing inside the image.  A module that fails any check is kept
+ * mapped, dropped from the global scope, marked pending, and marked
+ * finalized; a later dlclose re-attempts only the unmap.  Reopening a
+ * finalized retained module re-runs its initializers (and those of finalized
+ * retained dependencies) dependency-first and clears finalized/pending.  A
+ * loader-busy guard rejects re-entrant dlopen/dlclose/dlsym from an
+ * initializer, a finalizer, or an IFUNC resolver; a finalizer that installs a
+ * handler or creates a thread has its unload deferred.
+ *
+ * Relocations for a dlopen group see only that group's closure plus startup
+ * and global-scope modules, so a RTLD_LOCAL image cannot bind to an
+ * unrelated local image.
+ *
+ * dl_iterate_phdr reports every used image in load order (including this
+ * prelinked interpreter); the payload has an empty dlpi_name.  A dlopen'ed
+ * image containing PT_TLS is rejected until global-dynamic TLS exists.
+ *
  * v1: eager binding, no lazy PLT, no symbol versioning, SysV hash only,
- * direct dependencies only.  PT_GNU_RELRO is applied after relocation and
- * TLS setup, before constructors.  Everything here is single-threaded
- * startup.
+ * direct dependencies only.  PT_GNU_RELRO is applied after relocation, IFUNC
+ * resolution and TLS setup, before constructors, including for dlopen'd
+ * groups.  At most 32 modules, 16 handles, and 64-byte paths.
+ * dlopen/dlclose are not safe against concurrent calls; unloading requires a
+ * single-threaded, signal-free process.  There is no RTLD_NEXT.
  */
 
 #include "ld.h"
@@ -23,6 +63,8 @@
 
 #include "reloc.h"
 #include "symcount.h"
+
+#include <dlfcn.h>
 
 /*
  * clang lowers struct copies and zero-initialisation to memcpy/memset even
@@ -138,11 +180,70 @@ static long ld_open(const char* path) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Module parsing                                                      */
+/* Module table                                                        */
 /* ------------------------------------------------------------------ */
 
+static ld_module g_modules[LD_MAX_MODULES];
+static int       g_module_count;
+
+/* While a dlopen group is being relocated, only its own closure plus
+ * startup and global-scope modules may satisfy its symbol references. */
+static int g_reloc_scope[LD_MAX_MODULES];
+static int g_reloc_scope_count;
+static int g_reloc_scope_active;
+
+struct ld_handle {
+    int used;
+    int root;
+    int refcount;
+    int nodelete;
+    int ndeps;
+    int deps[LD_MAX_MODULES];
+};
+
+static struct ld_handle g_handles[LD_MAX_HANDLES];
+
+/* Loader entry points mutate the module/handle tables.  A finalizer must not
+ * re-enter the loader; the guard makes re-entry fail instead of corrupting
+ * state. */
+static int g_loader_busy;
+
+static char g_error[160];
+static int  g_error_set;
+
+static void set_error(const char* text) {
+    unsigned long i = 0;
+
+    while (text[i] != '\0' && i + 1 < sizeof g_error) {
+        g_error[i] = text[i];
+
+        ++i;
+    }
+
+    g_error[i]  = '\0';
+    g_error_set = 1;
+}
+
+static void set_error_path(const char* prefix, const char* path) {
+    unsigned long i = 0;
+
+    while (prefix[i] != '\0' && i + 1 < sizeof g_error) {
+        g_error[i] = prefix[i];
+
+        ++i;
+    }
+
+    for (unsigned long j = 0; path[j] != '\0' && i + 1 < sizeof g_error; ++j) {
+        g_error[i++] = path[j];
+    }
+
+    g_error[i]  = '\0';
+    g_error_set = 1;
+}
+
 static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
-    for (const Elf64_Dyn* entry = module->dynamic; entry->d_tag != DT_NULL; ++entry) {
+    for (const Elf64_Dyn* entry = module->dynamic_section; entry->d_tag != DT_NULL;
+         ++entry) {
         if (entry->d_tag == tag)
             return entry->d_val;
     }
@@ -224,7 +325,10 @@ static int relro_range_valid(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t va
 static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
                        uint32_t phnum) {
     module->base            = base;
-    module->dynamic         = 0;
+    module->phdr            = phdr;
+    module->phnum           = phnum;
+    module->span            = 0;
+    module->dynamic_section = 0;
     module->rela            = 0;
     module->jmprel          = 0;
     module->rela_size       = 0;
@@ -232,6 +336,9 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->init            = 0;
     module->init_array      = 0;
     module->init_array_size = 0;
+    module->fini            = 0;
+    module->fini_array      = 0;
+    module->fini_array_size = 0;
     module->tls_vaddr       = 0;
     module->tls_filesz      = 0;
     module->tls_memsz       = 0;
@@ -239,6 +346,17 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->tls_offset      = 0;
     module->relro_start     = 0;
     module->relro_size      = 0;
+    module->soname          = 0;
+    module->used            = 0;
+    module->startup         = 0;
+    module->dynamic         = 0;
+    module->prelinked       = 0;
+    module->nodelete        = 0;
+    module->in_global       = 0;
+    module->pending         = 0;
+    module->finalized       = 0;
+    module->refcount        = 0;
+    module->name[0]         = '\0';
 
     for (uint32_t i = 0; i < phnum; ++i) {
         if (phdr[i].p_type == PT_TLS) {
@@ -261,10 +379,10 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
         }
 
         if (phdr[i].p_type == PT_DYNAMIC)
-            module->dynamic = (const Elf64_Dyn*) (base + phdr[i].p_vaddr);
+            module->dynamic_section = (const Elf64_Dyn*) (base + phdr[i].p_vaddr);
     }
 
-    if (module->dynamic == 0)
+    if (module->dynamic_section == 0)
         return -1;
 
     const uint64_t image_end = image_extent_end(phdr, phnum, base);
@@ -322,7 +440,7 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
         return -1;
 
     /* ld_symbol_count bounds the count by the .dynsym segment; this keeps the
-       final count inside the image as a whole, so lookup_symbol() cannot walk
+       final count inside the image as a whole, so find_symbol() cannot walk
        past the mapping even if two PT_LOAD extents disagree. */
     if (module->symbol_count != 0) {
         const uint64_t first = (uint64_t) (uintptr_t) module->symtab;
@@ -350,10 +468,27 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
 
     const uint64_t init  = dyn_tag(module, DT_INIT);
     const uint64_t inits = dyn_tag(module, DT_INIT_ARRAY);
+    const uint64_t fini  = dyn_tag(module, DT_FINI);
+    const uint64_t finis = dyn_tag(module, DT_FINI_ARRAY);
 
     module->init            = init != 0 ? base + init : 0;
     module->init_array      = inits != 0 ? (const uint64_t*) (base + inits) : 0;
     module->init_array_size = dyn_tag(module, DT_INIT_ARRAYSZ);
+    module->fini            = fini != 0 ? base + fini : 0;
+    module->fini_array      = finis != 0 ? (const uint64_t*) (base + finis) : 0;
+    module->fini_array_size = dyn_tag(module, DT_FINI_ARRAYSZ);
+
+    return 0;
+}
+
+static int relocation_scope_allows(int index) {
+    if (!g_reloc_scope_active)
+        return 1;
+
+    for (int scope = 0; scope < g_reloc_scope_count; ++scope) {
+        if (g_reloc_scope[scope] == index)
+            return 1;
+    }
 
     return 0;
 }
@@ -366,6 +501,9 @@ static const Elf64_Sym* find_symbol(const ld_module* modules, int count, const c
                                     const ld_module** owner) {
     for (int m = 0; m < count; ++m) {
         const ld_module* image = &modules[m];
+
+        if (!image->used || !relocation_scope_allows(m))
+            continue;
 
         for (uint32_t i = 1; i < image->symbol_count; ++i) {
             const Elf64_Sym* symbol = &image->symtab[i];
@@ -382,6 +520,80 @@ static const Elf64_Sym* find_symbol(const ld_module* modules, int count, const c
     }
 
     return 0;
+}
+
+static const char* base_name(const char* path) {
+    const char* name = path;
+
+    for (const char* cursor = path; *cursor != '\0'; ++cursor) {
+        if (*cursor == '/')
+            name = cursor + 1;
+    }
+
+    return name;
+}
+
+static int name_equal(const char* left, const char* right) {
+    if (left == 0 || right == 0)
+        return 0;
+
+    if (ld_streq(left, right))
+        return 1;
+
+    return ld_streq(base_name(left), base_name(right));
+}
+
+static int module_named(const ld_module* module, const char* name) {
+    if (module->name[0] != '\0' && name_equal(module->name, name))
+        return 1;
+
+    return module->soname != 0 && name_equal(module->soname, name);
+}
+
+static int find_loaded(const char* name) {
+    for (int module = 0; module < g_module_count; ++module) {
+        if (g_modules[module].used && module_named(&g_modules[module], name))
+            return module;
+    }
+
+    return -1;
+}
+
+static int find_loaded_base(uint64_t base) {
+    for (int module = 0; module < g_module_count; ++module) {
+        if (g_modules[module].used && g_modules[module].base == base)
+            return module;
+    }
+
+    return -1;
+}
+
+static int copy_bounded(char* out, const char* text) {
+    unsigned long i = 0;
+
+    if (text == 0)
+        return -1;
+
+    while (text[i] != '\0') {
+        if (i + 1 >= LD_PATH_MAX)
+            return -1;
+
+        out[i] = text[i];
+
+        ++i;
+    }
+
+    out[i] = '\0';
+
+    return 0;
+}
+
+static void set_module_name(ld_module* module, const char* fallback) {
+    const char* source =
+        module->soname != 0 && module->soname[0] != '\0' ? module->soname : fallback;
+
+    if (copy_bounded(module->name, source) != 0)
+        module->name[0] = '\0';
 }
 
 /* IFUNC slots are filled in a second phase, once every image is relocated:
@@ -407,8 +619,7 @@ static int enqueue_ifunc(uint64_t* slot, uint64_t resolver, int64_t addend) {
     return 0;
 }
 
-static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t bytes,
-                      const ld_module* modules, int count) {
+static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t bytes) {
     if (rela == 0 || bytes == 0)
         return 0;
 
@@ -453,8 +664,8 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
                 value = module->tls_offset + (int64_t) symbol->st_value + entry->r_addend;
             }
             else {
-                const Elf64_Sym* definition =
-                    find_symbol(modules, count, module->strtab + symbol->st_name, &owner);
+                const Elf64_Sym* definition = find_symbol(
+                    g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
                 if (definition == 0) {
                     if ((symbol->st_info >> 4) != 2)
                         return 3;
@@ -482,10 +693,10 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
         if (index == 0 || index >= module->symbol_count)
             return 2;
 
-        const Elf64_Sym* symbol = &module->symtab[index];
-        const ld_module* owner  = 0;
-        const Elf64_Sym* definition =
-            find_symbol(modules, count, module->strtab + symbol->st_name, &owner);
+        const Elf64_Sym* symbol     = &module->symtab[index];
+        const ld_module* owner      = 0;
+        const Elf64_Sym* definition = find_symbol(
+            g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
         if (definition == 0) {
             /* STB_WEAK undefined references are allowed to resolve to zero. */
             if ((symbol->st_info >> 4) != 2)
@@ -582,6 +793,45 @@ static void resolve_ifuncs(void) {
 
         *entry->slot = resolver() + (uint64_t) entry->addend;
     }
+
+    g_ifunc_count = 0;
+}
+
+static void run_module_initializer(const ld_module* image, int argc, char** argv,
+                                   char** envp) {
+    if (image->init != 0)
+        ((void (*)(int, char**, char**))(uintptr_t) image->init)(argc, argv, envp);
+
+    if (image->init_array == 0)
+        return;
+
+    const uint64_t entries = image->init_array_size / sizeof(uint64_t);
+
+    for (uint64_t i = 0; i < entries; ++i) {
+        uint64_t function = image->init_array[i];
+        if (function != 0)
+            ((void (*)(int, char**, char**))(uintptr_t) function)(argc, argv, envp);
+    }
+}
+
+static void run_module_finalizer(ld_module* image) {
+    if (image->finalized)
+        return;
+
+    image->finalized = 1;
+
+    if (image->fini_array != 0) {
+        const uint64_t entries = image->fini_array_size / sizeof(uint64_t);
+
+        for (uint64_t i = entries; i > 0; --i) {
+            uint64_t function = image->fini_array[i - 1];
+            if (function != 0)
+                ((void (*)(void))(uintptr_t) function)();
+        }
+    }
+
+    if (image->fini != 0)
+        ((void (*)(void))(uintptr_t) image->fini)();
 }
 
 /* Make each module's PT_GNU_RELRO range read-only.  Runs after every
@@ -600,24 +850,32 @@ static void resolve_ifuncs(void) {
  * module_init has already validated each interval; a sum that still wraps
  * means the absolute range is broken, so fail closed instead of skipping.
  */
+static void apply_module_relro(const ld_module* image) {
+    if (image->relro_size == 0)
+        return;
+
+    const uint64_t sum = image->relro_start + image->relro_size;
+
+    if (sum < image->relro_start || sum > UINT64_MAX - 4095)
+        astia_exit(152);
+
+    const uint64_t start = image->relro_start & ~(uint64_t) 4095;
+    const uint64_t end   = (sum + 4095) & ~(uint64_t) 4095;
+
+    if (end > start &&
+        astia_mprotect((void*) (uintptr_t) start, end - start, PROT_READ) < 0)
+        astia_exit(152);
+}
+
 static void apply_relro(const ld_module* modules, int count) {
     for (int module = 0; module < count; ++module) {
-        const ld_module* image = &modules[module];
+        apply_module_relro(&modules[module]);
+    }
+}
 
-        if (image->relro_size == 0)
-            continue;
-
-        const uint64_t sum = image->relro_start + image->relro_size;
-
-        if (sum < image->relro_start || sum > UINT64_MAX - 4095)
-            astia_exit(152);
-
-        const uint64_t start = image->relro_start & ~(uint64_t) 4095;
-        const uint64_t end   = (sum + 4095) & ~(uint64_t) 4095;
-
-        if (end > start &&
-            astia_mprotect((void*) (uintptr_t) start, end - start, PROT_READ) < 0)
-            astia_exit(152);
+static void apply_relro_added(const int* added, int count) {
+    for (int i = 0; i < count; ++i) {
+        apply_module_relro(&g_modules[added[i]]);
     }
 }
 
@@ -628,20 +886,790 @@ static void run_initializers(const ld_module* modules, int count, int argc, char
     for (int module = count - 1; module >= 0; --module) {
         const ld_module* image = &modules[module];
 
-        if (image->init != 0)
-            ((void (*)(int, char**, char**))(uintptr_t) image->init)(argc, argv, envp);
-
-        if (image->init_array == 0)
+        if (!image->used || image->prelinked)
             continue;
 
-        const uint64_t entries = image->init_array_size / sizeof(uint64_t);
+        run_module_initializer(image, argc, argv, envp);
+    }
+}
 
-        for (uint64_t i = 0; i < entries; ++i) {
-            uint64_t function = image->init_array[i];
-            if (function != 0)
-                ((void (*)(int, char**, char**))(uintptr_t) function)(argc, argv, envp);
+/* ------------------------------------------------------------------ */
+/* Dynamic loading                                                     */
+/* ------------------------------------------------------------------ */
+
+static int build_path(char* out, const char* name) {
+    static const char prefix[] = "/lib/";
+    unsigned long     size     = sizeof(prefix) - 1;
+
+    if (name == 0 || size + ld_strlen(name) + 1 > LD_PATH_MAX)
+        return -1;
+
+    for (unsigned long i = 0; i < size; ++i) {
+        out[i] = prefix[i];
+    }
+
+    for (unsigned long i = 0;; ++i) {
+        out[size + i] = name[i];
+
+        if (name[i] == '\0')
+            return 0;
+    }
+}
+
+static int group_contains(const int* group, int count, int index) {
+    for (int i = 0; i < count; ++i) {
+        if (group[i] == index)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int group_add(int* group, int* count, int index) {
+    if (group_contains(group, *count, index))
+        return 0;
+
+    if (*count == LD_MAX_MODULES)
+        return -1;
+
+    group[(*count)++] = index;
+
+    return 0;
+}
+
+static int load_module(const char* name, int flags, int* out, int* is_new) {
+    const int existing = find_loaded(name);
+    if (existing >= 0) {
+        *out    = existing;
+        *is_new = 0;
+
+        return 0;
+    }
+
+    char path[LD_PATH_MAX];
+
+    if (name[0] == '/') {
+        if (copy_bounded(path, name) != 0) {
+            set_error("dlopen: path too long");
+
+            return -1;
         }
     }
+    else if (build_path(path, name) != 0) {
+        set_error("dlopen: path too long");
+
+        return -1;
+    }
+
+    const long fd = ld_open(path);
+    if (fd < 0) {
+        set_error_path("dlopen: cannot open ", path);
+
+        return -1;
+    }
+
+    astia_dl_info info = {0};
+
+    const long mapped = astia_dlmap((int32_t) fd, 0, &info);
+
+    ld_close(fd);
+
+    if (mapped < 0) {
+        set_error_path("dlopen: cannot map ", path);
+
+        return -1;
+    }
+
+    const int by_base = find_loaded_base((uint64_t) mapped);
+    if (by_base >= 0) {
+        /* The registry already owns this image; drop the extra kernel
+           binding dlmap just added. */
+        (void) astia_dlunmap((uint64_t) mapped);
+
+        *out    = by_base;
+        *is_new = 0;
+
+        return 0;
+    }
+
+    if (g_module_count == LD_MAX_MODULES) {
+        (void) astia_dlunmap((uint64_t) mapped);
+        set_error("dlopen: module limit reached");
+
+        return -1;
+    }
+
+    ld_module* module = &g_modules[g_module_count];
+
+    if (module_init(module, (uint64_t) mapped, (const Elf64_Phdr*) (uintptr_t) info.phdr,
+                    info.phnum) != 0) {
+        (void) astia_dlunmap((uint64_t) mapped);
+        set_error_path("dlopen: not a loadable image ", path);
+
+        return -1;
+    }
+
+    /* Dynamic TLS needs a DTV registry that this loader does not have. */
+    if (module->tls_memsz != 0) {
+        (void) astia_dlunmap((uint64_t) mapped);
+        set_error_path("dlopen: module uses TLS; needs global-dynamic TLS support ",
+                       path);
+
+        return -1;
+    }
+
+    module->used      = 1;
+    module->dynamic   = 1;
+    module->nodelete  = (flags & RTLD_NODELETE) != 0;
+    module->in_global = (flags & RTLD_GLOBAL) != 0;
+    module->refcount  = 0;
+    module->span      = info.span;
+    module->phdr      = (const Elf64_Phdr*) (uintptr_t) info.phdr;
+    module->phnum     = info.phnum;
+
+    set_module_name(module, path);
+
+    *out    = g_module_count++;
+    *is_new = 1;
+
+    return 0;
+}
+
+static int closure_visit(int index, int flags, int* group, int* count, int* added,
+                         int* added_count, unsigned char* state) {
+    if (state[index] == 2)
+        return 0;
+
+    if (state[index] == 1)
+        return 0; /* dependency cycle: keep the order already in progress */
+
+    state[index] = 1;
+
+    const ld_module* module = &g_modules[index];
+
+    for (const Elf64_Dyn* entry = module->dynamic_section; entry->d_tag != DT_NULL;
+         ++entry) {
+        if (entry->d_tag != DT_NEEDED)
+            continue;
+
+        const char* needed = module->strtab + entry->d_val;
+
+        int dep = find_loaded(needed);
+
+        if (dep < 0) {
+            int is_new = 0;
+
+            if (load_module(needed, flags, &dep, &is_new) != 0)
+                return -1;
+
+            if (is_new)
+                added[(*added_count)++] = dep;
+        }
+
+        if (closure_visit(dep, flags, group, count, added, added_count, state) != 0)
+            return -1;
+    }
+
+    state[index] = 2;
+
+    if (group_add(group, count, index) != 0) {
+        set_error("dlopen: dependency graph too large");
+
+        return -1;
+    }
+
+    return 0;
+}
+
+static int load_closure(int index, int flags, int* group, int* count, int* added,
+                        int* added_count) {
+    unsigned char state[LD_MAX_MODULES] = {0};
+
+    return closure_visit(index, flags, group, count, added, added_count, state);
+}
+
+static void discard_added(const int* added, int count) {
+    for (int i = count - 1; i >= 0; --i) {
+        ld_module* module = &g_modules[added[i]];
+
+        if (!module->used || !module->dynamic)
+            continue;
+
+        (void) astia_dlunmap(module->base);
+
+        module->used      = 0;
+        module->in_global = 0;
+        module->pending   = 0;
+        module->finalized = 0;
+    }
+}
+
+static void begin_relocation_scope(const int* group, int count) {
+    g_reloc_scope_count = 0;
+
+    for (int module = 0; module < g_module_count; ++module) {
+        const ld_module* image = &g_modules[module];
+
+        if (!image->used)
+            continue;
+
+        if (image->startup || image->in_global || group_contains(group, count, module))
+            g_reloc_scope[g_reloc_scope_count++] = module;
+    }
+
+    g_reloc_scope_active = 1;
+}
+
+static void end_relocation_scope(void) {
+    g_reloc_scope_active = 0;
+    g_reloc_scope_count  = 0;
+}
+
+static int relocate_added(const int* added, int count) {
+    for (int i = 0; i < count; ++i) {
+        ld_module* module = &g_modules[added[i]];
+
+        if (!module->used || module->prelinked)
+            continue;
+
+        const int rela = apply_rela(module, module->rela, module->rela_size);
+        if (rela != 0)
+            return rela;
+
+        const int plt = apply_rela(module, module->jmprel, module->pltrel_size);
+        if (plt != 0)
+            return plt;
+    }
+
+    return 0;
+}
+
+static void initialize_group(const int* group, int group_count, const int* added,
+                             int added_count) {
+    for (int i = 0; i < group_count; ++i) {
+        const int index = group[i];
+
+        ld_module* module = &g_modules[index];
+
+        if (!module->used)
+            continue;
+
+        if (module->finalized) {
+            run_module_initializer(module, 0, 0, 0);
+
+            module->finalized = 0;
+            module->pending   = 0;
+
+            continue;
+        }
+
+        if (!group_contains(added, added_count, index))
+            continue;
+
+        run_module_initializer(module, 0, 0, 0);
+    }
+}
+
+static void* handle_value(int index) {
+    return (void*) (uintptr_t) (index + 1);
+}
+
+static struct ld_handle* handle_from(void* handle) {
+    const uintptr_t value = (uintptr_t) handle;
+
+    if (value == 0 || value > LD_MAX_HANDLES)
+        return 0;
+
+    struct ld_handle* entry = &g_handles[value - 1];
+
+    return entry->used ? entry : 0;
+}
+
+static int handle_reserve(void) {
+    for (int i = 0; i < LD_MAX_HANDLES; ++i) {
+        if (g_handles[i].used)
+            continue;
+
+        g_handles[i] = (struct ld_handle){.used = 1};
+
+        return i;
+    }
+
+    return -1;
+}
+
+static void handle_release(int index) {
+    if (index >= 0 && index < LD_MAX_HANDLES)
+        g_handles[index] = (struct ld_handle){0};
+}
+
+static int module_referenced(int index) {
+    const ld_module* target = &g_modules[index];
+
+    for (int module = 0; module < g_module_count; ++module) {
+        const ld_module* image = &g_modules[module];
+
+        if (module == index || !image->used)
+            continue;
+
+        for (const Elf64_Dyn* entry = image->dynamic_section; entry->d_tag != DT_NULL;
+             ++entry) {
+            if (entry->d_tag == DT_NEEDED &&
+                module_named(target, image->strtab + entry->d_val))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int module_referenced_by_non_candidate(int index, const int* group, int count,
+                                              const int* candidate) {
+    const ld_module* target = &g_modules[index];
+
+    for (int module = 0; module < g_module_count; ++module) {
+        const ld_module* image = &g_modules[module];
+
+        if (module == index || !image->used)
+            continue;
+
+        int image_is_candidate = 0;
+
+        for (int i = 0; i < count; ++i) {
+            if (group[i] == module && candidate[i]) {
+                image_is_candidate = 1;
+
+                break;
+            }
+        }
+
+        if (image_is_candidate)
+            continue;
+
+        for (const Elf64_Dyn* entry = image->dynamic_section; entry->d_tag != DT_NULL;
+             ++entry) {
+            if (entry->d_tag == DT_NEEDED &&
+                module_named(target, image->strtab + entry->d_val))
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int module_in_live_handle(int index) {
+    for (int handle = 0; handle < LD_MAX_HANDLES; ++handle) {
+        const struct ld_handle* entry = &g_handles[handle];
+
+        if (!entry->used)
+            continue;
+
+        for (int dep = 0; dep < entry->ndeps; ++dep) {
+            if (entry->deps[dep] == index)
+                return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int unload_safe(const ld_module* module, uintptr_t return_address) {
+    if (return_address >= module->base && return_address < module->base + module->span)
+        return 0;
+
+    /* libc owns the kernel dispositions and keeps user handlers in its own
+       table, so a handler anywhere in 1..64 cannot be attributed to a module.
+       Any installed handler therefore defers the unload. */
+    for (int signal = 1; signal <= 64; ++signal) {
+        astia_sigaction_t old = {0};
+
+        if (astia_sigaction(signal, 0, &old) != 0)
+            continue;
+
+        if (old.handler != 0 && old.handler != 1)
+            return 0;
+    }
+
+    return astia_thread_count() == 1;
+}
+
+static int lookup_symbol_value(const ld_module* module, const char* name,
+                               uint64_t* value) {
+    for (uint32_t index = 1; index < module->symbol_count; ++index) {
+        const Elf64_Sym* symbol = &module->symtab[index];
+
+        if (symbol->st_shndx == 0)
+            continue;
+
+        const int binding = symbol->st_info >> 4;
+
+        if (binding != 1 && binding != 2)
+            continue;
+
+        if (!ld_streq(module->strtab + symbol->st_name, name))
+            continue;
+
+        uint64_t address = module->base + symbol->st_value;
+
+        if ((symbol->st_info & 0xf) == LD_STT_GNU_IFUNC)
+            address = ((uint64_t(*)(void))(uintptr_t) address)();
+
+        *value = address;
+
+        return 1;
+    }
+
+    return 0;
+}
+
+void* dlopen(const char* file, int mode) {
+    if (g_loader_busy) {
+        set_error("dlopen: loader busy");
+
+        return 0;
+    }
+
+    if (file == 0) {
+        set_error("dlopen: null path");
+
+        return 0;
+    }
+
+    const int handle = handle_reserve();
+    if (handle < 0) {
+        set_error("dlopen: handle limit reached");
+
+        return 0;
+    }
+
+    int group[LD_MAX_MODULES];
+    int added[LD_MAX_MODULES];
+    int group_count = 0;
+    int added_count = 0;
+    int root        = -1;
+    int is_new      = 0;
+
+    g_loader_busy = 1;
+
+    if (load_module(file, mode, &root, &is_new) != 0)
+        goto fail;
+
+    if (is_new)
+        added[added_count++] = root;
+
+    if (load_closure(root, mode, group, &group_count, added, &added_count) != 0) {
+        discard_added(added, added_count);
+        goto fail;
+    }
+
+    begin_relocation_scope(group, group_count);
+
+    const int relocation = relocate_added(added, added_count);
+
+    end_relocation_scope();
+
+    if (relocation != 0) {
+        discard_added(added, added_count);
+        set_error("dlopen: relocation failed");
+        goto fail;
+    }
+
+    resolve_ifuncs();
+
+    /* Import slots and IFUNC results are final, and TLS is not in play for
+       dlopen images: harden the new group's RELRO pages before constructors. */
+    apply_relro_added(added, added_count);
+
+    initialize_group(group, group_count, added, added_count);
+
+    for (int i = 0; i < group_count; ++i) {
+        ld_module* module = &g_modules[group[i]];
+
+        ++module->refcount;
+
+        module->pending = 0;
+
+        if ((mode & RTLD_GLOBAL) != 0)
+            module->in_global = 1;
+
+        if ((mode & RTLD_NODELETE) != 0)
+            module->nodelete = 1;
+    }
+
+    struct ld_handle* entry = &g_handles[handle];
+
+    entry->used     = 1;
+    entry->root     = root;
+    entry->refcount = 1;
+    entry->nodelete = (mode & RTLD_NODELETE) != 0;
+    entry->ndeps    = group_count;
+
+    for (int i = 0; i < group_count; ++i) {
+        entry->deps[i] = group[i];
+    }
+
+    g_loader_busy = 0;
+
+    return handle_value(handle);
+
+fail:
+    handle_release(handle);
+
+    g_loader_busy = 0;
+
+    return 0;
+}
+
+int dlclose(void* handle) {
+    if (g_loader_busy) {
+        set_error("dlclose: loader busy");
+
+        return -1;
+    }
+
+    struct ld_handle* entry = handle_from(handle);
+    if (entry == 0) {
+        set_error("dlclose: invalid handle");
+
+        return -1;
+    }
+
+    if (entry->refcount > 1) {
+        --entry->refcount;
+
+        return 0;
+    }
+
+    /* __builtin_return_address(0) here is the caller of dlclose, not this
+       frame; it decides whether the caller still executes inside a module. */
+    const uintptr_t return_address = (uintptr_t) __builtin_return_address(0);
+
+    int       group[LD_MAX_MODULES];
+    int       zero[LD_MAX_MODULES];
+    int       candidate[LD_MAX_MODULES];
+    const int count = entry->ndeps;
+
+    for (int i = 0; i < count; ++i) {
+        group[i]     = entry->deps[i];
+        zero[i]      = 0;
+        candidate[i] = 0;
+    }
+
+    entry->used   = 0;
+    g_loader_busy = 1;
+
+    for (int i = 0; i < count; ++i) {
+        ld_module* module = &g_modules[group[i]];
+
+        if (module->refcount > 0)
+            --module->refcount;
+
+        zero[i] = module->refcount == 0;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        ld_module* module = &g_modules[group[i]];
+
+        if (!zero[i] || !module->used || !module->dynamic)
+            continue;
+
+        if (module->nodelete) {
+            module->in_global = 0;
+            module->pending   = 0;
+
+            continue;
+        }
+
+        if (module_in_live_handle(group[i]))
+            continue;
+
+        if (!unload_safe(module, return_address)) {
+            module->in_global = 0;
+            module->pending   = 1;
+
+            continue;
+        }
+
+        candidate[i] = 1;
+    }
+
+    /* A candidate can still be needed by a used module that is not itself
+       unloadable (NODELETE, another handle, or a startup image).  Remove
+       those until the candidate set is closed. */
+    int changed = 1;
+
+    while (changed) {
+        changed = 0;
+
+        for (int i = 0; i < count; ++i) {
+            if (candidate[i] &&
+                module_referenced_by_non_candidate(group[i], group, count, candidate)) {
+                candidate[i] = 0;
+                changed      = 1;
+            }
+        }
+    }
+
+    /* The group is post-order (dependencies first), so reverse iteration
+       finalizes dependents before their dependencies.  Finalizers run only
+       for the candidate set; the unload decision is revalidated afterwards. */
+    for (int i = count - 1; i >= 0; --i) {
+        if (candidate[i] && !g_modules[group[i]].finalized)
+            run_module_finalizer(&g_modules[group[i]]);
+    }
+
+    for (int i = count - 1; i >= 0; --i) {
+        if (!candidate[i])
+            continue;
+
+        const int index = group[i];
+
+        ld_module* module = &g_modules[index];
+
+        if (module->refcount != 0 || !module->used || !module->dynamic ||
+            module->nodelete || module_in_live_handle(index) ||
+            module_referenced(index) || !unload_safe(module, return_address)) {
+            module->in_global = 0;
+            module->pending   = 1;
+
+            continue;
+        }
+
+        if (astia_dlunmap(module->base) < 0) {
+            module->in_global = 0;
+            module->pending   = 1;
+
+            continue;
+        }
+
+        module->used      = 0;
+        module->in_global = 0;
+        module->pending   = 0;
+        module->finalized = 0;
+    }
+
+    g_loader_busy = 0;
+
+    return 0;
+}
+
+void* dlsym(void* handle, const char* name) {
+    if (g_loader_busy) {
+        set_error("dlsym: loader busy");
+
+        return 0;
+    }
+
+    g_loader_busy = 1;
+
+    if (name == 0) {
+        set_error("dlsym: null name");
+
+        g_loader_busy = 0;
+
+        return 0;
+    }
+
+    uint64_t value = 0;
+
+    int found   = 0;
+    int invalid = 0;
+
+    const struct ld_handle* entry = 0;
+
+    if (handle == RTLD_DEFAULT) {
+        for (int module = 0; module < g_module_count; ++module) {
+            const ld_module* image = &g_modules[module];
+
+            if (!image->used || image->prelinked || !image->in_global)
+                continue;
+
+            if (lookup_symbol_value(image, name, &value)) {
+                found = 1;
+
+                break;
+            }
+        }
+    }
+    else {
+        entry = handle_from(handle);
+        if (entry == 0) {
+            set_error("dlsym: invalid handle");
+
+            invalid = 1;
+        }
+        else if (entry->root >= 0 && entry->root < g_module_count &&
+                 g_modules[entry->root].used &&
+                 lookup_symbol_value(&g_modules[entry->root], name, &value)) {
+            found = 1;
+        }
+        else {
+            for (int i = 0; i < entry->ndeps; ++i) {
+                if (entry->deps[i] == entry->root)
+                    continue;
+
+                const ld_module* image = &g_modules[entry->deps[i]];
+
+                if (!image->used)
+                    continue;
+
+                if (lookup_symbol_value(image, name, &value)) {
+                    found = 1;
+
+                    break;
+                }
+            }
+        }
+    }
+
+    g_loader_busy = 0;
+
+    if (found)
+        return (void*) (uintptr_t) value;
+
+    if (!invalid)
+        set_error_path("dlsym: symbol not found: ", name);
+
+    return 0;
+}
+
+char* dlerror(void) {
+    if (!g_error_set)
+        return 0;
+
+    g_error_set = 0;
+
+    return g_error;
+}
+
+int dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* data) {
+    if (callback == 0)
+        return 0;
+
+    for (int module = 0; module < g_module_count; ++module) {
+        const ld_module* image = &g_modules[module];
+
+        if (!image->used)
+            continue;
+
+        struct dl_phdr_info info = {
+            .dlpi_addr      = image->base,
+            .dlpi_name      = image->name,
+            .dlpi_phdr      = image->phdr,
+            .dlpi_phnum     = (uint16_t) image->phnum,
+            .dlpi_adds      = 0,
+            .dlpi_subs      = 0,
+            .dlpi_tls_modid = 0,
+            .dlpi_tls_data  = 0,
+        };
+
+        const int result = callback(&info, sizeof info, data);
+
+        if (result != 0)
+            return result;
+    }
+
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -690,23 +1718,35 @@ static int payload_base(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t at_phdr
     return -1;
 }
 
-static int build_path(char* out, const char* name) {
-    static const char prefix[] = "/lib/";
-    unsigned long     size     = sizeof(prefix) - 1;
+static int interpreter_module(uint64_t base) {
+    const Elf64_Ehdr* header = (const Elf64_Ehdr*) (uintptr_t) base;
 
-    if (name == 0 || size + ld_strlen(name) + 1 > LD_PATH_MAX)
+    if (header->e_ident[0] != 0x7f || header->e_ident[1] != 'E' ||
+        header->e_ident[2] != 'L' || header->e_ident[3] != 'F' ||
+        header->e_phentsize != sizeof(Elf64_Phdr) || header->e_phnum == 0)
         return -1;
 
-    for (unsigned long i = 0; i < size; ++i) {
-        out[i] = prefix[i];
-    }
+    if (g_module_count == LD_MAX_MODULES)
+        return -1;
 
-    for (unsigned long i = 0;; ++i) {
-        out[size + i] = name[i];
+    ld_module* module = &g_modules[g_module_count];
 
-        if (name[i] == '\0')
-            return 0;
-    }
+    const Elf64_Phdr* phdr = (const Elf64_Phdr*) (uintptr_t) (base + header->e_phoff);
+
+    if (module_init(module, base, phdr, header->e_phnum) != 0)
+        return -1;
+
+    module->used      = 1;
+    module->startup   = 1;
+    module->prelinked = 1;
+    module->refcount  = 1;
+    module->in_global = 1;
+
+    (void) copy_bounded(module->name, "/lib/ld.astia.so");
+
+    ++g_module_count;
+
+    return 0;
 }
 
 __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
@@ -714,6 +1754,7 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t* at_phnum = auxv_value(sp, AT_PHNUM);
     const uint64_t* at_phent = auxv_value(sp, AT_PHENT);
     const uint64_t* at_entry = auxv_value(sp, AT_ENTRY);
+    const uint64_t* at_base  = auxv_value(sp, AT_BASE);
 
     if (at_phdr == 0 || at_phnum == 0 || at_phent == 0 || at_entry == 0 ||
         *at_phent != sizeof(Elf64_Phdr) || *at_phnum == 0)
@@ -722,10 +1763,6 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const Elf64_Phdr* phdr  = (const Elf64_Phdr*) (uintptr_t) *at_phdr;
     const uint32_t    phnum = (uint32_t) *at_phnum;
 
-    ld_module modules[LD_MAX_MODULES];
-
-    int count = 0;
-
     const uint64_t* at_tls_base  = auxv_value(sp, AT_ASTIA_TLS_BASE);
     const uint64_t* at_tls_tp    = auxv_value(sp, AT_ASTIA_TLS_TP);
     const uint64_t* at_tls_limit = auxv_value(sp, AT_ASTIA_TLS_LIMIT);
@@ -733,27 +1770,32 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t  tls_tp       = at_tls_tp != 0 ? *at_tls_tp : 0;
     const uint64_t  tls_limit    = at_tls_limit != 0 ? *at_tls_limit : 0;
 
-    const uint64_t* at_base = auxv_value(sp, AT_ASTIA_PAYLOAD_BASE);
-    uint64_t        base    = 0;
+    const uint64_t* at_payload_base = auxv_value(sp, AT_ASTIA_PAYLOAD_BASE);
+    uint64_t        base            = 0;
 
-    if (payload_base(phdr, phnum, *at_phdr, at_base, &base) != 0)
+    if (payload_base(phdr, phnum, *at_phdr, at_payload_base, &base) != 0)
         astia_exit(115);
 
-    if (module_init(&modules[count++], base, phdr, phnum) != 0)
+    if (module_init(&g_modules[g_module_count++], base, phdr, phnum) != 0)
         astia_exit(111);
+
+    g_modules[0].used      = 1;
+    g_modules[0].startup   = 1;
+    g_modules[0].refcount  = 1;
+    g_modules[0].in_global = 1;
 
     /* Breadth-first over DT_NEEDED.  dlmap is identity-keyed, so a second
        request for an already-mapped image returns the same base; comparing
        bases deduplicates diamond dependencies without a name list. */
-    for (int module = 0; module < count; ++module) {
-        for (const Elf64_Dyn* entry = modules[module].dynamic; entry->d_tag != DT_NULL;
-             ++entry) {
+    for (int module = 0; module < g_module_count; ++module) {
+        for (const Elf64_Dyn* entry = g_modules[module].dynamic_section;
+             entry->d_tag != DT_NULL; ++entry) {
             if (entry->d_tag != DT_NEEDED)
                 continue;
 
             char path[LD_PATH_MAX];
 
-            if (build_path(path, modules[module].strtab + entry->d_val) != 0)
+            if (build_path(path, g_modules[module].strtab + entry->d_val) != 0)
                 astia_exit(112);
 
             const long fd = ld_open(path);
@@ -771,52 +1813,71 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
 
             int seen = 0;
 
-            for (int i = 0; i < count; ++i) {
-                if (modules[i].base == info.base)
+            for (int i = 0; i < g_module_count; ++i) {
+                if (g_modules[i].base == info.base)
                     seen = 1;
             }
 
             if (seen)
                 continue;
 
-            if (count == LD_MAX_MODULES)
+            if (g_module_count == LD_MAX_MODULES)
                 astia_exit(116);
 
-            if (module_init(&modules[count], info.base,
-                            (const Elf64_Phdr*) (uintptr_t) info.phdr, info.phnum) != 0)
+            ld_module* loaded = &g_modules[g_module_count];
+
+            if (module_init(loaded, info.base, (const Elf64_Phdr*) (uintptr_t) info.phdr,
+                            info.phnum) != 0)
                 astia_exit(127);
 
-            ++count;
+            loaded->used      = 1;
+            loaded->startup   = 1;
+            loaded->refcount  = 1;
+            loaded->in_global = 1;
+            loaded->span      = info.span;
+            loaded->phdr      = (const Elf64_Phdr*) (uintptr_t) info.phdr;
+            loaded->phnum     = info.phnum;
+
+            set_module_name(loaded, path);
+
+            ++g_module_count;
         }
     }
 
-    if (layout_tls(modules, count, tls_base, tls_tp, tls_limit) != 0)
+    if (at_base == 0 || *at_base == 0 || interpreter_module(*at_base) != 0)
+        astia_exit(117);
+
+    if (layout_tls(g_modules, g_module_count, tls_base, tls_tp, tls_limit) != 0)
         astia_exit(119);
 
     /* Now that every image is mapped, resolve each one's relocations. */
-    for (int module = 0; module < count; ++module) {
-        const int rela = apply_rela(&modules[module], modules[module].rela,
-                                    modules[module].rela_size, modules, count);
+    for (int module = 0; module < g_module_count; ++module) {
+        if (g_modules[module].prelinked)
+            continue;
+
+        const int rela = apply_rela(&g_modules[module], g_modules[module].rela,
+                                    g_modules[module].rela_size);
         if (rela != 0)
             astia_exit(120 + rela);
 
-        const int plt = apply_rela(&modules[module], modules[module].jmprel,
-                                   modules[module].pltrel_size, modules, count);
+        const int plt = apply_rela(&g_modules[module], g_modules[module].jmprel,
+                                   g_modules[module].pltrel_size);
         if (plt != 0)
             astia_exit(130 + plt);
     }
 
-    copy_tls_templates(modules, count, tls_tp);
+    copy_tls_templates(g_modules, g_module_count, tls_tp);
 
     resolve_ifuncs();
 
     /* Relocations, IFUNC slots and TLS writes are complete: harden the RELRO
        pages before any constructor of any module runs. */
-    apply_relro(modules, count);
+    apply_relro(g_modules, g_module_count);
 
     const int argc = (int) sp[0];
 
-    run_initializers(modules, count, argc, (char**) &sp[1], (char**) &sp[1] + argc + 1);
+    run_initializers(g_modules, g_module_count, argc, (char**) &sp[1],
+                     (char**) &sp[1] + argc + 1);
 
     return *at_entry;
 }

@@ -110,6 +110,7 @@ class GenerateTest(unittest.TestCase):
         'getrandom': 'kernel/src/proc/syscalls/getrandom.cpp',
         'chroot': 'kernel/src/proc/syscalls/process/chroot.cpp',
         'power': 'kernel/src/proc/syscalls/power.cpp',
+        'thread_count': 'kernel/include/astia/api/syscalls.h',
     }
     EXPECTED_TAXONOMY = {
         'io_setup': ('fs', 'fs'),
@@ -189,9 +190,10 @@ class GenerateTest(unittest.TestCase):
         'getrandom': ('proc', 'core'),
         'chroot': ('proc', 'process'),
         'power': ('proc', 'core'),
+        'thread_count': ('abi', 'abi'),
     }
     EXPECTED_SHARED_SOURCES = {
-        'kernel/include/astia/api/syscalls.h': 26,
+        'kernel/include/astia/api/syscalls.h': 27,
         'kernel/src/proc/process.hpp': 8,
         'kernel/src/proc/proc.cpp': 2,
     }
@@ -222,7 +224,7 @@ class GenerateTest(unittest.TestCase):
         }
         self.assertEqual([(page["id"], page["name"]) for page in docs.section2], canonical)
         self.assertEqual(docs.section2[0]["id"], 0)
-        self.assertEqual(docs.section2[-1]["id"], 79)
+        self.assertEqual(docs.section2[-1]["id"], 80)
         slugs = [page["slug"] for page in docs.section2]
         self.assertEqual(len(slugs), len(set(slugs)))
         for page in docs.section2:
@@ -288,7 +290,7 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(shared, self.EXPECTED_SHARED_SOURCES)
         self.assertEqual(set(counts), set(self.EXPECTED_SOURCES.values()))
         self.assertEqual(len(set(self.EXPECTED_SOURCES.values())), 47)
-        self.assertEqual(len(docs.section2), 80)
+        self.assertEqual(len(docs.section2), 81)
 
     def test_section7_authored_pages_and_aliases_are_exact(self):
         docs = docs_manifest.load_authored_docs(REPO_ROOT)
@@ -335,7 +337,7 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(
             counts,
             Counter({
-                ("abi", "abi"): 25,
+                ("abi", "abi"): 26,
                 ("dl", "dl"): 2,
                 ("mod", "mod"): 4,
                 ("fs", "fs"): 6,
@@ -368,7 +370,7 @@ class GenerateTest(unittest.TestCase):
                 "proc/thread",
             },
         )
-        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 80)
+        self.assertEqual(len({page["sourcePath"] for page in docs.section2}), 81)
 
     def test_manifest_has_no_markdown_bodies(self):
         manifest = json.loads((REPO_ROOT / "docs/manifest.json").read_text())
@@ -436,7 +438,7 @@ class GenerateTest(unittest.TestCase):
             )
             manifest = json.loads((root / "section2/manifest.json").read_text())
             docs = docs_manifest.load_authored_docs(REPO_ROOT)
-            self.assertEqual(manifest["count"], 80)
+            self.assertEqual(manifest["count"], 81)
             for page in docs.section2:
                 exported = (root / "section2" / f"{page['slug']}.md").read_text()
                 authored = (REPO_ROOT / page["sourcePath"]).read_text()
@@ -510,7 +512,7 @@ class GenerateTest(unittest.TestCase):
             self.assertEqual(parser.parents["fs"], ())
             self.assertEqual(parser.parents["abi"], ())
             self.assertEqual(parser.links["fs"], 6)
-            self.assertEqual(parser.links["abi"], 25)
+            self.assertEqual(parser.links["abi"], 26)
             self.assertEqual(parser.links["mod"], 4)
 
     def test_export_fallback_source_paths_follow_the_taxonomy_layout(self):

@@ -16,7 +16,8 @@ add_library(ld_astia SHARED
 target_include_directories(ld_astia PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/arch/${ASTIA_DL_ARCH}
-        ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include)
+        ${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../libc/include)
 
 target_compile_options(ld_astia PRIVATE
         -ffreestanding -fno-stack-protector -fno-plt -fno-builtin
