@@ -100,7 +100,7 @@ int main() {
     assert(packet.view.second.length == 7);
     assert(packet.view.first.data[0] == 1);
     assert(packet.view.second.data[6] == 8);
-    assert(packet.view.next_offset == 14);
+    assert(packet.view.next_offset == 12);
     assert(capr_for_cursor(0) == rx_ring_size - 16);
 
     ring[cursor]                             = 0;

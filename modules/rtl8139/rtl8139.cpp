@@ -1,7 +1,10 @@
+#include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
+#include <astia/arch/timer.hpp>
 #include <astia/atomic.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
+#include <astia/core/timer.hpp>
 #include <astia/module.hpp>
 #include <astia/net/bus.hpp>
 #include <astia/net/registry.hpp>
@@ -38,11 +41,18 @@ namespace {
         tx_ring                   _tx_ring;
         astia::module::msix_route _irq_route{};
         net_device                _net_device{"rtl8139", this};
-        device_state              _state      = device_state::detached;
-        bool                      _irq_active = false;
-        uint64_t                  _generation = 1;
-        astia::core::spinlock     _process{};
-        unsigned                  _tx_selftest_reclaimed = 0;
+        device_state              _state           = device_state::detached;
+        static constexpr unsigned poll_interval_ms = 1;
+
+        bool                              _irq_active  = false;
+        bool                              _intx_active = false;
+        uint8_t                           _irq_line    = 0;
+        static inline rtl8139_controller* _intx_owner  = nullptr;
+        bool                              _polling     = false;
+        uint64_t                          _generation  = 1;
+        astia::core::spinlock             _process{};
+        unsigned                          _tx_selftest_reclaimed = 0;
+        uint32_t                          _tx_next               = 0;
 
         static void tx_selftest_reclaim(void* context, const tx_request*, int status) {
             auto* controller = static_cast<rtl8139_controller*>(context);
@@ -93,7 +103,56 @@ namespace {
             return true;
         }
 
+        bool request_intx() {
+            if (_pci == nullptr || _pci->interrupt_line > 15 || _pci->interrupt_pin == 0)
+                return false;
+
+            if (!astia::arch::register_irq_handler(_pci->interrupt_line,
+                                                   &rtl8139_controller::intx_entry,
+                                                   &rtl8139_controller::intx_enter,
+                                                   &rtl8139_controller::intx_leave, this))
+                return false;
+
+            const uint16_t command = astia::module::pci_read16(*_pci, 0x04);
+
+            (void) astia::module::pci_write16(
+                *_pci, 0x04, static_cast<uint16_t>(command & ~(1u << 10)));
+
+            if (!astia::arch::route_irq(_pci->interrupt_line) ||
+                !astia::arch::unmask_irq_handler(_pci->interrupt_line)) {
+                (void) astia::arch::unregister_irq_handler(_pci->interrupt_line);
+
+                return false;
+            }
+
+            _irq_line    = _pci->interrupt_line;
+            _intx_active = true;
+            _intx_owner  = this;
+
+            return true;
+        }
+
+        static bool intx_enter(void* context) {
+            const auto* self = static_cast<const rtl8139_controller*>(context);
+
+            return self != nullptr && self->_state != device_state::detached;
+        }
+
+        static void intx_leave(void*) {}
+
+        static void intx_entry() {
+            if (_intx_owner != nullptr)
+                _intx_owner->interrupt();
+        }
+
         bool request_irq() {
+            if (request_intx())
+                return true;
+
+            return request_msix();
+        }
+
+        bool request_msix() {
             if (_pci == nullptr || !_pci->interrupt.msix)
                 return false;
 
@@ -115,7 +174,53 @@ namespace {
             return true;
         }
 
+        void stop_polling() {
+            if (!_polling)
+                return;
+
+            (void) astia::core::detail::disarm_timer(this);
+
+            _polling = false;
+        }
+
+        void start_polling() {
+            if (_polling || _state == device_state::detached)
+                return;
+
+            const astia::u32 hz = astia::arch::timer_hz();
+            if (hz == 0)
+                return;
+
+            astia::u64 ticks =
+                (static_cast<astia::u64>(poll_interval_ms) * hz + 999) / 1000;
+            if (ticks == 0)
+                ticks = 1;
+
+            if (astia::core::detail::arm_timer_callback(
+                    this, &rtl8139_controller::poll_entry, ticks))
+                _polling = true;
+        }
+
+        static void poll_entry(void* context) {
+            auto* self = static_cast<rtl8139_controller*>(context);
+
+            self->_polling = false; // the one-shot timer has fired
+
+            self->service_polled();
+            self->start_polling();
+        }
+
         void release_irq() {
+            stop_polling();
+
+            if (_intx_active) {
+                (void) astia::arch::unregister_irq_handler(_irq_line);
+
+                _irq_line    = 0;
+                _intx_active = false;
+                _intx_owner  = nullptr;
+            }
+
             if (!_irq_active)
                 return;
 
@@ -219,10 +324,6 @@ namespace {
             }
         }
 
-        int available_tx_slot() const {
-            return _tx_ring.available();
-        }
-
         /// Called with `_process` held: stops the transmitter and aborts
         /// every descriptor the device may still be DMA-ing from.
         void quiesce_tx_locked() {
@@ -309,6 +410,11 @@ namespace {
 
             _state = request_irq() ? device_state::running : device_state::probed_no_irq;
 
+            if (_state == device_state::probed_no_irq) {
+                astia::module::log("rtl8139", "polling rx fallback");
+                start_polling();
+            }
+
             astia::module::log("rtl8139", "probe ok");
 
             return 0;
@@ -345,8 +451,11 @@ namespace {
 
             tx_request request{};
 
-            while (available_tx_slot() >= 0 && _net_device.tx().dequeue(request)) {
-                const unsigned slot_index = static_cast<unsigned>(available_tx_slot());
+            // The device starts the descriptor at its own cursor and advances
+            // on success; writing descriptors out of order stalls the queue.
+            while (_tx_ring.state(_tx_next) == tx_slot_state::free &&
+                   _net_device.tx().dequeue(request)) {
+                const unsigned slot_index = _tx_next;
 
                 if (!_tx_ring.claim(slot_index, request))
                     break;
@@ -359,6 +468,9 @@ namespace {
                     offset_for(static_cast<uint16_t>(register_offset::tx_status0) +
                                slot_index * 4u),
                     request.length);
+
+                _tx_next = (_tx_next + 1u) % astia::rtl8139::tx_descriptor_count;
+
                 ++submitted;
             }
 
@@ -371,28 +483,34 @@ namespace {
             return _net_device.tx().poll();
         }
 
+        /// Legacy/no-MSI path: the chip raises no usable ISR bits, so service
+        /// RX and TX from the poll tick directly.
+        void service_polled() {
+            if (_state == device_state::detached)
+                return;
+
+            drain_rx_irq();
+            drain_tx_irq();
+            (void) service_tx();
+            (void) poll_completions();
+        }
+
         void interrupt() {
-            if (_state != device_state::running)
+            if (_state != device_state::running && _state != device_state::probed_no_irq)
                 return;
 
             const uint16_t status = _registers.read16(register_offset::interrupt_status);
 
-            if (status == 0 || status == 0xffff)
-                return;
+            if (status != 0 && status != 0xffff)
+                _registers.write16(register_offset::interrupt_status, status);
 
-            _registers.write16(register_offset::interrupt_status, status);
-
-            if ((status &
-                 (astia::rtl8139::interrupt_rx_ok | astia::rtl8139::interrupt_rx_error |
-                  astia::rtl8139::interrupt_rx_overflow |
-                  astia::rtl8139::interrupt_fifo_overflow)) != 0)
-                drain_rx_irq();
-
-            if ((status & (astia::rtl8139::interrupt_tx_ok |
-                           astia::rtl8139::interrupt_tx_error)) != 0) {
-                drain_tx_irq();
-                (void) service_tx();
-            }
+            // Drain from the ring cursors, not only from the status bits: a
+            // packet can arrive between the status read and the ack write,
+            // and its bit would be cleared without being serviced.
+            drain_rx_irq();
+            drain_tx_irq();
+            (void) service_tx();
+            (void) poll_completions();
         }
 
         int reset_process() {
@@ -426,6 +544,9 @@ namespace {
                 _state =
                     request_irq() ? device_state::running : device_state::probed_no_irq;
 
+                if (_state == device_state::probed_no_irq)
+                    start_polling();
+
                 _net_device.tx().set_quiesce(&rtl8139_controller::quiesce_tx, this);
                 _net_device.tx().set_kick(&rtl8139_controller::kick_tx, this);
             }
@@ -451,6 +572,7 @@ namespace {
 
                 _pci       = nullptr;
                 _registers = {};
+                _tx_next   = 0;
 
                 _state = device_state::detached;
             }
@@ -514,6 +636,8 @@ namespace {
             _net_device.initialize("rtl8139", this);
             _rx_ring.initialize();
             _tx_ring.initialize();
+
+            _tx_next = 0;
         }
 
         net_device* device() {

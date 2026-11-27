@@ -117,9 +117,8 @@ namespace astia::rtl8139 {
                 return 0xffff;
 
             const uint16_t address = static_cast<uint16_t>(offset);
-            const uint8_t  bytes[] = {_base[address], _base[address + 1]};
 
-            return le16(bytes);
+            return *reinterpret_cast<volatile const uint16_t*>(_base + address);
         }
 
         uint32_t read32(register_offset offset) const {
@@ -127,10 +126,8 @@ namespace astia::rtl8139 {
                 return 0xffffffffu;
 
             const uint16_t address = static_cast<uint16_t>(offset);
-            const uint8_t  bytes[] = {_base[address], _base[address + 1],
-                                      _base[address + 2], _base[address + 3]};
 
-            return le32(bytes);
+            return *reinterpret_cast<volatile const uint32_t*>(_base + address);
         }
 
         void write8(register_offset offset, uint8_t value) const {
@@ -144,8 +141,7 @@ namespace astia::rtl8139 {
 
             const uint16_t address = static_cast<uint16_t>(offset);
 
-            _base[address]     = static_cast<uint8_t>(value);
-            _base[address + 1] = static_cast<uint8_t>(value >> 8);
+            *reinterpret_cast<volatile uint16_t*>(_base + address) = value;
         }
 
         void write32(register_offset offset, uint32_t value) const {
@@ -154,10 +150,7 @@ namespace astia::rtl8139 {
 
             const uint16_t address = static_cast<uint16_t>(offset);
 
-            _base[address]     = static_cast<uint8_t>(value);
-            _base[address + 1] = static_cast<uint8_t>(value >> 8);
-            _base[address + 2] = static_cast<uint8_t>(value >> 16);
-            _base[address + 3] = static_cast<uint8_t>(value >> 24);
+            *reinterpret_cast<volatile uint32_t*>(_base + address) = value;
         }
     };
 
@@ -240,9 +233,9 @@ namespace astia::rtl8139 {
         result.view.length = payload_length;
         result.view.wire_length = wire_length;
         result.view.ring_offset = cursor;
-        result.view.next_offset = ring_offset(static_cast<uint32_t>(cursor) +
-                                              rx_header_size + wire_length + 3u);
-        result.view.status      = status;
+        result.view.next_offset = ring_offset(
+            (static_cast<uint32_t>(cursor) + rx_header_size + wire_length + 3u) & ~3u);
+        result.view.status = status;
 
         return rx_inspect_result::ready;
     }
