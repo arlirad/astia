@@ -18,17 +18,31 @@ namespace {
 }
 
 namespace astia::dev {
-    constinit pio_bus              uart16550_platform_pio{nullptr,
+    constinit pio_bus uart16550_platform_pio{nullptr,
                                              arch::x86_64::pio_read8,
                                              arch::x86_64::pio_read16,
                                              arch::x86_64::pio_read32,
                                              arch::x86_64::pio_write8,
                                              arch::x86_64::pio_write16,
                                              arch::x86_64::pio_write32};
-    constinit const io_port_window platform_input_ports{input_pio, 0x60, 0x64};
 
-    const io_port_window& platform_input_window() {
-        return platform_input_ports;
+    // Platform resource policy: the legacy byte-PIO ranges this platform is
+    // willing to grant to a module. They describe what may be delegated, not
+    // which device uses them.
+    constexpr io_window_grant granted_io_windows[] = {
+        {0x60, 0x64},
+    };
+
+    io_port_window claim_io_window(u16 first, u16 last) {
+        constexpr usize grant_count =
+            sizeof(granted_io_windows) / sizeof(granted_io_windows[0]);
+
+        if (!io_window_is_granted(
+                first, last,
+                span<const io_window_grant>(granted_io_windows, grant_count)))
+            return {};
+
+        return io_port_window{input_pio, first, last};
     }
 } // namespace astia::dev
 

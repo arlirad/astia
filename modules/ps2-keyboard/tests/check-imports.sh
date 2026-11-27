@@ -18,7 +18,7 @@ _ZN5astia3dev9irq_route5claimEPFvvE
 _ZN5astia3dev9irq_route6unmaskEv
 _ZN5astia3dev9irq_route7releaseEv
 _ZN5astia3dev15tty_input_writeEh
-_ZN5astia3dev21platform_input_windowEv
+_ZN5astia3dev15claim_io_windowEtt
 memcpy
 memset
 memmove'
@@ -37,7 +37,7 @@ for required in \
     _ZN5astia3dev9irq_route5claimEPFvvE \
     _ZN5astia3dev9irq_route6unmaskEv \
     _ZN5astia3dev15tty_input_writeEh \
-    _ZN5astia3dev21platform_input_windowEv \
+    _ZN5astia3dev15claim_io_windowEtt \
     _ZN5astia6module13make_residentEv; do
     if ! printf '%s\n' "$symbols" | grep -qxF "$required"; then
         printf 'missing required module import: %s\n' "$required" >&2

@@ -3,6 +3,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
+#include <astia/span.hpp>
 
 namespace astia::dev {
     struct pio_reader {
@@ -246,8 +247,32 @@ namespace astia::dev {
         u16            _last  = 0;
     };
 
-    /// The platform's narrow PIO window for the boot input controller.
-    const io_port_window& platform_input_window();
+    /// One range the platform policy is willing to grant as a PIO window.
+    struct io_window_grant {
+        u16 first = 0;
+        u16 last  = 0;
+    };
+
+    /// True when [first, last] is non-empty and fully inside one granted range.
+    constexpr bool io_window_is_granted(u16 first, u16 last,
+                                        span<const io_window_grant> grants) {
+        if (first > last)
+            return false;
+
+        for (usize i = 0; i < grants.size(); ++i) {
+            const io_window_grant& grant = grants.data()[i];
+
+            if (first >= grant.first && last <= grant.last)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// Request a granted byte-PIO window. The platform grants only ranges in
+    /// its resource policy; any other request yields an invalid window. The
+    /// returned window refuses every access outside [first, last].
+    io_port_window claim_io_window(u16 first, u16 last);
 
     using irq_handler = void (*)();
 
