@@ -20,7 +20,6 @@ namespace astia::proc::syscalls {
             }
 
             auto* process = current_process();
-
             if (process == nullptr)
                 return -ESRCH;
 

@@ -9,6 +9,7 @@
 namespace {
     void reset_host() {
         astia::proc::host_test::process_present = true;
+
         astia::acpi::host_test::reset();
         (void) astia::proc::current_process()->seteuid(0);
     }
@@ -36,6 +37,7 @@ ASTIA_TEST(power_syscall_ids_and_operation_values_are_canonical) {
 ASTIA_TEST(power_syscall_rejects_unknown_operation_before_authorization) {
     reset_host();
     set_root(false);
+
     astia::proc::host_test::process_present = false;
 
     ASTIA_CHECK(call_power(3) == -EINVAL);
@@ -44,6 +46,7 @@ ASTIA_TEST(power_syscall_rejects_unknown_operation_before_authorization) {
 
 ASTIA_TEST(power_syscall_requires_a_current_process) {
     reset_host();
+
     astia::acpi::host_test::shutdown_ready  = true;
     astia::proc::host_test::process_present = false;
 
@@ -57,6 +60,7 @@ ASTIA_TEST(power_syscall_requires_a_current_process) {
 ASTIA_TEST(power_syscall_requires_root) {
     reset_host();
     set_root(false);
+
     astia::acpi::host_test::shutdown_ready = true;
     astia::acpi::host_test::reboot_ready   = true;
 
@@ -108,6 +112,7 @@ ASTIA_TEST(power_syscall_reboot_maps_support_and_dispatch_results) {
 ASTIA_TEST(power_syscall_suspend_is_explicitly_unsupported) {
     reset_host();
     set_root(true);
+
     astia::acpi::host_test::shutdown_ready = true;
     astia::acpi::host_test::reboot_ready   = true;
 

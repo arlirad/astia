@@ -829,12 +829,16 @@ namespace {
         u8* fadt = target.data.bytes + fadt_offset;
 
         store_u32(fadt + 112, supported ? 1u << 10 : 0);
+
         fadt[116] = space;
         fadt[117] = 8;
         fadt[118] = 0;
         fadt[119] = 1;
+
         store_u64(fadt + 120, address);
+
         fadt[128] = value;
+
         checksum_table(fadt, 244);
 
         target.tables.fadt = {
@@ -857,6 +861,7 @@ namespace {
 
         log->io_port  = port;
         log->io_value = value;
+
         ++log->io_count;
 
         return true;
@@ -867,6 +872,7 @@ namespace {
 
         log->memory_address = address;
         log->memory_value   = value;
+
         ++log->memory_count;
 
         return true;
@@ -1032,7 +1038,9 @@ ASTIA_TEST(acpi_power_reset_register_requires_supported_flag_and_valid_fields) {
     ASTIA_CHECK(error == astia::acpi::detail::power_error::invalid_reset);
 
     make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e);
+
     target.data.bytes[fadt_offset + 117] = 16;
+
     checksum_table(target.data.bytes + fadt_offset, 244);
 
     ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
@@ -1080,6 +1088,7 @@ ASTIA_TEST(acpi_power_reset_plan_is_independent_of_aml) {
     table_image target;
 
     make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e);
+
     target.tables.dsdt = {
         astia::span<const u8>(truncated_aml, sizeof(truncated_aml)),
         image_base + dsdt_offset,
