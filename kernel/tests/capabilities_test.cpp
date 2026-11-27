@@ -180,5 +180,27 @@ int main() {
     assert(!claim_only.claim(nullptr));
     assert(!claim_only.unmask());
 
+    constexpr astia::dev::io_window_grant                grants[] = {{0x60, 0x64}};
+    const astia::span<const astia::dev::io_window_grant> policy{grants, 1};
+
+    assert(astia::dev::io_window_is_granted(0x60, 0x64, policy));
+    assert(astia::dev::io_window_is_granted(0x61, 0x63, policy));
+    assert(!astia::dev::io_window_is_granted(0x5F, 0x64, policy));
+    assert(!astia::dev::io_window_is_granted(0x60, 0x65, policy));
+    assert(!astia::dev::io_window_is_granted(0x70, 0x72, policy));
+    assert(!astia::dev::io_window_is_granted(0x64, 0x60, policy));
+
+    astia::dev::io_port_window window{pio, 0x60, 0x64};
+    astia::u8                  value = 0;
+
+    assert(window.valid());
+    assert(window.read8(0x60, value));
+    assert(bus.port == 0x60);
+    assert(window.write8(0x64, 0x33));
+    assert(bus.port == 0x64);
+    assert(!window.read8(0x5F, value));
+    assert(!window.write8(0x65, 0x44));
+    assert(!window.read8(0xFFFF, value));
+
     return 0;
 }
