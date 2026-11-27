@@ -80,7 +80,7 @@ namespace astia::mm {
     }
 
     void* pinned_buffer::direct(usz index) const {
-        return _region == nullptr ? nullptr : _region->page_direct(_first + index);
+        return has_page(index) ? _region->page_direct(_first + index) : nullptr;
     }
 
     bool pinned_buffer::contiguous() const {
@@ -102,8 +102,10 @@ namespace astia::mm {
     }
 
     u64 pinned_buffer::phys(usz index) const {
-        return _region == nullptr ? 0
-                                  : _region->base() + static_cast<u64>(_first + index) *
-                                                          phys_region::frame_size;
+        if (!has_page(index))
+            return frame_allocator::invalid_frame;
+
+        return _region->base() +
+               static_cast<u64>(_first + index) * phys_region::frame_size;
     }
 } // namespace astia::mm

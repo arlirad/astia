@@ -72,13 +72,20 @@ namespace astia::mm {
         }
 
         /// Kernel address of page `index` — what a device should be handed.
+        /// nullptr for an index outside [0, pages()).
         void* direct(usz index = 0) const;
 
         /// Physical address of page `index`, for a device that programs its
-        /// own DMA.
+        /// own DMA.  frame_allocator::invalid_frame for an index outside
+        /// [0, pages()) — the index is checked before the page arithmetic,
+        /// so a rejected access never names a frame, not even a wrapped one.
         u64 phys(usz index = 0) const;
 
         private:
+        bool has_page(usz index) const {
+            return _region != nullptr && index < _count;
+        }
+
         phys_region* _region      = nullptr;
         usz          _first       = 0;
         usz          _count       = 0;
