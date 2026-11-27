@@ -107,31 +107,45 @@ namespace astia::mm {
     // is NULL here, so each probe is a test failure, never a real answer.
     bool address_space::attached() const {
         ++address_space_probes;
+
         return false;
     }
+
     bool address_space::valid_user_range(u64, usize) const {
         ++address_space_probes;
+
         return false;
     }
+
     bool address_space::validate(u64, usize, access) const {
         ++address_space_probes;
+
         return false;
     }
+
     bool address_space::writable(vaddr_t) const {
         ++address_space_probes;
+
         return false;
     }
+
     paddr_t address_space::translate(vaddr_t) const {
         ++address_space_probes;
+
         return 0;
     }
+
     bool address_space::user_accessible(vaddr_t) const {
         ++address_space_probes;
+
         return false;
     }
+
     frame_allocator& kernel_frames() {
         ++address_space_probes;
+
         static frame_allocator instance;
+
         return instance;
     }
 } // namespace astia::mm
@@ -139,6 +153,7 @@ namespace astia::mm {
 namespace astia::proc {
     bool process::cow_fault(u64, bool) {
         ++address_space_probes;
+
         return false;
     }
 } // namespace astia::proc
@@ -156,6 +171,7 @@ ASTIA_TEST(clock_getres_accepts_every_clock_id_clock_gettime_accepts) {
         ASTIA_CHECK(res.tv_sec == 0);
         ASTIA_CHECK(res.tv_nsec == 10000000);
     }
+
     ASTIA_CHECK(address_space_probes == 0);
 }
 
@@ -167,6 +183,7 @@ ASTIA_TEST(clock_getres_boottime_matches_monotonic_resolution) {
 
     for (astia::usize i = 0; i < sizeof rates / sizeof rates[0]; ++i) {
         set_timer(rates[i], 0);
+
         astia_timespec monotonic = {garbage, garbage};
         astia_timespec boottime  = {garbage, garbage};
         astia_timespec realtime  = {garbage, garbage};
@@ -186,6 +203,7 @@ ASTIA_TEST(clock_gettime_boottime_reads_the_monotonic_tick_source) {
     // Pins the gettime side of the pair: BOOTTIME is the clock getres must
     // now describe, and it is the monotonic count (no suspend exists yet).
     set_timer(100, 1234);
+
     astia_timespec monotonic = {garbage, garbage};
     astia_timespec boottime  = {garbage, garbage};
 
@@ -199,8 +217,10 @@ ASTIA_TEST(clock_gettime_boottime_reads_the_monotonic_tick_source) {
 ASTIA_TEST(clock_getres_null_output_succeeds_for_every_supported_clock) {
     set_timer(100, 0);
 
-    for (const astia::i32 clock_id : supported_clocks)
+    for (const astia::i32 clock_id : supported_clocks) {
         ASTIA_CHECK(getres(clock_id, nullptr) == 0);
+    }
+
     ASTIA_CHECK(address_space_probes == 0);
 }
 
@@ -237,6 +257,7 @@ ASTIA_TEST(clock_getres_reports_eio_before_the_timer_runs) {
 ASTIA_TEST(clock_getres_state_after_error_is_clean) {
     // A rejected ID must not poison the next valid call.
     set_timer(100, 0);
+
     astia_timespec res = {garbage, garbage};
 
     ASTIA_CHECK(getres(3, &res) == -EINVAL);
