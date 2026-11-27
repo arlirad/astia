@@ -905,6 +905,18 @@ int main(void) {
     char* grep_inverted[]          = {"grep", "-v", "beta", NULL};
     char* grep_none[]              = {"grep", "missing", NULL};
     char* grep_missing[]           = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
+    char* grep_dot[]               = {"grep", "a.c", NULL};
+    char* grep_escaped_dot[]       = {"grep", "a\\.c", NULL};
+    char* grep_star[]              = {"grep", "ab*c", NULL};
+    char* grep_anchor_start[]      = {"grep", "^root", NULL};
+    char* grep_anchor_end[]        = {"grep", "root$", NULL};
+    char* grep_bracket[]           = {"grep", "[0-9]", NULL};
+    char* grep_interval[]          = {"grep", "a\\{2\\}", NULL};
+    char* grep_backref[]           = {"grep", "\\(ab\\)\\1", NULL};
+    char* grep_empty_line[]        = {"grep", "^$", NULL};
+    char* grep_invalid[]           = {"grep", "a\\", NULL};
+    char* grep_insensitive_dot[]   = {"grep", "-i", "A.C", NULL};
+    char* grep_help[]              = {"grep", "--help", NULL};
     char* sort_stdin[]             = {"sort", NULL};
     char* cut_fields[]             = {"cut", "-d", ":", "-f", "2", NULL};
     char* cut_open_end[]           = {"cut", "-d", ":", "-f", "2-", NULL};
@@ -1121,6 +1133,25 @@ int main(void) {
         check("grep -v", grep_inverted, "alpha\nbeta\n", 0, NULL, 0) ||
         check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
         check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
+        check("grep dot", grep_dot, "abc\na.c\nxyz\n", 0, "abc\na.c\n", 1) ||
+        check("grep escaped dot", grep_escaped_dot, "abc\na.c\nxyz\n", 0, "a.c\n", 1) ||
+        check("grep star", grep_star, "ac\nabc\nabbbc\nadc\n", 0, "ac\nabc\nabbbc\n",
+              1) ||
+        check("grep anchor start", grep_anchor_start, "root:x\nxroot\n", 0, "root:x\n",
+              1) ||
+        check("grep anchor end", grep_anchor_end, "xroot\nrootx\n", 0, "xroot\n", 1) ||
+        check("grep bracket", grep_bracket, "abc\na1b\n", 0, "a1b\n", 1) ||
+        check("grep interval", grep_interval, "a\naa\naaa\n", 0, "aa\naaa\n", 1) ||
+        check("grep backref", grep_backref, "ab\nabab\n", 0, "abab\n", 1) ||
+        check("grep empty line", grep_empty_line, "a\n\nb\n", 0, "\n", 1) ||
+        check("grep invalid regex", grep_invalid, NULL, 2, NULL, 0) ||
+        check("grep -i dot", grep_insensitive_dot, "abc\n", 0, "abc\n", 1) ||
+        check("grep help", grep_help, NULL, 0,
+              "Usage: grep [-i] [-n] [-v] PATTERN [FILE]...\n\n"
+              "Print lines matching the POSIX basic regular expression PATTERN; - means "
+              "standard input.\n"
+              "Supported: ^ $ . * [ ] \\ \\( \\) \\{m,n\\} and \\1-\\9.\n",
+              1) ||
         check("sort stdin", sort_stdin, "zulu\nalpha\n", 0, NULL, 0) ||
         check("cut fields", cut_fields, "one:two:three\n", 0, NULL, 0) ||
         check("cut open-ended range", cut_open_end, "one:two:three\n", 0, "two:three\n",

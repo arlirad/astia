@@ -1,13 +1,13 @@
 #include "common.h"
+#include "grep_regex.h"
 
-#include <ctype.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static int grep_fd(int fd, const char* name, const char* pattern, int invert,
-                   int numbered, int insensitive) {
+static int grep_fd(int fd, const char* name, const gre_regex* regex, int invert,
+                   int numbered) {
     cu_line_reader reader;
 
     unsigned long number  = 0;
@@ -33,29 +33,7 @@ static int grep_fd(int fd, const char* name, const char* pattern, int invert,
 
         ++number;
 
-        int found = 0;
-
-        if (!insensitive) {
-            found = strstr(line, pattern) != 0;
-        }
-        else {
-            size_t pattern_length = strlen(pattern);
-            if (pattern_length == 0)
-                found = 1;
-
-            for (size_t start = 0; line[start] != '\0' && !found; ++start) {
-                size_t i = 0;
-
-                while (i < pattern_length && line[start + i] != '\0' &&
-                       tolower((unsigned char) line[start + i]) ==
-                           tolower((unsigned char) pattern[i])) {
-                    ++i;
-                }
-
-                if (i == pattern_length)
-                    found = 1;
-            }
-        }
+        int found = gre_match(regex, line, length);
 
         if ((found != 0) == (invert == 0)) {
             matched = 1;
@@ -112,7 +90,10 @@ int main(int argc, char** argv) {
     while ((value = cu_args_next(&args)) != 0) {
         if (cu_is_help(value))
             return cu_help("grep", "[-i] [-n] [-v] PATTERN [FILE]...",
-                           "Print lines matching PATTERN; - means standard input.");
+                           "Print lines matching the POSIX basic regular expression "
+                           "PATTERN; - means "
+                           "standard input.\nSupported: ^ $ . * [ ] \\ \\( \\) \\{m,n\\} "
+                           "and \\1-\\9.");
 
         if (cu_is_version(value))
             return cu_version("grep");
@@ -148,10 +129,23 @@ int main(int argc, char** argv) {
     if (pattern == 0)
         return cu_usage("grep", "[-i] [-n] [-v] PATTERN [FILE]...");
 
+    gre_regex regex;
+
+    if (gre_compile(&regex, pattern, insensitive) != 0) {
+        cu_error("grep", "invalid regular expression");
+
+        return 2;
+    }
+
     int status = 1;
     int files  = args.index < argc;
-    if (!files)
-        return grep_fd(CU_STDIN, "", pattern, invert, numbered, insensitive);
+    if (!files) {
+        status = grep_fd(CU_STDIN, "", &regex, invert, numbered);
+
+        gre_free(&regex);
+
+        return status;
+    }
 
     for (int i = args.index; i < argc; ++i) {
         int fd = __builtin_strcmp(argv[i], "-") == 0 ? CU_STDIN : open(argv[i], O_RDONLY);
@@ -163,8 +157,8 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        int result = grep_fd(fd, files && argc - args.index > 1 ? argv[i] : "", pattern,
-                             invert, numbered, insensitive);
+        int result = grep_fd(fd, files && argc - args.index > 1 ? argv[i] : "", &regex,
+                             invert, numbered);
 
         if (fd != CU_STDIN)
             close(fd);
@@ -174,6 +168,8 @@ int main(int argc, char** argv) {
         else if (result == 2)
             status = 2;
     }
+
+    gre_free(&regex);
 
     return status;
 }
