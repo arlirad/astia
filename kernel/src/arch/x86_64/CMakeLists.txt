@@ -49,4 +49,5 @@ target_link_libraries(arch_x86_64 PUBLIC
         mm
         dev
         log
+        acpi_madt
 )

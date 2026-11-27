@@ -65,6 +65,7 @@ set(_astia_kernel_libs
         initrd
         mod
         boot_${BOOT}
+        acpi_madt
         acpi
         plat_${PLATFORM}
         util

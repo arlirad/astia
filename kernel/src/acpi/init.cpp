@@ -13,6 +13,7 @@
 #include "io.hpp"
 #include "limits.hpp"
 #include "power.hpp"
+#include "reader.hpp"
 #include "tables.hpp"
 
 extern "C" bool astia_acpi_test_override(const char*, astia::acpi::detail::memory_reader&,
@@ -31,38 +32,6 @@ namespace astia::acpi {
         u64                 validated_rsdp = 0;
         bool                s5_ready       = false;
         bool                reset_ready    = false;
-
-        struct kernel_reader {
-            u64 identity_limit = 0;
-            u64 direct_limit   = 0;
-        };
-
-        bool read_physical(void* context, u64 address, u8* destination, usz length) {
-            const auto* reader = static_cast<const kernel_reader*>(context);
-
-            if (reader == nullptr || destination == nullptr || address > ~u64{0} - length)
-                return false;
-
-            const u64 end = address + length;
-
-            if (end <= reader->identity_limit) {
-                __builtin_memcpy(destination, reinterpret_cast<const void*>(address),
-                                 length);
-
-                return true;
-            }
-
-            if (end <= reader->direct_limit) {
-                __builtin_memcpy(
-                    destination,
-                    reinterpret_cast<const void*>(astia::arch::kernel_base + address),
-                    length);
-
-                return true;
-            }
-
-            return false;
-        }
 
         void* heap_allocate(void*, usz bytes) {
             auto allocation = astia::mm::heap::alloc(bytes);
@@ -185,15 +154,12 @@ namespace astia::acpi {
                 return true;
             }
 
-            kernel_reader reader{
+            detail::physical_reader reader{
                 identity_window,
                 direct_limit,
             };
 
-            detail::memory_reader access{
-                &reader,
-                read_physical,
-            };
+            detail::memory_reader access = detail::physical_memory_reader(reader);
 
             u64 rsdp_address = ctx.info->rsdp;
 
