@@ -18,6 +18,7 @@
 #include <astia/api/syscalls.h>
 
 #include "reloc.h"
+#include "symcount.h"
 
 /*
  * clang lowers struct copies and zero-initialisation to memcpy/memset even
@@ -29,21 +30,28 @@
 __attribute__((visibility("hidden"))) void* memcpy(void* dest, const void* source,
                                                    unsigned long size) {
     void* result = dest;
+
     __asm__ volatile("rep movsb" : "+D"(dest), "+S"(source), "+c"(size) : : "memory");
+
     return result;
 }
 
 __attribute__((visibility("hidden"))) void* memset(void* dest, int value,
                                                    unsigned long size) {
     void* result = dest;
+
     __asm__ volatile("rep stosb" : "+D"(dest), "+c"(size) : "a"(value) : "memory");
+
     return result;
 }
 
 static unsigned long ld_strlen(const char* text) {
     unsigned long size = 0;
-    while (text[size] != '\0')
+
+    while (text[size] != '\0') {
         ++size;
+    }
+
     return size;
 }
 
@@ -52,6 +60,7 @@ static int ld_streq(const char* left, const char* right) {
         ++left;
         ++right;
     }
+
     return *left == *right;
 }
 
@@ -71,8 +80,10 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
     astia_sqe*     slot = astia_sqe_slot(g_ring);
     if (slot == NULL) {
         (void) astia_io_submit(g_ring, 1);
+
         slot = astia_sqe_slot(g_ring);
     }
+
     if (slot == NULL)
         return -EBUSY;
 
@@ -85,6 +96,7 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
     slot->length    = length;
     slot->aux       = aux;
     slot->user_data = tag;
+
     astia_sq_publish(g_ring, 1);
 
     long rc = astia_io_submit(g_ring, 1);
@@ -98,11 +110,15 @@ static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
             (void) astia_yield();
             continue;
         }
+
         const long result  = completion->result;
         const int  is_mine = completion->user_data == tag;
+
         astia_cq_consume(g_ring, 1);
+
         if (is_mine)
             return result;
+
         /* v1 is strictly one operation in flight; drop anything else. */
     }
 }
@@ -122,28 +138,56 @@ static long ld_open(const char* path) {
 /* ------------------------------------------------------------------ */
 
 static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
-    for (const Elf64_Dyn* entry = module->dynamic; entry->d_tag != DT_NULL; ++entry)
+    for (const Elf64_Dyn* entry = module->dynamic; entry->d_tag != DT_NULL; ++entry) {
         if (entry->d_tag == tag)
             return entry->d_val;
+    }
+
     return 0;
 }
 
-/* Symbol count from a GNU hash table: the highest bucket's chain decides. */
-static uint32_t gnu_symbol_count(const uint32_t* hash) {
-    const uint32_t  buckets   = hash[0];
-    const uint32_t  symoffset = hash[1];
-    const uint32_t  bloom     = hash[2];
-    const uint32_t* bucket    = hash + 4 + bloom * 2; /* 64-bit bloom words */
-    const uint32_t* chain     = bucket + buckets;
-    uint32_t        last      = 0;
-    for (uint32_t i = 0; i < buckets; ++i)
-        if (bucket[i] > last)
-            last = bucket[i];
-    if (last < symoffset)
-        return symoffset;
-    while ((chain[last - symoffset] & 1u) == 0)
-        ++last;
-    return last + 1;
+/* Highest mapped address in the image, or zero when a PT_LOAD entry overflows
+   the address space.  Every dynamic table and symbol slot must land below it. */
+static uint64_t image_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t base) {
+    uint64_t end = 0;
+
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type != PT_LOAD)
+            continue;
+
+        const uint64_t start = base + phdr[i].p_vaddr;
+        if (start < base)
+            return 0;
+
+        const uint64_t stop = start + phdr[i].p_memsz;
+        if (stop < start)
+            return 0;
+
+        if (stop > end)
+            end = stop;
+    }
+
+    return end;
+}
+
+/* End of the PT_LOAD segment containing `vaddr`, or zero when no segment
+   maps it.  The distance to that end bounds every table the loader indexes. */
+static uint64_t load_extent_end(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t vaddr) {
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type != PT_LOAD)
+            continue;
+
+        const uint64_t start = phdr[i].p_vaddr;
+        const uint64_t end   = start + phdr[i].p_memsz;
+
+        if (end < start)
+            return 0;
+
+        if (vaddr >= start && vaddr < end)
+            return end;
+    }
+
+    return 0;
 }
 
 static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
@@ -170,17 +214,23 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
             module->tls_memsz  = phdr[i].p_memsz;
             module->tls_align  = phdr[i].p_align;
         }
-        if (phdr[i].p_type == PT_DYNAMIC) {
+
+        if (phdr[i].p_type == PT_DYNAMIC)
             module->dynamic = (const Elf64_Dyn*) (base + phdr[i].p_vaddr);
-        }
     }
+
     if (module->dynamic == 0)
+        return -1;
+
+    const uint64_t image_end = image_extent_end(phdr, phnum, base);
+    if (image_end == 0)
         return -1;
 
     const uint64_t strtab = dyn_tag(module, DT_STRTAB);
     const uint64_t symtab = dyn_tag(module, DT_SYMTAB);
     const uint64_t hash   = dyn_tag(module, DT_HASH);
     const uint64_t gnu    = dyn_tag(module, DT_GNU_HASH);
+
     if (strtab == 0 || symtab == 0 || (hash == 0 && gnu == 0))
         return -1;
 
@@ -188,56 +238,99 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->symtab   = (const Elf64_Sym*) (base + symtab);
     module->hash     = hash != 0 ? (const uint32_t*) (base + hash) : 0;
     module->gnu_hash = gnu != 0 ? (const uint32_t*) (base + gnu) : 0;
+
     /* SysV hash: nbucket, nchain — nchain is the dynamic symbol count.  GNU
        hash alone cannot count undefined imports (they are not hashed), so
        fall back to the .dynsym/.dynstr adjacency when it holds. */
+    const uint64_t symtab_end = load_extent_end(phdr, phnum, symtab);
+
+    if (symtab_end == 0)
+        return -1;
+
+    ld_symcount_input symbols = {
+        .symtab       = symtab,
+        .strtab       = strtab,
+        .symtab_bytes = symtab_end - symtab,
+        .hash         = module->hash,
+        .hash_bytes   = 0,
+        .gnu_hash     = module->gnu_hash,
+        .gnu_bytes    = 0,
+    };
+
     if (module->hash != 0) {
-        module->symbol_count = module->hash[1];
+        const uint64_t end = load_extent_end(phdr, phnum, hash);
+        if (end == 0)
+            return -1;
+
+        symbols.hash_bytes = end - hash;
     }
-    else {
-        module->symbol_count = gnu_symbol_count(module->gnu_hash);
-        if (module->strtab > (const char*) module->symtab) {
-            const uint64_t adjacent =
-                (uint64_t) ((const char*) module->strtab - (const char*) module->symtab) /
-                sizeof(Elf64_Sym);
-            if (adjacent < 0x10000 && adjacent > module->symbol_count)
-                module->symbol_count = (uint32_t) adjacent;
-        }
+
+    if (module->gnu_hash != 0) {
+        const uint64_t end = load_extent_end(phdr, phnum, gnu);
+        if (end == 0)
+            return -1;
+
+        symbols.gnu_bytes = end - gnu;
+    }
+
+    if (ld_symbol_count(&symbols, &module->symbol_count) != 0)
+        return -1;
+
+    /* ld_symbol_count bounds the count by the .dynsym segment; this keeps the
+       final count inside the image as a whole, so lookup_symbol() cannot walk
+       past the mapping even if two PT_LOAD extents disagree. */
+    if (module->symbol_count != 0) {
+        const uint64_t first = (uint64_t) (uintptr_t) module->symtab;
+        const uint64_t bytes = (uint64_t) module->symbol_count * sizeof(Elf64_Sym);
+        const uint64_t last  = first + bytes;
+
+        if (last < first || last > image_end)
+            return -1;
     }
 
     const uint64_t soname = dyn_tag(module, DT_SONAME);
-    module->soname        = soname != 0 ? module->strtab + soname : 0;
+
+    module->soname = soname != 0 ? module->strtab + soname : 0;
 
     const uint64_t rela   = dyn_tag(module, DT_RELA);
     const uint64_t jmprel = dyn_tag(module, DT_JMPREL);
-    module->rela          = rela != 0 ? (const Elf64_Rela*) (base + rela) : 0;
-    module->rela_size     = dyn_tag(module, DT_RELASZ);
-    module->jmprel        = jmprel != 0 ? (const Elf64_Rela*) (base + jmprel) : 0;
-    module->pltrel_size   = dyn_tag(module, DT_PLTRELSZ);
+
+    module->rela        = rela != 0 ? (const Elf64_Rela*) (base + rela) : 0;
+    module->rela_size   = dyn_tag(module, DT_RELASZ);
+    module->jmprel      = jmprel != 0 ? (const Elf64_Rela*) (base + jmprel) : 0;
+    module->pltrel_size = dyn_tag(module, DT_PLTRELSZ);
+
     if (dyn_tag(module, DT_PLTREL) != 0 && dyn_tag(module, DT_PLTREL) != DT_RELA)
         return -1; /* REL (not RELA) PLT relocations are not supported */
 
-    const uint64_t init     = dyn_tag(module, DT_INIT);
-    const uint64_t inits    = dyn_tag(module, DT_INIT_ARRAY);
+    const uint64_t init  = dyn_tag(module, DT_INIT);
+    const uint64_t inits = dyn_tag(module, DT_INIT_ARRAY);
+
     module->init            = init != 0 ? base + init : 0;
     module->init_array      = inits != 0 ? (const uint64_t*) (base + inits) : 0;
     module->init_array_size = dyn_tag(module, DT_INIT_ARRAYSZ);
+
     return 0;
 }
 
 static uint64_t lookup_symbol(const ld_module* modules, int count, const char* name) {
     for (int module = 0; module < count; ++module) {
         const ld_module* image = &modules[module];
+
         for (uint32_t index = 1; index < image->symbol_count; ++index) {
             const Elf64_Sym* symbol = &image->symtab[index];
+
             if (symbol->st_shndx == 0)
                 continue; /* undefined */
+
             if ((symbol->st_info >> 4) == 0)
                 continue; /* STB_LOCAL */
+
             if (ld_streq(image->strtab + symbol->st_name, name))
                 return image->base + symbol->st_value;
         }
     }
+
     return 0;
 }
 
@@ -248,16 +341,21 @@ static const Elf64_Sym* find_definition(const ld_module* modules, int count,
                                         const char* name, const ld_module** owner) {
     for (int m = 0; m < count; ++m) {
         const ld_module* image = &modules[m];
+
         for (uint32_t i = 1; i < image->symbol_count; ++i) {
             const Elf64_Sym* symbol = &image->symtab[i];
+
             if (symbol->st_shndx == 0 || (symbol->st_info >> 4) == 0)
                 continue;
+
             if (ld_streq(image->strtab + symbol->st_name, name)) {
                 *owner = image;
+
                 return symbol;
             }
         }
     }
+
     return 0;
 }
 
@@ -265,7 +363,9 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
                       const ld_module* modules, int count) {
     if (rela == 0 || bytes == 0)
         return 0;
+
     const uint64_t entries = bytes / sizeof(Elf64_Rela);
+
     for (uint64_t i = 0; i < entries; ++i) {
         const Elf64_Rela* entry = &rela[i];
         const uint32_t    type  = (uint32_t) (entry->r_info & 0xffffffffu);
@@ -274,11 +374,13 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
 
         if (type == LD_R_NONE)
             continue;
+
         if (type == LD_R_RELATIVE) {
             // The kernel applied RELATIVE relocations when it mapped the
             // image; writing them again can fault on a read-only PT_LOAD.
             continue;
         }
+
         if (type == LD_R_TPOFF64 || type == LD_R_TPOFF32) {
             // *where = defining_module->tls_offset + sym->st_value + addend.
             // The offset of the variable inside its block lives in st_value,
@@ -305,16 +407,21 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
                             entry->r_addend;
                 }
             }
+
             if (type == LD_R_TPOFF64)
                 *where = (uint64_t) value;
             else
                 *(int32_t*) where = (int32_t) value;
+
             continue;
         }
+
         if (type == LD_R_DTPMOD64 || type == LD_R_DTPOFF64)
             return 4; /* global-dynamic TLS: build with -ftls-model=initial-exec */
+
         if (type != LD_R_GLOB_DAT && type != LD_R_JUMP_SLOT && type != LD_R_ABS)
             return 1;
+
         if (index == 0 || index >= module->symbol_count)
             return 2;
 
@@ -325,11 +432,15 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             /* STB_WEAK undefined references are allowed to resolve to zero. */
             if ((symbol->st_info >> 4) != 2)
                 return 3;
+
             *where = type == LD_R_ABS ? (uint64_t) entry->r_addend : 0;
+
             continue;
         }
+
         *where = type == LD_R_ABS ? value + (uint64_t) entry->r_addend : value;
     }
+
     return 0;
 }
 
@@ -341,38 +452,51 @@ static int layout_tls(ld_module* modules, int count, uint64_t tls_base, uint64_t
                       uint64_t tls_limit) {
     if (tls_tp == 0 || tls_base == 0)
         return -1;
+
     // The payload's own TLS sits immediately below TP; the reserve extends
     // further down, so module 0's block starts at the reserve bottom.
     modules[0].tls_offset = (int64_t) (tls_base - tls_tp);
 
     uint64_t cursor = tls_base;
+
     for (int module = 1; module < count; ++module) {
         ld_module* image = &modules[module];
+
         if (image->tls_memsz == 0)
             continue;
+
         uint64_t align = image->tls_align != 0 ? image->tls_align : 1;
+
         if (align & (align - 1))
             return -1;
+
         if (tls_tp == 0 || tls_base == 0 || cursor < tls_limit + image->tls_memsz)
             return -1;
+
         cursor = (cursor - image->tls_memsz) & ~(align - 1);
         if (cursor < tls_limit)
             return -1;
+
         image->tls_offset = (int64_t) (cursor - tls_tp);
     }
+
     return 0;
 }
 
 static void copy_tls_templates(const ld_module* modules, int count, uint64_t tls_tp) {
     for (int module = 1; module < count; ++module) {
         const ld_module* image = &modules[module];
+
         if (image->tls_memsz == 0 || image->tls_filesz == 0)
             continue;
+
         uint8_t* destination =
             (uint8_t*) (uintptr_t) (tls_tp + (uint64_t) image->tls_offset);
         const uint8_t* source = (const uint8_t*) (uintptr_t) image->tls_vaddr;
-        for (uint64_t i = 0; i < image->tls_filesz; ++i)
+
+        for (uint64_t i = 0; i < image->tls_filesz; ++i) {
             destination[i] = source[i];
+        }
     }
 }
 
@@ -382,11 +506,15 @@ static void run_initializers(const ld_module* modules, int count, int argc, char
                              char** envp) {
     for (int module = count - 1; module >= 0; --module) {
         const ld_module* image = &modules[module];
+
         if (image->init != 0)
             ((void (*)(int, char**, char**))(uintptr_t) image->init)(argc, argv, envp);
+
         if (image->init_array == 0)
             continue;
+
         const uint64_t entries = image->init_array_size / sizeof(uint64_t);
+
         for (uint64_t i = 0; i < entries; ++i) {
             uint64_t function = image->init_array[i];
             if (function != 0)
@@ -401,33 +529,60 @@ static void run_initializers(const ld_module* modules, int count, int argc, char
 
 static uint64_t* auxv_value(uint64_t* sp, int64_t tag) {
     uint64_t* cursor = sp + 1 + sp[0] + 1; /* argc, argv[], NULL */
-    while (*cursor != 0)
-        ++cursor; /* envp */
-    ++cursor;     /* NULL */
+
+    while (*cursor != 0) {
+        ++cursor;
+    } /* envp */
+
+    ++cursor; /* NULL */
+
     while (cursor[0] != AT_NULL) {
         if ((int64_t) cursor[0] == tag)
             return &cursor[1];
+
         cursor += 2;
     }
+
     return 0;
 }
 
-static uint64_t payload_base(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t at_phdr) {
-    for (uint32_t i = 0; i < phnum; ++i)
-        if (phdr[i].p_type == PT_PHDR)
-            return at_phdr - phdr[i].p_vaddr;
-    return 0; /* a fixed-address executable needs no bias */
+/* The load bias of the main image.  PT_PHDR gives it directly.  A payload
+   built without that segment is spec-legal, so fall back to the bias the
+   kernel recorded in auxv; without either, refuse to guess: a wrong bias
+   turns every symbol into garbage instead of failing. */
+static int payload_base(const Elf64_Phdr* phdr, uint32_t phnum, uint64_t at_phdr,
+                        const uint64_t* at_base, uint64_t* out) {
+    for (uint32_t i = 0; i < phnum; ++i) {
+        if (phdr[i].p_type == PT_PHDR) {
+            *out = at_phdr - phdr[i].p_vaddr;
+
+            return 0;
+        }
+    }
+
+    if (at_base != 0) {
+        *out = *at_base;
+
+        return 0;
+    }
+
+    return -1;
 }
 
 static int build_path(char* out, const char* name) {
     static const char prefix[] = "/lib/";
     unsigned long     size     = sizeof(prefix) - 1;
+
     if (name == 0 || size + ld_strlen(name) + 1 > LD_PATH_MAX)
         return -1;
-    for (unsigned long i = 0; i < size; ++i)
+
+    for (unsigned long i = 0; i < size; ++i) {
         out[i] = prefix[i];
+    }
+
     for (unsigned long i = 0;; ++i) {
         out[size + i] = name[i];
+
         if (name[i] == '\0')
             return 0;
     }
@@ -438,6 +593,7 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t* at_phnum = auxv_value(sp, AT_PHNUM);
     const uint64_t* at_phent = auxv_value(sp, AT_PHENT);
     const uint64_t* at_entry = auxv_value(sp, AT_ENTRY);
+
     if (at_phdr == 0 || at_phnum == 0 || at_phent == 0 || at_entry == 0 ||
         *at_phent != sizeof(Elf64_Phdr) || *at_phnum == 0)
         astia_exit(110);
@@ -446,7 +602,8 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint32_t    phnum = (uint32_t) *at_phnum;
 
     ld_module modules[LD_MAX_MODULES];
-    int       count = 0;
+
+    int count = 0;
 
     const uint64_t* at_tls_base  = auxv_value(sp, AT_ASTIA_TLS_BASE);
     const uint64_t* at_tls_tp    = auxv_value(sp, AT_ASTIA_TLS_TP);
@@ -455,7 +612,12 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     const uint64_t  tls_tp       = at_tls_tp != 0 ? *at_tls_tp : 0;
     const uint64_t  tls_limit    = at_tls_limit != 0 ? *at_tls_limit : 0;
 
-    const uint64_t base = payload_base(phdr, phnum, *at_phdr);
+    const uint64_t* at_base = auxv_value(sp, AT_ASTIA_PAYLOAD_BASE);
+    uint64_t        base    = 0;
+
+    if (payload_base(phdr, phnum, *at_phdr, at_base, &base) != 0)
+        astia_exit(115);
+
     if (module_init(&modules[count++], base, phdr, phnum) != 0)
         astia_exit(111);
 
@@ -469,32 +631,44 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
                 continue;
 
             char path[LD_PATH_MAX];
+
             if (build_path(path, modules[module].strtab + entry->d_val) != 0)
                 astia_exit(112);
+
             const long fd = ld_open(path);
             if (fd < 0)
                 astia_exit(113);
 
-            astia_dl_info info   = {0};
-            const long    mapped = astia_dlmap((int32_t) fd, 0, &info);
+            astia_dl_info info = {0};
+
+            const long mapped = astia_dlmap((int32_t) fd, 0, &info);
+
             ld_close(fd);
+
             if (mapped < 0)
                 astia_exit(114);
 
             int seen = 0;
-            for (int i = 0; i < count; ++i)
+
+            for (int i = 0; i < count; ++i) {
                 if (modules[i].base == info.base)
                     seen = 1;
+            }
+
             if (seen)
                 continue;
+
             if (count == LD_MAX_MODULES)
                 astia_exit(116);
+
             if (module_init(&modules[count], info.base,
                             (const Elf64_Phdr*) (uintptr_t) info.phdr, info.phnum) != 0)
                 astia_exit(127);
+
             ++count;
         }
     }
+
     if (layout_tls(modules, count, tls_base, tls_tp, tls_limit) != 0)
         astia_exit(119);
 
@@ -504,14 +678,18 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
                                     modules[module].rela_size, modules, count);
         if (rela != 0)
             astia_exit(120 + rela);
+
         const int plt = apply_rela(&modules[module], modules[module].jmprel,
                                    modules[module].pltrel_size, modules, count);
         if (plt != 0)
             astia_exit(130 + plt);
     }
+
     copy_tls_templates(modules, count, tls_tp);
 
     const int argc = (int) sp[0];
+
     run_initializers(modules, count, argc, (char**) &sp[1], (char**) &sp[1] + argc + 1);
+
     return *at_entry;
 }

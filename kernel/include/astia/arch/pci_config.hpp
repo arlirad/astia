@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     struct pci_bdf {
         u8 bus;
         u8 device;
@@ -28,5 +27,4 @@ namespace astia::arch {
     /// specific; the PCI bus enumerator is not.
     u32  pci_config_read32(pci_bdf address, u16 offset);
     void pci_config_write32(pci_bdf address, u16 offset, u32 value);
-
 } // namespace astia::arch

@@ -1,4 +1,11 @@
 export type DocGroup = 'Guide' | 'Manual page' | 'Design note' | 'Syscall (2)';
+export const DOC_GROUP_LABELS: Readonly<Record<DocGroup, string>> = {
+  Guide: 'Guide',
+  'Manual page': 'Design (7)',
+  'Design note': 'Design note',
+  'Syscall (2)': 'Syscall (2)',
+};
+export const docGroupLabel = (group: DocGroup): string => DOC_GROUP_LABELS[group];
 export type DocContentKind = 'markdown' | 'source';
 export type DocSynopsisKind = 'public' | 'raw';
 export type DocsLoadStatus = 'idle' | 'loading' | 'ready' | 'not-found' | 'error';

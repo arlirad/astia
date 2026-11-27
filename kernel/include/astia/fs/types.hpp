@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia::fs {
-
     // Native status bits stored in an open_file.  They intentionally differ
     // from both the AIO OPENAT wire word and libc's creation flags.
     enum class open_file_status_flags : u32 {
@@ -16,6 +15,12 @@ namespace astia::fs {
     };
 
     constexpr u32 open_file_access_mask = 0x0003;
+
+    /// A descriptor's access mode permits reading unless it is write-only.
+    constexpr bool open_file_readable(u32 flags) {
+        return (flags & open_file_access_mask) != ASTIA_AIO_O_WRONLY;
+    }
+
     // Pipe endpoints use private high bits in open_file::_flags so that the
     // backing pipe can account readers and writers independently.  They are
     // not part of either the AIO OPENAT word or userspace fcntl status.
@@ -45,7 +50,7 @@ namespace astia::fs {
         unknown   = 0,
         fifo      = 1,
         character = 2,
-        block     = 3,
+        block     = 6,
         directory = 4,
         regular   = 8,
         symlink   = 10,
@@ -60,30 +65,39 @@ namespace astia::fs {
         public:
         constexpr file_permissions(u16 value = 0)
             : value_(value & file_permissions_mask) {}
+
         constexpr u16 raw() const {
             return value_;
         }
+
         constexpr u8 owner() const {
             return static_cast<u8>((value_ >> 6) & 7);
         }
+
         constexpr u8 group() const {
             return static_cast<u8>((value_ >> 3) & 7);
         }
+
         constexpr u8 other() const {
             return static_cast<u8>(value_ & 7);
         }
+
         constexpr bool owner_allows(permission_bits bits) const {
             return (owner() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
+
         constexpr bool group_allows(permission_bits bits) const {
             return (group() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
+
         constexpr bool other_allows(permission_bits bits) const {
             return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
+
         constexpr file_permissions chmod_mask() const {
             return file_permissions(value_ & file_permissions_mask);
         }
+
         constexpr file_permissions with_permissions(file_permissions value) const {
             return file_permissions(value.raw());
         }
@@ -101,50 +115,91 @@ namespace astia::fs {
     inline constexpr file_permissions readonly_file_permissions{0755};
     inline constexpr file_permissions readonly_directory_permissions{0755};
 
+    /// Access, modification and change timestamps in Unix epoch form.  A
+    /// backend that records no timestamp leaves the corresponding fields at
+    /// zero; the VFS never invents a wall-clock value for it.
+    struct file_timestamps {
+        u64 atime_sec  = 0;
+        u64 atime_nsec = 0;
+        u64 mtime_sec  = 0;
+        u64 mtime_nsec = 0;
+        u64 ctime_sec  = 0;
+        u64 ctime_nsec = 0;
+    };
+
+    /// Wall-clock source used for file timestamps.  The kernel installs the
+    /// system clock once the timer is running; until then, and in host tests
+    /// that never install one, timestamps stay at their documented zero.
+    void set_realtime_source(bool (*source)(u64& sec, u64& nsec));
+    bool realtime_now(u64& sec, u64& nsec);
+
+    inline file_timestamps current_timestamps() {
+        u64 sec  = 0;
+        u64 nsec = 0;
+
+        (void) realtime_now(sec, nsec);
+
+        return {sec, nsec, sec, nsec, sec, nsec};
+    }
+
     class file_mode {
         public:
         constexpr file_mode(file_type        type        = file_type::unknown,
                             file_permissions permissions = {})
             : type_(type), permissions_(permissions) {}
+
         constexpr file_type type() const {
             return type_;
         }
+
         constexpr file_permissions permissions() const {
             return permissions_;
         }
+
         constexpr bool exists() const {
             return type_ != file_type::unknown;
         }
+
         constexpr bool is_fifo() const {
             return type_ == file_type::fifo;
         }
+
         constexpr bool is_character_device() const {
             return type_ == file_type::character;
         }
+
         constexpr bool is_block_device() const {
             return type_ == file_type::block;
         }
+
         constexpr bool is_directory() const {
             return type_ == file_type::directory;
         }
+
         constexpr bool is_regular() const {
             return type_ == file_type::regular;
         }
+
         constexpr bool is_symlink() const {
             return type_ == file_type::symlink;
         }
+
         constexpr bool is_socket() const {
             return type_ == file_type::socket;
         }
+
         constexpr bool owner_allows(permission_bits bits) const {
             return permissions_.owner_allows(bits);
         }
+
         constexpr bool group_allows(permission_bits bits) const {
             return permissions_.group_allows(bits);
         }
+
         constexpr bool other_allows(permission_bits bits) const {
             return permissions_.other_allows(bits);
         }
+
         constexpr file_mode chmod(file_permissions permissions) const {
             return file_mode(type_, permissions.chmod_mask());
         }
@@ -167,5 +222,4 @@ namespace astia::fs {
     inline constexpr file_type directory_reg     = file_type::regular;
     inline constexpr file_type directory_lnk     = file_type::symlink;
     inline constexpr file_type directory_sock    = file_type::socket;
-
 } // namespace astia::fs

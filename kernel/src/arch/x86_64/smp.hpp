@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch::x86_64::smp {
-
     /// Discover the firmware CPU inventory.  This milestone deliberately keeps
     /// the scheduler on the BSP; AP startup is reported as deferred when the
     /// loader does not provide a usable low-memory trampoline allocator.
@@ -19,5 +18,4 @@ namespace astia::arch::x86_64::smp {
     void request_local_reschedule();
     void request_local_reschedule_from_interrupt();
     bool consume_reschedule(u32 cpu_index);
-
 } // namespace astia::arch::x86_64::smp

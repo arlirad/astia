@@ -3,8 +3,9 @@
 #include <astia/io.hpp>
 #include <astia/mm/dma_buffer.hpp>
 
-namespace {
+#include <errno.h>
 
+namespace {
     class fixture_block final : public astia::dev::blk::blkdev {
         public:
         fixture_block() : blkdev("typed", 4096, 512) {}
@@ -24,26 +25,47 @@ namespace {
         const char* name() const override {
             return "typed";
         }
+
         bool match(const astia::hw::device_info&) const override {
             return false;
         }
-        bool probe(const astia::hw::device_info&) override {
-            return false;
+
+        astia::core::task<astia::i64> probe(const astia::hw::device_info&) override {
+            co_return -ENODEV;
+        }
+
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
+        }
+
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
+
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
+            co_return astia::error_t::enone;
+        }
+
+        astia::hw::product_handle publish(const astia::hw::device_info&) override {
+            return {};
+        }
+
+        astia::core::task<bool> selftest() override {
+            co_return true;
         }
     };
 
     fixture_driver        driver;
     fixture_block         block;
     astia::mm::dma_buffer buffer;
-
 }
 
 int module_main() {
-    astia::core::clsource request_source;
-    astia::io::request    request(request_source, nullptr, 0, 0, 0,
-                                  astia::io::direction::input);
-    (void) request;
-    (void) block;
-    (void) buffer;
-    return astia::hw::drivers().register_driver(driver) ? 0 : -1;
+    astia::hw::driver_handle handle{};
+
+    return astia::hw::drivers().register_driver(driver, handle, astia::hw::kernel_owner,
+                                                astia::hw::driver_resource_device_file |
+                                                    astia::hw::driver_resource_async) == 0
+               ? 0
+               : -1;
 }

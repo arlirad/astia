@@ -16,7 +16,6 @@
 #include "types.hpp"
 
 namespace astia::fs {
-
     namespace detail {
         /// Drive a control task that every current backend completes without
         /// suspending.  A backend that does suspend reports -EAGAIN; callers
@@ -24,10 +23,13 @@ namespace astia::fs {
         template <typename T>
         optional<T> await_now(core::task<T> task) {
             task.resume();
+
             if (!task.done())
                 return error_t::eagain;
+
             if (task.failed())
                 return task.error();
+
             return *task.value();
         }
     } // namespace detail
@@ -39,24 +41,31 @@ namespace astia::fs {
         public:
         open_file(const mm::shptr<file>& parent, u32 flags)
             : _parent(parent), _flags(open_file_status_from_aio(flags)) {}
+
         open_file(const mm::shptr<file>& parent, open_file_status_flags flags)
             : _parent(parent), _flags(static_cast<u32>(flags)) {}
+
         /* Each descriptor copy owns a lifetime hook.  The backing file is
            shared, but every fd must release one pipe endpoint on close. */
         open_file(const open_file& other)
             : _parent(other._parent), _position(other._position),
               _position_state(other.position_state()), _flags(other._flags),
               _mode(other._mode), _has_path(other._has_path), _mount(other._mount) {
-            for (u32 i = 0; i < path_max; ++i)
+            for (u32 i = 0; i < path_max; ++i) {
                 _path[i] = other._path[i];
+            }
+
             if (_parent)
                 _parent->duplicate(_flags);
         }
+
         open_file(const char* path, file_mode mode)
             : _flags(0), _mode(mode), _has_path(true) {
-            for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i)
+            for (u32 i = 0; i + 1 < path_max && path != nullptr && path[i] != '\0'; ++i) {
                 _path[i] = path[i];
+            }
         }
+
         ~open_file();
 
         /// Synchronous kernel-internal compatibility adapters. They submit
@@ -80,43 +89,64 @@ namespace astia::fs {
         long            seek(i64 offset, i32 whence);
         long            submit(io::request& request);
         u32             poll(u32 events) const;
-        u32             flags() const {
+
+        u32 flags() const {
             return _flags;
         }
+
         void set_status_flags(u32 flags) {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
+
         long ioctl(u64 request, void* argp, usize size);
         long acquire_controlling_terminal(i32 group);
         long size() const;
-        u32  block_size() const {
+
+        u32 block_size() const {
             return _parent ? _parent->block_size() : 0;
         }
+
         long truncate(u64 length);
+
         long sync() {
             if (!_parent)
                 return -EBADF;
+
             auto contract = _parent->as_syncable();
             if (!contract)
                 return -EINVAL;
+
             auto result = detail::await_now(contract->sync({}));
+
             return result ? static_cast<long>(result.value) : error_errno(result.error);
         }
+
         long chmod(file_permissions permissions);
         long sync_mapping(mm::phys_region* mapping, u64 offset, u64 length, u32 flags);
         mm::phys_region* mapping() const;
         file_mode        mode() const;
-        const char*      path() const {
+
+        const char* path() const {
             return _has_path ? _path : nullptr;
         }
-        void   set_path(const char* path);
-        void   attach_mount(mount* owner);
+
+        void set_path(const char* path);
+        void attach_mount(mount* owner);
+
         mount* mount_owner() const {
             return _mount.get();
         }
+
+        mm::shptr<mount> mount_reference() const {
+            return _mount;
+        }
+
         mm::shptr<file> parent() const {
             return _parent;
         }
+
+        file_timestamps timestamps() const;
+
         u64 mtime_sec() const;
         u64 mtime_nsec() const;
 
@@ -136,17 +166,21 @@ namespace astia::fs {
                 if (state)
                     _position_state = state;
             }
+
             return _position_state;
         }
+
         u64 current_position() const {
             return _position_state ? _position_state->value : _position;
         }
+
         void set_position(u64 value) {
             if (_position_state)
                 _position_state->value = value;
             else
                 _position = value;
         }
+
         long reserve_append(u32 length, u64* offset);
 
         mm::shptr<file>                    _parent;
@@ -158,5 +192,4 @@ namespace astia::fs {
         char                               _path[path_max]{};
         mm::shptr<mount>                   _mount;
     };
-
 } // namespace astia::fs

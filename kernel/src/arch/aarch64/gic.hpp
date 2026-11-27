@@ -22,7 +22,6 @@
 // Registration runs only while PSTATE.I is set during boot; the table is
 // fixed, allocation-free, and lock-free. No SPI, SMP, or scheduler support.
 namespace astia::arch::aarch64::gicv3 {
-
     inline constexpr u32 self_sgi_id       = 15;
     inline constexpr u32 max_sgi_id        = 15;
     inline constexpr u32 spurious_intid    = 1023;
@@ -111,15 +110,17 @@ namespace astia::arch::aarch64::gicv3 {
     };
 
     [[nodiscard]] constexpr bool add_checked(u64 left, u64 right, u64& result) {
-        if (left > ~u64{0} - right) {
+        if (left > ~u64{0} - right)
             return false;
-        }
+
         result = left + right;
+
         return true;
     }
 
     [[nodiscard]] constexpr bool valid_region(region value) {
         u64 end = 0;
+
         return value.size != 0 && (value.base & 0xfffULL) == 0 &&
                (value.size & 0xfffULL) == 0 && add_checked(value.base, value.size, end);
     }
@@ -133,6 +134,7 @@ namespace astia::arch::aarch64::gicv3 {
         const u32 aff0        = affinity & 0xff;
         const u64 target_list = u64{1} << (aff0 & 0x0f);
         const u64 rs          = u64{(aff0 >> 4) & 0x0f} << 44;
+
         return target_list | (u64{(affinity >> 8) & 0xff} << 16) |
                (u64{intid & 0x0f} << 24) | (u64{(affinity >> 16) & 0xff} << 32) |
                (u64{(affinity >> 24) & 0xff} << 48) | rs;
@@ -164,32 +166,33 @@ namespace astia::arch::aarch64::gicv3 {
 
     [[nodiscard]] inline registration_error
     register_local_irq(u32 intid, local_irq_handler handler, void* context) {
-        if (!valid_local_intid(intid)) {
+        if (!valid_local_intid(intid))
             return registration_error::invalid_intid;
-        }
-        if (handler == nullptr) {
+
+        if (handler == nullptr)
             return registration_error::null_handler;
-        }
+
         local_irq_registration& slot = local_irq_table[intid];
-        if (slot.handler != nullptr) {
+
+        if (slot.handler != nullptr)
             return registration_error::already_registered;
-        }
+
         slot = local_irq_registration{handler, context};
+
         return registration_error::none;
     }
 
     [[nodiscard]] constexpr irq_action classify_intid(u32 intid) {
-        if (intid >= special_intid_min) {
+        if (intid >= special_intid_min)
             return intid == spurious_intid ? irq_action::spurious : irq_action::fatal;
-        }
-        if (valid_local_intid(intid) && local_irq_table[intid].handler != nullptr) {
+
+        if (valid_local_intid(intid) && local_irq_table[intid].handler != nullptr)
             return irq_action::handled;
-        }
+
         return irq_action::fatal;
     }
 
     error      initialize(const boot_config& config, init_result& result);
     void       trigger_self_sgi();
     irq_result acknowledge_and_complete();
-
 } // namespace astia::arch::aarch64::gicv3

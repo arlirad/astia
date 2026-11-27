@@ -1,30 +1,33 @@
-#include "arena.hpp"
-#include "test.hpp"
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/mm/address_space.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/memory_map.hpp>
 
-namespace {
+#include "arena.hpp"
+#include "test.hpp"
 
+namespace {
     astia::arch::page_map make_map() {
         astia_test::map_arena();
+
         static bool ready = false;
         if (!ready) {
             astia::mm::memory_map map;
+
             map.add(astia_test::arena_base, astia_test::arena_size,
                     astia::mm::memory_type::usable);
             astia::mm::kernel_frames().init(map);
+
             ready = true;
         }
+
         return astia::arch::page_map::create();
     }
 
     constexpr astia::mm::mapping_flags user_rw =
         astia::mm::mapping_flags::present | astia::mm::mapping_flags::writable |
         astia::mm::mapping_flags::user | astia::mm::mapping_flags::no_execute;
-
 } // namespace
 
 ASTIA_TEST(address_space_validates_user_ranges_and_permissions) {
@@ -57,9 +60,11 @@ ASTIA_TEST(address_space_transaction_rolls_back_partial_mapping) {
 
     {
         astia::mm::mapping_transaction transaction(space, 0x500000, 2);
+
         ASTIA_CHECK(transaction.map_4k(0x500000, phys, user_rw));
         ASTIA_CHECK(!transaction.map_4k(0x501000, phys + 1, user_rw));
     }
+
     ASTIA_CHECK(space.translate(0x500000) == astia::mm::address_space::invalid);
     ASTIA_CHECK(space.translate(0x501000) == astia::mm::address_space::invalid);
 }
@@ -71,10 +76,12 @@ ASTIA_TEST(address_space_transaction_commit_keeps_mappings) {
 
     {
         astia::mm::mapping_transaction transaction(space, 0x600000, 2);
+
         ASTIA_CHECK(transaction.map_4k(0x600000, phys, user_rw));
         ASTIA_CHECK(transaction.map_4k(0x601000, phys + 0x1000, user_rw));
         transaction.commit();
     }
+
     ASTIA_CHECK(space.translate(0x600000) == phys);
     ASTIA_CHECK(space.translate(0x601000) == phys + 0x1000);
     ASTIA_CHECK(space.unmap(0x600000));
@@ -87,10 +94,13 @@ ASTIA_TEST(address_space_transaction_preserves_existing_mapping_on_failure) {
     const auto phys   = astia_test::arena_base + 0x600000;
 
     ASTIA_CHECK(space.map_4k(0x800000, phys, user_rw));
+
     {
         astia::mm::mapping_transaction transaction(space, 0x800000, 2);
+
         ASTIA_CHECK(!transaction.map_4k(0x800000, phys + 0x1000, user_rw));
     }
+
     ASTIA_CHECK(space.translate(0x800000) == phys);
     ASTIA_CHECK(space.translate(0x801000) == astia::mm::address_space::invalid);
     ASTIA_CHECK(space.unmap(0x800000));
@@ -135,7 +145,9 @@ ASTIA_TEST(address_space_exec_replaces_image_without_aliasing) {
 
     ASTIA_CHECK(old.map_4k(0xa00000, old_phys, user_rw));
     ASTIA_CHECK(image.map_4k(0xa00000, new_phys, user_rw));
+
     old = static_cast<astia::mm::address_space&&>(image);
+
     ASTIA_CHECK(old.translate(0xa00000) == new_phys);
     ASTIA_CHECK(image.translate(0xa00000) == astia::mm::address_space::invalid);
 }

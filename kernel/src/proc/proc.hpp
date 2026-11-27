@@ -5,7 +5,6 @@
 #include "process.hpp"
 
 namespace astia::proc {
-
     /// getsid's POSIX selector: zero means the caller, otherwise a positive
     /// process ID.  This is deliberately distinct from the generic pid
     /// mapper, whose zero value is invalid for other process syscalls.
@@ -89,6 +88,7 @@ namespace astia::proc {
     i64 acquire_controlling_terminal(const mm::shptr<fs::open_file>& terminal);
     /// True when a live process in `group` belongs to `session`.
     bool process_group_exists(pgrp_t group, pid_t session);
+
     /// Terminal line-discipline hooks.  These deliberately operate on the
     /// caller's native process group rather than manufacturing IDs in tty.
     enum class terminal_access_result : u8 {
@@ -108,9 +108,26 @@ namespace astia::proc {
     bool                     has_controlling_terminal();
     i64                      setpgid(pid_t pid, pgrp_t pgid);
     i64                      setsid();
+
+    /// Credentials of a user-space signal sender. `kill()` group sends pass
+    /// them so only permitted members are signalled; kernel-internal sends
+    /// leave the filter out.
+    struct signal_sender {
+        u32 uid;
+        u32 euid;
+    };
+
     /// Send a signal to every live member of a process group.  Signal zero
-    /// only checks that the group has a live member.
-    i64 signal_process_group(pgrp_t group, signal_number signal, signal_info info = {});
+    /// only checks that the group has a permitted live member.  With a
+    /// sender, members failing the credential check are skipped and a group
+    /// with no permitted member reports -EPERM.
+    i64 signal_process_group(pgrp_t group, signal_number signal, signal_info info = {},
+                             const signal_sender* sender = nullptr);
+
+    /// Send a signal to every live process the sender may signal, skipping
+    /// `exclude` (the caller): the kill(-1) form.
+    i64 signal_all_processes(signal_number signal, signal_info info,
+                             const signal_sender& sender, pid_t exclude);
 
     /// Wait for a child of the current process to exit and reap it.
     /// pid > 0 waits for that child, pid == -1 for any child.  Returns
@@ -126,7 +143,7 @@ namespace astia::proc {
     /// thread pointer is the address space's, and this takes it from the
     /// parent.  Returns the child pid, or -ESRCH (no user process) /
     /// -EAGAIN (resource or registry failure).
-    i64 fork(const arch::user_context& uctx);
+    core::task<i64> fork(const arch::user_context& uctx);
 
     /// Boot entry boundary: start the single boot coroutine and park the
     /// seed thread until it completes.  The body runs early init inline
@@ -140,5 +157,4 @@ namespace astia::proc {
     /// spawnve/waitpid calls depend on the original seed thread's
     /// current_process()/current_thread().
     i64 run_boot(core::task<void> operation);
-
 } // namespace astia::proc

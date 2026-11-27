@@ -1,3 +1,5 @@
+using Pkgsrv.Application.Errors;
+
 namespace Pkgsrv.Application.Interfaces.Security;
 
 public enum PackageAction
@@ -7,11 +9,55 @@ public enum PackageAction
     Publish = 2
 }
 
-public sealed record AuthorizationResult(bool IsAllowed, string Reason)
+public enum AuthorizationFailure
 {
-    public static AuthorizationResult Allow(string reason = "allowed") => new(true, reason);
+    None = 0,
+    AuthenticationRequired = 1,
+    Forbidden = 2,
+    Unavailable = 3
+}
 
-    public static AuthorizationResult Deny(string reason) => new(false, reason);
+public sealed record AuthorizationResult(
+    bool IsAllowed,
+    string Reason,
+    AuthorizationContext? VerifiedContext = null,
+    AuthorizationFailure Failure = AuthorizationFailure.None)
+{
+    public static AuthorizationResult Allow(string reason = "allowed") =>
+        new(true, reason);
+
+    public static AuthorizationResult Allow(
+        AuthorizationContext verifiedContext,
+        string reason = "allowed") =>
+        new(true, reason, verifiedContext);
+
+    public static AuthorizationResult Deny(
+        string reason,
+        AuthorizationContext? verifiedContext = null) =>
+        new(false, reason, verifiedContext, AuthorizationFailure.Forbidden);
+
+    public static AuthorizationResult AuthenticationRequired(string reason) =>
+        new(false, reason, null, AuthorizationFailure.AuthenticationRequired);
+
+    public static AuthorizationResult Unavailable(string reason) =>
+        new(false, reason, null, AuthorizationFailure.Unavailable);
+
+    public void EnsureAuthorized(string action)
+    {
+        if (IsAllowed)
+        {
+            return;
+        }
+
+        throw Failure switch
+        {
+            AuthorizationFailure.AuthenticationRequired =>
+                new AuthenticationRequiredException(action, Reason),
+            AuthorizationFailure.Unavailable =>
+                new AuthorizationUnavailableException(action, Reason),
+            _ => new AuthorizationDeniedException(action, Reason)
+        };
+    }
 }
 
 public sealed record AuthorizationContext

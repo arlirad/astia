@@ -297,7 +297,7 @@
         "subsystem": "proc",
         "category": "process",
         "sourcePath": "docs/2/proc/process/execve.md",
-        "source": "libc/src/unistd.c",
+        "source": "libc/src/sys/unistd.c",
         "synopsisKind": "public",
         "synopsis": "int execve(const char* path, char* const argv[], char* const envp[]);"
       },
@@ -309,7 +309,7 @@
         "subsystem": "proc",
         "category": "signal",
         "sourcePath": "docs/2/proc/signal/sigsuspend.md",
-        "source": "libc/src/signal.c",
+        "source": "libc/src/process/signal.c",
         "synopsisKind": "public",
         "synopsis": "int sigsuspend(const sigset_t* mask);"
       },
@@ -924,6 +924,30 @@
         "subsystem": "mod",
         "category": "mod",
         "sourcePath": "docs/2/mod/modclose.md"
+      },
+      {
+        "id": 77,
+        "name": "getrandom",
+        "slug": "syscall-77-getrandom",
+        "title": "getrandom(2)",
+        "subsystem": "proc",
+        "category": "core",
+        "sourcePath": "docs/2/proc/core/getrandom.md",
+        "source": "kernel/src/proc/syscalls/getrandom.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);"
+      },
+      {
+        "id": 78,
+        "name": "chroot",
+        "slug": "syscall-78-chroot",
+        "title": "chroot(2)",
+        "subsystem": "proc",
+        "category": "process",
+        "sourcePath": "docs/2/proc/process/chroot.md",
+        "source": "kernel/src/proc/syscalls/process/chroot.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_chroot(const char* path);"
       }
     ]
   },

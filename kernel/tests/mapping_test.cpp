@@ -11,7 +11,6 @@ static_assert(MAP_STACK == 0x20000);
 static_assert((MAP_STACK & (MAP_SHARED | MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS)) == 0);
 
 namespace {
-
     enum class flags : astia::u8 {
         none  = 0,
         read  = 1u << 0,
@@ -21,11 +20,11 @@ namespace {
     inline constexpr astia::u8 valid_flag_bits =
         static_cast<astia::u8>(flags::read) | static_cast<astia::u8>(flags::write);
     using flags_mapper = astia::bitmask_mapper<flags, valid_flag_bits>;
-
 }
 
 ASTIA_TEST(mapping_accepts_valid_bitmask) {
     const auto value = flags_mapper::from(valid_flag_bits);
+
     ASTIA_CHECK(value.has_value);
     ASTIA_CHECK(static_cast<astia::u8>(value.value) == valid_flag_bits);
 }
@@ -33,12 +32,14 @@ ASTIA_TEST(mapping_accepts_valid_bitmask) {
 ASTIA_TEST(mapping_rejects_unknown_bits) {
     constexpr astia::u8 unknown_bit = 1u << 2;
     const auto          value       = flags_mapper::from(unknown_bit);
+
     ASTIA_CHECK(!value.has_value);
     ASTIA_CHECK(value.error == astia::error_t::einval);
 }
 
 ASTIA_TEST(file_mode_mapping_preserves_type_and_permissions) {
     const auto value = astia::mapper<astia::fs::file_mode>::from(0100754);
+
     ASTIA_CHECK(value.has_value);
     ASTIA_CHECK(value.value.is_regular());
     ASTIA_CHECK(value.value.owner_allows(astia::fs::permission_bits::read));
@@ -46,9 +47,23 @@ ASTIA_TEST(file_mode_mapping_preserves_type_and_permissions) {
     ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(value.value) == 0100754);
 }
 
+ASTIA_TEST(file_mode_mapping_preserves_block_and_socket_types) {
+    const auto block  = astia::mapper<astia::fs::file_mode>::from(0060755);
+    const auto socket = astia::mapper<astia::fs::file_mode>::from(0140755);
+
+    ASTIA_CHECK(block.has_value);
+    ASTIA_CHECK(block.value.is_block_device());
+    ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(block.value) == 0060755);
+
+    ASTIA_CHECK(socket.has_value);
+    ASTIA_CHECK(socket.value.is_socket());
+    ASTIA_CHECK(astia::mapper<astia::fs::file_mode>::to(socket.value) == 0140755);
+}
+
 ASTIA_TEST(file_mode_permission_decisions_and_chmod_mask) {
     const astia::fs::file_mode mode(astia::fs::file_type::directory,
                                     astia::fs::file_permissions(0750));
+
     ASTIA_CHECK(mode.is_directory());
     ASTIA_CHECK(mode.owner_allows(astia::fs::permission_bits::write));
     ASTIA_CHECK(mode.group_allows(astia::fs::permission_bits::execute));
@@ -60,6 +75,7 @@ ASTIA_TEST(file_mode_permission_decisions_and_chmod_mask) {
 ASTIA_TEST(permission_bits_require_all_requested_bits) {
     const astia::fs::file_mode mode(astia::fs::file_type::regular,
                                     astia::fs::file_permissions(0644));
+
     ASTIA_CHECK(mode.owner_allows(astia::fs::permission_bits::read));
     ASTIA_CHECK(!mode.owner_allows(static_cast<astia::fs::permission_bits>(5)));
     ASTIA_CHECK(mode.group_allows(astia::fs::permission_bits::read));
@@ -71,6 +87,7 @@ ASTIA_TEST(process_domain_mappers_reject_invalid_values) {
     const auto pid    = astia::mapper<astia::pid_t>::from(0);
     const auto group  = astia::mapper<astia::pgrp_t>::from(-1);
     const auto signal = astia::mapper<astia::signal_number>::from(32);
+
     ASTIA_CHECK(!pid.has_value && pid.error == astia::error_t::einval);
     ASTIA_CHECK(!group.has_value && group.error == astia::error_t::einval);
     ASTIA_CHECK(!signal.has_value && signal.error == astia::error_t::einval);
@@ -98,6 +115,7 @@ ASTIA_TEST(process_domain_mappers_accept_sigaio_and_sigio_ids) {
 ASTIA_TEST(getsid_selector_mapping_accepts_zero_and_positive_pid) {
     const auto caller = astia::mapper<astia::proc::getsid_target>::from(0);
     const auto target = astia::mapper<astia::proc::getsid_target>::from(42);
+
     ASTIA_CHECK(caller.has_value && static_cast<astia::u32>(caller.value.pid) == 0);
     ASTIA_CHECK(target.has_value && static_cast<astia::u32>(target.value.pid) == 42);
 }
@@ -105,6 +123,7 @@ ASTIA_TEST(getsid_selector_mapping_accepts_zero_and_positive_pid) {
 ASTIA_TEST(getsid_selector_mapping_rejects_bad_signed_or_overflow_values) {
     const auto negative = astia::mapper<astia::proc::getsid_target>::from(-1);
     const auto overflow = astia::mapper<astia::proc::getsid_target>::from(0x100000000ll);
+
     ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::einval);
     ASTIA_CHECK(!overflow.has_value && overflow.error == astia::error_t::einval);
 }
@@ -112,6 +131,7 @@ ASTIA_TEST(getsid_selector_mapping_rejects_bad_signed_or_overflow_values) {
 ASTIA_TEST(process_identifier_helpers_preserve_domains) {
     const auto pid   = astia::pid_from_raw(42);
     const auto group = astia::pgrp_from_raw(42);
+
     ASTIA_CHECK(astia::raw_id(pid) == 42);
     ASTIA_CHECK(astia::raw_id(group) == 42);
     ASTIA_CHECK(astia::proc::wait_group_from_selector(-42) == group);
@@ -122,6 +142,7 @@ ASTIA_TEST(descriptor_mapper_keeps_abi_integer_at_boundary) {
     const auto negative  = astia::mapper<astia::fd_t>::from(-1);
     const auto too_large = astia::mapper<astia::fd_t>::from(64);
     const auto last = astia::mapper<astia::fd_t>::from(astia::proc::max_process_fds - 1);
+
     ASTIA_CHECK(valid.has_value && valid.value.value == 7);
     ASTIA_CHECK(!negative.has_value && negative.error == astia::error_t::ebadf);
     ASTIA_CHECK(!too_large.has_value && too_large.error == astia::error_t::ebadf);

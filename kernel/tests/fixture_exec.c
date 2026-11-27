@@ -12,5 +12,6 @@ static int* p       = &counter;
 
 int fixture_entry(void) {
     counter += 2;
+
     return *p;
 }

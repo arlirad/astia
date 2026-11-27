@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::fs::filesystems::ext4 {
-
     using read_at_fn = bool (*)(void* context, u64 offset, void* buffer, usize length);
 
     enum class error : u8 {
@@ -57,24 +56,31 @@ namespace astia::fs::filesystems::ext4 {
         error last_error() const {
             return _error;
         }
+
         u32 block_size() const {
             return _block_size;
         }
+
         u64 block_count() const {
             return _blocks_count;
         }
+
         u32 inode_count() const {
             return _inodes_count;
         }
+
         u32 inode_size() const {
             return _inode_size;
         }
+
         u32 feature_compat() const {
             return _feature_compat;
         }
+
         u32 feature_incompat() const {
             return _feature_incompat;
         }
+
         u32 feature_ro_compat() const {
             return _feature_ro_compat;
         }
@@ -100,8 +106,10 @@ namespace astia::fs::filesystems::ext4 {
         bool validate_index_block(const u8* block, bool root);
         bool validate_index_node(const inode& node, u32 directory_blocks, const u8* block,
                                  u16 depth, bool root);
+
         bool fail(error value) {
             _error = value;
+
             return false;
         }
 
@@ -124,5 +132,4 @@ namespace astia::fs::filesystems::ext4 {
         bool       _use_checksum_seed = false;
         u8         _extent_block[4096]{};
     };
-
 } // namespace astia::fs::filesystems::ext4

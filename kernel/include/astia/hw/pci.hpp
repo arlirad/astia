@@ -2,13 +2,13 @@
 
 #include <astia/arch/pci_config.hpp>
 #include <astia/common.hpp>
+#include <astia/core/task.hpp>
 #include <astia/hw/driver.hpp>
 #include <astia/hw/mmio.hpp>
 #include <astia/optional.hpp>
 #include <astia/resource_limits.hpp>
 
 namespace astia::hw {
-
     using pci_bdf = arch::pci_bdf;
 
     using pci_config_read_fn  = u32 (*)(pci_bdf, u16);
@@ -121,20 +121,26 @@ namespace astia::hw {
         hw::bus_kind bus() const override {
             return hw::bus_kind::pci;
         }
+
         const void* type_tag() const override {
             return tag();
         }
+
         bool equals(const hw::device_info& other) const override;
 
         const pci_device& device() const {
             return value_;
         }
+
         pci_device& mutable_device() const {
             return value_;
         }
+
         static const pci_device_info* get(const hw::device_info& value);
-        static const void*            tag() {
+
+        static const void* tag() {
             static const u8 value = 0;
+
             return &value;
         }
 
@@ -150,12 +156,15 @@ namespace astia::hw {
         pci_device*       add(const pci_device& value);
         pci_device*       find(pci_bdf address);
         const pci_device* find(pci_bdf address) const;
-        u32               count() const {
+
+        u32 count() const {
             return count_;
         }
+
         pci_device* at(u32 index) {
             return index < count_ ? &devices_[index] : nullptr;
         }
+
         const pci_device* at(u32 index) const {
             return index < count_ ? &devices_[index] : nullptr;
         }
@@ -169,7 +178,7 @@ namespace astia::hw {
 
     using pci_filter_fn = bool (*)(const pci_device&);
 
-    u32                      pci_enumerate(pci_filter_fn filter = nullptr);
+    core::task<u32>          pci_enumerate(pci_filter_fn filter = nullptr);
     bool                     pci_probe_bar(pci_device& device, u8 index);
     bool                     pci_enable_bus_master(pci_device& device);
     bool                     pci_disable_bus_master(pci_device& device);
@@ -184,5 +193,4 @@ namespace astia::hw {
     bool pci_set_mmio_mapper(pci_mmio_map_fn map, pci_mmio_unmap_fn unmap);
     bool pci_map_bar(pci_device& device, u8 index);
     bool pci_unmap_bar(pci_device& device, u8 index);
-
 } // namespace astia::hw

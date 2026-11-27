@@ -1,11 +1,12 @@
 #include "aio.hpp"
 
+#include <astia/atomic.hpp>
+
 #include "../io/aio/aio.hpp"
 #include "time.hpp"
 #include "user_mem.hpp"
 
 namespace {
-
     using adapter            = astia::io::aio::user_memory_adapter;
     astia::u32 adapter_state = 0;
 
@@ -50,43 +51,55 @@ namespace {
 
     void install_user_memory_adapter() {
         astia::u32 expected = 0;
-        if (__atomic_load_n(&adapter_state, __ATOMIC_ACQUIRE) == 2)
+
+        if (astia::atomic_ref<astia::u32>(adapter_state)
+                .load(astia::memory_order::acquire) == 2)
             return;
-        if (!__atomic_compare_exchange_n(&adapter_state, &expected, 1, false,
-                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-            while (__atomic_load_n(&adapter_state, __ATOMIC_ACQUIRE) != 2) {
+
+        if (!astia::atomic_ref<astia::u32>(adapter_state)
+                 .compare_exchange_strong(expected, 1, astia::memory_order::acq_rel,
+                                          astia::memory_order::acquire)) {
+            while (astia::atomic_ref<astia::u32>(adapter_state)
+                       .load(astia::memory_order::acquire) != 2) {
             }
+
             return;
         }
+
         static const adapter value{
             user_span_ok, user_span_writable_ok, kernel_span_ok, pin_user_span,
             copy_in,      copy_in_string,        copy_out,       realtime_now,
         };
-        astia::io::aio::set_user_memory_adapter(value);
-        __atomic_store_n(&adapter_state, 2, __ATOMIC_RELEASE);
-    }
 
+        astia::io::aio::set_user_memory_adapter(value);
+        astia::fs::set_realtime_source(realtime_now);
+        astia::atomic_ref<astia::u32>(adapter_state)
+            .store(2, astia::memory_order::release);
+    }
 } // namespace
 
 namespace astia::sys {
-
     long io_setup(u32 entries, u32 flags, astia_rings** out) {
         install_user_memory_adapter();
+
         return ::astia::io::aio::io_setup(entries, flags, out);
     }
 
     long io_destroy(astia_rings* ring) {
         install_user_memory_adapter();
+
         return ::astia::io::aio::io_destroy(ring);
     }
 
     long io_submit(astia_rings* ring, u32 to_submit) {
         install_user_memory_adapter();
+
         return ::astia::io::aio::io_submit(ring, to_submit);
     }
 
     bool io_allow_kernel_buffers(astia_rings* ring) {
         install_user_memory_adapter();
+
         return ::astia::io::aio::io_allow_kernel_buffers(ring);
     }
 
@@ -126,5 +139,4 @@ namespace astia::sys {
         install_user_memory_adapter();
         ::astia::io::aio::io_exit_process(owner);
     }
-
 } // namespace astia::sys

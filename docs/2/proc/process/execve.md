@@ -18,7 +18,7 @@ Does not return on success. On failure, returns -1 and sets errno.
 
 - `E2BIG`: The argument or environment vector exceeds its limit.
 - `EFAULT`: An argv or envp vector or string pointer is not readable userspace memory. libc resolves path before the syscall, so a null path returns EINVAL and an invalid non-null path pointer can fault in libc instead of returning EFAULT.
-- `EINVAL`: The path is null, or the file is nonempty but is not a valid ELF executable image (malformed header, unsupported executable type, or invalid segment metadata).
+- `EINVAL`: The path is null, the file is nonempty but is not a valid ELF executable image (malformed header, unsupported executable type, or invalid segment metadata), or the process has more than one thread.
 - `ENAMETOOLONG`: The resolved path exceeds the libc path buffer.
 - `ENOENT`: The executable path does not exist or cannot be opened. The kernel also returns this when there is no current process or thread context.
 - `ENOEXEC`: The file is empty.
@@ -27,4 +27,6 @@ Does not return on success. On failure, returns -1 and sets errno.
 
 ## NOTES
 
-Relative paths are resolved against the caller's working directory by libc before the syscall. The public wrapper is implemented in [libc/src/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/unistd.c); the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp).
+Multithreaded exec is not supported: a process with more than one thread is rejected with EINVAL instead of leaving the other threads pointing at the replaced image. Join or detach the other threads before exec.
+
+Relative paths are resolved against the caller's working directory by libc before the syscall. The public wrapper is implemented in [libc/src/sys/unistd.c](https://github.com/arlirad/astia/blob/main/libc/src/sys/unistd.c); the kernel syscall entry is [kernel/src/proc/syscalls/process/execve.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/proc/syscalls/process/execve.cpp), and image loading is [kernel/src/elf/exec_loader.cpp](https://github.com/arlirad/astia/blob/main/kernel/src/elf/exec_loader.cpp).

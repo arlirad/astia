@@ -19,7 +19,6 @@
 // implements, while the getters report the stored termios values.
 
 namespace astia::dev {
-
     namespace tty_defaults {
         inline constexpr cc_t ctrl_c         = 0x03;
         inline constexpr cc_t ctrl_backslash = 0x1c;
@@ -32,6 +31,12 @@ namespace astia::dev {
         inline constexpr cc_t ctrl_z         = 0x1a;
     }
 
+    enum class tty_input_result : u8 {
+        consumed,
+        ready,
+        blocked,
+    };
+
     class tty : public chrdev {
         public:
         constexpr tty(const char* name, unsigned flags) : chrdev(name, flags | dv_tty) {
@@ -40,9 +45,11 @@ namespace astia::dev {
             _termios.c_cflag = CS8 | CREAD | CLOCAL;
             _termios.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK;
             _termios.c_line  = 0;
+
             for (u32 i = 0; i < NCCS; ++i) {
                 _termios.c_cc[i] = 0;
             }
+
             _termios.c_cc[VINTR]  = tty_defaults::ctrl_c;
             _termios.c_cc[VQUIT]  = tty_defaults::ctrl_backslash;
             _termios.c_cc[VERASE] = tty_defaults::del;
@@ -65,20 +72,23 @@ namespace astia::dev {
 
 #ifdef ASTIA_TTY_HOST_TEST
         bool inject_input_for_test(u8 byte) {
-            const bool ready = tty_receive(byte);
-            if (ready)
+            const tty_input_result result = tty_receive(byte);
+
+            if (result == tty_input_result::ready)
                 tty_input_ready();
-            return ready;
+
+            return result == tty_input_result::ready;
         }
 #endif
 
         protected:
-        bool         tty_receive(u8 byte);
-        void         tty_input_ready();
-        virtual long tty_discard_input();
-        void         tty_commit_line(bool eof);
-        void         tty_echo(u8 byte);
-        virtual void tty_signal(u8 byte);
+        tty_input_result tty_receive(u8 byte);
+        void             tty_input_ready();
+        virtual long     tty_discard_input();
+        virtual long     tty_discard_output();
+        void             tty_commit_line(bool eof);
+        void             tty_echo(u8 byte);
+        virtual void     tty_signal(u8 byte);
 
         long read_available(void* buf, u32 len, u64 off, bool allow_short);
 
@@ -121,5 +131,4 @@ namespace astia::dev {
         alignas(cache_line_bytes) u32 _rx_head = 0;
         alignas(cache_line_bytes) u32 _rx_tail = 0;
     };
-
 } // namespace astia::dev

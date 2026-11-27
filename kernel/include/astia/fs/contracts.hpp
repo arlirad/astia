@@ -7,7 +7,6 @@
 #include <astia/span.hpp>
 
 namespace astia::fs {
-
     /// One kernel-visible buffer in an async vector operation.
     struct buffer {
         void* data   = nullptr;
@@ -27,9 +26,9 @@ namespace astia::fs {
 
     class writable {
         public:
-        virtual ~writable()                                 = default;
+        virtual ~writable()                                                = default;
         virtual core::task<i64> writev(span<const buffer> buffers, u64 offset,
-                                       core::cltoken token) = 0;
+                                       core::cltoken token, bool nonblock) = 0;
     };
 
     class pollable {
@@ -65,5 +64,4 @@ namespace astia::fs {
         virtual ~syncable()                               = default;
         virtual core::task<i64> sync(core::cltoken token) = 0;
     };
-
 } // namespace astia::fs

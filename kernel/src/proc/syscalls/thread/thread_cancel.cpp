@@ -14,18 +14,23 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
+
             auto target = owner->thread_by_tid(tid);
+
             if (!target || target->state() == thread_state::dead)
                 return -ESRCH;
-            target->request_cancellation();
+
+            const bool parked = target->request_cancellation();
+
             target->wake_join_for_cancellation();
-            const bool futex_woken = futex_interrupt_thread(target.get());
-            if (!futex_woken && target->state() == thread_state::blocked) {
+            (void) futex_interrupt_thread(target.get());
+
+            if (parked) {
                 (void) target->wake_wait();
                 (void) scheduler::wake(target.get());
             }
+
             return 0;
         }
     };
-
 } // namespace astia::proc::syscalls

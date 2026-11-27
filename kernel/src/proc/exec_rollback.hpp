@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::proc::detail {
-
     using rollback_unmap_fn          = void (*)(void*, u64, usize);
     using rollback_release_frames_fn = void (*)(void*, u64, u64);
     using rollback_release_region_fn = void (*)(void*);
@@ -23,6 +22,7 @@ namespace astia::proc::detail {
                                  rollback_release_frames_fn release_frames,
                                  rollback_release_region_fn release_region) {
         unmap(context, address, pages);
+
         if (region != nullptr)
             release_region(region);
         else
@@ -36,16 +36,22 @@ namespace astia::proc::detail {
                                              rollback_release_region_fn release_region) {
         for (usize i = 0; i < count; ++i) {
             auto& entry = entries[i];
+
             if (entry.mapped == nullptr || !*entry.mapped)
                 continue;
+
             unmap(context, entry.address, entry.pages);
+
             *entry.mapped = false;
+
             if (!entry.release_backing)
                 continue;
+
             if (entry.region != nullptr)
                 release_region(entry.region);
             else
                 release_frames(context, entry.frames, entry.pages);
+
             if (entry.used != nullptr)
                 *entry.used = false;
         }
@@ -64,5 +70,4 @@ namespace astia::proc::detail {
         cleanup(context);
         discard(context);
     }
-
 } // namespace astia::proc::detail

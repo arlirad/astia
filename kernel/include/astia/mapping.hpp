@@ -4,7 +4,6 @@
 #include <astia/optional.hpp>
 
 namespace astia {
-
     /// Compile-time selected conversion from an ABI scalar to a validated
     /// domain type. Subsystems provide specializations in their mapping.hpp.
     template <typename T>
@@ -15,6 +14,7 @@ namespace astia {
         static optional<T> from(u64 raw) {
             if (raw & ~ValidMask)
                 return optional<T>(error_t::einval);
+
             return optional<T>(static_cast<T>(raw));
         }
     };
@@ -71,7 +71,10 @@ namespace astia {
             return ETIMEDOUT;
         case error_t::ecanceled:
             return ECANCELED;
+        case error_t::epipe:
+            return EPIPE;
         }
+
         return EINVAL;
     }
 
@@ -127,9 +130,10 @@ namespace astia {
             return error_t::etimedout;
         case ECANCELED:
             return error_t::ecanceled;
+        case EPIPE:
+            return error_t::epipe;
         default:
             return error_t::eio;
         }
     }
-
 } // namespace astia

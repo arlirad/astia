@@ -20,7 +20,7 @@
  * Return convention: >= 0 on success, or a negative value from
  * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
  * This tree is a deliberate, repository-only breaking migration: the table is
- * contiguous 0..76 and uname moved from 82 to 70.  There is no legacy 82
+ * contiguous 0..77 and uname moved from 82 to 70.  There is no legacy 82
  * alias; new public calls append from 71.  The API_VERSION constant below
  * versions the AIO ring layout, not the syscall table, and is unchanged by
  * this migration.
@@ -70,7 +70,7 @@ extern "C" {
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, contiguous 0..76.      */
+/* syscall numbers — architecture-independent, contiguous 0..77.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -153,7 +153,13 @@ enum {
     SYS_MODLS                 = 74,
     SYS_MODSTAT               = 75,
     SYS_MODCLOSE              = 76,
+    SYS_GETRANDOM             = 77,
+    SYS_CHROOT                = 78,
 };
+
+/* getrandom() accepts at most this many bytes in one call; larger requests
+ * are rejected with EINVAL instead of being silently truncated. */
+enum { ASTIA_GETRANDOM_MAX = 1024 * 1024 };
 
 /* ------------------------------------------------------------------ */
 /* shared value types                                                  */
@@ -211,6 +217,7 @@ enum {
     ASTIA_PROCESS_ZOMBIE   = 4,
     ASTIA_PROCESS_DEAD     = 5,
 };
+
 enum { ASTIA_PROCESS_SNAPSHOT_MAX = 64 };
 
 /* ------------------------------------------------------------------ */
@@ -354,6 +361,7 @@ enum {
     PROT_WRITE = 1u << 1,
     PROT_EXEC  = 1u << 2,
 };
+
 enum {
     MAP_SHARED    = 0x01,
     MAP_PRIVATE   = 0x02,
@@ -416,10 +424,12 @@ static inline long astia_raw6(long nr, long a0, long a1, long a2, long a3, long 
     register long r8 __asm__("r8")   = a4;
     register long r9 __asm__("r9")   = a5;
     long          ret;
+
     __asm__ volatile("syscall"
                      : "=a"(ret)
                      : "a"(nr), "D"(a0), "S"(a1), "d"(a2), "r"(r10), "r"(r8), "r"(r9)
                      : "rcx", "r11", "memory");
+
     return ret;
 }
 
@@ -434,10 +444,12 @@ static inline long astia_raw6(long nr, long a0, long a1, long a2, long a3, long 
     register long x4 __asm__("x4") = a4;
     register long x5 __asm__("x5") = a5;
     register long x8 __asm__("x8") = nr;
+
     __asm__ volatile("svc 0"
                      : "+r"(x0)
                      : "r"(x1), "r"(x2), "r"(x3), "r"(x4), "r"(x5), "r"(x8)
                      : "memory", "cc");
+
     return x0;
 }
 
@@ -469,12 +481,24 @@ static inline long astia_mprotect(void* addr, uint64_t len, uint32_t prot) {
 static inline long astia_msync(void* addr, uint64_t len, uint32_t flags) {
     return astia_raw6(SYS_MSYNC, (long) addr, (long) len, (long) flags, 0, 0, 0);
 }
+
 static inline long astia_umask(uint32_t mode) {
     return astia_raw6(SYS_UMASK, (long) mode, 0, 0, 0, 0, 0);
 }
+
+/* Fill at most ASTIA_GETRANDOM_MAX bytes from the kernel CSPRNG.  Only
+ * flags == 0 is accepted: the pool seeds at first use and never blocks, so
+ * there is no EINTR path, and an unavailable seed is EAGAIN rather than a
+ * weak fallback.  /dev/urandom exposes the same stream; /dev/random is
+ * intentionally not provided. */
+static inline long astia_getrandom(void* buffer, uint64_t length, uint32_t flags) {
+    return astia_raw6(SYS_GETRANDOM, (long) buffer, (long) length, (long) flags, 0, 0, 0);
+}
+
 static inline long astia_shm_open(const char* name, int flags, uint32_t mode) {
     return astia_raw6(SYS_SHM_OPEN, (long) name, (long) flags, (long) mode, 0, 0, 0);
 }
+
 static inline long astia_shm_unlink(const char* name) {
     return astia_raw6(SYS_SHM_UNLINK, (long) name, 0, 0, 0, 0, 0);
 }
@@ -489,6 +513,7 @@ static inline long astia_shm_unlink(const char* name) {
 static inline long astia_dlmap(int32_t fd, uint32_t flags, astia_dl_info* info) {
     return astia_raw6(SYS_DLMAP, (long) fd, (long) flags, (long) info, 0, 0, 0);
 }
+
 static inline long astia_dlunmap(uint64_t base) {
     return astia_raw6(SYS_DLUNMAP, (long) base, 0, 0, 0, 0, 0);
 }
@@ -499,17 +524,20 @@ static inline long astia_dlunmap(uint64_t base) {
 static inline long astia_modopen(const char* path, uint32_t flags, astia_module_id* out) {
     return astia_raw6(SYS_MODOPEN, (long) path, (long) flags, (long) out, 0, 0, 0);
 }
+
 /* Copies up to `capacity` bounded module records and always reports the
  * total published count through `info`.  Root only. */
 static inline long astia_modls(astia_module_record* records, uint32_t capacity,
                                astia_module_list_info* info) {
     return astia_raw6(SYS_MODLS, (long) records, (long) capacity, (long) info, 0, 0, 0);
 }
+
 /* Copies one stable module snapshot, including its bounded dependency
  * list.  Root only. */
 static inline long astia_modstat(const astia_module_id* id, astia_module_stat* out) {
     return astia_raw6(SYS_MODSTAT, (long) id, (long) out, 0, 0, 0, 0);
 }
+
 /* Quiesces and unloads a module, waiting for active references and
  * dependents to drain.  Running and resident modules are rejected.  Root
  * only. */
@@ -557,52 +585,68 @@ static inline long astia_getppid(void) {
 static inline long astia_gettid(void) {
     return astia_raw6(SYS_GETTID, 0, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_sigaltstack(const astia_stack_t* stack,
                                      astia_stack_t*       old_stack) {
     return astia_raw6(SYS_SIGALTSTACK, (long) stack, (long) old_stack, 0, 0, 0, 0);
 }
+
 static inline long astia_unmount(const char* target) {
     return astia_raw6(SYS_UNMOUNT, (long) target, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_mount(const char* type, const char* target, const char* source) {
     return astia_raw6(SYS_MOUNT, (long) type, (long) target, (long) source, 0, 0, 0);
 }
+
 static inline long astia_getuid(void) {
     return astia_raw6(SYS_GETUID, 0, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_geteuid(void) {
     return astia_raw6(SYS_GETEUID, 0, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_getgid(void) {
     return astia_raw6(SYS_GETGID, 0, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_getegid(void) {
     return astia_raw6(SYS_GETEGID, 0, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_setuid(uint32_t v) {
     return astia_raw6(SYS_SETUID, v, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_seteuid(uint32_t v) {
     return astia_raw6(SYS_SETEUID, v, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_setgid(uint32_t v) {
     return astia_raw6(SYS_SETGID, v, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_setegid(uint32_t v) {
     return astia_raw6(SYS_SETEGID, v, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_setreuid(uint32_t r, uint32_t e) {
     return astia_raw6(SYS_SETREUID, r, e, 0, 0, 0, 0);
 }
+
 static inline long astia_setregid(uint32_t r, uint32_t e) {
     return astia_raw6(SYS_SETREGID, r, e, 0, 0, 0, 0);
 }
+
 static inline long astia_getgroups(int32_t n, uint32_t* g) {
     return astia_raw6(SYS_GETGROUPS, n, (long) g, 0, 0, 0, 0);
 }
+
 static inline long astia_setgroups(int32_t n, const uint32_t* g) {
     return astia_raw6(SYS_SETGROUPS, n, (long) g, 0, 0, 0, 0);
 }
+
 static inline long astia_process_snapshot(astia_process_info* out, uint32_t capacity) {
     return astia_raw6(SYS_PROCESS_SNAPSHOT, (long) out, (long) capacity, 0, 0, 0, 0);
 }
@@ -622,6 +666,7 @@ static inline long astia_setpgid(int32_t pid, int32_t pgid) {
 static inline long astia_setsid(void) {
     return astia_raw6(SYS_SETSID, 0, 0, 0, 0, 0, 0);
 }
+
 /* pid == 0 selects the caller; a positive PID selects that process. */
 static inline long astia_getsid(int32_t pid) {
     return astia_raw6(SYS_GETSID, (long) pid, 0, 0, 0, 0, 0);
@@ -659,6 +704,7 @@ static inline long astia_sigtimedwait(const uint32_t* set, astia_siginfo_t* info
 static inline long astia_waitpid_options(int32_t pid, int32_t* status, uint32_t options) {
     return astia_raw6(SYS_WAITPID, (long) pid, (long) status, (long) options, 0, 0, 0);
 }
+
 static inline long astia_waitpid(int32_t pid, int32_t* status) {
     return astia_waitpid_options(pid, status, 0);
 }
@@ -667,9 +713,14 @@ static inline long astia_chdir(const char* path) {
     return astia_raw6(SYS_CHDIR, (long) path, 0, 0, 0, 0, 0);
 }
 
+static inline long astia_chroot(const char* path) {
+    return astia_raw6(SYS_CHROOT, (long) path, 0, 0, 0, 0, 0);
+}
+
 static inline long astia_fchdir(int fd) {
     return astia_raw6(SYS_FCHDIR, (long) fd, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_getcwd(char* buffer, uint64_t length) {
     return astia_raw6(SYS_GETCWD, (long) buffer, (long) length, 0, 0, 0, 0);
 }
@@ -739,15 +790,18 @@ static inline long astia_thread_cancel_pending(void) {
 static inline long astia_thread_exists(uint32_t tid) {
     return astia_raw6(SYS_THREAD_EXISTS, (long) tid, 0, 0, 0, 0, 0);
 }
+
 static inline long astia_thread_kill(uint32_t tid, int32_t signal) {
     return astia_raw6(SYS_THREAD_KILL, (long) tid, (long) signal, 0, 0, 0, 0);
 }
+
 static inline long astia_sigpending(uint32_t* set) {
     return astia_raw6(SYS_SIGPENDING, (long) set, 0, 0, 0, 0, 0);
 }
 
 static inline void astia_thread_exit(void* result) {
     (void) astia_raw6(SYS_THREAD_EXIT, (long) result, 0, 0, 0, 0, 0);
+
     for (;;) {
     }
 }

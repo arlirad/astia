@@ -306,7 +306,7 @@ def render_syscall_markdown(
     return "\n\n".join(parts).strip().replace("\u2014", " - ") + "\n"
 
 
-CANONICAL_PUBLIC_SYSCALL_IDS = tuple(range(77))
+CANONICAL_PUBLIC_SYSCALL_IDS = tuple(range(79))
 
 
 def syscall_abi(path: Path) -> list[tuple[int, str]]:

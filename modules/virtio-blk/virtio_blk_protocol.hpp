@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 namespace astia_virtio_blk {
-
     constexpr uint32_t feature_read_only = 1u << 5;
     constexpr uint32_t feature_flush     = 1u << 9;
     constexpr uint16_t descriptor_next   = 1;
@@ -21,12 +20,17 @@ namespace astia_virtio_blk {
     }
 
     inline void encode_header(uint8_t* bytes, uint32_t type, uint64_t sector) {
-        for (unsigned i = 0; i < 4; ++i)
+        for (unsigned i = 0; i < 4; ++i) {
             bytes[i] = static_cast<uint8_t>(type >> (i * 8));
-        for (unsigned i = 0; i < 4; ++i)
+        }
+
+        for (unsigned i = 0; i < 4; ++i) {
             bytes[4 + i] = 0;
-        for (unsigned i = 0; i < 8; ++i)
+        }
+
+        for (unsigned i = 0; i < 8; ++i) {
             bytes[8 + i] = static_cast<uint8_t>(sector >> (i * 8));
+        }
     }
 
     constexpr uint16_t data_flags(bool device_writes) {
@@ -52,5 +56,4 @@ namespace astia_virtio_blk {
     }
 
     enum class request_state : uint8_t { idle, submitted, canceled, completed };
-
 }

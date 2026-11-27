@@ -4,12 +4,16 @@ import subprocess
 import sys
 
 FRAME_LIMIT = 0x4000
+# The probe body is inlined into its operation thunk, which is the
+# callback that actually runs on the stack.
 TARGETS = ("xhci_driver::probe", "controller::enumerate")
 
 
 def frames(output: str):
+    # Symbol names contain template brackets, so the name runs to the last
+    # ">:" on the line rather than the first one.
     pattern = re.compile(
-        r"^[0-9a-f]+ <([^>\n]+)>:\n(.*?)(?=^[0-9a-f]+ <[^>\n]+>:\n|\Z)",
+        r"^[0-9a-f]+ <(.+)>:\n(.*?)(?=^[0-9a-f]+ <.+>:\n|\Z)",
         re.DOTALL | re.MULTILINE,
     )
     for symbol, body in pattern.findall(output):

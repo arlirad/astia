@@ -13,16 +13,23 @@ namespace astia::proc::syscalls {
             auto* owner = current_process();
             if (owner == nullptr)
                 return -ESRCH;
+
             auto mapped = mapper<fd_t>::from(raw_fd);
+
             if (!mapped.has_value)
                 return -EBADF;
+
             auto file = owner->descriptor(mapped.value);
             if (!file)
                 return -EBADF;
-            if (!file->path() || !file->mode().is_directory())
+
+            if (!file->mode().is_directory())
                 return -ENOTDIR;
-            return owner->change_directory(file->path());
+
+            if (file->path() != nullptr && !owner->path_within_root(file->path()))
+                return -ENOENT;
+
+            return owner->change_directory(*file);
         }
     };
-
 } // namespace astia::proc::syscalls

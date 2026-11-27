@@ -3,7 +3,6 @@
 #include <astia/elf.hpp>
 
 namespace astia::elf::loader::detail {
-
     using u8  = astia::u8;
     using u16 = astia::u16;
     using u32 = astia::u32;
@@ -25,6 +24,7 @@ namespace astia::elf::loader::detail {
     inline constexpr u32 sht_strtab     = 3;
     inline constexpr u32 sht_rela       = 4;
     inline constexpr u32 sht_nobits     = 8;
+    inline constexpr u32 sht_rel        = 9;
     inline constexpr u32 sht_init_array = 14;
     inline constexpr u32 sht_fini_array = 15;
 
@@ -154,14 +154,18 @@ namespace astia::elf::loader::detail {
     inline bool checked_add(u64 left, u64 right, u64& result) {
         if (left > ~u64{0} - right)
             return false;
+
         result = left + right;
+
         return true;
     }
 
     inline bool checked_align_up(u64 value, u64 alignment, u64& result) {
         if (!is_power_of_two(alignment) || value > ~u64{0} - (alignment - 1))
             return false;
+
         result = (value + alignment - 1) & ~(alignment - 1);
+
         return true;
     }
 
@@ -169,29 +173,44 @@ namespace astia::elf::loader::detail {
                                      u64& result) {
         if (mapped_addr >= span_start) {
             const u64 bias = mapped_addr - span_start;
+
             if (addend >= 0)
                 return checked_add(bias, static_cast<u64>(addend), result);
+
             const u64 magnitude = static_cast<u64>(-(addend + 1)) + 1;
+
             if (bias < magnitude)
                 return false;
+
             result = bias - magnitude;
+
             return true;
         }
+
         const u64 magnitude = span_start - mapped_addr;
+
         if (addend >= 0) {
             const u64 value = static_cast<u64>(addend);
             if (value >= magnitude) {
                 result = value - magnitude;
+
                 return true;
             }
+
             result = 0;
+
             return false;
         }
+
         const u64 addend_magnitude = static_cast<u64>(-(addend + 1)) + 1;
+
         if (magnitude > ~u64{0} - addend_magnitude)
             return false;
+
         const u64 total = magnitude + addend_magnitude;
-        result          = 0;
+
+        result = 0;
+
         return total == 0;
     }
 
@@ -200,19 +219,24 @@ namespace astia::elf::loader::detail {
     }
 
     inline void write_u32(u8* destination, u32 value) {
-        for (usize i = 0; i < 4; ++i)
+        for (usize i = 0; i < 4; ++i) {
             destination[i] = static_cast<u8>(value >> (i * 8));
+        }
     }
 
     inline void write_u64(u8* destination, u64 value) {
-        for (usize i = 0; i < 8; ++i)
+        for (usize i = 0; i < 8; ++i) {
             destination[i] = static_cast<u8>(value >> (i * 8));
+        }
     }
 
     inline u64 read_u64_bytes(const u8* source) {
         u64 value = 0;
-        for (usize i = 0; i < 8; ++i)
+
+        for (usize i = 0; i < 8; ++i) {
             value |= static_cast<u64>(source[i]) << (i * 8);
+        }
+
         return value;
     }
 
@@ -227,14 +251,19 @@ namespace astia::elf::loader::detail {
     inline bool ident_type(span<const u8> bytes, u16& type_out) {
         if (bytes.data() == nullptr || bytes.size() < sizeof(elf64_ehdr))
             return false;
+
         const auto* eh = reinterpret_cast<const elf64_ehdr*>(bytes.data());
+
         if (eh->e_ident[0] != elf_magic[0] || eh->e_ident[1] != elf_magic[1] ||
             eh->e_ident[2] != elf_magic[2] || eh->e_ident[3] != elf_magic[3])
             return false;
+
         if (eh->e_ident[ei_class] != elfclass64 || eh->e_ident[ei_data] != elfdatal2lsb ||
             eh->e_machine != em_x86_64)
             return false;
+
         type_out = eh->e_type;
+
         return true;
     }
 
@@ -258,5 +287,4 @@ namespace astia::elf::loader::detail {
     bool parse_relocatable(span<const u8> bytes, view& v);
     bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
                   u64& out);
-
 } // namespace astia::elf::loader::detail

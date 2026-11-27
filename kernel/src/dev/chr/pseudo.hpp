@@ -3,7 +3,6 @@
 #include <astia/dev/chr/chrdev.hpp>
 
 namespace astia::dev {
-
     class null_device final : public chrdev {
         public:
         constexpr null_device() : chrdev("null", dv_char | dv_sync) {}
@@ -20,7 +19,14 @@ namespace astia::dev {
         long write(const void*, u32 length, u64) override;
     };
 
+    class urandom_device final : public chrdev {
+        public:
+        constexpr urandom_device() : chrdev("urandom", dv_char | dv_sync) {}
+
+        long read(void* buffer, u32 length, u64) override;
+        long write(const void*, u32 length, u64) override;
+    };
+
     /// Register the kernel-owned, host-independent pseudo devices in devfs.
     bool pseudo_devices_init();
-
 } // namespace astia::dev

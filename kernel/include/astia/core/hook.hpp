@@ -4,7 +4,6 @@
 #include <astia/core/spinlock.hpp>
 
 namespace astia::core::hook {
-
     /// What a handler reports back.
     enum class outcome : u8 {
         pass, ///< No opinion / keep going.
@@ -54,19 +53,31 @@ namespace astia::core::hook {
         static bool add(const char* id, priority_t priority, handler call) {
             if (id == nullptr || call == nullptr)
                 return false;
+
             core::spinlock_guard guard(_lock);
-            for (usize i = 0; i < _count; ++i)
+
+            for (usize i = 0; i < _count; ++i) {
                 if (same(_entries[i].id, id))
                     return false;
+            }
+
             if (_count == capacity)
                 return false;
+
             usize at = _count;
-            while (at > 0 && _entries[at - 1].priority > priority)
+
+            while (at > 0 && _entries[at - 1].priority > priority) {
                 --at;
-            for (usize i = _count; i > at; --i)
+            }
+
+            for (usize i = _count; i > at; --i) {
                 _entries[i] = _entries[i - 1];
+            }
+
             _entries[at] = entry{id, priority, call};
+
             ++_count;
+
             return true;
         }
 
@@ -74,54 +85,73 @@ namespace astia::core::hook {
         static bool remove(const char* id) {
             if (id == nullptr)
                 return false;
+
             core::spinlock_guard guard(_lock);
+
             for (usize i = 0; i < _count; ++i) {
                 if (!same(_entries[i].id, id))
                     continue;
-                for (usize j = i + 1; j < _count; ++j)
+
+                for (usize j = i + 1; j < _count; ++j) {
                     _entries[j - 1] = _entries[j];
+                }
+
                 --_count;
+
                 _entries[_count] = entry{};
+
                 return true;
             }
+
             return false;
         }
 
         /// Run every handler in order.  Handler results are ignored.
         static void emit(Args... args) {
-            entry       batch[capacity];
+            entry batch[capacity];
+
             const usize count = snapshot(batch);
-            for (usize i = 0; i < count; ++i)
+
+            for (usize i = 0; i < count; ++i) {
                 if (batch[i].call != nullptr)
                     (void) batch[i].call(args...);
+            }
         }
 
         /// Like `emit`, but stop at the first handler that returns
         /// `outcome::stop`.  Returns `outcome::pass` when every handler
         /// passed (or none are registered).
         static outcome emit_until(Args... args) {
-            entry       batch[capacity];
+            entry batch[capacity];
+
             const usize count = snapshot(batch);
+
             for (usize i = 0; i < count; ++i) {
                 if (batch[i].call == nullptr)
                     continue;
+
                 if (batch[i].call(args...) == outcome::stop)
                     return outcome::stop;
             }
+
             return outcome::pass;
         }
 
         /// Number of registered handlers.
         static usize size() {
             core::spinlock_guard guard(_lock);
+
             return _count;
         }
 
         /// Drop every handler.  For teardown tests and module fault paths.
         static void clear() {
             core::spinlock_guard guard(_lock);
-            for (usize i = 0; i < _count; ++i)
+
+            for (usize i = 0; i < _count; ++i) {
                 _entries[i] = entry{};
+            }
+
             _count = 0;
         }
 
@@ -135,12 +165,15 @@ namespace astia::core::hook {
         static constexpr bool same(const char* a, const char* b) {
             if (a == b)
                 return true;
+
             if (a == nullptr || b == nullptr)
                 return false;
+
             while (*a != '\0' && *a == *b) {
                 ++a;
                 ++b;
             }
+
             return *a == *b;
         }
 
@@ -149,8 +182,11 @@ namespace astia::core::hook {
         /// independent.
         static usize snapshot(entry* batch) {
             core::spinlock_guard guard(_lock);
-            for (usize i = 0; i < _count; ++i)
+
+            for (usize i = 0; i < _count; ++i) {
                 batch[i] = _entries[i];
+            }
+
             return _count;
         }
 
@@ -158,5 +194,4 @@ namespace astia::core::hook {
         inline static usize          _count = 0;
         inline static core::spinlock _lock{};
     };
-
 } // namespace astia::core::hook

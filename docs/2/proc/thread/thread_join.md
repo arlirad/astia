@@ -20,5 +20,6 @@ Returns zero after reaping the thread or a negative errno.
 ## ERRORS
 
 - `-EFAULT`: The result pointer is not writable userspace memory.
-- `-EINVAL`: The thread is detached, already joined, or is the caller.
+- `-EDEADLK`: The caller attempted to join itself.
+- `-EINVAL`: The thread is detached or already joined.
 - `-ESRCH`: The thread does not exist.

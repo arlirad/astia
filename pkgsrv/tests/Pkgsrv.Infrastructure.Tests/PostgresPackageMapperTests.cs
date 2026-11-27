@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Pkgsrv.Domain.Errors;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
@@ -80,6 +81,38 @@ public sealed class PostgresPackageMapperTests
             Assert.Single(rehydrated.DomainEvents));
         Assert.Equal(package.Key, pending.Key);
         Assert.Equal(package.RegisteredAt, pending.OccurredAt);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesPublishedStateAndTimestamp()
+    {
+        var package = TestPackages.CreatePackage(signed: true);
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
+        package.RequestBuild(TestPackages.Timestamp.AddMinutes(1));
+        package.AcknowledgeDomainEvents(package.PeekDomainEvents());
+        var publishedAt = TestPackages.Timestamp.AddMinutes(2);
+        package.MarkPublished(publishedAt);
+
+        var record = PostgresPackageMapper.FromDomain(package);
+        var rehydrated = PostgresPackageMapper.ToDomain(record);
+
+        Assert.Equal((int)PackageState.Published, record.State);
+        Assert.Equal(publishedAt, record.PublishedAt);
+        Assert.Equal(PackageState.Published, rehydrated.State);
+        Assert.Equal(publishedAt, rehydrated.PublishedAt);
+        Assert.Empty(rehydrated.DomainEvents);
+    }
+
+    [Fact]
+    public void ToDomain_RejectsPublishedStateWithoutTimestamp()
+    {
+        var record = PostgresPackageMapper.FromDomain(TestPackages.CreatePackage(signed: true));
+        record.State = (int)PackageState.Published;
+        record.BuildRequestedAt = TestPackages.Timestamp;
+        record.PublishedAt = null;
+
+        Assert.Throws<DomainException>(
+            () => PostgresPackageMapper.ToDomain(record));
     }
 
     [Fact]

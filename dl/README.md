@@ -6,7 +6,10 @@
 ## What it does
 
 1. Reads the kernel-built startup frame (`AT_PHDR`, `AT_PHNUM`, `AT_PHENT`,
-   `AT_ENTRY`, and the `AT_ASTIA_TLS_*` arena).
+   `AT_ENTRY`, the `AT_ASTIA_TLS_*` arena, and `AT_ASTIA_PAYLOAD_BASE`).
+   The load bias comes from `PT_PHDR` when the payload has it, otherwise from
+   the auxv entry; a payload that offers neither is rejected with exit 115
+   instead of being biased by zero.
 2. Walks the payload's `PT_DYNAMIC`: `DT_NEEDED`, `DT_STRTAB`, `DT_SYMTAB`,
    `DT_HASH`/`DT_GNU_HASH`, `DT_RELA`, `DT_JMPREL`.
 3. Opens each `DT_NEEDED` under `/lib/` and maps it with `dlmap`. The kernel

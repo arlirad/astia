@@ -5,7 +5,6 @@
 #include <type_traits>
 
 namespace astia::log {
-
     enum class level {
         debug,
         info,
@@ -32,7 +31,6 @@ namespace astia::log {
     };
 
     namespace detail {
-
         /// A context's whole name: its parent's, a dot, and its own, so
         /// `dev` then `uart` is `dev::uart`.  A context with no parent is
         /// its own full name.
@@ -44,14 +42,18 @@ namespace astia::log {
             else {
                 constexpr auto                           parent = Parent::full_name;
                 name<parent.length + 2 + Own.length + 1> joined{};
+
                 for (u32 i = 0; i < parent.length; ++i) {
                     joined.text[i] = parent.text[i];
                 }
+
                 joined.text[parent.length]     = ':';
                 joined.text[parent.length + 1] = ':';
+
                 for (u32 i = 0; i < Own.length; ++i) {
                     joined.text[parent.length + 2 + i] = Own.text[i];
                 }
+
                 return joined;
             }
         }
@@ -64,12 +66,10 @@ namespace astia::log {
         class record_builder {
             public:
             void append(char c) {
-                if (_length < record_capacity) {
+                if (_length < record_capacity)
                     _text[_length++] = c;
-                }
-                else {
+                else
                     _overflow = true;
-                }
             }
 
             void append(const char* text, u32 length) {
@@ -83,22 +83,25 @@ namespace astia::log {
             void close() {
                 if (!_overflow) {
                     append('\n');
-                    if (!_overflow) {
+
+                    if (!_overflow)
                         return;
-                    }
                 }
+
                 constexpr u32 ellipsis = 4;
-                _length                = record_capacity - ellipsis;
-                _text[_length + 0]     = '.';
-                _text[_length + 1]     = '.';
-                _text[_length + 2]     = '.';
-                _text[_length + 3]     = '\n';
-                _length                = record_capacity;
+
+                _length            = record_capacity - ellipsis;
+                _text[_length + 0] = '.';
+                _text[_length + 1] = '.';
+                _text[_length + 2] = '.';
+                _text[_length + 3] = '\n';
+                _length            = record_capacity;
             }
 
             const char* data() const {
                 return _text;
             }
+
             u32 length() const {
                 return _length;
             }
@@ -118,13 +121,16 @@ namespace astia::log {
                     u32 length);
 
         inline void number(record_builder& record, u64 value, unsigned base, bool upper) {
-            char        buffer[32];
-            u32         count  = 0;
+            char buffer[32];
+            u32  count = 0;
+
             const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
+
             do {
                 buffer[count++] = digits[value % base];
                 value /= base;
             } while (value != 0 && count < sizeof(buffer));
+
             while (count != 0) {
                 record.append(buffer[--count]);
             }
@@ -142,49 +148,47 @@ namespace astia::log {
 
         inline void write_arg(record_builder& record, char spec, const char* value) {
             if (spec == 's') {
-                if (value == nullptr) {
+                if (value == nullptr)
                     value = "(null)";
-                }
+
                 while (*value != '\0') {
                     record.append(*value++);
                 }
+
                 return;
             }
+
             record.append('0');
             record.append('x');
             number(record, reinterpret_cast<u64>(value), 16, false);
         }
 
         inline void write_arg(record_builder& record, char spec, char value) {
-            if (spec == 'c') {
+            if (spec == 'c')
                 record.append(value);
-            }
-            else if (spec == 'd' || spec == 'i') {
+            else if (spec == 'd' || spec == 'i')
                 signed_number(record, value);
-            }
-            else {
+            else
                 number(record, static_cast<u64>(static_cast<unsigned char>(value)),
                        spec == 'x' || spec == 'X' ? 16 : 10, spec == 'X');
-            }
         }
 
         template <typename value_type>
         void write_arg(record_builder& record, char spec, value_type value) {
             static_assert(std::is_integral_v<value_type> || std::is_pointer_v<value_type>,
                           "unsupported astia::log format argument");
+
             if constexpr (std::is_pointer_v<value_type>) {
                 record.append('0');
                 record.append('x');
                 number(record, reinterpret_cast<u64>(value), 16, false);
             }
             else if constexpr (std::is_signed_v<value_type>) {
-                if (spec == 'd' || spec == 'i') {
+                if (spec == 'd' || spec == 'i')
                     signed_number(record, static_cast<i64>(value));
-                }
-                else {
+                else
                     number(record, static_cast<u64>(value),
                            spec == 'x' || spec == 'X' ? 16 : 10, spec == 'X');
-                }
             }
             else {
                 number(record, static_cast<u64>(value),
@@ -196,6 +200,7 @@ namespace astia::log {
             while (*format != '\0') {
                 if (*format == '%' && format[1] == '%') {
                     record.append('%');
+
                     format += 2;
                 }
                 else {
@@ -212,7 +217,9 @@ namespace astia::log {
                     record.append(*format++);
                     continue;
                 }
+
                 ++format;
+
                 if (*format == '%') {
                     record.append('%');
                     ++format;
@@ -222,13 +229,18 @@ namespace astia::log {
                 while (*format == 'l' || *format == 'z') {
                     ++format;
                 }
+
                 if (*format == '\0') {
                     record.append('%');
+
                     return;
                 }
+
                 const char spec = *format++;
+
                 write_arg(record, spec, static_cast<value_type&&>(value));
                 write_format(record, format, static_cast<rest_types&&>(rest)...);
+
                 return;
             }
         }
@@ -237,6 +249,7 @@ namespace astia::log {
         void print(level severity, const name<N>& context, const char* format,
                    arg_types&&... args) {
             record_builder record;
+
             prefix(record, severity, context.text, name<N>::length);
             write_format(record, format, static_cast<arg_types&&>(args)...);
             record.close();
@@ -320,5 +333,4 @@ namespace astia::log {
     void print(level severity, const char* format, arg_types&&... args) {
         root::print(severity, format, static_cast<arg_types&&>(args)...);
     }
-
 } // namespace astia::log

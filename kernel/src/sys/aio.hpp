@@ -4,7 +4,6 @@
 #include <astia/resource_limits.hpp>
 
 namespace astia::sys {
-
     using io_device = ::astia::io::aio::io_device;
 
     inline constexpr u32 kernel_ring_max_entries = ASTIA_AIO_MAX_RING_ENTRIES;
@@ -21,5 +20,4 @@ namespace astia::sys {
     void io_poll_tick();
     void io_exec_process(proc::process* owner);
     void io_exit_process(proc::process* owner);
-
 } // namespace astia::sys

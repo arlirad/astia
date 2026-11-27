@@ -1,12 +1,9 @@
 namespace kernel_fixture {
-
     int add(int left, int right);
     int bias();
-
 }
 
 namespace {
-
     int constructor_value = 0;
 
     void fixture_init() __attribute__((constructor));
@@ -15,10 +12,10 @@ namespace {
     void fixture_init() {
         constructor_value = 7;
     }
+
     void fixture_fini() {
         constructor_value = 99;
     }
-
 }
 
 int module_main() {

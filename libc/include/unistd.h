@@ -109,6 +109,7 @@ char*        mktemp(char* template_name);
 int          mkstemp(char* template_name);
 long         sysconf(int name);
 int          chdir(const char* path);
+int          chroot(const char* path);
 unsigned int umask(unsigned int mode);
 int          posix_openpt(int flags);
 int          grantpt(int fd);
@@ -150,6 +151,10 @@ void         _exit(int status) __attribute__((noreturn));
 #define _POSIX_THREAD_PROCESS_SHARED (-1L)
 #define _POSIX_CLOCK_SELECTION 200809L
 #define _POSIX_MONOTONIC_CLOCK 200809L
+
+/* Fill at most 256 bytes from the kernel CSPRNG; larger requests fail
+ * with EIO, matching the getentropy contract. */
+int getentropy(void* buffer, size_t length);
 
 #ifdef __cplusplus
 }

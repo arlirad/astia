@@ -1,6 +1,6 @@
 import { DOC_PAGES } from '../content';
 import { DocsMarkdownRenderer } from './docs-markdown';
-import type { DocPage } from './docs.model';
+import { docGroupLabel, type DocPage } from './docs.model';
 import {
   DEFAULT_DOCS_REPOSITORY_CONFIG,
   GitHubDocsSource,
@@ -66,6 +66,7 @@ describe('Authored documentation sources', () => {
       expect(page.aliases).toEqual([expected[1]]);
       expect(page.sourcePath).toBe(expected[2]);
       expect(page.title).toBe(expected[3]);
+      expect(docGroupLabel(page.group)).toBe('Design (7)');
       expect(page.contentKind).toBe('markdown');
     }
   });
@@ -76,7 +77,7 @@ describe('Authored documentation sources', () => {
     expect(DOC_PAGES.filter((page) => page.group === 'Manual page').length).toBe(7);
 
     const syscalls = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
-    expect(syscalls.length).toBe(77);
+    expect(syscalls.length).toBe(79);
     for (const page of syscalls) {
       const name = page.title.replace(/\(2\)$/, '');
       const folder = page.subsystem === 'proc' ? `proc/${page.category}/` : `${page.subsystem}/`;

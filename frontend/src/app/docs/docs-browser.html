@@ -83,7 +83,7 @@
       <article class="docs-page">
         <div class="docs-page-top">
           <button type="button" class="docs-back" (click)="backToIndex()">All docs</button>
-          <span class="tag tag-core">{{ page.group }}</span>
+          <span class="tag tag-core">{{ groupLabel(page) }}</span>
           @if (page.subsystem) {
             <span class="tag">{{ page.subsystem }}</span>
           }

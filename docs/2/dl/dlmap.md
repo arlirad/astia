@@ -17,9 +17,15 @@ maps the same file, and maps writable segments copy-on-write. The same
 file mapped twice in one process returns the same base and just adds a
 handle.
 
-Identity is the file, not the path: two descriptors for the same inode
-share one image, and the kernel keeps the descriptor's file alive for as
-long as any process maps it.
+The kernel loads the image before dlmap returns: it copies the loadable
+segments into physical pages owned by the shared image, and the mapping
+keeps those pages pinned. The descriptor is not retained, so it may be
+closed as soon as dlmap returns, and the file may be deleted while the
+image stays mapped. The pages are freed when the last process mapping the
+image releases it.
+
+Identity is the file, not the path: two descriptors for the same file
+(mount, inode number, and size) share one image.
 
 On success the load bias is returned and info is filled in. Every
 segment sits at `base + p_vaddr`; `phdr` is the in-memory address of the
@@ -40,3 +46,9 @@ Returns the load bias (the handle dlunmap takes) or a negative errno.
 - `-ENOMEM`: The image or its address space could not be allocated.
 - `-ENOSPC`: The process already holds every library binding it can.
 - `-ESRCH`: There is no current process.
+
+## NOTES
+
+Because image identity is recorded as the mount, inode number, and size, a
+different file that reuses an inode with the same size is indistinguishable
+from the old image and shares its mapping.

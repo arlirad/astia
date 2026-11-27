@@ -1,7 +1,6 @@
 #pragma once
 
 namespace astia {
-
     /// Common type definitions and constants
     using u8  = unsigned char;
     using u16 = unsigned short;
@@ -15,10 +14,13 @@ namespace astia {
 
     using usize = __SIZE_TYPE__;
     using isize = __PTRDIFF_TYPE__;
+
     struct fd_t {
         i32 value        = -1;
         constexpr fd_t() = default;
+
         constexpr explicit fd_t(i32 raw) : value(raw) {}
+
         constexpr bool operator==(fd_t other) const {
             return value == other.value;
         }
@@ -31,10 +33,13 @@ namespace astia {
     struct domain_id {
         u32 value             = 0;
         constexpr domain_id() = default;
+
         constexpr explicit domain_id(u32 raw) : value(raw) {}
+
         constexpr explicit operator u32() const {
             return value;
         }
+
         constexpr bool operator==(domain_id other) const {
             return value == other.value;
         }
@@ -42,6 +47,7 @@ namespace astia {
             return value != other.value;
         }
     };
+
     struct uid_tag;
     struct gid_tag;
     struct pid_tag;
@@ -112,5 +118,4 @@ namespace astia {
     consteval bytes_t operator""_gib(unsigned long long value) {
         return static_cast<bytes_t>(value * 1024ull * 1024ull * 1024ull);
     }
-
 } // namespace astia

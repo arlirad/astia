@@ -2,7 +2,6 @@
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
-
     struct shutdown : handler<shutdown, opcode::shutdown> {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
@@ -10,7 +9,9 @@ namespace astia::io::aio::operations {
             auto handle = file_for(sqe.fd);
             if (!handle)
                 co_return -EBADF;
+
             const auto* socket = handle->parent()->unix_socket_capability();
+
             co_return static_cast<i32>(socket == nullptr
                                            ? -EOPNOTSUPP
                                            : socket->shutdown(*handle, sqe.op_flags));
@@ -19,5 +20,4 @@ namespace astia::io::aio::operations {
 
     [[gnu::used, gnu::section("astia_aio_handlers")]]
     extern const operation_descriptor shutdown_descriptor = shutdown::descriptor;
-
 } // namespace astia::io::aio::operations

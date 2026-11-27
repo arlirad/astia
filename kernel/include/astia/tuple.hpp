@@ -1,7 +1,6 @@
 #pragma once
 
 namespace astia {
-
     template <typename First, typename Second>
     struct tuple {
         First  first{};
@@ -13,5 +12,4 @@ namespace astia {
             : first(static_cast<First&&>(first_value)),
               second(static_cast<Second&&>(second_value)) {}
     };
-
 } // namespace astia

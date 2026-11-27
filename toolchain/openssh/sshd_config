@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Arlirad
+#
+# Test-only sshd configuration for the OpenSSH port.  The Astia image ships
+# no production sshd_config and no sshd service; only the dedicated test initrd
+# installs this file and starts sshd.
+
+Port 22
+AddressFamily inet
+ListenAddress 0.0.0.0
+
+HostKey /etc/ssh/ssh_host_ed25519_key
+PidFile /run/sshd.pid
+AuthorizedKeysFile /etc/ssh/authorized_keys
+
+UsePAM no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PermitEmptyPasswords no
+PermitRootLogin no
+HostbasedAuthentication no
+IgnoreRhosts yes
+MaxAuthTries 3
+LoginGraceTime 20
+
+UseDNS no
+StrictModes yes
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PermitTunnel no
+GatewayPorts no
+PermitUserEnvironment no
+PrintMotd no
+PrintLastLog no
+Compression no
+
+AllowUsers user
+LogLevel VERBOSE

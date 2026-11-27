@@ -1,5 +1,7 @@
 set(ASTIA_PUBLIC_HEADERS
+        astia/acpi.hpp
         astia/arch/io.hpp
+        astia/shutdown.hpp
         astia/arch/user_layout.hpp
         astia/boot/framebuffer.hpp
         astia/boot/virt/multiboot2.hpp
@@ -25,6 +27,7 @@ set(ASTIA_PUBLIC_HEADERS
         astia/dev/mmio.hpp
         astia/dev/pci.hpp
         astia/dev/regs.hpp
+        astia/dev/tty_input.hpp
         astia/dev/uart_platform.hpp
         astia/fs.hpp
         astia/hw/driver.hpp

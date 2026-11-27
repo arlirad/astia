@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch::x86_64 {
-
     inline constexpr u16 kernel_code_selector = 0x08;
     inline constexpr u16 kernel_data_selector = 0x10;
     inline constexpr u16 user_data_selector   = 0x1B;
@@ -16,5 +15,4 @@ namespace astia::arch::x86_64 {
     bool init_gdt_tss();
     bool init_gdt_tss_cpu(u32 cpu_index);
     void set_kernel_stack(u64 stack_top);
-
 } // namespace astia::arch::x86_64

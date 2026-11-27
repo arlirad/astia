@@ -4,7 +4,6 @@
 #include "test.hpp"
 
 namespace {
-
     using astia::arch::page_flags;
     using astia::arch::page_map;
     namespace policy = astia::arch::aarch64::page_map_policy;
@@ -16,7 +15,6 @@ namespace {
     constexpr astia::u64 attr_index(astia::u64 bits) {
         return (bits >> 2) & 0x7;
     }
-
 } // namespace
 
 ASTIA_TEST(aarch64_policy_ram_defaults_to_normal_wbwa) {
@@ -48,23 +46,28 @@ ASTIA_TEST(aarch64_policy_pl011_is_device_ngnre_and_non_executable) {
 
 ASTIA_TEST(aarch64_policy_execute_permission_and_cache_flags) {
     const astia::u64 executable = policy::leaf_attributes(normal_rw, true);
+
     ASTIA_CHECK((executable & policy::descriptor_pxn) == 0);
     ASTIA_CHECK((executable & policy::descriptor_uxn) != 0);
 
     const astia::u64 read_only = policy::leaf_attributes(page_flags::present, true);
+
     ASTIA_CHECK((read_only & policy::descriptor_ap_ro) != 0);
 
     const astia::u64 non_cacheable =
         policy::leaf_attributes(normal_rw | page_flags::cache_disable, true);
+
     ASTIA_CHECK(attr_index(non_cacheable) == 2);
 
     const astia::u64 write_through =
         policy::leaf_attributes(normal_rw | page_flags::write_through, true);
+
     ASTIA_CHECK(attr_index(write_through) == 3);
 }
 
 ASTIA_TEST(aarch64_page_map_identity_round_trip) {
     auto map = page_map::create();
+
     ASTIA_CHECK(map.valid());
 
     constexpr astia::u64 ram   = 0x40000000ULL;
@@ -86,6 +89,7 @@ ASTIA_TEST(aarch64_page_map_identity_round_trip) {
 
 ASTIA_TEST(aarch64_page_map_rejects_alignment_and_bounds) {
     auto map = page_map::create();
+
     ASTIA_CHECK(map.valid());
 
     ASTIA_CHECK(!map.map_4k(0x1001, 0x2000, normal_rw));
@@ -98,9 +102,11 @@ ASTIA_TEST(aarch64_page_map_rejects_alignment_and_bounds) {
 
 ASTIA_TEST(aarch64_page_map_4k_split_and_unmap) {
     auto map = page_map::create();
+
     ASTIA_CHECK(map.valid());
 
     constexpr astia::u64 base = 0x600000ULL;
+
     ASTIA_CHECK(map.map_2m(base, base, normal_rw_nx));
     ASTIA_CHECK(map.map_4k(base + 0x1000, 0x800000, normal_rw));
 
@@ -115,11 +121,12 @@ ASTIA_TEST(aarch64_page_map_4k_split_and_unmap) {
 
 ASTIA_TEST(aarch64_page_map_arena_is_bounded) {
     astia::usize created = 0;
+
     for (; created <= policy::table_capacity; ++created) {
         auto map = page_map::create();
-        if (!map.valid()) {
+
+        if (!map.valid())
             break;
-        }
     }
 
     ASTIA_CHECK(created <= policy::table_capacity);

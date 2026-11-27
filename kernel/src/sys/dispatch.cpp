@@ -43,6 +43,7 @@ namespace astia::sys {
             }
 
             registry_ready = true;
+
             return true;
         }
 #endif
@@ -53,15 +54,17 @@ namespace astia::sys {
     // here.  Section-based discovery relies on the linker keeping the
     // __start_/__stop_ range, which not every host toolchain honours.
     bool register_descriptor(const syscall_descriptor* entry) {
-        if (entry == nullptr) {
+        if (entry == nullptr)
             return false;
-        }
+
         const u32 index = static_cast<u32>(entry->id);
-        if (index >= table_capacity || table[index] != nullptr) {
+
+        if (index >= table_capacity || table[index] != nullptr)
             return false;
-        }
+
         table[index]   = entry;
         registry_ready = true;
+
         return true;
     }
 #endif
@@ -94,5 +97,4 @@ namespace astia::sys {
 
         return proc::run_task(entry->async(a0, a1, a2, a3, a4, a5, image));
     }
-
 } // namespace astia::sys

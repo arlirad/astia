@@ -4,7 +4,6 @@
 #include <astia/common.hpp>
 
 namespace astia {
-
     inline constexpr i32 wait_signal_mask      = ASTIA_WAIT_SIGNAL_MASK;
     inline constexpr i32 wait_core_bit         = ASTIA_WAIT_CORE_BIT;
     inline constexpr i32 wait_exit_mask        = ASTIA_WAIT_EXIT_MASK;
@@ -27,5 +26,4 @@ namespace astia {
     constexpr i32 wait_signal_exit_status(i32 signal) {
         return wait_signal_exit_base + signal;
     }
-
 } // namespace astia

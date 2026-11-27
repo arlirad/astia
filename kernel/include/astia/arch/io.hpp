@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// Architecture-owned port I/O operations used by the public ports<T>
     /// wrapper.  An architecture provides the definitions; generic drivers
     /// can provide another backend as the ports<T, Backend> template argument.
@@ -15,5 +14,4 @@ namespace astia::arch {
         static void write16(u16 port, u16 value);
         static void write32(u16 port, u32 value);
     };
-
 } // namespace astia::arch

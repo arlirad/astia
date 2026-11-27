@@ -11,7 +11,6 @@
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
-
     struct uname
         : sys::syscall_handler<uname, sys::syscall_id::uname, sys::syscall_mode::sync> {
         static_assert(sizeof(astia_utsname) == 325);
@@ -24,17 +23,21 @@ namespace astia::proc::syscalls {
         static i64 invoke(sys::user_ptr<astia_utsname> output) {
             if (current_process() == nullptr)
                 return -ESRCH;
+
             const char*   machine = arch::machine_name();
             astia_utsname value{};
+
             if (machine == nullptr ||
                 !proc::fill_utsname(value, ASTIA_VERSION_STRING,
                                     "Astia " ASTIA_VERSION_STRING, machine))
                 return -ENOSYS;
+
             const auto validated = output.validate();
+
             if (!validated || !sys::copy_out(validated.value.bytes(), &value))
                 return -EFAULT;
+
             return 0;
         }
     };
-
 } // namespace astia::proc::syscalls

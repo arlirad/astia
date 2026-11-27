@@ -3,7 +3,6 @@
 #include <astia/common.hpp>
 
 namespace astia::arch {
-
     /// Attributes for a mapping. The values are abstract (arch-neutral);
     /// each arch translates them into its hardware page-table entry bits.
     enum class page_flags : u64 {
@@ -126,5 +125,4 @@ namespace astia::arch {
     /// The kernel's own address space, installed by the arch paging init
     /// step; nullptr until then. Provided per arch.
     page_map* kernel_page_map();
-
 } // namespace astia::arch

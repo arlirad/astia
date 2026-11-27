@@ -3,7 +3,6 @@
 #include <astia/arch/page_map.hpp>
 
 namespace astia::arch::aarch64::page_map_policy {
-
     // MAIR_EL1.Attr<n> encodings. Attr0/Attr1 are the required Device and
     // Normal WBWA indices; Attr2/Attr3 honor the shared cache_disable and
     // write_through flags instead of silently ignoring them.
@@ -59,15 +58,15 @@ namespace astia::arch::aarch64::page_map_policy {
     };
 
     constexpr memory_kind kind_for(page_flags flags) {
-        if (has_flag(flags, page_flags::device)) {
+        if (has_flag(flags, page_flags::device))
             return memory_kind::device;
-        }
-        if (has_flag(flags, page_flags::cache_disable)) {
+
+        if (has_flag(flags, page_flags::cache_disable))
             return memory_kind::normal_nc;
-        }
-        if (has_flag(flags, page_flags::write_through)) {
+
+        if (has_flag(flags, page_flags::write_through))
             return memory_kind::normal_wt;
-        }
+
         return memory_kind::normal_wbwa;
     }
 
@@ -82,11 +81,13 @@ namespace astia::arch::aarch64::page_map_policy {
         case memory_kind::normal_wbwa:
             break;
         }
+
         return 1;
     }
 
     constexpr bool is_cacheable_normal(page_flags flags) {
         const memory_kind kind = kind_for(flags);
+
         return kind == memory_kind::normal_wbwa || kind == memory_kind::normal_wt;
     }
 
@@ -95,21 +96,22 @@ namespace astia::arch::aarch64::page_map_policy {
     constexpr u64 leaf_attributes(page_flags flags, bool page) {
         u64 bits = descriptor_valid | descriptor_af;
 
-        if (page) {
+        if (page)
             bits |= descriptor_table;
-        }
-        if (!has_flag(flags, page_flags::writable)) {
+
+        if (!has_flag(flags, page_flags::writable))
             bits |= descriptor_ap_ro;
-        }
-        if (has_flag(flags, page_flags::user)) {
+
+        if (has_flag(flags, page_flags::user))
             bits |= descriptor_ap_el0 | descriptor_ng;
-        }
+
         bits |= attr_index_for(flags) << 2;
-        if (is_cacheable_normal(flags)) {
+
+        if (is_cacheable_normal(flags))
             bits |= descriptor_sh_inner;
-        }
 
         const bool device = kind_for(flags) == memory_kind::device;
+
         if (has_flag(flags, page_flags::no_execute) || device) {
             bits |= descriptor_pxn | descriptor_uxn;
         }
@@ -117,6 +119,7 @@ namespace astia::arch::aarch64::page_map_policy {
             // Executable at EL1, never executable at EL0.
             bits |= descriptor_uxn;
         }
+
         return bits;
     }
 
@@ -139,5 +142,4 @@ namespace astia::arch::aarch64::page_map_policy {
         return (address & (block_size_2m - 1)) == 0 &&
                address <= max_physical_address - (block_size_2m - 1);
     }
-
 } // namespace astia::arch::aarch64::page_map_policy

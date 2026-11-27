@@ -12,24 +12,26 @@
 #include <syscall.hpp>
 
 namespace astia::proc::syscalls {
-
     struct sigprocmask : sys::syscall_handler<sigprocmask, sys::syscall_id::sigprocmask,
                                               sys::syscall_mode::sync> {
         static i64 invoke(i32 how, signal_mask set, sys::user_ptr<u32> old_ptr) {
             auto* self = current_thread();
-            if (self == nullptr) {
+            if (self == nullptr)
                 return -ESRCH;
-            }
+
             auto operation = mapper<signal_mask_operation>::from(how);
             if (!operation)
                 return -EINVAL;
+
             if (!old_ptr.null()) {
                 const auto old_range = old_ptr.validate();
-                const u32  old       = self->signals().blocked();
-                if (!old_range || !sys::copy_out(old_range.value.bytes(), &old)) {
+
+                const u32 old = self->signals().blocked();
+
+                if (!old_range || !sys::copy_out(old_range.value.bytes(), &old))
                     return -EFAULT;
-                }
             }
+
             switch (operation.value) {
             case signal_mask_operation::block:
                 self->signals().block(set);
@@ -41,8 +43,8 @@ namespace astia::proc::syscalls {
                 self->signals().set_blocked(set);
                 break;
             }
+
             return 0;
         }
     };
-
 } // namespace astia::proc::syscalls

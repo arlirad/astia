@@ -11,10 +11,40 @@ public abstract class PkgsrvApplicationException : Exception
     public string Code { get; }
 }
 
+public sealed class AuthenticationRequiredException : PkgsrvApplicationException
+{
+    public AuthenticationRequiredException(string action, string reason)
+        : base("authorization.unauthenticated", $"Authentication required for {action}: {reason}")
+    {
+        Action = action;
+        Reason = reason;
+    }
+
+    public string Action { get; }
+
+    public string Reason { get; }
+}
+
 public sealed class AuthorizationDeniedException : PkgsrvApplicationException
 {
     public AuthorizationDeniedException(string action, string reason)
         : base("authorization.denied", $"Authorization denied for {action}: {reason}")
+    {
+        Action = action;
+        Reason = reason;
+    }
+
+    public string Action { get; }
+
+    public string Reason { get; }
+}
+
+public sealed class AuthorizationUnavailableException : PkgsrvApplicationException
+{
+    public AuthorizationUnavailableException(string action, string reason)
+        : base(
+            "authorization.unavailable",
+            $"Authorization is unavailable for {action}: {reason}")
     {
         Action = action;
         Reason = reason;
@@ -58,4 +88,57 @@ public sealed class SourceNotAllowedException : PkgsrvApplicationException
     }
 
     public string Host { get; }
+}
+
+public sealed class PackagePublishException : PkgsrvApplicationException
+{
+    public PackagePublishException(string package, string reason)
+        : base("package.publish-refused", $"Package {package} could not be published: {reason}")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
+}
+
+public sealed class PackageArtifactNotFoundException : PkgsrvApplicationException
+{
+    public PackageArtifactNotFoundException(string package, string contentHash)
+        : base(
+            "package.artifact-not-found",
+            $"Artifact {contentHash} for package {package} was not found.")
+    {
+        Package = package;
+        ContentHash = contentHash;
+    }
+
+    public string Package { get; }
+
+    public string ContentHash { get; }
+}
+
+public sealed class PackageSignatureInvalidException : PkgsrvApplicationException
+{
+    public PackageSignatureInvalidException(string package)
+        : base(
+            "package.signature-invalid",
+            $"Package {package} does not have a valid publishable signature.")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
+}
+
+public sealed class PackageNotPublishedException : PkgsrvApplicationException
+{
+    public PackageNotPublishedException(string package)
+        : base(
+            "package.not-published",
+            $"Package {package} has not been durably published.")
+    {
+        Package = package;
+    }
+
+    public string Package { get; }
 }
