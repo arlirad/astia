@@ -314,6 +314,44 @@ ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
+ASTIA_TEST(pinned_buffer_page_accessors_bound_the_index) {
+    const auto before = init_world();
+    auto*      region = phys_region::create(4, true);
+
+    ASTIA_CHECK(region != nullptr);
+
+    if (region == nullptr)
+        return;
+
+    astia::mm::pinned_buffer pin;
+
+    ASTIA_CHECK(pin.acquire(region, 1, 2, false));
+
+    // The last pinned page is still addressable, and names the region's frame.
+    ASTIA_CHECK(pin.phys(0) == region->page_base(1));
+    ASTIA_CHECK(pin.phys(1) == region->page_base(2));
+    ASTIA_CHECK(pin.direct(1) == region->page_direct(2));
+
+    // One past the pin is rejected, not resolved to the region's next frame:
+    // invalid_frame is all bits set, which no page-aligned frame can be.
+    ASTIA_CHECK(pin.phys(pin.pages()) == astia::mm::frame_allocator::invalid_frame);
+    ASTIA_CHECK(pin.phys(pin.pages()) != region->page_base(3));
+    ASTIA_CHECK(pin.direct(pin.pages()) == nullptr);
+
+    // A huge index must be rejected before _first + index can wrap back
+    // into the pin.
+    ASTIA_CHECK(pin.phys(~astia::usz{0}) == astia::mm::frame_allocator::invalid_frame);
+    ASTIA_CHECK(pin.direct(~astia::usz{0}) == nullptr);
+
+    // An empty pin has no page 0 at all.
+    pin.release();
+    ASTIA_CHECK(pin.phys(0) == astia::mm::frame_allocator::invalid_frame);
+    ASTIA_CHECK(pin.direct(0) == nullptr);
+
+    region->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
 ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
     const auto before = init_world();
     auto*      region = phys_region::create(2, true);
