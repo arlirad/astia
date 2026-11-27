@@ -5023,6 +5023,33 @@ int main(int argc, char** argv) {
             printf("astia: dyntls ok\n");
     }
 
+    /* Same payload linked -z now: DT_BIND_NOW must keep the eager path, so
+       every PLT slot is bound before entry and the lazy resolver never runs. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 90;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_now", NULL};
+
+            execv("/bin/interp_now", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 90;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 90;
+        else
+            printf("astia: ld eager ok\n");
+    }
+
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
        recover the load bias from auxv instead of guessing zero. */
     {

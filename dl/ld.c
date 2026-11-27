@@ -188,6 +188,10 @@ static long ld_open(const char* path) {
 
 static ld_module g_modules[LD_MAX_MODULES];
 static int       g_module_count;
+static uint64_t  g_lazy_bindings;
+static int       g_lazy_lock;
+
+extern void ld_lazy_resolve_entry(void) __attribute__((visibility("hidden")));
 
 /* While a dlopen group is being relocated, only its own closure plus
  * startup and global-scope modules may satisfy its symbol references. */
@@ -249,6 +253,17 @@ static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
          ++entry) {
         if (entry->d_tag == tag)
             return entry->d_val;
+    }
+
+    return 0;
+}
+
+/* DT_BIND_NOW carries no value: its presence alone requests eager binding. */
+static int dyn_has(const ld_module* module, int64_t tag) {
+    for (const Elf64_Dyn* entry = module->dynamic_section; entry->d_tag != DT_NULL;
+         ++entry) {
+        if (entry->d_tag == tag)
+            return 1;
     }
 
     return 0;
@@ -331,11 +346,19 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->phdr            = phdr;
     module->phnum           = phnum;
     module->span            = 0;
+    module->text_start      = UINT64_MAX;
+    module->text_end        = 0;
+    module->vaddr_end       = 0;
     module->dynamic_section = 0;
     module->rela            = 0;
     module->jmprel          = 0;
     module->rela_size       = 0;
     module->pltrel_size     = 0;
+    module->pltrel_count    = 0;
+    module->pltrel          = 0;
+    module->pltgot          = 0;
+    module->pending_plt     = 0;
+    module->lazy            = 0;
     module->init            = 0;
     module->init_array      = 0;
     module->init_array_size = 0;
@@ -390,6 +413,27 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
 
         if (phdr[i].p_type == PT_DYNAMIC)
             module->dynamic_section = (const Elf64_Dyn*) (base + phdr[i].p_vaddr);
+
+        if (phdr[i].p_type == PT_LOAD) {
+            const uint64_t rel_end = phdr[i].p_memsz <= UINT64_MAX - phdr[i].p_vaddr
+                                         ? phdr[i].p_vaddr + phdr[i].p_memsz
+                                         : UINT64_MAX;
+
+            if (rel_end > module->vaddr_end)
+                module->vaddr_end = rel_end;
+
+            if ((phdr[i].p_flags & 1u) != 0 && phdr[i].p_vaddr <= UINT64_MAX - base) {
+                const uint64_t start = base + phdr[i].p_vaddr;
+                const uint64_t end =
+                    rel_end <= UINT64_MAX - base ? base + rel_end : UINT64_MAX;
+
+                if (start < module->text_start)
+                    module->text_start = start;
+
+                if (end > module->text_end)
+                    module->text_end = end;
+            }
+        }
     }
 
     if (module->dynamic_section == 0)
@@ -398,6 +442,9 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     const uint64_t image_end = image_extent_end(phdr, phnum, base);
     if (image_end == 0)
         return -1;
+
+    if (module->text_start > module->text_end)
+        module->text_start = module->text_end = 0;
 
     const uint64_t strtab = dyn_tag(module, DT_STRTAB);
     const uint64_t symtab = dyn_tag(module, DT_SYMTAB);
@@ -477,14 +524,49 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
 
     const uint64_t rela   = dyn_tag(module, DT_RELA);
     const uint64_t jmprel = dyn_tag(module, DT_JMPREL);
+    const uint64_t pltgot = dyn_tag(module, DT_PLTGOT);
+    const uint64_t pltrel = dyn_tag(module, DT_PLTREL);
 
     module->rela        = rela != 0 ? (const Elf64_Rela*) (base + rela) : 0;
     module->rela_size   = dyn_tag(module, DT_RELASZ);
     module->jmprel      = jmprel != 0 ? (const Elf64_Rela*) (base + jmprel) : 0;
     module->pltrel_size = dyn_tag(module, DT_PLTRELSZ);
+    module->pltrel_count =
+        module->jmprel != 0 ? module->pltrel_size / sizeof(Elf64_Rela) : 0;
+    module->pltrel = pltrel;
+    module->pltgot = pltgot != 0 ? (uint64_t*) (base + pltgot) : 0;
 
-    if (dyn_tag(module, DT_PLTREL) != 0 && dyn_tag(module, DT_PLTREL) != DT_RELA)
+    if (pltrel != 0 && pltrel != DT_RELA)
         return -1; /* REL (not RELA) PLT relocations are not supported */
+
+    const uint64_t flags  = dyn_tag(module, DT_FLAGS);
+    const uint64_t flags1 = dyn_tag(module, DT_FLAGS_1);
+
+    module->lazy = module->jmprel != 0 && !dyn_has(module, DT_BIND_NOW) &&
+                   (flags & DF_BIND_NOW) == 0 && (flags1 & DF_1_NOW) == 0;
+
+    /* A lazy slot inside PT_GNU_RELRO could only be patched before RELRO is
+       applied.  Bind eagerly instead: apply_rela runs before apply_relro. */
+    if (module->lazy && module->relro_size != 0) {
+        for (uint64_t i = 0; i < module->pltrel_count; ++i) {
+            const Elf64_Rela* entry = &module->jmprel[i];
+
+            if ((uint32_t) (entry->r_info & 0xffffffffu) != LD_R_JUMP_SLOT)
+                continue;
+
+            if (entry->r_offset > UINT64_MAX - base)
+                continue;
+
+            const uint64_t slot = base + entry->r_offset;
+
+            if (slot >= module->relro_start &&
+                slot - module->relro_start < module->relro_size) {
+                module->lazy = 0;
+
+                break;
+            }
+        }
+    }
 
     const uint64_t init  = dyn_tag(module, DT_INIT);
     const uint64_t inits = dyn_tag(module, DT_INIT_ARRAY);
@@ -687,9 +769,11 @@ static const char* reference_version_name(const ld_module* module, uint32_t inde
 /// The defining symbol is returned so callers can inspect its type (IFUNC)
 /// and its value relative to the owner's base; TLS relocations need the
 /// owner's block offset, not the referring module's.
-static int find_symbol(const ld_module* modules, int count, const ld_module* referrer,
-                       uint32_t referrer_sym_index, const char* name,
-                       const Elf64_Sym** symbol_out, const ld_module** owner_out) {
+static int find_symbol_in_scope(const ld_module* modules, int count,
+                                const ld_module* referrer, uint32_t referrer_sym_index,
+                                const char* name, int global_only,
+                                const Elf64_Sym** symbol_out,
+                                const ld_module** owner_out) {
     const char* wanted = reference_version_name(referrer, referrer_sym_index);
 
     const int versioned = wanted != 0;
@@ -697,8 +781,16 @@ static int find_symbol(const ld_module* modules, int count, const ld_module* ref
     for (int module = 0; module < count; ++module) {
         const ld_module* image = &modules[module];
 
-        if (!image->used || !relocation_scope_allows(module))
+        if (!image->used)
             continue;
+
+        if (global_only) {
+            if (!image->startup && !image->in_global)
+                continue;
+        }
+        else if (!relocation_scope_allows(module)) {
+            continue;
+        }
 
         for (uint32_t index = 1; index < image->symbol_count; ++index) {
             const Elf64_Sym* symbol = &image->symtab[index];
@@ -746,6 +838,24 @@ static int find_symbol(const ld_module* modules, int count, const ld_module* ref
     return -1;
 }
 
+static int find_symbol(const ld_module* modules, int count, const ld_module* referrer,
+                       uint32_t referrer_sym_index, const char* name,
+                       const Elf64_Sym** symbol_out, const ld_module** owner_out) {
+    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 0,
+                                symbol_out, owner_out);
+}
+
+/* A delayed startup PLT bind runs after dlopen may have added groups.  Match
+ * the global scope used by dlsym(RTLD_DEFAULT): startup and RTLD_GLOBAL
+ * modules in load order, excluding RTLD_LOCAL groups. */
+static int find_symbol_global(const ld_module* modules, int count,
+                              const ld_module* referrer, uint32_t referrer_sym_index,
+                              const char* name, const Elf64_Sym** symbol_out,
+                              const ld_module** owner_out) {
+    return find_symbol_in_scope(modules, count, referrer, referrer_sym_index, name, 1,
+                                symbol_out, owner_out);
+}
+
 /* IFUNC slots are filled in a second phase, once every image is relocated:
  * a resolver may call ordinary relocated functions, but not another IFUNC,
  * whose slot is still queued. */
@@ -769,7 +879,41 @@ static int enqueue_ifunc(uint64_t* slot, uint64_t resolver, int64_t addend) {
     return 0;
 }
 
-static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t bytes) {
+/* Used by the lazy JUMP_SLOT resolver after startup.  The referrer and its
+ * symbol index are passed through so a versioned reference binds the same
+ * definition it would have at load time. */
+static int bind_symbol(const ld_module* module, uint32_t index, uint64_t addend,
+                       uint32_t type, uint64_t* out) {
+    if (index == 0 || index >= module->symbol_count)
+        return 2;
+
+    const Elf64_Sym* symbol     = &module->symtab[index];
+    const Elf64_Sym* definition = 0;
+    const ld_module* owner      = 0;
+
+    if (find_symbol_global(g_modules, g_module_count, module, index,
+                           module->strtab + symbol->st_name, &definition, &owner) != 0) {
+        /* STB_WEAK undefined references are allowed to resolve to zero. */
+        if ((symbol->st_info >> 4) != 2)
+            return 3;
+
+        *out = type == LD_R_ABS ? addend : 0;
+
+        return 0;
+    }
+
+    uint64_t value = owner->base + definition->st_value;
+
+    if ((definition->st_info & 0xf) == LD_STT_GNU_IFUNC)
+        value = ((ld_ifunc_resolver) (uintptr_t) value)();
+
+    *out = type == LD_R_ABS ? value + addend : value;
+
+    return 0;
+}
+
+static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t bytes,
+                      int skip_jump_slots, uint64_t* pending) {
     if (rela == 0 || bytes == 0)
         return 0;
 
@@ -783,6 +927,33 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
 
         if (type == LD_R_NONE)
             continue;
+
+        if (type == LD_R_JUMP_SLOT && skip_jump_slots) {
+            /* GNU ld leaves the link-time PLT stub address in the slot and
+               emits no RELATIVE for it.  A PLT stub lives in the executable
+               segment, so that range distinguishes an already-relocated slot
+               from an unrelocated link-time address. */
+            const uint64_t slot = *where;
+
+            if (slot != 0 && module->text_end > module->text_start) {
+                const int biased = slot >= module->text_start && slot < module->text_end;
+                int       raw_in_text = 0;
+
+                if (slot <= UINT64_MAX - module->base) {
+                    const uint64_t raw = slot + module->base;
+
+                    raw_in_text = raw >= module->text_start && raw < module->text_end;
+                }
+
+                if (!biased && raw_in_text)
+                    *where = slot + module->base;
+            }
+
+            if (pending != 0)
+                ++*pending;
+
+            continue;
+        }
 
         if (type == LD_R_RELATIVE) {
             // The kernel applied RELATIVE relocations when it mapped the
@@ -915,6 +1086,78 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
     }
 
     return 0;
+}
+
+/* PLT0 pushes GOT[1] (the module pointer) and the entry's .rela.plt index,
+ * then jumps to GOT[2].  The trampoline hands those to this function.
+ *
+ * Two threads may race the same first call and both enter here; the slot
+ * write is idempotent, so the second entry simply observes the patched value.
+ * The counter therefore tracks patched slots, not resolver entries. */
+__attribute__((visibility("hidden"))) uint64_t ld_lazy_resolve(ld_module* module,
+                                                               uint64_t   index) {
+    if (module == 0)
+        astia_exit(140); /* no link map: the trampoline was entered wrongly */
+
+    if (index >= module->pltrel_count)
+        astia_exit(142); /* .rela.plt index out of range */
+
+    const Elf64_Rela* entry  = &module->jmprel[index];
+    const uint32_t    type   = (uint32_t) (entry->r_info & 0xffffffffu);
+    const uint32_t    symbol = (uint32_t) (entry->r_info >> 32);
+
+    if (type != LD_R_JUMP_SLOT)
+        astia_exit(147); /* a lazy PLT slot must be a JUMP_SLOT */
+
+    if (entry->r_offset >= module->vaddr_end ||
+        module->vaddr_end - entry->r_offset < sizeof(uint64_t) ||
+        module->base > UINT64_MAX - entry->r_offset || symbol == 0 ||
+        symbol >= module->symbol_count)
+        astia_exit(142); /* corrupt relocation: do not write outside the image */
+
+    uint64_t value = 0;
+
+    if (bind_symbol(module, symbol, 0, type, &value) != 0)
+        astia_exit(148); /* unresolved symbol: the caller cannot recover */
+
+    uint64_t* const slot = (uint64_t*) (uintptr_t) (module->base + entry->r_offset);
+
+    /* Not signal-reentrant: a handler that lazily binds here would spin. */
+    while (__atomic_exchange_n(&g_lazy_lock, 1, __ATOMIC_ACQUIRE) != 0) {
+        __asm__ volatile("pause");
+    }
+
+    if (*slot == value) {
+        __atomic_store_n(&g_lazy_lock, 0, __ATOMIC_RELEASE);
+
+        return value;
+    }
+
+    *slot = value;
+
+    if (module->pending_plt > 0)
+        --module->pending_plt;
+
+    ++g_lazy_bindings;
+
+    __atomic_store_n(&g_lazy_lock, 0, __ATOMIC_RELEASE);
+
+    return value;
+}
+
+/* Observability for the boot fixture: how many PLT slots the lazy resolver
+ * has bound in this process. */
+__attribute__((visibility("default"))) uint64_t ld_lazy_bindings(void) {
+    return g_lazy_bindings;
+}
+
+static void setup_lazy_binding(ld_module* module, int index, uint64_t pending) {
+    if (module->pltgot == 0)
+        astia_exit(128); /* DT_JMPREL without DT_PLTGOT */
+
+    module->pending_plt = pending;
+    module->pltgot[1]   = (uint64_t) (uintptr_t) &g_modules[index];
+    module->pltgot[2]   = (uint64_t) (uintptr_t) &ld_lazy_resolve_entry;
 }
 
 /* Lay the shared objects' PT_TLS blocks out downward from the payload's
@@ -1459,11 +1702,13 @@ static int relocate_added(const int* added, int count) {
         if (!module->used || module->prelinked)
             continue;
 
-        const int rela = apply_rela(module, module->rela, module->rela_size);
+        /* dlopen groups are eager-only: RTLD_LAZY is accepted but all
+           relocations are applied now, before constructors and RELRO. */
+        const int rela = apply_rela(module, module->rela, module->rela_size, 0, 0);
         if (rela != 0)
             return rela;
 
-        const int plt = apply_rela(module, module->jmprel, module->pltrel_size);
+        const int plt = apply_rela(module, module->jmprel, module->pltrel_size, 0, 0);
         if (plt != 0)
             return plt;
     }
@@ -2187,14 +2432,20 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
             continue;
 
         const int rela = apply_rela(&g_modules[module], g_modules[module].rela,
-                                    g_modules[module].rela_size);
+                                    g_modules[module].rela_size, 0, 0);
         if (rela != 0)
             astia_exit(120 + rela);
 
-        const int plt = apply_rela(&g_modules[module], g_modules[module].jmprel,
-                                   g_modules[module].pltrel_size);
+        uint64_t pending = 0;
+
+        const int lazy = g_modules[module].lazy;
+        const int plt  = apply_rela(&g_modules[module], g_modules[module].jmprel,
+                                    g_modules[module].pltrel_size, lazy, &pending);
         if (plt != 0)
             astia_exit(130 + plt);
+
+        if (lazy)
+            setup_lazy_binding(&g_modules[module], module, pending);
     }
 
     copy_tls_templates(g_modules, g_module_count, tls_tp);

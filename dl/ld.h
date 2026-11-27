@@ -118,6 +118,15 @@ enum {
     DT_VERDEFNUM    = 0x6ffffffd,
     DT_VERNEED      = 0x6ffffffe,
     DT_VERNEEDNUM   = 0x6fffffff,
+    DT_PLTGOT       = 3,
+    DT_BIND_NOW     = 24,
+    DT_FLAGS        = 30,
+    DT_FLAGS_1      = 0x6ffffffb,
+};
+
+enum {
+    DF_BIND_NOW = 0x8,
+    DF_1_NOW    = 0x1,
 };
 
 /* Symbol type from st_info & 0xf. */
@@ -150,6 +159,9 @@ enum {
 typedef struct {
     uint64_t base;
     /* Absolute executable PT_LOAD bounds; vaddr_end is bias-relative. */
+    uint64_t             text_start;
+    uint64_t             text_end;
+    uint64_t             vaddr_end;
     const Elf64_Phdr*    phdr;
     uint32_t             phnum;
     uint64_t             span;
@@ -168,6 +180,11 @@ typedef struct {
     uint64_t             rela_size;
     const Elf64_Rela*    jmprel;
     uint64_t             pltrel_size;
+    uint64_t             pltrel_count;
+    uint64_t             pltrel;
+    uint64_t*            pltgot;
+    uint64_t             pending_plt;
+    int                  lazy;
     uint64_t             init;
     const uint64_t*      init_array;
     uint64_t             init_array_size;
