@@ -157,7 +157,7 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     slug: "docs-strings",
     title: "Strings",
     group: "Design note",
-    summary: "astia has exactly two string types, both declared in kernel/include/astia/strings.hpp and both reached through the astia namespace root: The owning type sits in namespace astia:...",
+    summary: "astia has exactly two string types, both declared in kernel/include/astia/strings.hpp. string_view sits directly in namespace astia; the owning type sits in namespace astia::str...",
     sourcePath: "docs/strings.md",
     contentKind: "markdown",
   },
