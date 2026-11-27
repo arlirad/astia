@@ -97,7 +97,8 @@ execute_process(
 if(NOT manifest_result EQUAL 0)
     message(FATAL_ERROR "Clean dev_initrd output is not a readable cpio archive")
 endif()
-foreach(_entry IN ITEMS "sbin/init" "bin/zsh" "bin/nano" "etc/zshenv")
+foreach(_entry IN ITEMS "sbin/init" "bin/zsh" "bin/nano" "bin/poweroff" "bin/reboot"
+        "etc/zshenv")
     if(NOT manifest MATCHES "(^|\n)${_entry}(\n|$)")
         message(FATAL_ERROR "Clean dev_initrd archive is missing ${_entry}")
     endif()

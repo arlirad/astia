@@ -1161,6 +1161,8 @@ int main(void) {
     char* uname_machine_sysname[] = {"uname", "-m", "-s", NULL};
     char* true_args[]             = {"true", "ignored", NULL};
     char* false_args[]            = {"false", "ignored", NULL};
+    char* poweroff_bad[]          = {"poweroff", "--bad", NULL};
+    char* reboot_bad[]            = {"reboot", "--bad", NULL};
     char* mkdir_one[]             = {"mkdir", "/tmp/coreutils_dir", NULL};
     char* mkdir_parents[]         = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
     char* mkdir_existing[]        = {"mkdir", "-p", "/tmp/coreutils_parent/child", NULL};
@@ -1358,6 +1360,8 @@ int main(void) {
         check("uname invalid", uname_bad, NULL, 1, NULL, 0) ||
         check("true", true_args, NULL, 0, NULL, 0) ||
         check("false", false_args, NULL, 1, NULL, 0) ||
+        check("poweroff invalid", poweroff_bad, NULL, 2, NULL, 0) ||
+        check("reboot invalid", reboot_bad, NULL, 2, NULL, 0) ||
         check("mkdir", mkdir_one, NULL, 0, NULL, 0) ||
         !is_directory("/tmp/coreutils_dir") ||
         check("mkdir -p", mkdir_parents, NULL, 0, NULL, 0) ||
@@ -1509,7 +1513,8 @@ int main(void) {
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
                           "uname", "echo",  "env",   "true",     "false",   "mkdir",
                           "rm",    "cp",    "mv",    "grep",     "sort",    "cut",
-                          "tee",   "touch", "chmod", "basename", "dirname", NULL};
+                          "tee",   "touch", "chmod", "basename", "dirname", "poweroff",
+                          "reboot", NULL};
 
     for (int i = 0; help[i] != NULL; ++i) {
         char* args[] = {(char*) help[i], "--help", NULL};
