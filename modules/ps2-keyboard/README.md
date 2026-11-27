@@ -58,10 +58,9 @@ address space active.
   the module reports ready, and IRQ1 is unmasked last.
 - The ISR drains a bounded number of output-buffer bytes and filters
   auxiliary bytes, parity/timeout failures and non-scan-code protocol bytes.
-- No unrestricted `pio_bus` or `device_pio` is exposed. The module reads the
-  platform's `astia::dev::io_port_window` from
-  `astia::dev::platform_input_window()` and passes the absolute `0x60`/`0x64`
-  ports it owns; the window rejects ports outside its granted range.
+- No unrestricted `pio_bus` or `device_pio` is exposed. The module asks for
+  its own `0x60`/`0x64` range with `astia::dev::claim_io_window()` and passes
+  the granted window to the controller; the window rejects ports outside it.
 
 ## Input scope
 
