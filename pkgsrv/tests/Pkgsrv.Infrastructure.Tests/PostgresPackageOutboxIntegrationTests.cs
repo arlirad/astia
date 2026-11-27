@@ -35,6 +35,12 @@ public sealed class PostgresPackageOutboxIntegrationTests
         var outboxRecord = await context.PackageOutbox
             .AsNoTracking()
             .SingleAsync(CancellationToken.None);
+        var packageRecord = await context.Packages
+            .AsNoTracking()
+            .SingleAsync(
+                candidate => candidate.Name == package.Key.Name.Value
+                    && candidate.Version == package.Key.Version.ToString(),
+                CancellationToken.None);
 
         Assert.Equal(expected.IdempotencyKey, outboxRecord.IdempotencyKey);
         Assert.Equal(package.Key.Name.Value, outboxRecord.PackageName);
@@ -47,6 +53,7 @@ public sealed class PostgresPackageOutboxIntegrationTests
         Assert.Null(outboxRecord.ClaimedAt);
         Assert.Null(outboxRecord.ClaimId);
         Assert.Null(outboxRecord.LastError);
+        Assert.Equal("[]", packageRecord.PendingEventsJson);
     }
 
     [PostgresFact]
@@ -106,11 +113,18 @@ public sealed class PostgresPackageOutboxIntegrationTests
         var outboxRecord = await context.PackageOutbox
             .AsNoTracking()
             .SingleAsync(CancellationToken.None);
+        var packageRecord = await context.Packages
+            .AsNoTracking()
+            .SingleAsync(
+                candidate => candidate.Name == package.Key.Name.Value
+                    && candidate.Version == package.Key.Version.ToString(),
+                CancellationToken.None);
 
         Assert.Equal(
             PostgresOutboxEventSerializer.ToOutboxEvent(Assert.Single(domainEvents))
                 .IdempotencyKey,
             outboxRecord.IdempotencyKey);
+        Assert.Equal("[]", packageRecord.PendingEventsJson);
     }
 
     [PostgresFact]

@@ -382,13 +382,38 @@ strategy ([#177](https://github.com/arlirad/astia/issues/177)). Search treats `%
 `Contains`/`StartsWith` behavior.
 
 PostgreSQL registration and build transitions use a transactional outbox. The
-package row (including the existing `PendingEventsJson` compatibility payload) and
-one `package_outbox` row per supported domain event are written in the same EF Core
-transaction. `PendingEventsJson` is retained so existing durable pending-event data
-is not dropped; the outbox rows are the dispatch source. Only the supported
+package row and one `package_outbox` row per supported domain event are written in
+the same EF Core transaction. After the outbox rows insert successfully, the same
+transaction clears the package row's legacy `PendingEventsJson` compatibility
+payload, so a later backfill cannot enqueue the same event twice. Only the supported
 `PackageRegistered` and `PackageBuildRequested` events are serialized, including
 their manifest/build-policy fields and no authorization tokens or connection
 secrets. Payload JSON is deterministic.
+
+The `BackfillPendingPackageEvents` migration converts supported legacy
+`PendingEventsJson` descriptors into `package_outbox` rows before the outbox
+dispatcher can start. It validates every descriptor's event type, package name and
+version, and occurrence timestamp; reconstructs registered manifest and build
+policy fields from the package row; inserts with the same idempotency-key scheme as
+live writes (`eventType|name|version|utcTicks`); and clears `PendingEventsJson`
+only after every insert for every package has succeeded. The whole backfill is one
+transaction, so a malformed or unsupported descriptor rolls it back and preserves
+the original JSON and package rows. The key is derived from the raw descriptor
+timestamp text rather than the PostgreSQL `timestamp with time zone` value, so
+100-nanosecond ticks survive even though the stored `OccurredAt` column has only
+microsecond precision. A descriptor that maps to an event already present in
+`package_outbox` conflicts on the primary key and inserts nothing. Historical
+events that were never recorded in `PendingEventsJson` cannot be reconstructed
+from package rows; the backfill only replays descriptors that were durably
+recorded.
+
+> **Rollout requirement:** stop every pkgsrv instance running a pre-outbox binary
+> before applying `BackfillPendingPackageEvents`, and do not start an old binary
+> afterward. The migration takes an `ACCESS EXCLUSIVE` lock on `packages` before
+> scanning, so concurrent writers cannot commit descriptors between the scan and
+> the clear, and it clears only the package keys processed in that locked snapshot.
+> The lock cannot stop a pre-outbox process from writing new `PendingEventsJson`
+> descriptors after the migration commits, so old writers must not be resumed.
 
 The outbox table uses a stable idempotency key as its primary key: event type,
 package name/version, and occurrence timestamp. Replaying the same semantic event
@@ -748,6 +773,13 @@ chain is:
 - `20261127055233_AddSemVerPrecedenceKey` — adds and backfills the pre-release
   precedence sort key and replaces the ordering index to use the same SemVer key
   as the in-memory comparer.
+- `20261127062004_BackfillPendingPackageEvents` — transactionally converts
+  supported legacy `PendingEventsJson` descriptors into `package_outbox` rows and
+  clears the descriptors only after every insert succeeds. It takes an
+  `ACCESS EXCLUSIVE` lock on `packages` before scanning and clears only the package
+  keys processed in that locked snapshot. Malformed, mismatched, or unsupported
+  descriptors fail the migration closed and roll it back without clearing the
+  original JSON.
 
 With `InitializeSchema=true`, startup calls `Database.MigrateAsync()` before
 listening. With `InitializeSchema=false`, startup never applies migrations; it
@@ -759,10 +791,11 @@ An existing old custom-v1 schema is upgraded by the same EF migration chain: the
 baseline detects the existing `packages` table, adds missing timeout/pending-event
 columns and backfills timeout ticks, then the version-order migration adds and
 backfills version columns, the publication migration adds the nullable
-`PublishedAt` marker, and the SemVer precedence migration adds and backfills the
-pre-release sort key. Existing rows and publication state are preserved. The old
-`schema_versions` table may remain in place but is not used or treated as
-authoritative.
+`PublishedAt` marker, the SemVer precedence migration adds and backfills the
+pre-release sort key, and the pending-event backfill migration converts supported
+legacy descriptors into `package_outbox` rows. Existing rows and publication state
+are preserved. The old `schema_versions` table may remain in place but is not used
+or treated as authoritative.
 
 Create a migration and apply it with the standard EF commands:
 
@@ -782,9 +815,12 @@ applying migrations.
 
 Opt-in integration tests run only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
 otherwise the PostgreSQL tests are reported as skipped. They cover fresh creation,
-old-v1 upgrade/data preservation through the EF migration chain, atomic
-package+outbox commit/rollback, duplicate idempotency-key deduplication, and
-claim/retry/delivered replay transitions.
+old-v1 upgrade/data preservation through the EF migration chain, legacy pending
+event backfill including registration and build descriptors, idempotent backfill
+re-runs, deduplication against existing writer rows, malformed/unsupported
+descriptor rollback and preservation, atomic package+outbox commit/rollback,
+duplicate idempotency-key deduplication, and claim/retry/delivered replay
+transitions.
 
 ## Issue #175 acceptance evidence
 
@@ -830,8 +866,18 @@ claim/retry/delivered replay transitions.
   key plus package key, event type, deterministic JSON payload, occurrence and
   availability timestamps, claim lease, attempt count, status, and last error. Only
   `PackageRegistered` and `PackageBuildRequested` are serialized; payloads contain no
-  authorization tokens or connection secrets. `PendingEventsJson` compatibility
-  data remains written and is not silently dropped.
+  authorization tokens or connection secrets. The write path clears the legacy
+  `PendingEventsJson` compatibility payload in the same transaction after the
+  outbox insert succeeds, so a future backfill cannot duplicate a live event.
+- Backfill and preservation: the `BackfillPendingPackageEvents` migration converts
+  supported legacy descriptors into full outbox rows using package-row manifest and
+  build-policy fields, with the live writer idempotency-key scheme. It takes an
+  `ACCESS EXCLUSIVE` lock on `packages` before scanning, validates event type,
+  package key, and timestamp, preserves 100-nanosecond ticks from the raw descriptor
+  JSON, deduplicates on the outbox primary key, and clears `PendingEventsJson` only
+  for the package keys processed in that locked snapshot after all inserts succeed.
+  It fails closed on malformed or unsupported descriptors without clearing or
+  dropping data.
 - Dispatch semantics: a PostgreSQL-only hosted dispatcher polls bounded batches,
   claims rows with `FOR UPDATE SKIP LOCKED` plus a lease, publishes through an
   injected adapter that exposes the idempotency key, and marks delivered only after
@@ -840,12 +886,17 @@ claim/retry/delivered replay transitions.
   replay pending rows. Dispatcher or publication failures cannot roll back a
   committed package write, and the hosted service does not block startup.
 - Tests: DB-free coverage asserts serializer determinism/round-trip and unsupported
-  event rejection, retry/backoff bounds, dispatcher success/failure/exhaustion,
-  mark-delivered ordering, restart replay, handler atomic commit/rollback behavior,
-  no synchronous publish in outbox mode, and InMemory/PostgreSQL composition
-  differences. The opt-in live PostgreSQL suite verifies atomic package+outbox
-  commit, rollback on outbox write failure, duplicate idempotency-key deduplication,
-  and claim/retry/delivered replay; it is skipped unless
+  event rejection, migration SQL shape including lock-before-scan and
+  processed-key-only clearing, 100-nanosecond key preservation, retry/backoff
+  bounds, dispatcher success/failure/exhaustion, mark-delivered ordering, restart
+  replay, handler atomic commit/rollback behavior, no synchronous publish in outbox
+  mode, and InMemory/PostgreSQL composition differences. The opt-in live
+  PostgreSQL suite verifies atomic package+outbox commit, rollback on outbox write
+  failure, duplicate idempotency-key deduplication, registration/build
+  pending-event backfill, idempotent re-runs, deduplication against existing outbox
+  rows, malformed/unsupported rollback and preservation, writer-empty-event
+  preservation, concurrent legacy-writer lock contention, and
+  claim/retry/delivered replay; it is skipped unless
   `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
 - Delivery is at-least-once and consumers must deduplicate on the idempotency key.
   Live PostgreSQL outbox conformance remains part of the opt-in
@@ -853,9 +904,9 @@ claim/retry/delivered replay transitions.
   configuration changes are part of this issue.
 - Residuals: the default composition still binds the in-memory event publisher, so
   external delivery requires a deployment-supplied `IDomainEventPublisher`/consumer
-  adapter. The migration retains legacy `PendingEventsJson` rows but does not
-  auto-enqueue them into `package_outbox`; a deployment with pre-existing
-  undelivered pending events needs an explicit backfill/replay.
+  adapter. Historical events that are absent from both `package_outbox` and
+  `PendingEventsJson` cannot be reconstructed from package rows; the migration
+  replays only descriptors that were durably recorded.
 
 ## Issue #179 acceptance evidence
 
@@ -1192,9 +1243,11 @@ listening endpoint section.
   in-memory mode is not durable.
 - The transactional outbox dispatcher is PostgreSQL-only. Delivery is
   at-least-once, so consumers must deduplicate on the exposed idempotency key;
-  exhausted rows remain `Failed` until an operator replays them. Live PostgreSQL
-  outbox integration remains opt-in and is skipped without
-  `PKGSRV_TEST_POSTGRES_CONNECTION`.
+  exhausted rows remain `Failed` until an operator replays them. Legacy
+  `PendingEventsJson` descriptors are backfilled by the migration, but events that
+  were never recorded in either the outbox or `PendingEventsJson` cannot be
+  reconstructed from package rows. Live PostgreSQL outbox and backfill integration
+  remains opt-in and is skipped without `PKGSRV_TEST_POSTGRES_CONNECTION`.
 - Versioned schema DDL is owned by EF Core migrations under
   `Persistence/Postgres/Migrations`; `__EFMigrationsHistory` is authoritative.
   `InitializeSchema=true` applies pending migrations, while `false` fails clearly
@@ -1247,9 +1300,12 @@ listening endpoint section.
 - [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration
   and migration conformance tests.
 - [#176](https://github.com/arlirad/astia/issues/176) - PostgreSQL transactional
-  outbox dispatch/retry is implemented; live database outbox conformance remains
-  opt-in and is covered with the [#174](https://github.com/arlirad/astia/issues/174)
-  live PostgreSQL test harness when `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
+  outbox dispatch/retry and legacy pending-event backfill are implemented; live
+  database outbox and backfill conformance remain opt-in and are covered with the
+  [#174](https://github.com/arlirad/astia/issues/174) live PostgreSQL test harness
+  when `PKGSRV_TEST_POSTGRES_CONNECTION` is set. Events never recorded in either
+  `package_outbox` or `PendingEventsJson` cannot be reconstructed from package
+  rows.
 - [#177](https://github.com/arlirad/astia/issues/177) - search supports name
   contains and source-commit prefix with bounded SQL filtering; neither field is
   claimed as indexed unless verified in the current EF migration/schema; provenance
