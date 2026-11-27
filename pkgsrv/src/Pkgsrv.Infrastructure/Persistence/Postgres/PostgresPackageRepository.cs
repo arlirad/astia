@@ -73,6 +73,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
             await PostgresPackageOutboxWriter
                 .WriteAsync(
                     context,
+                    package.Key,
                     domainEvents,
                     DateTimeOffset.UtcNow,
                     cancellationToken)
@@ -169,6 +170,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
         await PostgresPackageOutboxWriter
             .WriteAsync(
                 context,
+                package.Key,
                 domainEvents,
                 DateTimeOffset.UtcNow,
                 cancellationToken)
