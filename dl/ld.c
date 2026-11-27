@@ -2060,6 +2060,12 @@ int dlclose(void* handle) {
 
     const int handle_index = (int) (entry - g_handles);
 
+    if (entry->ndeps < 0 || entry->ndeps > LD_MAX_MODULES) {
+        set_error("dlclose: invalid handle");
+
+        return -1;
+    }
+
     if (entry->refcount > 1) {
         --entry->refcount;
 
@@ -2085,10 +2091,10 @@ int dlclose(void* handle) {
         return 0;
     }
 
-    int       group[LD_MAX_MODULES];
-    int       zero[LD_MAX_MODULES];
-    int       candidate[LD_MAX_MODULES];
-    const int count = entry->ndeps;
+    int       group[LD_MAX_MODULES]     = {0};
+    int       zero[LD_MAX_MODULES]      = {0};
+    int       candidate[LD_MAX_MODULES] = {0};
+    const int count                     = entry->ndeps;
 
     for (int i = 0; i < count; ++i) {
         group[i]     = entry->deps[i];
