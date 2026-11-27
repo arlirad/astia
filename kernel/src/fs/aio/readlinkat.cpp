@@ -6,15 +6,16 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            char path[256];
+            char path[fs::path_max];
 
-            if (!memory::copy_in_string(span<char>(path, sizeof path),
-                                        memory::user_ptr<char>(sqe.address)))
-                co_return -EFAULT;
+            long copy_rc =
+                copy_user_string(path, sizeof path, memory::user_ptr<char>(sqe.address));
+            if (copy_rc < 0)
+                co_return static_cast<i32>(copy_rc);
 
             auto* current = proc::current_process();
 
-            char resolved[256];
+            char resolved[fs::path_max];
 
             if (!current)
                 co_return -ESRCH;
@@ -30,12 +31,13 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
 
             // read_symlink is a kernel/VFS API; never give it a raw
-            // caller address.  The fixed path limit is also the VFS'sqe
+            // caller address.  The fixed path limit is also the VFS's
             // maximum link length, so an oversized user capacity is
             // harmless and cannot become a kernel stack allocation.
-            char       target[256]{};
-            const u32  capacity = sqe.length < sizeof target ? sqe.length : sizeof target;
-            const long n        = fs::read_symlink(resolved, target, capacity);
+            char      target[fs::path_max]{};
+            const u32 capacity =
+                sqe.length < sizeof target ? sqe.length : static_cast<u32>(sizeof target);
+            const long n = fs::read_symlink(resolved, target, capacity);
             if (n < 0)
                 co_return (i32) n;
 
