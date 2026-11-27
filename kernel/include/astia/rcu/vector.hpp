@@ -99,6 +99,15 @@ namespace astia::rcu {
         }
 
         public:
+        vector() = default;
+
+        ~vector() {
+            release(_published);
+        }
+
+        vector(const vector&)            = delete;
+        vector& operator=(const vector&) = delete;
+
         /// Holds one snapshot reference for its lifetime.
         class reader {
             public:

@@ -680,3 +680,24 @@ ASTIA_TEST(rcu_vector_last_reader_releases_snapshot) {
     ASTIA_CHECK(tracked_live(0) == 0);
     ASTIA_CHECK(tracked_live(2) == 1);
 }
+
+ASTIA_TEST(rcu_vector_destruction_releases_published_snapshot) {
+    reset_tracked();
+
+    {
+        astia::rcu::vector<tracked_int, 2> vector;
+
+        {
+            tracked_int values[2] = {tracked_int(0), tracked_int(1)};
+
+            astia::rcu::vector<tracked_int, 2>::writer writer{vector};
+
+            ASTIA_CHECK(writer.assign(astia::span<const tracked_int>(values, 2)));
+        }
+
+        ASTIA_CHECK(tracked_live(0) == 1);
+    }
+
+    ASTIA_CHECK(tracked_live(0) == 0);
+    ASTIA_CHECK(tracked_live(1) == 0);
+}
