@@ -76,6 +76,26 @@ ASTIA_TEST(aio_socket_creates_production_socket_descriptor) {
     ASTIA_CHECK(descriptor_present(capture.result(0)));
 }
 
+ASTIA_TEST(aio_socket_reuses_lowest_free_descriptor) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    clear_descriptor(0);
+    set_socket_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_SOCKET, AF_UNIX);
+
+    sqe.op_flags = SOCK_STREAM;
+    sqe.aux      = 0;
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(descriptor_present(0));
+}
+
 ASTIA_TEST(aio_socket_rejects_unsupported_domain_and_protocol) {
     using namespace aio::test_support;
 
@@ -129,6 +149,34 @@ ASTIA_TEST(aio_socketpair_installs_production_descriptor_pair) {
     ASTIA_CHECK(fds[0] >= 3 && fds[1] >= 3);
     ASTIA_CHECK(descriptor_present(fds[0]));
     ASTIA_CHECK(descriptor_present(fds[1]));
+}
+
+ASTIA_TEST(aio_socketpair_reuses_lowest_free_descriptors) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    clear_descriptor(0);
+    clear_descriptor(1);
+    set_socketpair_files(aio_test::make_open_file(new aio_test::fake_file),
+                         aio_test::make_open_file(new aio_test::fake_file));
+
+    i32 fds[2] = {-1, -1};
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_SOCKETPAIR, AF_UNIX);
+
+    sqe.op_flags = SOCK_STREAM;
+    sqe.aux      = 0;
+    sqe.length   = 2 * sizeof(i32);
+    sqe.address  = reinterpret_cast<u64>(fds);
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(fds[0] == 0 && fds[1] == 1);
+    ASTIA_CHECK(descriptor_present(0));
+    ASTIA_CHECK(descriptor_present(1));
 }
 
 ASTIA_TEST(aio_socket_bind_listen_shutdown_use_production_file) {

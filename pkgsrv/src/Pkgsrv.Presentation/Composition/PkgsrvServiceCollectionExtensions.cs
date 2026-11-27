@@ -15,6 +15,7 @@ using Pkgsrv.Infrastructure.Builds;
 using Pkgsrv.Infrastructure.Caching;
 using Pkgsrv.Infrastructure.Caching.Postgres;
 using Pkgsrv.Infrastructure.Events;
+using Pkgsrv.Infrastructure.Events.Outbox;
 using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
@@ -55,6 +56,8 @@ public static class PkgsrvServiceCollectionExtensions
                 provider => provider.GetRequiredService<PostgresPackageRepository>());
             services.AddSingleton<IPackageIndex>(
                 provider => provider.GetRequiredService<PostgresPackageRepository>());
+            services.AddSingleton<IPackageEventOutbox>(
+                provider => provider.GetRequiredService<PostgresPackageRepository>());
             services.AddSingleton<IPackageSchemaMigrator, PostgresPackageSchemaMigrator>();
             services.AddSingleton<IStorageReadinessProbe>(provider =>
                 new PostgresStorageReadinessProbe(
@@ -66,6 +69,10 @@ public static class PkgsrvServiceCollectionExtensions
                 IPackageCacheInvalidationPublisher,
                 PostgresPackageCacheInvalidationPublisher>();
             services.AddHostedService<PostgresPackageCacheInvalidationListener>();
+            services.AddSingleton<IPackageOutboxStore, PostgresPackageOutboxStore>();
+            services.AddSingleton<IOutboxEventPublisher, DomainEventOutboxPublisher>();
+            services.AddSingleton(PackageOutboxDispatcherOptions.Default);
+            services.AddHostedService<PackageOutboxDispatcher>();
         }
         else
         {

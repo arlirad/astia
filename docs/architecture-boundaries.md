@@ -49,3 +49,7 @@ The current main branch has layering debt outside this narrow guard:
 Those edges are recorded here for follow-up rather than enforced as new
 failures, since they are existing implementation layering and are not part of
 the selected public contract.
+
+Architecture header ownership, overlay resolution, and the standalone header
+matrix are covered separately in
+[architecture-includes.md](architecture-includes.md).

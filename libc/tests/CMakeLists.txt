@@ -98,6 +98,10 @@ add_executable(libc_termios_request_test io/termios_request_test.c)
 target_link_libraries(libc_termios_request_test PRIVATE astia_libc)
 add_test(NAME libc_termios_request_test COMMAND libc_termios_request_test)
 
+add_executable(libc_ttyname_test io/ttyname_test.c support/backend_host.c)
+target_link_libraries(libc_ttyname_test PRIVATE astia_libc)
+add_test(NAME libc_ttyname_test COMMAND libc_ttyname_test)
+
 add_executable(libc_aio_test aio/aio_test.c support/backend_host.c support/time_host.c)
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)
@@ -106,6 +110,10 @@ add_executable(libc_socket_test io/socket_test.c support/backend_host.c support/
 target_link_libraries(libc_socket_test PRIVATE astia_libc)
 add_test(NAME libc_socket_test COMMAND libc_socket_test)
 
+add_executable(libc_sendmsg_test io/sendmsg_test.c support/backend_host.c support/socket_backend_host.c)
+target_link_libraries(libc_sendmsg_test PRIVATE astia_libc)
+add_test(NAME libc_sendmsg_test COMMAND libc_sendmsg_test)
+
 add_executable(libc_conformance_test integration/conformance_test.c support/backend_host.c support/process_host.c support/time_host.c support/alarm_host.c)
 target_link_libraries(libc_conformance_test PRIVATE astia_libc_host)
 add_test(NAME libc_conformance_test COMMAND libc_conformance_test)
@@ -113,6 +121,10 @@ add_test(NAME libc_conformance_test COMMAND libc_conformance_test)
 add_executable(libc_strftime_test time/strftime_test.c support/time_host.c)
 target_link_libraries(libc_strftime_test PRIVATE astia_libc)
 add_test(NAME libc_strftime_test COMMAND libc_strftime_test)
+
+add_executable(libc_asctime_test time/asctime_test.c support/time_host.c)
+target_link_libraries(libc_asctime_test PRIVATE astia_libc)
+add_test(NAME libc_asctime_test COMMAND libc_asctime_test)
 
 add_executable(libc_strptime_test time/strptime_test.c support/time_host.c)
 target_link_libraries(libc_strptime_test PRIVATE astia_libc)
@@ -162,6 +174,10 @@ add_executable(libc_memstream_test stdio/memstream_test.c support/backend_host.c
 target_link_libraries(libc_memstream_test PRIVATE astia_libc)
 add_test(NAME libc_memstream_test COMMAND libc_memstream_test)
 
+add_executable(libc_scanf_test stdio/scanf_test.c)
+target_link_libraries(libc_scanf_test PRIVATE astia_libc)
+add_test(NAME libc_scanf_test COMMAND libc_scanf_test)
+
 # <sys/uio.h>: the position-based vector pair, same object trick.  The
 # port's readv/writev go by raw syscall there, because this libc is the
 # definition the binary would otherwise resolve them to.
@@ -185,6 +201,18 @@ add_test(NAME libc_rename_test COMMAND libc_rename_test)
 add_executable(libc_realpath_test fs/realpath_test.c support/backend_host.c)
 target_link_libraries(libc_realpath_test PRIVATE astia_libc)
 add_test(NAME libc_realpath_test COMMAND libc_realpath_test)
+
+add_executable(libc_creat_test fs/creat_test.c support/backend_host.c)
+target_link_libraries(libc_creat_test PRIVATE astia_libc)
+add_test(NAME libc_creat_test COMMAND libc_creat_test)
+
+add_executable(libc_settimeofday_test time/settimeofday_test.c support/time_host.c)
+target_link_libraries(libc_settimeofday_test PRIVATE astia_libc)
+add_test(NAME libc_settimeofday_test COMMAND libc_settimeofday_test)
+
+add_executable(libc_dirent_test fs/dirent_test.c support/backend_host.c)
+target_link_libraries(libc_dirent_test PRIVATE astia_libc)
+add_test(NAME libc_dirent_test COMMAND libc_dirent_test)
 
 add_executable(libc_mktemp_test stdlib/mktemp_test.c support/backend_host.c)
 target_link_libraries(libc_mktemp_test PRIVATE astia_libc)
@@ -225,6 +253,11 @@ add_executable(libc_perror_test stdio/perror_test.c support/backend_host.c)
 target_link_libraries(libc_perror_test PRIVATE astia_libc)
 add_test(NAME libc_perror_test COMMAND libc_perror_test)
 
+add_executable(libc_syslog_test sys/syslog_test.c support/backend_host.c
+                                support/process_host.c support/alarm_host.c)
+target_link_libraries(libc_syslog_test PRIVATE astia_libc_host Threads::Threads)
+add_test(NAME libc_syslog_test COMMAND libc_syslog_test)
+
 add_executable(libc_sigwait_test process/sigwait_test.c support/backend_host.c support/process_host.c support/alarm_host.c)
 target_link_libraries(libc_sigwait_test PRIVATE astia_libc_host)
 add_test(NAME libc_sigwait_test COMMAND libc_sigwait_test)
@@ -236,6 +269,10 @@ add_test(NAME libc_sigtimedwait_test COMMAND libc_sigtimedwait_test)
 add_executable(libc_process_group_test process/process_group_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
 target_link_libraries(libc_process_group_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_group_test COMMAND libc_process_group_test)
+
+add_executable(libc_chroot_test process/chroot_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_chroot_test PRIVATE astia_libc_host)
+add_test(NAME libc_chroot_test COMMAND libc_chroot_test)
 
 add_executable(libc_killpg_test process/killpg_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
 target_link_libraries(libc_killpg_test PRIVATE astia_libc_host)

@@ -15,6 +15,7 @@
 #include "../../proc/proc.hpp"
 #include "aio.hpp"
 #include "memory.hpp"
+#include "ring_layout.hpp"
 
 namespace astia::io::aio::runner {
     struct detached_state;
@@ -87,6 +88,9 @@ namespace astia::io::aio::ring {
         u64                       sleep_remaining_user  = 0;
         bool                      recvfrom_address      = false;
         u64                       recvfrom_address_user = 0;
+        bool                      socket_sendmsg        = false;
+        bool                      recvmsg               = false;
+        u64                       recvmsg_user          = 0;
         bool                      pending_cqe           = false;
         u64                       pending_user_data     = 0;
         i32                       pending_result        = 0;
@@ -127,6 +131,9 @@ namespace astia::io::aio::ring {
             sleep_remaining_user  = 0;
             recvfrom_address      = false;
             recvfrom_address_user = 0;
+            socket_sendmsg        = false;
+            recvmsg               = false;
+            recvmsg_user          = 0;
             pending_cqe           = false;
             pending_user_data     = 0;
             pending_result        = 0;
@@ -151,8 +158,7 @@ namespace astia::io::aio::ring {
         bool                     used;
         mm::shptr<proc::process> owner;
         u64                      user_base;
-        u32                      sq_entries;
-        u32                      cq_entries;
+        ring_layout              layout;
         u32                      waiters;
         atomic<u32>              detached_ops;
         runner::detached_state*  detached_head;
@@ -195,7 +201,8 @@ namespace astia::io::aio::ring {
 
     bool cq_post(astia_rings* ring, u64 user_data, i32 result);
     bool cq_post_guarded(astia_rings* ring, u64 user_data, i32 result);
-    void cq_retrigger(ring_slot& slot, astia_rings* ring);
+    bool cq_has_capacity(const ring_slot& slot, const astia_rings* ring, u32 count);
+    void cq_retrigger(ring_slot& slot);
 
     u64  ready_generation();
     void note_device_ready(const fs::file* device);

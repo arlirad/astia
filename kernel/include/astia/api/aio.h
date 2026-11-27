@@ -208,6 +208,9 @@ typedef struct astia_stat {
     uint32_t nlink;
     uint32_t uid;
     uint32_t gid;
+    /* Wall-clock seconds/nanoseconds.  A filesystem that records no
+       timestamp reports zero; the kernel never substitutes a synthetic
+       epoch. */
     uint64_t atime_sec;
     uint64_t atime_nsec;
     uint64_t mtime_sec;
@@ -237,6 +240,20 @@ typedef struct astia_sockaddr {
     uint8_t  data[120];
 } astia_sockaddr;
 
+typedef struct astia_cmsghdr {
+    uint64_t cmsg_len;
+    int32_t  cmsg_level;
+    int32_t  cmsg_type;
+} astia_cmsghdr;
+
+typedef struct astia_msghdr {
+    void*    control;
+    uint32_t controllen;
+    uint32_t flags;
+    uint32_t msg_flags;
+    uint32_t resv;
+} astia_msghdr;
+
 typedef struct astia_reg_buf {
     uint64_t addr;
     uint32_t len;
@@ -248,6 +265,8 @@ ASTIA_STATIC_ASSERT(sizeof(astia_iovec) == 16, "iovec ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_stat) == 128, "stat ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_spawn) == 40, "spawn ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_sockaddr) == 128, "sockaddr ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_cmsghdr) == 16, "cmsghdr ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_msghdr) == 24, "msghdr ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_reg_buf) == 16, "reg_buf ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_rings) == 64, "rings header ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_sq_ring) == 128, "sq ring ABI");
@@ -311,6 +330,8 @@ enum {
     OP_LINKAT         = 39,
     OP_FTRUNCATE      = 40,
     OP_GETSOCKOPT     = 41,
+    OP_SENDMSG        = 42,
+    OP_RECVMSG        = 43,
 };
 
 /* OP_EVENTFD_CREATE flags.  The initial counter is in SQE::offset. */
@@ -335,6 +356,16 @@ enum {
     ASTIA_O_NONBLOCK = 0x0800,
 };
 
+/* OP_SENDMSG / OP_RECVMSG: BSD/Linux ancillary-data wire values. */
+enum {
+    ASTIA_SCM_RIGHTS       = 1,
+    ASTIA_SCM_CREDENTIALS  = 2,
+    ASTIA_MSG_CTRUNC       = 0x08,
+    ASTIA_MSG_DONTWAIT     = 0x40,
+    ASTIA_MSG_EOR          = 0x80,
+    ASTIA_MSG_CMSG_CLOEXEC = 0x40000000,
+};
+
 /* OP_SOCKETPAIR op_flags / OP_SHUTDOWN op_flags. */
 enum {
     SOCK_STREAM    = 1,
@@ -352,6 +383,13 @@ enum {
 
 /* OP_STATX: preserve the final directory entry instead of following it. */
 enum { STATX_NOFOLLOW = 1u << 0 };
+
+/* OP_READDIR op_flags.  By default sqe.offset points at the pathname and
+   the entry index is in sqe.fd (the legacy path form).  With this flag
+   sqe.fd is an open directory descriptor and sqe.offset is the index, so
+   the stream reads through the handle opened by opendir() instead of
+   resolving a caller-held path again. */
+enum { ASTIA_AIO_READDIR_FD = 1u << 0 };
 
 /* OP_UNLINKAT op_flags: remove a directory instead of a non-directory. */
 enum { UNLINKAT_REMOVEDIR = 1u << 0 };

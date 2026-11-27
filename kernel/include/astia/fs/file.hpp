@@ -78,14 +78,21 @@ namespace astia::fs {
         virtual gid_t     gid() const;
         virtual long      chmod(file_permissions permissions);
         virtual long      chown(uid_t owner, gid_t group);
-        virtual u64       mtime_sec() const;
-        virtual u64       mtime_nsec() const;
-        virtual long      touch(u64 sec, u64 nsec);
-        virtual void      duplicate(u32 flags);
-        virtual void      close(u32 flags);
+        /// Recorded timestamps, or an all-zero value when this backend does
+        /// not track them.
+        virtual file_timestamps timestamps() const;
+        virtual u64             mtime_sec() const;
+        virtual u64             mtime_nsec() const;
+        virtual long            touch(u64 sec, u64 nsec);
+        virtual void            duplicate(u32 flags);
+        virtual void            close(u32 flags);
         /// Kernel-internal typed hook for protocol-specific file operations.
         /// This is deliberately separate from the generic file contracts.
         virtual const unix_socket_operations* unix_socket_capability() const;
+
+        virtual const char* device_name() const {
+            return nullptr;
+        }
 
         io::request_queue& pending() {
             return _pending;
@@ -117,7 +124,7 @@ namespace astia::fs {
         core::task<i64> submit_readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token);
         core::task<i64> submit_writev(span<const buffer> buffers, u64 offset,
-                                      core::cltoken token);
+                                      core::cltoken token, bool nonblock);
 
         private:
         io::request_queue _pending{*this};

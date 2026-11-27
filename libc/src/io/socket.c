@@ -1,7 +1,10 @@
+#include "../internal/socket_wire.h"
 #include <sys/socket.h>
+#include <sys/uio.h>
 
 #include <errno.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 long __astia_fio_socket(int, int, int);
 long __astia_fio_bind(int, const void*, uint32_t);
@@ -15,6 +18,9 @@ long __astia_fio_send(int, const void*, unsigned long, int);
 long __astia_fio_recv(int, void*, unsigned long, int);
 long __astia_fio_sendto(int, const void*, unsigned long, int, const void*, uint32_t);
 long __astia_fio_recvfrom(int, void*, unsigned long, int, void*, uint32_t*);
+long __astia_fio_sendmsg(int, const void*, unsigned long,
+                         const struct __astia_socket_msghdr*);
+long __astia_fio_recvmsg(int, void*, unsigned long, struct __astia_socket_msghdr*);
 
 static int r(long v) {
     if (v < 0) {
@@ -180,4 +186,166 @@ long recvfrom(int f, void* b, unsigned long n, int flags, struct sockaddr* a,
     }
 
     return v;
+}
+
+static int msg_data(const struct msghdr* m, void** out, size_t* out_total) {
+    size_t total = 0;
+
+    if (m->msg_iovlen != 0 && m->msg_iov == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    for (size_t i = 0; i < m->msg_iovlen; ++i) {
+        const struct iovec* iov = &m->msg_iov[i];
+
+        if (iov->iov_len != 0 && iov->iov_base == NULL) {
+            errno = EFAULT;
+
+            return -1;
+        }
+
+        if (SIZE_MAX - total < iov->iov_len) {
+            errno = EINVAL;
+
+            return -1;
+        }
+
+        total += iov->iov_len;
+    }
+
+    if (total > UINT32_MAX) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    *out       = NULL;
+    *out_total = total;
+
+    if (total == 0)
+        return 0;
+
+    *out = malloc(total);
+
+    if (*out == NULL) {
+        errno = ENOMEM;
+
+        return -1;
+    }
+
+    return 0;
+}
+
+long sendmsg(int f, const struct msghdr* m, int flags) {
+    void* data = NULL;
+
+    size_t total = 0;
+
+    if (m == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    if (m->msg_controllen != 0 && m->msg_control == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    if (m->msg_controllen > UINT32_MAX) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    if (msg_data(m, &data, &total) < 0)
+        return -1;
+
+    size_t offset = 0;
+
+    for (size_t i = 0; i < m->msg_iovlen && offset < total; ++i) {
+        const struct iovec* iov = &m->msg_iov[i];
+
+        memcpy((unsigned char*) data + offset, iov->iov_base, iov->iov_len);
+
+        offset += iov->iov_len;
+    }
+
+    struct __astia_socket_msghdr wire = {m->msg_control, (uint32_t) m->msg_controllen,
+                                         (uint32_t) flags, 0, 0};
+
+    long rc = __astia_fio_sendmsg(f, data, total, &wire);
+
+    free(data);
+
+    if (rc < 0) {
+        errno = (int) -rc;
+
+        return -1;
+    }
+
+    return rc;
+}
+
+long recvmsg(int f, struct msghdr* m, int flags) {
+    void* data = NULL;
+
+    size_t total = 0;
+
+    if (m == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    if (m->msg_controllen != 0 && m->msg_control == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    if (m->msg_controllen > UINT32_MAX) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    if (msg_data(m, &data, &total) < 0)
+        return -1;
+
+    struct __astia_socket_msghdr wire = {m->msg_control, (uint32_t) m->msg_controllen,
+                                         (uint32_t) flags, 0, 0};
+
+    long rc = __astia_fio_recvmsg(f, data, total, &wire);
+
+    if (rc < 0) {
+        free(data);
+
+        errno = (int) -rc;
+
+        return -1;
+    }
+
+    size_t moved = 0;
+    size_t left  = (size_t) rc;
+
+    for (size_t i = 0; i < m->msg_iovlen && left != 0; ++i) {
+        const size_t take = m->msg_iov[i].iov_len < left ? m->msg_iov[i].iov_len : left;
+
+        memcpy(m->msg_iov[i].iov_base, (unsigned char*) data + moved, take);
+
+        moved += take;
+        left -= take;
+    }
+
+    free(data);
+
+    m->msg_flags      = (int) wire.msg_flags;
+    m->msg_controllen = wire.controllen;
+    m->msg_namelen    = 0;
+
+    return rc;
 }

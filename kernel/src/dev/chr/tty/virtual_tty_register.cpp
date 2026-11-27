@@ -1,3 +1,4 @@
+#include <astia/dev/tty_input.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
 
@@ -59,5 +60,9 @@ namespace astia::dev {
         }
 
         return accepted;
+    }
+
+    bool tty_input_write(u8 byte) {
+        return virtual_tty_forward_input(byte);
     }
 } // namespace astia::dev

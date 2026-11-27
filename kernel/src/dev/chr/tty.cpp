@@ -462,6 +462,12 @@ namespace astia::dev {
         return 0;
     }
 
+    long tty::tty_discard_output() {
+        // write() hands bytes to tty_putc() synchronously, so the base
+        // terminal never holds queued output to discard.
+        return 0;
+    }
+
     void tty::tty_commit_line(bool eof) {
         arch::interrupt_spinlock_guard guard(_state_lock);
 
@@ -577,8 +583,15 @@ namespace astia::dev {
             if (selector == TCIFLUSH)
                 return tty_discard_input();
 
-            if (selector == TCOFLUSH || selector == TCIOFLUSH)
-                return -ENOSYS;
+            if (selector == TCOFLUSH)
+                return tty_discard_output();
+
+            if (selector == TCIOFLUSH) {
+                const long input_result  = tty_discard_input();
+                const long output_result = tty_discard_output();
+
+                return input_result < 0 ? input_result : output_result;
+            }
 
             return -EINVAL;
         }

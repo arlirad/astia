@@ -38,6 +38,7 @@ namespace astia::proc::scheduler {
     bool migrate(thread* value, u32 cpu_index);
     bool wake(thread* value);
     void tick();
+    bool runnable_ready();
     void yield();
     bool ready();
 } // namespace astia::proc::scheduler

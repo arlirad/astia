@@ -19,6 +19,11 @@ static unsigned int host_uid(void) {
 static unsigned int host_gid(void) {
     return (unsigned int) syscall(SYS_getgid);
 }
+
+static void poison_stat(struct stat* value) {
+    memset(value, 0xA5, sizeof *value);
+}
+
 #define CHECK(x)                                                \
     do {                                                        \
         if (!(x)) {                                             \
@@ -35,6 +40,9 @@ int main(void) {
 
     int fd;
 
+    CHECK(S_ISBLK(S_IFBLK) && !S_ISBLK(S_IFCHR));
+    CHECK(S_ISSOCK(S_IFSOCK) && !S_ISSOCK(S_IFREG));
+
     (void) unlink(file);
     (void) unlink(link);
     (void) rmdir(dir);
@@ -43,6 +51,11 @@ int main(void) {
     CHECK((st.st_mode & 0777) == 0755);
     CHECK(lstat(dir, &st) == 0 && S_ISDIR(st.st_mode));
 
+    poison_stat(&st);
+    CHECK(stat(dir, &st) == 0);
+    CHECK(st.st_rdev == 0);
+    CHECK(st.st_blksize == 512);
+
     fd = open(file, O_CREAT | O_RDWR, 0644);
 
     CHECK(fd >= 0);
@@ -50,7 +63,17 @@ int main(void) {
     if (fd >= 0) {
         CHECK(write(fd, "abc", 3) == 3);
         CHECK(fstat(fd, &fst) == 0 && S_ISREG(fst.st_mode) && fst.st_size == 3);
+        CHECK(fst.st_atime != 0 && fst.st_mtime != 0 && fst.st_ctime != 0);
+        poison_stat(&fst);
+        CHECK(fstat(fd, &fst) == 0);
+        CHECK(fst.st_rdev == 0);
+        CHECK(fst.st_blksize == 512);
         CHECK(stat(file, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
+        CHECK(st.st_atime != 0 && st.st_mtime != 0 && st.st_ctime != 0);
+        poison_stat(&st);
+        CHECK(stat(file, &st) == 0);
+        CHECK(st.st_rdev == 0);
+        CHECK(st.st_blksize == 512);
         CHECK((st.st_mode & 0777) == 0644);
         CHECK(fchmod(fd, S_IFREG | 0620) == 0);
         CHECK(fstat(fd, &fst) == 0 && (fst.st_mode & 0777) == 0620);
@@ -111,6 +134,16 @@ int main(void) {
 
     CHECK(stat(link, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
     CHECK(lstat(link, &st) == 0 && S_ISLNK(st.st_mode));
+
+    poison_stat(&st);
+    CHECK(lstat(link, &st) == 0 && S_ISLNK(st.st_mode));
+    CHECK(st.st_rdev == 0);
+    CHECK(st.st_blksize == 512);
+
+    poison_stat(&st);
+    CHECK(stat("/dev/null", &st) == 0 && S_ISCHR(st.st_mode));
+    CHECK(st.st_rdev != 0xA5A5A5A5A5A5A5A5UL);
+    CHECK(st.st_blksize == 512);
 
     {
         char target[16] = {0};

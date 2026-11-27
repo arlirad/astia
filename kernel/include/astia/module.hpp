@@ -169,4 +169,8 @@ namespace astia::module {
     void log(const char* source, const char* message);
     void log_u64(const char* source, const char* label, u64 value);
     int  callback_context();
+
+    /// Permanently mark the calling module non-unloadable. Only valid while
+    /// the module owns its entrypoint context.
+    bool make_resident();
 } // namespace astia::module

@@ -143,7 +143,7 @@ namespace astia::proc {
     /// thread pointer is the address space's, and this takes it from the
     /// parent.  Returns the child pid, or -ESRCH (no user process) /
     /// -EAGAIN (resource or registry failure).
-    i64 fork(const arch::user_context& uctx);
+    core::task<i64> fork(const arch::user_context& uctx);
 
     /// Boot entry boundary: start the single boot coroutine and park the
     /// seed thread until it completes.  The body runs early init inline

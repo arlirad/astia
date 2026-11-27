@@ -31,8 +31,10 @@ namespace astia::proc {
             g_hooks.release_bindings(target);
     }
 
-    void adopt_exec_bindings(process& target, process& staging) {
-        if (g_hooks.adopt_bindings != nullptr)
-            g_hooks.adopt_bindings(target, staging);
+    bool adopt_exec_bindings(process& target, process& staging) {
+        if (g_hooks.adopt_bindings == nullptr)
+            return true;
+
+        return g_hooks.adopt_bindings(target, staging);
     }
 } // namespace astia::proc

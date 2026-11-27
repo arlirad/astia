@@ -176,17 +176,42 @@ namespace astia::proc {
     void terminate_current_if_killed() {
         auto* self = current_thread();
 
-        if (self == nullptr || !self->kill_pending() || self->owner() == nullptr)
+        if (self == nullptr || self->owner() == nullptr)
             return;
 
-        auto*               owner  = self->owner();
-        const signal_number signal = owner->termination_signal() == signal_number{}
-                                         ? signal_number::kill
-                                         : owner->termination_signal();
+        auto* owner = self->owner();
 
-        owner->signal_termination(signal);
+        if (self->kill_pending()) {
+            const signal_number signal = owner->termination_signal() == signal_number{}
+                                             ? signal_number::kill
+                                             : owner->termination_signal();
+
+            owner->signal_termination(signal);
+            self->exit(reinterpret_cast<void*>(
+                static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+            __builtin_unreachable();
+        }
+
+        if (owner->process_exit_requested() && self->exit_requested()) {
+            self->exit(reinterpret_cast<void*>(
+                static_cast<usize>(owner->requested_exit_status())));
+            __builtin_unreachable();
+        }
+
+        signal_number signal =
+            self->signals().pending_fatal_default_for(self->signals().blocked());
+
+        if (!valid_signal(signal))
+            signal =
+                owner->signals().pending_fatal_default_for(self->signals().blocked());
+
+        if (!valid_signal(signal))
+            return;
+
+        owner->terminate_for_signal(signal, self);
         self->exit(reinterpret_cast<void*>(
             static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+        __builtin_unreachable();
     }
 
     tid_t allocate_tid() {
@@ -715,13 +740,12 @@ namespace astia::proc {
             }
 
             bool await_suspend(std::coroutine_handle<> continuation) {
-                if (!self.arm_wait_unless_cancelled(continuation)) {
+                if (!self.arm_park_unless_cancelled(continuation)) {
                     arch::cpu::interrupts();
 
                     return false;
                 }
 
-                self.state(thread_state::blocked);
                 arch::cpu::interrupts();
 
                 return true;

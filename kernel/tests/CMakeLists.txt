@@ -129,6 +129,10 @@ target_include_directories(astia_aarch64_exception_frame_test PRIVATE
 astia_add_host_test(astia_aarch64_gic_test aarch64_gic_test.cpp)
 target_include_directories(astia_aarch64_gic_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/arch/aarch64)
+astia_add_host_test(astia_aarch64_scheduler_test aarch64_scheduler_test.cpp)
+target_include_directories(astia_aarch64_scheduler_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/aarch64-virt)
+astia_add_test_label(astia_aarch64_scheduler_test "aarch64;host;deterministic")
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py
@@ -146,6 +150,9 @@ astia_add_host_test(astia_atomic_test atomic_test.cpp)
 astia_add_test_label(astia_atomic_test "deterministic;core")
 astia_add_host_test(astia_hook_test hook_test.cpp)
 astia_add_host_test(astia_dl_test dl_test.cpp)
+astia_add_host_test(astia_dl_symcount_test dl_symcount_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
+astia_add_test_label(astia_dl_symcount_test "dl;host;deterministic")
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -169,7 +176,20 @@ astia_add_host_test(astia_fs_async_test
 )
 target_compile_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
 target_link_options(astia_fs_async_test PRIVATE -fno-sanitize=vptr)
+astia_add_host_test(astia_pipe_test
+        pipe_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/pipe.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        support/file_host.cpp
+        support/device_ready_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp
+)
+target_compile_options(astia_pipe_test PRIVATE -fno-sanitize=vptr)
+target_link_options(astia_pipe_test PRIVATE -fno-sanitize=vptr)
+astia_add_test_label(astia_pipe_test "deterministic;ipc")
 astia_add_host_test(astia_mapping_test mapping_test.cpp)
+astia_add_host_test(astia_mmap_chunk_test mmap_chunk_test.cpp)
 astia_add_host_test(astia_user_layout_test user_layout_test.cpp)
 astia_add_host_test(astia_common_test common_test.cpp)
 astia_add_host_test(astia_core_name_test
@@ -202,6 +222,8 @@ astia_add_host_test(astia_capabilities_header_test capabilities_header_test.cpp)
 astia_add_host_test(astia_io_header_test io_header_test.cpp)
 astia_add_host_test(astia_io_request_test io_request_test.cpp)
 astia_add_host_test(astia_irq_header_test irq_header_test.cpp)
+astia_add_host_test(astia_interrupts_guard_test interrupts_guard_test.cpp)
+astia_add_test_label(astia_interrupts_guard_test "kernel;deterministic")
 astia_add_host_test(astia_endian_test endian_test.cpp)
 astia_add_host_test(astia_time_test
         time_test.cpp
@@ -224,6 +246,7 @@ astia_add_host_test(astia_ownership_test ownership_test.cpp)
 astia_add_host_test(astia_signal_test signal_test.cpp)
 target_compile_definitions(astia_signal_test PRIVATE ASTIA_SIGNAL_HOST_TEST=1)
 astia_add_host_test(astia_aio_test aio_test.cpp)
+astia_add_host_test(astia_aio_ring_metadata_test aio_ring_metadata_test.cpp)
 file(GLOB ASTIA_AIO_CORE_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/core/*.cpp)
 file(GLOB ASTIA_AIO_FS_HANDLER_TEST_SOURCES CONFIGURE_DEPENDS
@@ -245,6 +268,7 @@ set(ASTIA_AIO_REGISTRY_TEST_SOURCES
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/registry.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/io/aio/runner.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/unix_control.cpp
         ${ASTIA_AIO_HANDLER_TEST_SOURCES})
 astia_add_host_test(astia_aio_static_handlers_test
         aio_static_handlers_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
@@ -254,8 +278,16 @@ astia_add_host_test(astia_aio_readiness_test
         aio_readiness_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 astia_add_host_test(astia_aio_socket_test
         aio_socket_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
+astia_add_host_test(astia_unix_socket_accept_test
+        unix_socket_accept_test.cpp ${ASTIA_AIO_REGISTRY_TEST_SOURCES}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/ipc/unix_socket.cpp)
+target_compile_definitions(astia_unix_socket_accept_test PRIVATE
+        ASTIA_AIO_TEST_REAL_UNIX_SOCKETS=1)
+astia_add_host_test(astia_unix_control_test
+        unix_control_test.cpp
+        ${ASTIA_AIO_REGISTRY_TEST_SOURCES})
 foreach(_astia_aio_test IN ITEMS astia_aio_static_handlers_test astia_aio_filesystem_test
-        astia_aio_readiness_test astia_aio_socket_test)
+        astia_aio_readiness_test astia_aio_socket_test astia_unix_socket_accept_test)
     target_compile_options(${_astia_aio_test} PRIVATE -fno-pie)
     target_link_options(${_astia_aio_test} PRIVATE
             "-Wl,-no-pie"
@@ -269,13 +301,28 @@ add_test(NAME astia_aio_handler_ownership
 set_tests_properties(astia_aio_handler_ownership
         PROPERTIES LABELS "kernel;deterministic")
 astia_add_host_test(astia_socket_abi_test socket_abi_test.cpp)
+astia_add_host_test(astia_fd_table_test
+        fd_table_test.cpp
+        support/file_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/fd_table.cpp)
+target_link_libraries(astia_fd_table_test PRIVATE Threads::Threads)
+astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/cwd_context.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/path_service.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+        support/arena.cpp
         support/resume_queue_host.cpp)
-target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections)
+target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections -fno-pie)
+target_link_options(astia_cwd_context_test PRIVATE
+        "-Wl,-no-pie"
+        "-Wl,--defsym=__kernel_start=0x08000000"
+        "-Wl,--defsym=__kernel_end=0x08002000")
+target_compile_definitions(astia_cwd_context_test PRIVATE ASTIA_HOST_TEST=1)
 target_link_options(astia_cwd_context_test PRIVATE -Wl,--gc-sections)
 astia_add_host_test(astia_tty_test
         tty_test.cpp
@@ -435,6 +482,30 @@ add_test(NAME astia_architecture_boundaries
         -P ${CMAKE_CURRENT_SOURCE_DIR}/architecture_boundaries_test.cmake)
 set_tests_properties(astia_architecture_boundaries
         PROPERTIES LABELS "kernel;architecture;deterministic")
+
+if (DEFINED ASTIA_AARCH64_VIRT_CXX_COMPILER AND
+        ASTIA_AARCH64_VIRT_CXX_COMPILER)
+    set(ASTIA_ARCH_MATRIX_AARCH64_CXX
+            "${ASTIA_AARCH64_VIRT_CXX_COMPILER}")
+else ()
+    find_program(ASTIA_ARCH_MATRIX_AARCH64_CXX
+            NAMES aarch64-linux-gnu-g++ aarch64-none-elf-g++)
+endif ()
+if (NOT ASTIA_ARCH_MATRIX_AARCH64_CXX)
+    set(ASTIA_ARCH_MATRIX_AARCH64_CXX "")
+endif ()
+add_test(NAME astia_arch_include_boundaries
+        COMMAND ${CMAKE_COMMAND}
+        -DASTIA_KERNEL_SOURCE_DIR=${ASTIA_KERNEL_SOURCE_DIR}
+        -DASTIA_ARCH_INCLUDE_BOUNDARIES_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/arch_include_boundaries.py
+        -DASTIA_PYTHON=${Python3_EXECUTABLE}
+        -DASTIA_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+        -DASTIA_AARCH64_CXX_COMPILER=${ASTIA_ARCH_MATRIX_AARCH64_CXX}
+        -DASTIA_ARCH_INCLUDE_BOUNDARIES_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/arch-include-boundaries
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/arch_include_boundaries_test.cmake)
+set_tests_properties(astia_arch_include_boundaries
+        PROPERTIES LABELS "kernel;architecture;headers;deterministic"
+        TIMEOUT 120)
 
 add_test(NAME astia_atomic_builtin_boundary
         COMMAND ${Python3_EXECUTABLE}
@@ -629,6 +700,34 @@ astia_embed_blob(_lifecycle_no_fini_fixture_cpp
         ${_fix_dir}/module_lifecycle_no_fini.o module_lifecycle_no_fini_blob)
 
 add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_reloc32.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=small -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_reloc32.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_reloc32_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_reloc32_fixture.cpp
+        COMMENT "Compiling ET_REL 32-bit-absolute relocation fixture"
+)
+astia_embed_blob(_lifecycle_reloc32_fixture_cpp
+        ${_fix_dir}/module_lifecycle_reloc32.o module_lifecycle_reloc32_blob)
+
+add_custom_command(
+        OUTPUT ${_fix_dir}/module_lifecycle_module_api.o
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
+        -mcmodel=large -fno-exceptions -fno-rtti -fno-use-cxa-atexit
+        -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables
+        -o ${_fix_dir}/module_lifecycle_module_api.o
+        ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_module_api_fixture.cpp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/module_lifecycle_module_api_fixture.cpp
+        COMMENT "Compiling ET_REL module API lifecycle fixture"
+)
+astia_embed_blob(_lifecycle_module_api_fixture_cpp
+        ${_fix_dir}/module_lifecycle_module_api.o module_lifecycle_module_api_blob)
+
+add_custom_command(
         OUTPUT ${_fix_dir}/module_lifecycle_priority.o
         COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -c -ffreestanding -fno-pic -fno-pie
@@ -676,10 +775,28 @@ astia_embed_blob(_lifecycle_reentrant_fixture_cpp
 # without linking the fixture symbols into any test binary.
 add_library(astia_module_lifecycle_fixture_compile_db OBJECT
         module_lifecycle_reentrant_fixture.cpp
-        module_lifecycle_wait_fixture.cpp)
+        module_lifecycle_wait_fixture.cpp
+        module_lifecycle_module_api_fixture.cpp
+        module_lifecycle_reloc32_fixture.cpp)
 target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
         -ffreestanding -fno-pic -fno-pie -mcmodel=large
         -fno-exceptions -fno-rtti -fno-use-cxa-atexit)
+
+# Compile-only target: the dl boot fixtures are built by custom commands in
+# the QEMU initrd rule, which do not appear in compile_commands.json.  Keep
+# this at directory scope so the entries exist even when QEMU is not found;
+# nothing links these objects.
+add_library(astia_dl_boot_fixture_compile_db OBJECT
+        fixture_gnu.c
+        fixture_semihash.c
+        interp_gnu.c
+        interp_relative_ro.c
+        interp_tpoff32.c)
+target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/include)
+target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
+        -ffreestanding -fno-builtin -fno-stack-protector
+        -fno-asynchronous-unwind-tables -mno-red-zone)
 
 # ET_DYN (PIE) executable: self-contained, entry at fixture_entry, with a data
 # pointer that forces an R_X86_64_RELATIVE dynamic relocation.
@@ -722,6 +839,7 @@ astia_add_host_test(astia_elf_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/elf/loader/reloc.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
         support/resume_queue_host.cpp
+        ${_lifecycle_reloc32_fixture_cpp}
 )
 
 add_custom_command(
@@ -878,7 +996,10 @@ astia_add_host_test(astia_module_lifecycle_test
          ${_lifecycle_priority_fixture_cpp}
          ${_lifecycle_wait_fixture_cpp}
          ${_lifecycle_reentrant_fixture_cpp}
+         ${_lifecycle_module_api_fixture_cpp}
+         ${_lifecycle_reloc32_fixture_cpp}
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/irq_route.cpp
          module_cxxabi_host_test.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
          support/resume_queue_host.cpp
@@ -1154,9 +1275,48 @@ target_include_directories(astia_tmpfs_readdir_test PRIVATE
 astia_remove_test_label(astia_tmpfs_readdir_test "sanitizer-host")
 astia_add_test_label(astia_tmpfs_readdir_test "sanitizer-host-partial")
 
+astia_add_arena_test(astia_tmpfs_timestamps_test
+        tmpfs_timestamps_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_tmpfs_timestamps_test PRIVATE fs)
+target_compile_options(astia_tmpfs_timestamps_test PRIVATE -fno-rtti)
+target_include_directories(astia_tmpfs_timestamps_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_tmpfs_timestamps_test "sanitizer-host")
+astia_add_test_label(astia_tmpfs_timestamps_test "sanitizer-host-partial")
+
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,
 # TLB, real physical memory, the boot path itself).
+# Custom-compiled userspace fixtures still need real compile targets so they
+# appear in compile_commands.json even when QEMU is unavailable.
+if (ARCH STREQUAL "x86_64")
+    add_library(astia_module_syscall_init_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_syscall_init.c)
+    target_include_directories(astia_module_syscall_init_object PRIVATE
+            ${ASTIA_KERNEL_SOURCE_DIR}/include)
+    target_compile_options(astia_module_syscall_init_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -fno-builtin
+            -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone)
+    set_target_properties(astia_module_syscall_init_object PROPERTIES
+            C_STANDARD 11 C_STANDARD_REQUIRED ON)
+
+    add_library(astia_module_missing_dependency_object OBJECT
+            ${CMAKE_CURRENT_SOURCE_DIR}/module_missing_dependency.cpp)
+    target_compile_options(astia_module_missing_dependency_object PRIVATE
+            -ffreestanding -fno-pic -fno-pie -mcmodel=large
+            -fno-stack-protector -fno-asynchronous-unwind-tables)
+    set_target_properties(astia_module_missing_dependency_object PROPERTIES
+            CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+endif ()
+
 if (ARCH STREQUAL "x86_64")
     find_program(ASTIA_QEMU qemu-system-x86_64)
     find_program(GRUB_FILE grub-file)
@@ -1180,6 +1340,7 @@ if (ARCH STREQUAL "x86_64")
                 "pci: enumerated"
                 "selftest: interrupts ok (lapic)"
                 "selftest: clock ok"
+                "selftest: wait park preemption ok"
                 "selftest: uname ok"
                 "selftest: statx ok"
         )
@@ -1392,6 +1553,7 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
                 -Wl,--hash-style=sysv
@@ -1421,6 +1583,53 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_nophdr
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_nophdr ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=gnu
+                -Wl,-soname,libfixture_gnu.so -o ${_fix_dir}/libfixture_gnu.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_gnu.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=both
+                -Wl,-soname,libfixture_semihash.so
+                -o ${_fix_dir}/libfixture_semihash.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_semihash.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=gnu
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_gnu
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
+                ${_fix_dir}/libfixture_gnu.so ${_fix_dir}/libfixture_semihash.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -Wl,--hash-style=sysv -Wl,-soname,libfixture_tpoff32.so
+                -o ${_fix_dir}/libfixture_tpoff32.link.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
+                ${_fix_dir}/libfixture_base.so
+                COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py 18 23
+                ${_fix_dir}/libfixture_tpoff32.link.so
+                ${_fix_dir}/libfixture_tpoff32.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_tpoff32
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
+                ${_fix_dir}/libfixture_tpoff32.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_relative_ro
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.S
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture_gnu.so ${_fix_dir}/libfixture_semihash.so
+                ${_fix_dir}/libfixture_tpoff32.so ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_gnu ${_fix_dir}/interp_tpoff32
+                ${_fix_dir}/interp_relative_ro ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1436,6 +1645,18 @@ if (ARCH STREQUAL "x86_64")
                 ${_libc_shared_so} ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/dyn_libc ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/boot_stage/jail/lib
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/boot_stage/jail/etc
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_libc_shared_so} ${_fix_dir}/boot_stage/jail/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/jail/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_init_libc_image} ${_fix_dir}/boot_stage/jail/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${_fix_dir}/boot_stage/jail/etc/passwd
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
@@ -1443,6 +1664,10 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so bin/interp_link bin/interp_nophdr
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
+                lib/libfixture_gnu.so lib/libfixture_semihash.so
+                lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
+                bin/interp_relative_ro
+                jail/init_libc jail/lib/libc.so jail/lib/ld.astia.so jail/etc/passwd
                 DEPENDS ${_fix_dir}/hello_initrd.o ${_fix_dir}/fixture_exec.elf
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
@@ -1450,11 +1675,21 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_gnu.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_semihash.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1488,6 +1723,74 @@ if (ARCH STREQUAL "x86_64")
                 DEPENDS ${_fix_dir}/boot_initrd.cpio.zst)
 
         add_custom_command(
+                OUTPUT ${_fix_dir}/module_missing_dependency.o
+                COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_OBJECTS:astia_module_missing_dependency_object>
+                ${_fix_dir}/module_missing_dependency.o
+                DEPENDS astia_module_missing_dependency_object
+                COMMENT "Copying invalid-dependency ET_REL fixture")
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/module_syscall_init
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/module_syscall_init
+                $<TARGET_OBJECTS:astia_module_syscall_init_object>
+                DEPENDS astia_module_syscall_init_object
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/syscalls.h
+                COMMENT "Linking module syscall userspace fixture")
+
+        add_custom_command(
+                OUTPUT ${_fix_dir}/module_syscall_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/module_syscall_stage/sbin
+                ${_fix_dir}/module_syscall_stage/bin
+                ${_fix_dir}/module_syscall_stage/mods
+                ${_fix_dir}/module_syscall_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/module_syscall_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/module_syscall_stage/bin/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/hello_initrd.o
+                ${_fix_dir}/module_syscall_stage/mods/hello.o
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/module_missing_dependency.o
+                ${_fix_dir}/module_syscall_stage/mods/bad-dependency.o
+                COMMAND dd if=${_fix_dir}/hello_initrd.o
+                of=${_fix_dir}/module_syscall_stage/mods/truncated.elf
+                bs=64 count=1 status=none
+                COMMAND dd if=/dev/zero
+                of=${_fix_dir}/module_syscall_stage/mods/huge.bin
+                bs=1024 count=1025 status=none
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
+                ${_fix_dir}/module_syscall_stage/etc/passwd
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/module_syscall_stage
+                ${_fix_dir}/module_syscall_initrd.cpio
+                sbin/init bin/init_libc mods/hello.o mods/truncated.elf
+                mods/bad-dependency.o mods/huge.bin etc/passwd
+                DEPENDS ${_fix_dir}/module_syscall_init
+                ${_fix_dir}/hello_initrd.o ${_fix_dir}/module_missing_dependency.o
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing module syscall initrd")
+        add_custom_target(astia_module_syscall_initrd ALL
+                DEPENDS ${_fix_dir}/module_syscall_initrd.cpio)
+
+        add_test(NAME astia_module_syscall_boot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/module_syscall_initrd.cpio
+                "hello.o rc=42"
+                "spawn reaped pid=1 status=0 path=/sbin/init"
+                "path=/bin/init_libc"
+                "core: selftest ok"
+        )
+        set_tests_properties(astia_module_syscall_boot PROPERTIES TIMEOUT 60)
+
+        add_custom_command(
                 OUTPUT ${_fix_dir}/production_exit_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory
                 ${_fix_dir}/production_exit_stage/sbin
@@ -1518,14 +1821,31 @@ if (ARCH STREQUAL "x86_64")
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
                 "astia: libc ok"
+                "astia: exit parked waiters start"
+                "astia: exec permission ok"
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: ld ok"
                 "astia: ld nophdr ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relative ro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
                 "astia: sigpipe ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
+
+        add_test(NAME astia_chroot
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/boot_initrd.cpio
+                "astia: chroot ok"
+                "astia: chroot exec ok"
+                "astia: libc ok"
+        )
+        set_tests_properties(astia_chroot PROPERTIES TIMEOUT 60)
 
         add_test(NAME astia_urandom_fresh_boot
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_urandom_boot_test.sh
@@ -1542,6 +1862,11 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relative ro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
         )
         set_tests_properties(astia_initrd_boot_gzip PROPERTIES TIMEOUT 60)
 
@@ -1554,6 +1879,11 @@ if (ARCH STREQUAL "x86_64")
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"
+                "astia: gnu-hash ok"
+                "astia: tpoff32 ok"
+                "astia: relative ro ok"
+                "astia: exec repeat ok"
+                "astia: dyn tls clone ok"
         )
         set_tests_properties(astia_initrd_boot_zstd PROPERTIES TIMEOUT 60)
 
@@ -1945,7 +2275,8 @@ astia_append_test_label("kernel;deterministic")
 foreach (_astia_boot_test IN ITEMS
         astia_kernel_boot astia_fs_registry_boot astia_kernel_lifecycle_smp2
         astia_kernel_smp_boot astia_kernel_scheduler_smp2 astia_initrd_boot
-        astia_urandom_fresh_boot astia_production_init_exit
+        astia_module_syscall_boot astia_urandom_fresh_boot
+        astia_production_init_exit
         astia_native_daemond_idle astia_native_daemond_service
         astia_native_daemond_visibility astia_native_daemond_missing_rc
         astia_native_daemond_launch_failure astia_native_daemond_failure)

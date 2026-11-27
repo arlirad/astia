@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
 
@@ -199,21 +200,83 @@ namespace astia::dev {
         u16            _base = 0;
     };
 
+    /// A restricted PIO window: byte accesses are accepted only for the
+    /// granted absolute port range. The platform hands out one narrow window;
+    /// the raw bus stays kernel-private.
+    class io_port_window final {
+        public:
+        constexpr io_port_window() = default;
+
+        constexpr io_port_window(const pio_bus& bus, u16 first, u16 last)
+            : _bus(&bus), _first(first), _last(last) {}
+
+        constexpr bool valid() const {
+            return _bus != nullptr && _bus->valid() && _first <= _last;
+        }
+
+        constexpr u16 first() const {
+            return _first;
+        }
+
+        constexpr u16 last() const {
+            return _last;
+        }
+
+        bool read8(u16 port, u8& value) const {
+            if (!valid() || port < _first || port > _last)
+                return false;
+
+            const optional<u8> result = _bus->read8(port);
+            if (!result)
+                return false;
+
+            value = result.value;
+
+            return true;
+        }
+
+        bool write8(u16 port, u8 value) const {
+            return valid() && port >= _first && port <= _last &&
+                   _bus->write8(port, value);
+        }
+
+        private:
+        const pio_bus* _bus   = nullptr;
+        u16            _first = 0;
+        u16            _last  = 0;
+    };
+
+    /// The platform's narrow PIO window for the boot input controller.
+    const io_port_window& platform_input_window();
+
     using irq_handler = void (*)();
 
     struct irq_claimable {
-        using callback = bool (*)(void*, irq_handler);
+        using callback         = bool (*)(void*, irq_handler);
+        using guarded_callback = bool (*)(void*, irq_handler, arch::irq_callback_enter,
+                                          arch::irq_callback_leave, void*);
 
-        void*    context  = nullptr;
-        callback claim_fn = nullptr;
+        void*            context          = nullptr;
+        callback         claim_fn         = nullptr;
+        guarded_callback guarded_claim_fn = nullptr;
 
         constexpr bool valid() const {
             return claim_fn != nullptr;
         }
 
+        constexpr bool guarded() const {
+            return guarded_claim_fn != nullptr;
+        }
+
         bool claim(irq_handler handler) const {
             return handler != nullptr && claim_fn != nullptr &&
                    claim_fn(context, handler);
+        }
+
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return handler != nullptr && guarded_claim_fn != nullptr &&
+                   guarded_claim_fn(context, handler, enter, leave, guard_context);
         }
     };
 
@@ -233,16 +296,19 @@ namespace astia::dev {
     };
 
     struct irq_line {
-        using claim_callback  = irq_claimable::callback;
-        using unmask_callback = irq_unmaskable::callback;
+        using claim_callback         = irq_claimable::callback;
+        using guarded_claim_callback = irq_claimable::guarded_callback;
+        using unmask_callback        = irq_unmaskable::callback;
 
         irq_claimable  claimable;
         irq_unmaskable unmaskable;
 
         constexpr irq_line() = default;
         constexpr irq_line(void* context, claim_callback claim_fn,
-                           unmask_callback unmask_fn)
-            : claimable{context, claim_fn}, unmaskable{context, unmask_fn} {}
+                           unmask_callback        unmask_fn,
+                           guarded_claim_callback guarded_claim_fn = nullptr)
+            : claimable{context, claim_fn, guarded_claim_fn},
+              unmaskable{context, unmask_fn} {}
 
         constexpr bool valid() const {
             return claimable.valid() && unmaskable.valid();
@@ -260,8 +326,36 @@ namespace astia::dev {
             return claimable.claim(handler);
         }
 
+        bool claim_guarded(irq_handler handler, arch::irq_callback_enter enter,
+                           arch::irq_callback_leave leave, void* guard_context) const {
+            return claimable.claim_guarded(handler, enter, leave, guard_context);
+        }
+
         bool unmask() const {
             return unmaskable.unmask();
         }
+    };
+
+    /// A legacy PIC line claimed on behalf of the calling module. Unlike
+    /// irq_line (the kernel's own unguarded line: uart16550, kernel-owned
+    /// handler), a route holds a module reference for the claim and for every
+    /// guarded dispatch, so the image cannot be closed underneath the handler.
+    /// One route exists per line.
+    class irq_route final {
+        public:
+        irq_route() = default;
+
+        explicit constexpr irq_route(u8 line) : _line(line) {}
+
+        bool claim(arch::irq_handler handler);
+        bool unmask();
+        bool release();
+
+        constexpr u8 line() const {
+            return _line;
+        }
+
+        private:
+        u8 _line = 0;
     };
 } // namespace astia::dev

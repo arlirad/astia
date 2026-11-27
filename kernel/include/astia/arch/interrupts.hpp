@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/arch/timer.hpp>
 #include <astia/common.hpp>
 
 #include <concepts>
@@ -34,35 +35,11 @@ namespace astia::arch {
     /// when dispatch may begin.
     bool init_interrupts();
 
-    /// Ticks counted from the timer interrupt since init_interrupts();
-    /// 0 until the first tick. Grows monotonically for the life of the
-    /// kernel — the time source for idle loops and timeouts.
-    u64 timer_ticks();
-
-    /// Frequency of timer_ticks() in hertz — the period one tick covers,
-    /// and therefore the resolution any clock read can offer. 0 means "no
-    /// timer source yet" (the aarch64 port before its timer lands): a
-    /// caller converting ticks to seconds must refuse rather than divide.
-    u32 timer_hz();
-
-    /// Which timer source drives timer_ticks(): the per-CPU LAPIC timer
-    /// (SMP-scalable — one LAPIC per core) when bring-up calibrated it,
-    /// the boot PIT otherwise. Diagnostics today; per-CPU once SMP lands.
-    enum class timer_source : u8 { pit, lapic };
-
-    timer_source current_timer_source();
-
     /// Number of int3 breakpoints dispatched since init_interrupts() — a
     /// debugger bumps it, and so does the boot selftest, which uses a
     /// software int3 to prove the IDT dispatch path works before opening
     /// the hardware IRQ gate.
     u64 breakpoint_hits();
-
-    /// Callback invoked from the timer interrupt with interrupts masked.
-    /// The scheduler owns the policy; the architecture only delivers the
-    /// periodic event.
-    using timer_hook = void (*)();
-    bool register_timer_hook(timer_hook hook);
 
     /// User page-fault resolver, registered by the process layer: the
     /// #PF path offers it every ring-3 fault before declaring it fatal.
@@ -84,6 +61,13 @@ namespace astia::arch {
     /// the device has been serviced.
     using irq_handler = void (*)();
 
+    /// Guard callbacks wrapped around a module-owned IRQ handler. `enter` runs
+    /// before the handler and may reject the callback; `leave` runs only when
+    /// `enter` succeeded, after the handler returns, and must be
+    /// non-blocking.
+    using irq_callback_enter = bool (*)(void* context);
+    using irq_callback_leave = void (*)(void* context);
+
     /// Claim a maskable IRQ line for a driver.  On x86_64 `irq` is the
     /// PIC line number (0..15), dispatched as vector pic::irq_base + irq;
     /// the timer lines (IRQ0 / the LAPIC timer vector) are reserved.
@@ -92,6 +76,23 @@ namespace astia::arch {
     /// Registration does not unmask anything: the driver unmasks its
     /// own PIC line when it is ready to service (pic::unmask).
     bool register_irq_handler(u8 irq, irq_handler handler);
+
+    /// Guarded claim for a handler in module image memory: every dispatch
+    /// enters through `enter` before calling `handler` and leaves through
+    /// `leave` afterwards. `context` is passed to both guard callbacks.
+    bool register_irq_handler(u8 irq, irq_handler handler, irq_callback_enter enter,
+                              irq_callback_leave leave, void* context);
+
+    /// Mask one claimed line at the PIC while keeping the claim. Safe in
+    /// callback context.
+    bool mask_irq_handler(u8 irq);
+
+    /// Unmask a claimed line and reopen its handler table entry.
+    bool unmask_irq_handler(u8 irq);
+
+    /// Clear a claimed line's handler and guard pointers. Refuses while a
+    /// dispatch is in flight, so the caller can retry after references drain.
+    bool unregister_irq_handler(u8 irq);
 
     struct interrupt_vector {
         u32 vector = 0;

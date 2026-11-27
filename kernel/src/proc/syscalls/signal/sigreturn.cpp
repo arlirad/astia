@@ -36,7 +36,7 @@ namespace astia::proc::syscalls {
             if (state.faults) {
                 if (auto* self = current_thread()) {
                     if (auto* owner = self->owner())
-                        owner->signal_termination(signal_number::segv);
+                        owner->terminate_for_signal(signal_number::segv, self);
 
                     self->exit(reinterpret_cast<void*>(static_cast<usize>(
                         wait_signal_exit_status(static_cast<u8>(signal_number::segv)))));

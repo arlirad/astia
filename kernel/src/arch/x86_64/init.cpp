@@ -36,6 +36,10 @@ namespace astia::arch {
             return reinterpret_cast<void*>(kernel_base + physical);
         }
 
+        u64 direct_physical(const void* address) {
+            return reinterpret_cast<u64>(address) - kernel_base;
+        }
+
         /// Top of usable RAM as reported by the loader.
         u64 usable_top(const mm::memory_map& map) {
             u64 top = 0;
@@ -129,7 +133,7 @@ namespace astia::arch::x86_64 {
         kernel_map_live = true;
 
         kernel_map.activate();
-        mm::kernel_frames().configure_access(direct_access);
+        mm::kernel_frames().configure_access(direct_access, direct_physical);
         pci_mmio_owner_configure(pci_mmio_safe_floor(top),
                                  pci_mmio_va_limits_for(kernel_base, direct_map_limit,
                                                         mmio_window().base,

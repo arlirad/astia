@@ -46,6 +46,7 @@ add_library(mod STATIC
         module_driver.cpp
         module.cpp
         module_image.cpp
+        irq_route.cpp
         init.cpp
 )
 

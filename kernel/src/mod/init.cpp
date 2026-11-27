@@ -37,6 +37,21 @@ namespace astia::mod {
         // Boot modules are resident: once their entrypoint (and any driver
         // registration it performed) is live they can never be unloaded.
         void load_and_run(span<const u8> data, const char* name, u64 i) {
+            const elf::loader::relocatable_problem problem =
+                elf::loader::audit_relocatable(data);
+
+            if (problem != elf::loader::relocatable_problem::none) {
+                const char* reason = elf::loader::relocatable_problem_text(problem);
+
+                if (name != nullptr)
+                    logs::error("%s rejected: %s", name, reason);
+                else
+                    logs::error("module %llu rejected: %s",
+                                static_cast<unsigned long long>(i), reason);
+
+                return;
+            }
+
             module_load_options options{};
 
             options.resident = true;
@@ -182,3 +197,4 @@ namespace astia::mod {
 } // namespace astia::mod
 
 ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames", "fs")
+ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames", "interrupts")

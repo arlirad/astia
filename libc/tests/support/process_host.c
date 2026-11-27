@@ -194,6 +194,19 @@ long __astia_process_sigprocmask(int how, unsigned int set, unsigned int* old_se
     return -ENOSYS;
 }
 
+__attribute__((weak)) long __astia_process_sigwait(const unsigned int* set, int* signal) {
+    (void) set;
+    (void) signal;
+
+    return -ENOSYS;
+}
+
+__attribute__((weak)) long __astia_process_sigsuspend(const unsigned int* mask) {
+    (void) mask;
+
+    return -ENOSYS;
+}
+
 long __astia_process_sigpending(unsigned int* set) {
     unsigned long host_set = 0;
     long          rc       = syscall(SYS_rt_sigpending, &host_set, sizeof host_set);

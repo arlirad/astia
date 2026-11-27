@@ -42,6 +42,7 @@ namespace astia::dev {
         bool tty_putc(u8 byte) override;
         void tty_ready() override;
         long tty_speed(speed_t speed) override;
+        long tty_discard_output() override;
 
         private:
         void release_if_unused();

@@ -18,6 +18,7 @@ long __astia_process_getpid(void);
 long __astia_process_getppid(void);
 long __astia_process_gettid(void);
 long __astia_process_fchdir(int fd);
+long __astia_process_chroot(const char* path);
 long __astia_process_uname(struct utsname* name);
 long __astia_process_getuid(void);
 long __astia_process_geteuid(void);

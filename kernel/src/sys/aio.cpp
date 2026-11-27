@@ -72,6 +72,7 @@ namespace {
         };
 
         astia::io::aio::set_user_memory_adapter(value);
+        astia::fs::set_realtime_source(realtime_now);
         astia::atomic_ref<astia::u32>(adapter_state)
             .store(2, astia::memory_order::release);
     }

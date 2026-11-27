@@ -22,6 +22,59 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Pkgsrv.Infrastructure.Persistence.Postgres.PackageOutboxRecord", b =>
+                {
+                    b.Property<string>("IdempotencyKey")
+                        .HasColumnType("text");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("AvailableAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ClaimId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ClaimedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PackageName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PackageVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("IdempotencyKey");
+
+                    b.HasIndex("PackageName")
+                        .HasDatabaseName("IX_package_outbox_PackageName");
+
+                    b.HasIndex("Status", "AvailableAt")
+                        .HasDatabaseName("IX_package_outbox_Status_AvailableAt");
+
+                    b.ToTable("package_outbox", (string)null);
+                });
+
             modelBuilder.Entity("Pkgsrv.Infrastructure.Persistence.Postgres.PackageRecord", b =>
                 {
                     b.Property<string>("Name")

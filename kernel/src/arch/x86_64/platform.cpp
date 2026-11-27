@@ -1,3 +1,4 @@
+#include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
 #include <astia/dev/uart_platform.hpp>
@@ -6,15 +7,30 @@
 #include "pic.hpp"
 #include "smp.hpp"
 
+namespace {
+    constinit astia::dev::pio_bus input_pio{nullptr,
+                                            astia::arch::x86_64::pio_read8,
+                                            astia::arch::x86_64::pio_read16,
+                                            astia::arch::x86_64::pio_read32,
+                                            astia::arch::x86_64::pio_write8,
+                                            astia::arch::x86_64::pio_write16,
+                                            astia::arch::x86_64::pio_write32};
+}
+
 namespace astia::dev {
-    constinit pio_bus uart16550_platform_pio{nullptr,
+    constinit pio_bus              uart16550_platform_pio{nullptr,
                                              arch::x86_64::pio_read8,
                                              arch::x86_64::pio_read16,
                                              arch::x86_64::pio_read32,
                                              arch::x86_64::pio_write8,
                                              arch::x86_64::pio_write16,
                                              arch::x86_64::pio_write32};
-}
+    constinit const io_port_window platform_input_ports{input_pio, 0x60, 0x64};
+
+    const io_port_window& platform_input_window() {
+        return platform_input_ports;
+    }
+} // namespace astia::dev
 
 namespace astia::arch::platform {
     void debug_exit(u32 status) {

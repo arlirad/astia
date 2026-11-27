@@ -15,6 +15,12 @@ namespace astia::fs {
     };
 
     constexpr u32 open_file_access_mask = 0x0003;
+
+    /// A descriptor's access mode permits reading unless it is write-only.
+    constexpr bool open_file_readable(u32 flags) {
+        return (flags & open_file_access_mask) != ASTIA_AIO_O_WRONLY;
+    }
+
     // Pipe endpoints use private high bits in open_file::_flags so that the
     // backing pipe can account readers and writers independently.  They are
     // not part of either the AIO OPENAT word or userspace fcntl status.
@@ -44,7 +50,7 @@ namespace astia::fs {
         unknown   = 0,
         fifo      = 1,
         character = 2,
-        block     = 3,
+        block     = 6,
         directory = 4,
         regular   = 8,
         symlink   = 10,
@@ -108,6 +114,33 @@ namespace astia::fs {
     inline constexpr file_permissions default_device_permissions{0666};
     inline constexpr file_permissions readonly_file_permissions{0755};
     inline constexpr file_permissions readonly_directory_permissions{0755};
+
+    /// Access, modification and change timestamps in Unix epoch form.  A
+    /// backend that records no timestamp leaves the corresponding fields at
+    /// zero; the VFS never invents a wall-clock value for it.
+    struct file_timestamps {
+        u64 atime_sec  = 0;
+        u64 atime_nsec = 0;
+        u64 mtime_sec  = 0;
+        u64 mtime_nsec = 0;
+        u64 ctime_sec  = 0;
+        u64 ctime_nsec = 0;
+    };
+
+    /// Wall-clock source used for file timestamps.  The kernel installs the
+    /// system clock once the timer is running; until then, and in host tests
+    /// that never install one, timestamps stay at their documented zero.
+    void set_realtime_source(bool (*source)(u64& sec, u64& nsec));
+    bool realtime_now(u64& sec, u64& nsec);
+
+    inline file_timestamps current_timestamps() {
+        u64 sec  = 0;
+        u64 nsec = 0;
+
+        (void) realtime_now(sec, nsec);
+
+        return {sec, nsec, sec, nsec, sec, nsec};
+    }
 
     class file_mode {
         public:

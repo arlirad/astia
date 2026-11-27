@@ -1,5 +1,6 @@
 #include <astia/version.h>
 
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -71,23 +72,113 @@ static int has_mode(const char* path, mode_t mode) {
     return stat(path, &info) == 0 && (info.st_mode & 07777) == mode;
 }
 
+static int fork_cow_checks(void) {
+    enum { page_count = 1024 };
+
+    const size_t page_bytes = 4096;
+    const size_t length     = (size_t) page_count * page_bytes;
+
+    unsigned char* area =
+        mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (area == MAP_FAILED)
+        return fail("fork cow mmap");
+
+    for (size_t page = 0; page < page_count; ++page) {
+        area[page * page_bytes] = (unsigned char) (page * 31u + 7u);
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        (void) munmap(area, length);
+
+        return fail("fork cow fork");
+    }
+
+    if (child == 0) {
+        for (size_t page = 0; page < page_count; ++page) {
+            if (area[page * page_bytes] != (unsigned char) (page * 31u + 7u))
+                _Exit(1);
+        }
+
+        for (size_t page = 0; page < page_count; ++page) {
+            area[page * page_bytes] = (unsigned char) (page * 17u + 3u);
+        }
+
+        for (size_t page = 0; page < page_count; ++page) {
+            if (area[page * page_bytes] != (unsigned char) (page * 17u + 3u))
+                _Exit(2);
+        }
+
+        _Exit(0);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+        WEXITSTATUS(status) != 0) {
+        (void) munmap(area, length);
+
+        return fail("fork cow child");
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        if (area[page * page_bytes] != (unsigned char) (page * 31u + 7u)) {
+            (void) munmap(area, length);
+
+            return fail("fork cow parent");
+        }
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        area[page * page_bytes] ^= 0x5a;
+    }
+
+    for (size_t page = 0; page < page_count; ++page) {
+        if (area[page * page_bytes] !=
+            (unsigned char) (((unsigned char) (page * 31u + 7u)) ^ 0x5a)) {
+            (void) munmap(area, length);
+
+            return fail("fork cow parent write");
+        }
+    }
+
+    if (munmap(area, length) != 0)
+        return fail("fork cow munmap");
+
+    return 0;
+}
+
 static int file_equals(const char* path, const char* expected) {
     FILE* file = fopen(path, "r");
 
     char   buffer[512];
     size_t length;
-    size_t actual;
+    size_t offset = 0;
+    int    equal  = 1;
 
     if (file == NULL)
         return 0;
 
-    actual = fread(buffer, 1, sizeof buffer, file);
-
-    int at_end = actual < sizeof buffer || fgetc(file) == EOF;
-
     length = strlen(expected);
 
-    int equal = at_end && actual == length && memcmp(buffer, expected, length) == 0;
+    while (offset < length) {
+        size_t chunk = length - offset;
+
+        if (chunk > sizeof buffer)
+            chunk = sizeof buffer;
+
+        if (fread(buffer, 1, chunk, file) != chunk ||
+            memcmp(buffer, expected + offset, chunk) != 0) {
+            equal = 0;
+
+            break;
+        }
+
+        offset += chunk;
+    }
+
+    if (equal && fgetc(file) != EOF)
+        equal = 0;
 
     fclose(file);
 
@@ -435,6 +526,28 @@ static int check_pty(const char* name, char* const argv[], char* const envp[],
     return run_pty(name, argv, envp, columns, output) == 0 ? 0 : fail(name);
 }
 
+static int check_output_excludes(const char* name, char* const argv[], int status,
+                                 const char* present, const char* absent) {
+    char buffer[1024] = {0};
+
+    FILE* output;
+
+    if (run(name, argv, NULL, status, present, 0) != 0)
+        return fail(name);
+
+    output = fopen("/tmp/coreutils_stdout", "r");
+    if (output == NULL)
+        return fail(name);
+
+    size_t length = fread(buffer, 1, sizeof buffer - 1, output);
+
+    fclose(output);
+
+    buffer[length] = '\0';
+
+    return strstr(buffer, absent) == NULL ? 0 : fail(name);
+}
+
 static int mv_directory_checks(void) {
     char* mv_into_directory[]           = {"mv", "/tmp/coreutils_mv_file",
                                            "/tmp/coreutils_mv_target", NULL};
@@ -485,6 +598,39 @@ static int mv_directory_checks(void) {
     return status;
 }
 
+static int ls_symlink_checks(void) {
+    char* ls_symlink_file[]     = {"ls", "/tmp/coreutils_link", NULL};
+    char* ls_symlink_dir[]      = {"ls", "/tmp/coreutils_ls_link", NULL};
+    char* ls_symlink_dir_long[] = {"ls", "-l", "/tmp/coreutils_ls_link", NULL};
+    char* ls_long[]             = {"ls", "-l", "/tmp/coreutils_link", NULL};
+
+    (void) unlink("/tmp/coreutils_ls_link");
+    (void) unlink("/tmp/coreutils_ls_target/sample");
+    (void) rmdir("/tmp/coreutils_ls_target");
+
+    if (mkdir("/tmp/coreutils_ls_target", 0777) != 0 ||
+        put_file("/tmp/coreutils_ls_target/sample", "x\n") != 0 ||
+        symlink("/tmp/coreutils_ls_target", "/tmp/coreutils_ls_link") != 0)
+        return fail("ls symlink fixture setup");
+
+    int status = 0;
+
+    if (check("ls symlink to file", ls_symlink_file, NULL, 0, "coreutils_link\n", 1) !=
+            0 ||
+        check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) != 0 ||
+        check("ls symlink to directory", ls_symlink_dir, NULL, 0,
+              "/tmp/coreutils_ls_link:\nsample\n", 1) != 0 ||
+        check("ls -l symlink to directory", ls_symlink_dir_long, NULL, 0,
+              " -> /tmp/coreutils_ls_target\n", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_ls_link");
+    (void) unlink("/tmp/coreutils_ls_target/sample");
+    (void) rmdir("/tmp/coreutils_ls_target");
+
+    return status;
+}
+
 static int rm_directory_checks(void) {
     char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
 
@@ -508,6 +654,54 @@ static int rm_directory_checks(void) {
         return 1;
 
     return 0;
+}
+
+static int find_symlink_checks(void) {
+    char* find_tree[]     = {"find", "/tmp/coreutils_find", NULL};
+    char* find_follow[]   = {"find", "-L", "/tmp/coreutils_find", NULL};
+    char* find_top_link[] = {"find", "-H", "/tmp/coreutils_find/tree/link", NULL};
+
+    (void) unlink("/tmp/coreutils_find/tree/self");
+    (void) unlink("/tmp/coreutils_find/tree/link");
+    (void) unlink("/tmp/coreutils_find/tree/file");
+    (void) rmdir("/tmp/coreutils_find/tree");
+    (void) unlink("/tmp/coreutils_find/real/file");
+    (void) rmdir("/tmp/coreutils_find/real");
+    (void) rmdir("/tmp/coreutils_find");
+
+    if (mkdir("/tmp/coreutils_find", 0777) != 0 ||
+        mkdir("/tmp/coreutils_find/real", 0777) != 0 ||
+        put_file("/tmp/coreutils_find/real/file", "target\n") != 0 ||
+        mkdir("/tmp/coreutils_find/tree", 0777) != 0 ||
+        put_file("/tmp/coreutils_find/tree/file", "tree\n") != 0 ||
+        symlink("../real", "/tmp/coreutils_find/tree/link") != 0 ||
+        symlink(".", "/tmp/coreutils_find/tree/self") != 0)
+        return fail("find symlink fixture setup");
+
+    int status = 0;
+
+    if (check("find symlink not followed", find_tree, NULL, 0,
+              "/tmp/coreutils_find/tree/link\n", 0) != 0 ||
+        check_output_excludes("find symlink not descended", find_tree, 0,
+                              "/tmp/coreutils_find/real/file\n",
+                              "/tmp/coreutils_find/tree/link/file\n") != 0 ||
+        check("find self symlink printed", find_tree, NULL, 0,
+              "/tmp/coreutils_find/tree/self\n", 0) != 0 ||
+        check("find -L follows and breaks cycles", find_follow, NULL, 1,
+              "/tmp/coreutils_find/tree/link/file\n", 0) != 0 ||
+        check("find -H follows command-line symlink", find_top_link, NULL, 0,
+              "/tmp/coreutils_find/tree/link/file\n", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_find/tree/self");
+    (void) unlink("/tmp/coreutils_find/tree/link");
+    (void) unlink("/tmp/coreutils_find/tree/file");
+    (void) rmdir("/tmp/coreutils_find/tree");
+    (void) unlink("/tmp/coreutils_find/real/file");
+    (void) rmdir("/tmp/coreutils_find/real");
+    (void) rmdir("/tmp/coreutils_find");
+
+    return status;
 }
 
 static int id_checks(void) {
@@ -541,6 +735,58 @@ static int id_checks(void) {
                  1);
 }
 
+#define LONG_LINE_PADDING 5000
+
+static int long_line_checks(void) {
+    static char grep_line[LONG_LINE_PADDING + 64];
+    static char cut_line[LONG_LINE_PADDING + 64];
+    static char sort_first[LONG_LINE_PADDING + 16];
+    static char sort_second[LONG_LINE_PADDING + 16];
+
+    static char sort_expected[2 * (LONG_LINE_PADDING + 16) + 1];
+    static char sort_input[2 * (LONG_LINE_PADDING + 16) + 1];
+
+    char* grep_boundary[]  = {"grep", "cross-boundary", NULL};
+    char* cut_late_field[] = {"cut", "-d", ":", "-f", "2", NULL};
+    char* sort_long[]      = {"sort", NULL};
+    char* sort_unique[]    = {"sort", "-u", "/tmp/coreutils_long_sort", NULL};
+
+    memset(grep_line, 'x', 4090);
+    memcpy(grep_line + 4090, "cross-boundary", 14);
+    memset(grep_line + 4104, 'y', LONG_LINE_PADDING - 4104);
+
+    grep_line[LONG_LINE_PADDING]     = '\n';
+    grep_line[LONG_LINE_PADDING + 1] = '\0';
+
+    memset(cut_line, 'a', LONG_LINE_PADDING);
+
+    cut_line[LONG_LINE_PADDING] = ':';
+
+    memcpy(cut_line + LONG_LINE_PADDING + 1, "tail-field\n", 12);
+
+    memset(sort_first, 'a', LONG_LINE_PADDING);
+    memcpy(sort_first + LONG_LINE_PADDING, "a\n", 3);
+    memset(sort_second, 'a', LONG_LINE_PADDING);
+    memcpy(sort_second + LONG_LINE_PADDING, "b\n", 3);
+
+    size_t first_length  = strlen(sort_first);
+    size_t second_length = strlen(sort_second);
+
+    memcpy(sort_expected, sort_first, first_length);
+    memcpy(sort_expected + first_length, sort_second, second_length + 1);
+    memcpy(sort_input, sort_second, second_length);
+    memcpy(sort_input + second_length, sort_first, first_length + 1);
+
+    if (put_file("/tmp/coreutils_long_sort", sort_expected) != 0)
+        return fail("long line sort fixture");
+
+    return check("grep line across 4095", grep_boundary, grep_line, 0, grep_line, 1) ||
+           check("cut field after 4095", cut_late_field, cut_line, 0, "tail-field\n",
+                 1) ||
+           check("sort long lines", sort_long, sort_input, 0, sort_expected, 1) ||
+           check("sort -u long lines", sort_unique, NULL, 0, sort_expected, 1);
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -557,6 +803,9 @@ int main(void) {
     if (chdir("/bin") != 0)
         return fail("runner chdir");
 
+    if (fork_cow_checks() != 0)
+        return 1;
+
     char* cat_stdin[]         = {"cat", NULL};
     char* cat_stdin_dash[]    = {"cat", "-", NULL};
     char* cat_file_stdin[]    = {"cat", "/tmp/coreutils_a", "-", NULL};
@@ -568,7 +817,6 @@ int main(void) {
     char* wc_files[]          = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* wc_bad[]            = {"wc", "--bad", NULL};
     char* ls_dir[]            = {"ls", "/bin", NULL};
-    char* ls_long[]           = {"ls", "-l", "/tmp/coreutils_link", NULL};
     char* ls_multi[]          = {"ls", "/bin", "/sbin", NULL};
     char* ls_bad[]            = {"ls", "--bad", NULL};
     char* pwd[]               = {"pwd", NULL};
@@ -606,11 +854,19 @@ int main(void) {
     char* touch_modify[]      = {"touch", "-m", "/tmp/coreutils_touch", NULL};
     char* touch_both[]        = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
     char* cp_file[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
+    char* cp_self[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_a", NULL};
+    char* cp_hardlink[]  = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_cp_hard", NULL};
+    char* cp_symlink[]   = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_link", NULL};
     char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy",
                             NULL};
-    char* cp_directory_bad[] = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad",
-                                NULL};
-    char* cp_stdin[]         = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
+    char* cp_directory_bad[]  = {"cp", "/tmp/coreutils_tree", "/tmp/coreutils_tree_bad",
+                                 NULL};
+    char* cp_recursive_self[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree",
+                                 NULL};
+    char* cp_recursive_inside[] = {"cp", "-r", "/tmp/coreutils_tree",
+                                   "/tmp/coreutils_tree/nested_copy", NULL};
+    char* cp_stdin[]            = {"cp", "-", "/tmp/coreutils_from_stdin", NULL};
+    char* cp_stdin_self[]       = {"cp", "-", "/tmp/coreutils_stdin", NULL};
     char* mv_file[]    = {"mv", "/tmp/coreutils_copy", "/tmp/coreutils_moved", NULL};
     char* mv_replace[] = {"mv", "/tmp/coreutils_a", "/tmp/coreutils_moved", NULL};
     char* mv_missing[] = {"mv", "/tmp/coreutils_missing", "/tmp/coreutils_moved", NULL};
@@ -672,6 +928,7 @@ int main(void) {
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
+    (void) unlink("/tmp/coreutils_cp_hard");
     (void) unlink("/tmp/coreutils_from_stdin");
     (void) unlink("/tmp/coreutils_moved");
     (void) unlink("/tmp/coreutils_tee");
@@ -687,6 +944,8 @@ int main(void) {
     (void) rmdir("/tmp/coreutils_tree_copy");
     (void) unlink("/tmp/coreutils_tree/nested/file");
     (void) rmdir("/tmp/coreutils_tree/nested");
+    (void) rmdir("/tmp/coreutils_tree/nested_copy");
+    (void) rmdir("/tmp/coreutils_tree/coreutils_tree");
     (void) rmdir("/tmp/coreutils_tree");
     (void) rmdir("/tmp/coreutils_tree_bad");
     /* The minimal initrd need not ship a /tmp directory. */
@@ -741,8 +1000,7 @@ int main(void) {
         check("ln relative", ln_link, NULL, 0, NULL, 0) ||
         !is_file("/tmp/coreutils_link") ||
         check("readlink", readlink_link, NULL, 0, "coreutils_a\n", 1) ||
-        check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) ||
-        symlink("missing", "/tmp/coreutils_dangling") != 0 ||
+        ls_symlink_checks() != 0 || symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
         !S_ISLNK(dangling_stat.st_mode) ||
         stat("/tmp/coreutils_dangling", &dangling_stat) == 0 ||
@@ -786,6 +1044,18 @@ int main(void) {
         check("touch selective unsupported", touch_access_only, NULL, 1, NULL, 0) ||
         check("touch modify", touch_modify, NULL, 0, NULL, 0) ||
         check("touch access and modify unsupported", touch_both, NULL, 1, NULL, 0) ||
+        link("/tmp/coreutils_a", "/tmp/coreutils_cp_hard") != 0 ||
+        check("cp same file", cp_self, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_a", "alpha\n") ||
+        check("cp hard link", cp_hardlink, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_cp_hard", "alpha\n") ||
+        unlink("/tmp/coreutils_cp_hard") != 0 ||
+        check("cp symlink alias", cp_symlink, NULL, 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_a", "alpha\n") ||
+        check("cp -r same directory", cp_recursive_self, NULL, 1, NULL, 0) ||
+        check("cp -r inside directory", cp_recursive_inside, NULL, 1, NULL, 0) ||
+        is_directory("/tmp/coreutils_tree/coreutils_tree") ||
+        is_directory("/tmp/coreutils_tree/nested_copy") ||
         check("cp", cp_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_copy") ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
@@ -813,8 +1083,10 @@ int main(void) {
         check("find directory", find_tree, NULL, 0, "/tmp/coreutils_tree/nested/file\n",
               0) ||
         check("cp stdin", cp_stdin, "from stdin\n", 0, NULL, 0) ||
-        !is_file("/tmp/coreutils_from_stdin") || check("mv", mv_file, NULL, 0, NULL, 0) ||
-        !is_file("/tmp/coreutils_moved") ||
+        !is_file("/tmp/coreutils_from_stdin") ||
+        check("cp stdin same file", cp_stdin_self, "alpha\n", 1, NULL, 0) ||
+        !file_equals("/tmp/coreutils_stdin", "alpha\n") ||
+        check("mv", mv_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_moved") ||
         check("mv replacement", mv_replace, NULL, 0, NULL, 0) ||
         is_file("/tmp/coreutils_a") || !is_file("/tmp/coreutils_moved") ||
         check("mv missing", mv_missing, NULL, 1, NULL, 0) ||
@@ -866,10 +1138,16 @@ int main(void) {
         !file_equals("/tmp/coreutils_tee", "tee input\n") || 0)
         return 1;
 
+    if (long_line_checks() != 0)
+        return 1;
+
     if (mv_directory_checks() != 0)
         return 1;
 
     if (rm_directory_checks() != 0)
+        return 1;
+
+    if (find_symlink_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",

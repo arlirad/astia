@@ -140,6 +140,17 @@ namespace astia::io {
             _updates_position = value;
         }
 
+        /// The descriptor was opened or set O_NONBLOCK: a device that cannot
+        /// accept the whole operation must report what it can take instead of
+        /// parking the caller.
+        bool nonblock() const {
+            return _nonblock;
+        }
+
+        void nonblock(bool value) {
+            _nonblock = value;
+        }
+
         bool append_reserved() const {
             return _append_reserved;
         }
@@ -334,6 +345,7 @@ namespace astia::io {
         u64                  _generation              = 0;
         void*                _device_state            = nullptr;
         astia::io::direction _direction               = astia::io::direction::input;
+        bool                 _nonblock                = false;
         bool                 _updates_position        = true;
         bool                 _append_reserved         = false;
         u32                  _append_length           = 0;

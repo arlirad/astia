@@ -3,6 +3,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
+#include "dl_registry.hpp"
 #include "proc/events.hpp"
 #include "proc/exec_hooks.hpp"
 #include "proc/process.hpp"
@@ -70,19 +71,10 @@ namespace astia::dl {
         bool           g_loading = false;
         core::spinlock g_lock;
 
-        struct binding {
-            mm::shptr<image> img;
-            u64              base    = 0;
-            u32              handles = 0;
-        };
+        using binding = detail::binding<mm::shptr<image>>;
+        using row     = detail::row<process, binding, max_bindings>;
 
-        struct row {
-            process* owner = nullptr;
-            u32      count = 0;
-            binding  items[max_bindings]{};
-        };
-
-        row g_rows[proc::max_processes]{};
+        detail::row_table<process, binding, proc::max_processes, max_bindings> g_rows{};
 
         u64 page_align_up(u64 value) {
             const u64 page = mm::phys_region::frame_size;
@@ -126,24 +118,11 @@ namespace astia::dl {
         }
 
         row* find_row(process* owner) {
-            for (auto& value : g_rows) {
-                if (value.owner == owner)
-                    return &value;
-            }
-
-            return nullptr;
+            return g_rows.find(owner);
         }
 
         row* make_row(process* owner) {
-            for (auto& value : g_rows) {
-                if (value.owner == nullptr) {
-                    value.owner = owner;
-
-                    return &value;
-                }
-            }
-
-            return nullptr;
+            return g_rows.make(owner);
         }
 
         /// Remove an image whose last mapping is gone.  The registry's
@@ -160,6 +139,15 @@ namespace astia::dl {
                 --g_image_count;
                 note_free(value->base, value->reserved);
                 break;
+            }
+        }
+
+        void release_items(row& value) {
+            for (u32 i = 0; i < value.count; ++i) {
+                auto* img = value.items[i].img.get();
+
+                if (--img->map_count == 0)
+                    unlink_image(img);
             }
         }
 
@@ -415,8 +403,8 @@ namespace astia::dl {
             release(target);
         }
 
-        void adopt_bindings(process& target, process& staging) {
-            adopt(target, staging);
+        bool adopt_bindings(process& target, process& staging) {
+            return adopt(target, staging);
         }
     } // namespace
 
@@ -448,6 +436,9 @@ namespace astia::dl {
 
         if (!file)
             co_return error_t::ebadf;
+
+        if (!fs::open_file_readable(file->flags()))
+            co_return error_t::eacces;
 
         const long size = file->size();
         if (size <= 0)
@@ -619,43 +610,14 @@ namespace astia::dl {
         if (row == nullptr)
             return;
 
-        for (u32 i = 0; i < row->count; ++i) {
-            auto* value = row->items[i].img.get();
-
-            if (--value->map_count == 0)
-                unlink_image(value);
-        }
-
-        row->owner = nullptr;
-        row->count = 0;
-
-        for (auto& item : row->items) {
-            item = {};
-        }
+        release_items(*row);
+        g_rows.clear(*row);
     }
 
-    void adopt(process& target, process& staging) {
+    bool adopt(process& target, process& staging) {
         core::spinlock_guard guard(g_lock);
-        auto*                source = find_row(&staging);
 
-        if (source == nullptr || source->count == 0)
-            return;
-
-        auto* destination = find_row(&target);
-        if (destination == nullptr)
-            destination = make_row(&target);
-
-        if (destination == nullptr || destination->count != 0)
-            return;
-
-        *destination       = *source;
-        destination->owner = &target;
-        source->owner      = nullptr;
-        source->count      = 0;
-
-        for (auto& item : source->items) {
-            item = {};
-        }
+        return g_rows.adopt(&target, &staging, release_items);
     }
 
     bool clone(process& child, process& parent) {

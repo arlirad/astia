@@ -25,12 +25,15 @@ namespace {
 
     bool is_directory(const char* path) {
         return same(path, "/") || same(path, "/tree") || same(path, "/tree/") ||
-               same(path, "/tree/sub");
+               same(path, "/tree/sub") || same(path, "/jail") ||
+               same(path, "/jail/etc") || same(path, "/jail/tree") ||
+               same(path, "/jail/tree/sub");
     }
 
     bool is_file(const char* path) {
         return same(path, "/tree/file") || same(path, "/target") ||
-               same(path, "/tree/target");
+               same(path, "/tree/target") || same(path, "/jail/etc/passwd") ||
+               same(path, "/jail/tree/file") || same(path, "/jail/target");
     }
 
     const char* symlink_target(const char* path) {
@@ -45,6 +48,15 @@ namespace {
 
         if (same(path, "/loop2"))
             return "/loop1";
+
+        if (same(path, "/jail/passwd-link"))
+            return "/etc/passwd";
+
+        if (same(path, "/jail/up"))
+            return "../../etc/passwd";
+
+        if (same(path, "/jail/rel"))
+            return "etc/passwd";
 
         return nullptr;
     }
@@ -205,6 +217,62 @@ ASTIA_TEST(path_service_resolves_at_path_max) {
 
     ASTIA_CHECK(astia::fs::path_service::resolve(path, buffer, sizeof buffer) == 0);
     ASTIA_CHECK(std::strlen(buffer) == sizeof path - 1);
+}
+
+ASTIA_TEST(path_service_resolves_absolute_paths_from_a_process_root) {
+    initialize_heap();
+
+    char buffer[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/etc/passwd", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/etc/passwd"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/tree/../etc/passwd",
+                                                      buffer, sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/etc/passwd"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/..", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/../../..", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/tree/file/child", buffer,
+                                                      sizeof buffer, true) == -ENOTDIR);
+}
+
+ASTIA_TEST(path_service_rebases_symlinks_inside_the_process_root) {
+    initialize_heap();
+
+    char buffer[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/passwd-link", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/etc/passwd"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/up", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/etc/passwd"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/rel", buffer,
+                                                      sizeof buffer, true) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/etc/passwd"));
+
+    ASTIA_CHECK(astia::fs::path_service::resolve_from("/jail", "/passwd-link", buffer,
+                                                      sizeof buffer, false) == 0);
+    ASTIA_CHECK(same(buffer, "/jail/passwd-link"));
+}
+
+ASTIA_TEST(path_service_checks_root_membership_at_component_boundaries) {
+    ASTIA_CHECK(astia::fs::path_service::within_root("/", "/anything"));
+    ASTIA_CHECK(astia::fs::path_service::within_root("/jail", "/jail"));
+    ASTIA_CHECK(astia::fs::path_service::within_root("/jail", "/jail/etc"));
+    ASTIA_CHECK(!astia::fs::path_service::within_root("/jail", "/jailed"));
+    ASTIA_CHECK(!astia::fs::path_service::within_root("/jail", "/"));
+    ASTIA_CHECK(!astia::fs::path_service::within_root("jail", "/jail"));
 }
 
 ASTIA_TEST(path_service_resolve_reports_enomem_when_scratch_allocation_fails) {

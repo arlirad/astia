@@ -57,8 +57,20 @@ static int scan_get(struct scan_input* in) {
 }
 
 static void scan_unget(struct scan_input* in, int c) {
-    if (c != EOF && in->unget(c, in->data) == 0 && in->count != 0)
-        in->count--;
+    if (c != EOF && in->unget(c, in->data) == 0) {
+        in->input_eof = 0;
+
+        if (in->count != 0)
+            in->count--;
+    }
+}
+
+static void scan_push_back(struct scan_input* in, const char* text) {
+    size_t n = strlen(text);
+
+    while (n != 0) {
+        scan_unget(in, (unsigned char) text[--n]);
+    }
 }
 
 static void skip_input_space(struct scan_input* in) {
@@ -172,29 +184,19 @@ static int float_char(int c) {
 }
 
 static int parse_integer(const char* token, char spec, long long* signed_value,
-                         unsigned long long* unsigned_value) {
+                         unsigned long long* unsigned_value, const char** value_end) {
     int base = spec == 'i' ? 0 : spec == 'o' ? 8 : (spec == 'x' || spec == 'X') ? 16 : 10;
 
     char* end;
 
-    if (spec == 'd' || spec == 'i') {
-        long long value = strtoll(token, &end, base);
+    if (spec == 'd' || spec == 'i')
+        *signed_value = strtoll(token, &end, base);
+    else
+        *unsigned_value = strtoull(token, &end, base);
 
-        if (*end != '\0')
-            return 0;
+    *value_end = end;
 
-        *signed_value = value;
-    }
-    else {
-        unsigned long long value = strtoull(token, &end, base);
-
-        if (*end != '\0')
-            return 0;
-
-        *unsigned_value = value;
-    }
-
-    return 1;
+    return end != token;
 }
 
 static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
@@ -275,9 +277,19 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
 
                     unsigned long long value;
 
-                    ok    = scan_token(in, token, sizeof token, width, integer_char, 1);
-                    value = strtoull(token, &end, 16);
-                    ok    = ok && *end == '\0';
+                    ok = scan_token(in, token, sizeof token, width, integer_char, 1);
+                    if (ok) {
+                        value = strtoull(token, &end, 16);
+
+                        if (end == token) {
+                            scan_push_back(in, token);
+
+                            ok = 0;
+                        }
+                        else {
+                            scan_push_back(in, end);
+                        }
+                    }
 
                     if (ok && !suppress)
                         *va_arg(ap, void**) = (void*) (uintptr_t) value;
@@ -287,8 +299,14 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
                     unsigned long long unsigned_value = 0;
 
                     ok = scan_token(in, token, sizeof token, width, integer_char, 1);
-                    if (ok)
-                        ok = parse_integer(token, spec, &signed_value, &unsigned_value);
+                    if (ok) {
+                        const char* end;
+
+                        ok = parse_integer(token, spec, &signed_value, &unsigned_value,
+                                           &end);
+
+                        scan_push_back(in, ok ? end : token);
+                    }
 
                     if (ok && !suppress) {
                         if (spec == 'd' || spec == 'i') {
@@ -330,20 +348,41 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
                      spec == 'G' || spec == 'a' || spec == 'A') {
                 char* end;
 
-                double value;
+                int converted;
 
-                ok    = scan_token(in, token, sizeof token, width, float_char, 1);
-                value = strtod(token, &end);
-                ok    = ok && *end == '\0';
+                ok = scan_token(in, token, sizeof token, width, float_char, 1);
 
-                if (ok && !suppress) {
-                    if (length == 'l')
-                        *va_arg(ap, double*) = value;
-                    else if (length == 'L')
-                        *va_arg(ap, long double*) = (long double) value;
-                    else
-                        *va_arg(ap, float*) = (float) value;
+                if (length == 'L') {
+                    long double value = strtold(token, &end);
+
+                    converted = ok && end != token;
+
+                    if (converted && !suppress)
+                        *va_arg(ap, long double*) = value;
                 }
+                else if (length == 'l') {
+                    double value = strtod(token, &end);
+
+                    converted = ok && end != token;
+
+                    if (converted && !suppress)
+                        *va_arg(ap, double*) = value;
+                }
+                else {
+                    float value = strtof(token, &end);
+
+                    converted = ok && end != token;
+
+                    if (converted && !suppress)
+                        *va_arg(ap, float*) = value;
+                }
+
+                if (converted)
+                    scan_push_back(in, end);
+                else if (ok)
+                    scan_push_back(in, token);
+
+                ok = converted;
             }
             else if (spec == 'c') {
                 int n = width == 0 ? 1 : width;
