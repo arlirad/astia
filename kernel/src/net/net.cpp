@@ -1,5 +1,7 @@
 #include <astia/net.hpp>
 #include <astia/net/link.hpp>
+#include <astia/net/netdev.hpp>
+#include <astia/net/registry.hpp>
 
 namespace astia::net {
     registry& devices() {

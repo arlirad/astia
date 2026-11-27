@@ -2,17 +2,16 @@
 
 #include <astia/core/task.hpp>
 #include <astia/mm/shptr.hpp>
-#include <astia/net/link_driver.hpp>
+#include <astia/net/driver.hpp>
 
 #include "link.hpp"
 
 namespace astia::eth {
     /// Creates Ethernet links for Ethernet netdevs.  The links are statically
     /// owned by the driver; the bus holds borrowed shared pointers.
-    class driver final : public net::link_driver {
+    class driver final : public net::driver {
         public:
-        const char* name() const override;
-        bool        match(const net::netdev& device) const override;
+        bool match(const net::netdev& device) const override;
         core::task<mm::shptr<net::link>>
         create(net::netdev& device, const mm::shptr<net::netdev>& reference) override;
         core::task<void> destroy(net::link& value) override;

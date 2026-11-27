@@ -9,6 +9,7 @@
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/net.hpp>
+#include <astia/net/netdev.hpp>
 
 namespace astia::module {
     using net_device     = net::netdev;

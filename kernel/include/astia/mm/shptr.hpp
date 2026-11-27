@@ -125,6 +125,7 @@ namespace astia::mm {
         T* operator->() const {
             return get();
         }
+
         T& operator*() const {
             return *get();
         }

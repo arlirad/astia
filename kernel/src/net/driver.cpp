@@ -1,7 +1,10 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/error.hpp>
-#include <astia/net/link_bus.hpp>
-#include <astia/net/link_driver.hpp>
+#include <astia/net/bus.hpp>
+#include <astia/net/driver.hpp>
+#include <astia/net/events.hpp>
+#include <astia/net/neighbour.hpp>
+#include <astia/net/registry.hpp>
 
 namespace astia::net {
     namespace {
@@ -11,17 +14,17 @@ namespace astia::net {
         struct binding {
             mm::shptr<netdev> device{};
             mm::shptr<link>   value{};
-            link_driver*      driver = nullptr;
+            driver*           owner = nullptr;
         };
 
-        link_driver*   drivers[max_drivers]{};
+        driver*        drivers[max_drivers]{};
         binding        bindings[max_bindings]{};
         core::spinlock bus_lock;
 
-        link_driver* find_driver_locked(link_driver& driver) {
-            for (link_driver* value : drivers) {
-                if (value == &driver)
-                    return value;
+        driver* find_driver_locked(driver& value) {
+            for (driver* slot : drivers) {
+                if (slot == &value)
+                    return slot;
             }
 
             return nullptr;
@@ -35,45 +38,13 @@ namespace astia::net {
 
             return nullptr;
         }
-
-        /// Removes the driver from the table and steals its bindings into
-        /// `removed`.  Returns false when the driver was not registered.
-        bool take_bindings_locked(link_driver& driver, binding (&removed)[max_bindings],
-                                  u32&         count) {
-            count = 0;
-
-            bool found = false;
-
-            for (link_driver*& slot : drivers) {
-                if (slot != &driver)
-                    continue;
-
-                slot  = nullptr;
-                found = true;
-
-                break;
-            }
-
-            if (!found)
-                return false;
-
-            for (binding& value : bindings) {
-                if (value.driver != &driver)
-                    continue;
-
-                removed[count++] = value;
-                value            = {};
-            }
-
-            return true;
-        }
     } // namespace
 
-    core::task<bool> link_bus::bind(netdev& device) {
+    core::task<bool> bus::bind(netdev& device) {
         if (device.attached() != nullptr)
             co_return true;
 
-        link_driver* candidates[max_drivers]{};
+        driver* candidates[max_drivers]{};
 
         u32 count = 0;
 
@@ -83,20 +54,20 @@ namespace astia::net {
             if (find_binding_locked(device) != nullptr)
                 co_return true;
 
-            for (link_driver* value : drivers) {
+            for (driver* value : drivers) {
                 if (value != nullptr)
                     candidates[count++] = value;
             }
         }
 
         for (u32 i = 0; i < count; ++i) {
-            link_driver* driver = candidates[i];
+            driver* selected = candidates[i];
 
-            if (!driver->match(device))
+            if (!selected->match(device))
                 continue;
 
             auto reference      = mm::shptr<netdev>::borrowed(&device);
-            auto created_result = co_await driver->create(device, reference);
+            auto created_result = co_await selected->create(device, reference);
 
             if (!created_result.has_value || !created_result.value)
                 continue;
@@ -107,7 +78,7 @@ namespace astia::net {
                 (void) device.attach(created);
 
             if (device.attached() != created.get()) {
-                co_await driver->destroy(*created.get());
+                co_await selected->destroy(*created.get());
                 device.detach();
 
                 continue;
@@ -124,7 +95,7 @@ namespace astia::net {
 
                     value.device = reference;
                     value.value  = created;
-                    value.driver = driver;
+                    value.owner  = selected;
                     stored       = true;
 
                     break;
@@ -132,11 +103,13 @@ namespace astia::net {
             }
 
             if (!stored) {
-                co_await driver->destroy(*created.get());
+                co_await selected->destroy(*created.get());
                 device.detach();
 
                 co_return false;
             }
+
+            events::link_bound::emit(*created.get());
 
             co_return true;
         }
@@ -144,7 +117,7 @@ namespace astia::net {
         co_return false;
     }
 
-    core::task<void> link_bus::unbind(netdev& device) {
+    core::task<void> bus::unbind(netdev& device) {
         binding removed{};
 
         {
@@ -159,15 +132,18 @@ namespace astia::net {
             *value  = {};
         }
 
+        if (removed.value)
+            forget(*removed.value.get());
+
         device.detach();
 
         if (removed.value)
-            co_await removed.driver->destroy(*removed.value.get());
+            co_await removed.owner->destroy(*removed.value.get());
 
         co_return error_t::enone;
     }
 
-    core::task<void> link_bus::bind_all() {
+    core::task<void> bus::bind_all() {
         registry& devices_registry = devices();
 
         for (u32 i = 0; i < devices_registry.count(); ++i) {
@@ -179,18 +155,18 @@ namespace astia::net {
         co_return error_t::enone;
     }
 
-    core::task<bool> register_link_driver(link_driver& driver) {
+    core::task<bool> register_driver(driver& value) {
         {
             core::spinlock_guard guard(bus_lock);
 
-            if (find_driver_locked(driver) != nullptr)
+            if (find_driver_locked(value) != nullptr)
                 co_return true;
 
             bool stored = false;
 
-            for (link_driver*& slot : drivers) {
+            for (driver*& slot : drivers) {
                 if (slot == nullptr) {
-                    slot   = &driver;
+                    slot   = &value;
                     stored = true;
 
                     break;
@@ -201,12 +177,12 @@ namespace astia::net {
                 co_return false;
         }
 
-        co_await link_bus::bind_all();
+        co_await bus::bind_all();
 
         co_return true;
     }
 
-    void unregister_link_driver_now(link_driver& driver) {
+    void unregister_driver_now(driver& value) {
         binding removed[max_bindings]{};
 
         u32 count = 0;
@@ -214,39 +190,38 @@ namespace astia::net {
         {
             core::spinlock_guard guard(bus_lock);
 
-            if (!take_bindings_locked(driver, removed, count))
+            bool found = false;
+
+            for (driver*& slot : drivers) {
+                if (slot == &value) {
+                    slot  = nullptr;
+                    found = true;
+
+                    break;
+                }
+            }
+
+            if (!found)
                 return;
+
+            for (binding& entry : bindings) {
+                if (entry.owner != &value)
+                    continue;
+
+                removed[count++] = entry;
+                entry            = {};
+            }
         }
 
         for (u32 i = 0; i < count; ++i) {
+            if (removed[i].value)
+                forget(*removed[i].value.get());
+
             if (removed[i].device)
                 removed[i].device->detach();
 
             if (removed[i].value)
-                driver.destroy_now(*removed[i].value.get());
+                value.destroy_now(*removed[i].value.get());
         }
-    }
-
-    core::task<void> unregister_link_driver(link_driver& driver) {
-        binding removed[max_bindings]{};
-
-        u32 count = 0;
-
-        {
-            core::spinlock_guard guard(bus_lock);
-
-            if (!take_bindings_locked(driver, removed, count))
-                co_return error_t::enone;
-        }
-
-        for (u32 i = 0; i < count; ++i) {
-            if (removed[i].device)
-                removed[i].device->detach();
-
-            if (removed[i].value)
-                co_await driver.destroy(*removed[i].value.get());
-        }
-
-        co_return error_t::enone;
     }
 } // namespace astia::net

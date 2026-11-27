@@ -3,7 +3,13 @@ set(ASTIA_RTL8139_UNIT ${CMAKE_CURRENT_BINARY_DIR}/rtl8139_unit)
 
 set(ASTIA_RTL8139_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp)
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/bus.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/netdev.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/packet_view.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/registry.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/tx_path.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/tx_request.hpp)
 
 add_custom_command(
         OUTPUT ${ASTIA_RTL8139_OBJECT}
@@ -40,6 +46,12 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_protocol.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/bus.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/netdev.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/packet_view.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/registry.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/tx_path.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/tx_request.hpp
         VERBATIM)
 
 add_custom_target(rtl8139_unit_target ALL DEPENDS ${ASTIA_RTL8139_UNIT})

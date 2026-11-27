@@ -3,10 +3,6 @@
 #include <astia/error.hpp>
 
 namespace astia::eth {
-    const char* driver::name() const {
-        return "eth";
-    }
-
     bool driver::match(const net::netdev& device) const {
         return device.kind() == net::link_kind::ethernet;
     }

@@ -1,7 +1,7 @@
 #include <astia/core/task.hpp>
 #include <astia/log.hpp>
 #include <astia/module.hpp>
-#include <astia/net/link_driver.hpp>
+#include <astia/net/driver.hpp>
 
 #include "link/driver.hpp"
 
@@ -13,12 +13,12 @@ namespace {
     // The async module ABI runs fini handlers synchronously inside the exit
     // task, so the driver teardown must not suspend.
     [[gnu::destructor]] void module_exit_now() {
-        astia::net::unregister_link_driver_now(factory);
+        astia::net::unregister_driver_now(factory);
     }
 } // namespace
 
 astia::core::task<void> module_main() {
-    const auto registered = co_await astia::net::register_link_driver(factory);
+    const auto registered = co_await astia::net::register_driver(factory);
 
     if (!registered.has_value || !registered.value) {
         logs::error("link driver registration failed");

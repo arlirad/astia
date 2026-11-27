@@ -11,6 +11,13 @@ namespace astia {
 
         constexpr span(T* data, usz size) : _data(data), _size(size) {}
 
+        /// Qualifying conversion: `span<u8>` becomes `span<const u8>`, never
+        /// the other way around.
+        template <typename U>
+            requires requires(U* value) { static_cast<T*>(value); }
+
+        constexpr span(const span<U>& other) : _data(other.data()), _size(other.size()) {}
+
         static span bytes(u64 address, usz length) {
             return span(reinterpret_cast<T*>(address), length);
         }

@@ -6,6 +6,8 @@
 namespace astia::ip {
     /// IPv4 address stored in network byte order.
     struct ipv4_address {
+        static constexpr u32 size = 4;
+
         core::be<u32> storage{};
 
         ipv4_address() = default;
@@ -14,6 +16,25 @@ namespace astia::ip {
 
         u32 value() const {
             return storage.get();
+        }
+
+        const u8* bytes() const {
+            return reinterpret_cast<const u8*>(&storage);
+        }
+
+        static ipv4_address from_bytes(const u8* value) {
+            ipv4_address result{};
+
+            if (value == nullptr)
+                return result;
+
+            auto* destination = reinterpret_cast<u8*>(&result.storage);
+
+            for (u32 index = 0; index < size; ++index) {
+                destination[index] = value[index];
+            }
+
+            return result;
         }
 
         operator u32() const {

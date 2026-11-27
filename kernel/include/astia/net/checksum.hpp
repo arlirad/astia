@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/core/endian.hpp>
+#include <astia/net.hpp>
 
 namespace astia::net {
     namespace detail {
@@ -71,6 +72,70 @@ namespace astia::net {
         private:
         u8 _bytes[Width / 8]{};
     };
+
+    /// RFC 1071 one's-complement checksum over wire bytes.  The result is in
+    /// host order; a valid checksum field makes this return 0 over the whole
+    /// header or datagram (including the field itself).
+    inline u16 internet_checksum_value(const u8* data, usz length) {
+        u32 sum   = 0;
+        usz index = 0;
+
+        while (index + 1 < length) {
+            sum += (static_cast<u32>(data[index]) << 8) | data[index + 1];
+            index += 2;
+        }
+
+        if (index < length)
+            sum += static_cast<u32>(data[index]) << 8;
+
+        while ((sum >> 16) != 0) {
+            sum = (sum & 0xffffu) + (sum >> 16);
+        }
+
+        return static_cast<u16>(~sum);
+    }
+
+    /// Segment-aware RFC 1071 checksum over the first `length` bytes of a
+    /// packet view; pairs bytes by absolute offset, so split payloads need no
+    /// copy.
+    inline u16 internet_checksum_value(const packet_view& packet, usz length) {
+        const span<const u8> segments[2] = {packet.first, packet.second};
+
+        u32  sum       = 0;
+        usz  remaining = length;
+        bool have_high = false;
+        u8   high      = 0;
+
+        for (u32 segment_index = 0; segment_index < 2 && remaining > 0; ++segment_index) {
+            const span<const u8>& segment = segments[segment_index];
+
+            const usz take = segment.size() < remaining ? segment.size() : remaining;
+
+            for (usz index = 0; index < take; ++index) {
+                const u8 value = segment.data()[index];
+
+                if (!have_high) {
+                    high      = value;
+                    have_high = true;
+                }
+                else {
+                    sum += (static_cast<u32>(high) << 8) | value;
+                    have_high = false;
+                }
+            }
+
+            remaining -= take;
+        }
+
+        if (have_high)
+            sum += static_cast<u32>(high) << 8;
+
+        while ((sum >> 16) != 0) {
+            sum = (sum & 0xffffu) + (sum >> 16);
+        }
+
+        return static_cast<u16>(~sum);
+    }
 
     /// RFC 1071 Internet checksum: one's-complement sum, generator x^16 + 1.
     using internet_checksum = checksum<0x10001, 16, core::byte_order::big>;

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <astia/mm/dma_buffer.hpp>
 #include <astia/net.hpp>
 #include <astia/net/link.hpp>
+#include <astia/net/netdev.hpp>
 
 #include "../types/mac.hpp"
 
@@ -20,12 +22,11 @@ namespace astia::eth {
         void detach();
 
         net::link_kind           kind() const override;
+        net::hardware_type       hardware() const override;
         const net::link_address& local_address() const override;
-        net::mtu                 mtu() const override;
-        bool                     up() const override;
 
-        core::task<error_t> send(const net::link_address& dst, net::protocol_id protocol,
-                                 span<const u8> payload) override;
+        core::task<void> send(const net::link_address& dst, net::protocol_id protocol,
+                              span<const u8> payload, core::cltoken token) override;
 
         void rx(net::packet_view packet) override;
 
@@ -35,17 +36,15 @@ namespace astia::eth {
         static constexpr u32 tx_slots  = 4;
 
         struct tx_slot {
-            u8    bytes[max_frame]{};
-            link* owner = nullptr;
-            bool  used  = false;
+            mm::dma_buffer buffer{};
+            link*          owner = nullptr;
+            bool           used  = false;
         };
 
         tx_slot* acquire_slot();
         void     release_slot(tx_slot& slot);
 
         static void reclaim(void* owner, const net::tx_request* request, int status);
-
-        static bool copy_out(const net::packet_view& packet, u8* out, u32 length);
 
         mm::shweak<net::netdev> _dev{};
         mac                     _mac{};

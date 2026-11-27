@@ -1,5 +1,7 @@
 #pragma once
 
+#include <astia/arch/cpu.hpp>
+#include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
 
@@ -38,8 +40,10 @@ namespace astia::core::hook {
     ///
     /// Handlers are plain function pointers.  The payload carries the
     /// instance, so registration never allocates and never captures.  An
-    /// `emit` runs against the registrations present when it started: a
-    /// handler may add or remove hooks, including its own, safely.
+    /// `emit` runs against the registrations present when it started; `add`
+    /// and `remove` are always safe from a handler, including the handler
+    /// itself.  `remove_quiesced` additionally waits for in-flight emissions
+    /// and is the variant for module teardown that unmaps handler code.
     template <class Tag, typename... Args>
     class event {
         public:
@@ -81,10 +85,102 @@ namespace astia::core::hook {
             return true;
         }
 
-        /// Remove the handler registered under `id`.
+        /// Remove the handler registered under `id`.  Safe from a handler
+        /// of the same event; an emission already running keeps its snapshot
+        /// and may still call the handler once.
         static bool remove(const char* id) {
+            return erase(id);
+        }
+
+        /// Remove the handler and wait for emissions already in flight, so
+        /// the caller may unmap the handler's code.  Must not be called from
+        /// a handler of the same event.
+        static bool remove_quiesced(const char* id) {
+            const bool removed = erase(id);
+
+            wait_quiescent();
+
+            return removed;
+        }
+
+        /// Run every handler in order.  Handler results are ignored.
+        static void emit(Args... args) {
+            begin_emission();
+
+            entry batch[capacity];
+
+            const usz count = snapshot(batch);
+
+            for (usz i = 0; i < count; ++i) {
+                if (batch[i].call != nullptr)
+                    (void) batch[i].call(args...);
+            }
+
+            end_emission();
+        }
+
+        /// Like `emit`, but stop at the first handler that returns
+        /// `outcome::stop`.  Returns `outcome::pass` when every handler
+        /// passed (or none are registered).
+        static outcome emit_until(Args... args) {
+            begin_emission();
+
+            entry batch[capacity];
+
+            const usz count = snapshot(batch);
+
+            outcome result = outcome::pass;
+
+            for (usz i = 0; i < count; ++i) {
+                if (batch[i].call == nullptr)
+                    continue;
+
+                if (batch[i].call(args...) == outcome::stop) {
+                    result = outcome::stop;
+
+                    break;
+                }
+            }
+
+            end_emission();
+
+            return result;
+        }
+
+        /// Number of registered handlers.
+        static usz size() {
+            core::spinlock_guard guard(_lock);
+
+            return _count;
+        }
+
+        /// Drop every handler.  For teardown tests and module fault paths.
+        static void clear() {
+            {
+                core::spinlock_guard guard(_lock);
+
+                for (usz i = 0; i < _count; ++i) {
+                    _entries[i] = entry{};
+                }
+
+                _count = 0;
+            }
+
+            wait_quiescent();
+        }
+
+        private:
+        struct entry {
+            const char* id       = nullptr;
+            priority_t  priority = 0;
+            handler     call     = nullptr;
+        };
+
+        static bool erase(const char* id) {
             if (id == nullptr)
                 return false;
+
+            bool removed = false;
 
             core::spinlock_guard guard(_lock);
 
@@ -99,68 +195,13 @@ namespace astia::core::hook {
                 --_count;
 
                 _entries[_count] = entry{};
+                removed          = true;
 
-                return true;
+                break;
             }
 
-            return false;
+            return removed;
         }
-
-        /// Run every handler in order.  Handler results are ignored.
-        static void emit(Args... args) {
-            entry batch[capacity];
-
-            const usz count = snapshot(batch);
-
-            for (usz i = 0; i < count; ++i) {
-                if (batch[i].call != nullptr)
-                    (void) batch[i].call(args...);
-            }
-        }
-
-        /// Like `emit`, but stop at the first handler that returns
-        /// `outcome::stop`.  Returns `outcome::pass` when every handler
-        /// passed (or none are registered).
-        static outcome emit_until(Args... args) {
-            entry batch[capacity];
-
-            const usz count = snapshot(batch);
-
-            for (usz i = 0; i < count; ++i) {
-                if (batch[i].call == nullptr)
-                    continue;
-
-                if (batch[i].call(args...) == outcome::stop)
-                    return outcome::stop;
-            }
-
-            return outcome::pass;
-        }
-
-        /// Number of registered handlers.
-        static usz size() {
-            core::spinlock_guard guard(_lock);
-
-            return _count;
-        }
-
-        /// Drop every handler.  For teardown tests and module fault paths.
-        static void clear() {
-            core::spinlock_guard guard(_lock);
-
-            for (usz i = 0; i < _count; ++i) {
-                _entries[i] = entry{};
-            }
-
-            _count = 0;
-        }
-
-        private:
-        struct entry {
-            const char* id       = nullptr;
-            priority_t  priority = 0;
-            handler     call     = nullptr;
-        };
 
         static constexpr bool same(const char* a, const char* b) {
             if (a == b)
@@ -177,6 +218,21 @@ namespace astia::core::hook {
             return *a == *b;
         }
 
+        static void begin_emission() {
+            astia::atomic_ref<u32>(_emitting).add_fetch(1, astia::memory_order::acquire);
+        }
+
+        static void end_emission() {
+            astia::atomic_ref<u32>(_emitting).sub_fetch(1, astia::memory_order::release);
+        }
+
+        static void wait_quiescent() {
+            while (astia::atomic_ref<u32>(_emitting).load(astia::memory_order::acquire) !=
+                   0) {
+                arch::cpu::relax();
+            }
+        }
+
         /// Copy the current registrations so handlers run without the lock.
         /// The caller owns the snapshot, so concurrent and nested emits are
         /// independent.
@@ -191,7 +247,8 @@ namespace astia::core::hook {
         }
 
         inline static entry          _entries[capacity]{};
-        inline static usz            _count = 0;
+        inline static usz            _count    = 0;
+        inline static u32            _emitting = 0;
         inline static core::spinlock _lock{};
     };
 } // namespace astia::core::hook

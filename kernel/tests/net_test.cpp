@@ -1,6 +1,11 @@
 #include <astia/net.hpp>
 #include <astia/net/link.hpp>
+#include <astia/net/neighbour.hpp>
+#include <astia/net/netdev.hpp>
+#include <astia/net/registry.hpp>
 #include <astia/net/socket_address.hpp>
+
+#include "support/timer_host.hpp"
 
 #include <atomic>
 #include <cassert>
@@ -55,27 +60,41 @@ namespace {
             return astia::net::link_kind::ethernet;
         }
 
+        astia::net::hardware_type hardware() const override {
+            return astia::net::hardware_type::ethernet;
+        }
+
         const astia::net::link_address& local_address() const override {
             return address;
         }
 
-        astia::net::mtu mtu() const override {
-            return astia::net::mtu{1500};
-        }
-
-        bool up() const override {
-            return true;
-        }
-
-        astia::core::task<astia::error_t> send(const astia::net::link_address&,
-                                               astia::net::protocol_id,
-                                               astia::span<const astia::u8>) override {
+        astia::core::task<void> send(const astia::net::link_address&,
+                                     astia::net::protocol_id,
+                                     astia::span<const astia::u8>,
+                                     astia::core::cltoken) override {
             co_return astia::error_t::enone;
         }
 
         void rx(astia::net::packet_view view) override {
             ++received;
             last = view;
+        }
+    };
+
+    struct fake_discoverer final : astia::net::discoverer {
+        bool supported = true;
+        int  requests  = 0;
+
+        bool supports(const astia::net::link&, astia::net::protocol_id) const override {
+            return supported;
+        }
+
+        astia::core::task<void> discover(astia::net::link&, astia::net::protocol_id,
+                                         astia::span<const astia::u8>,
+                                         astia::core::cltoken) override {
+            ++requests;
+
+            co_return astia::error_t::enone;
         }
     };
 
@@ -94,7 +113,7 @@ namespace {
 } // namespace
 
 int main() {
-    astia::net::bounded_spsc_queue<unsigned, 4> spsc;
+    astia::core::bounded_spsc_queue<unsigned, 4> spsc;
 
     unsigned value = 0;
 
@@ -113,7 +132,7 @@ int main() {
     assert(spsc.push(5));
     assert(spsc.pop(value) && value == 5);
 
-    astia::net::bounded_mpsc_queue<unsigned, 4> mpsc;
+    astia::core::bounded_mpsc_queue<unsigned, 4> mpsc;
 
     for (unsigned i = 0; i < 4; ++i) {
         assert(mpsc.push(i + 10));
@@ -381,5 +400,180 @@ int main() {
         full_path.reset();
         assert(full_path.generation() == empty_generation + 1);
         assert(full_tracker.reclaimed.load() == 8);
+    }
+
+    {
+        // Protocol addresses are attached to the link, not to a module.
+        fake_link link;
+
+        const astia::u8                    ipv4[] = {10, 0, 2, 15};
+        const astia::span<const astia::u8> ipv4_span(ipv4, 4);
+
+        assert(link.address_count() == 0);
+        assert(link.assign_address(astia::net::protocol_id::ipv4, ipv4_span));
+        assert(link.address_count() == 1);
+        assert(link.contains_address(astia::net::protocol_id::ipv4, ipv4_span));
+
+        // Re-assigning the same address is idempotent.
+        assert(link.assign_address(astia::net::protocol_id::ipv4, ipv4_span));
+        assert(link.address_count() == 1);
+
+        const astia::u8 other[] = {10, 0, 2, 16};
+
+        assert(!link.contains_address(astia::net::protocol_id::ipv4,
+                                      astia::span<const astia::u8>(other, 4)));
+
+        const astia::net::protocol_address* stored = link.address_at(0);
+
+        assert(stored != nullptr);
+        assert(stored->protocol == astia::net::protocol_id::ipv4);
+        assert(stored->length == 4);
+        assert(link.address_at(1) == nullptr);
+    }
+
+    {
+        // The kernel caches resolutions, retransmits on timeout, and wakes
+        // waiters from learn().
+        fake_link       link;
+        fake_discoverer discoverer;
+
+        astia::test::timer_reset();
+
+        assert(astia::net::register_discoverer(discoverer));
+
+        const astia::u8                    target[] = {10, 0, 2, 2};
+        const astia::span<const astia::u8> target_span(target, 4);
+
+        auto first =
+            astia::net::discover(link, astia::net::protocol_id::ipv4, target_span);
+
+        first.resume();
+
+        assert(!first.done());
+        assert(discoverer.requests == 1);
+
+        for (astia::u32 attempt = 0; attempt <= astia::net::discover_max_retransmissions;
+             ++attempt) {
+            astia::test::timer_advance(astia::net::discover_retry_ms);
+        }
+
+        assert(first.done());
+        assert(first.error() == astia::error_t::etimedout);
+        assert(discoverer.requests == 1 + astia::net::discover_max_retransmissions);
+
+        const astia::u8 mac[]    = {0x52, 0x55, 0x0a, 0x00, 0x02, 0x02};
+        const auto      resolved = astia::net::link_address::from_packet(mac, 6);
+
+        auto waiting =
+            astia::net::discover(link, astia::net::protocol_id::ipv4, target_span);
+
+        waiting.resume();
+
+        assert(!waiting.done());
+        assert(discoverer.requests == 2 + astia::net::discover_max_retransmissions);
+
+        astia::net::learn(link, astia::net::protocol_id::ipv4, target_span, resolved);
+
+        assert(waiting.done());
+        assert(waiting.value() != nullptr);
+        assert(*waiting.value() == resolved);
+        assert(discoverer.requests == 2 + astia::net::discover_max_retransmissions);
+
+        // A learned entry is served from the cache without a request.
+        auto cached =
+            astia::net::discover(link, astia::net::protocol_id::ipv4, target_span);
+
+        cached.resume();
+
+        assert(cached.done());
+        assert(*cached.value() == resolved);
+
+        astia::net::forget(link);
+
+        auto again =
+            astia::net::discover(link, astia::net::protocol_id::ipv4, target_span);
+
+        again.resume();
+
+        assert(!again.done());
+
+        for (astia::u32 attempt = 0; attempt <= astia::net::discover_max_retransmissions;
+             ++attempt) {
+            astia::test::timer_advance(astia::net::discover_retry_ms);
+        }
+
+        assert(again.done());
+        assert(again.error() == astia::error_t::etimedout);
+
+        astia::net::unregister_discoverer(discoverer);
+
+        auto missing =
+            astia::net::discover(link, astia::net::protocol_id::ipv4, target_span);
+
+        missing.resume();
+
+        assert(missing.done());
+        assert(missing.error() == astia::error_t::enodev);
+
+        // Cancellation is observed on the next retry.
+        astia::core::clsource source;
+
+        assert(astia::net::register_discoverer(discoverer));
+
+        astia::test::timer_reset();
+        astia::net::forget(link);
+
+        auto canceled = astia::net::discover(link, astia::net::protocol_id::ipv4,
+                                             target_span, source.token());
+
+        canceled.resume();
+        assert(!canceled.done());
+
+        source.cancel();
+        astia::test::timer_advance(astia::net::discover_retry_ms);
+
+        assert(canceled.done());
+        assert(canceled.error() == astia::error_t::ecanceled);
+
+        astia::net::unregister_discoverer(discoverer);
+    }
+
+    {
+        // A reply that arrives only after a retransmission still resolves the
+        // waiter; the second request is the one being answered.
+        fake_link       link;
+        fake_discoverer discoverer;
+
+        astia::test::timer_reset();
+        astia::net::forget(link);
+
+        assert(astia::net::register_discoverer(discoverer));
+
+        const astia::u8                    late_target[] = {10, 0, 2, 3};
+        const astia::span<const astia::u8> late_span(late_target, 4);
+        const astia::u8 late_mac[] = {0x52, 0x55, 0x0a, 0x00, 0x02, 0x03};
+        const auto late_resolved   = astia::net::link_address::from_packet(late_mac, 6);
+
+        auto late = astia::net::discover(link, astia::net::protocol_id::ipv4, late_span);
+
+        late.resume();
+
+        assert(!late.done());
+        assert(discoverer.requests == 1);
+
+        astia::test::timer_advance(astia::net::discover_retry_ms);
+
+        assert(!late.done());
+        assert(discoverer.requests == 2);
+
+        astia::net::learn(link, astia::net::protocol_id::ipv4, late_span, late_resolved);
+
+        assert(late.done());
+        assert(late.value() != nullptr);
+        assert(*late.value() == late_resolved);
+        assert(discoverer.requests == 2);
+
+        astia::net::unregister_discoverer(discoverer);
+        astia::net::forget(link);
     }
 }

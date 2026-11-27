@@ -12,6 +12,19 @@ namespace astia::eth {
         if (_bound || !reference)
             return false;
 
+        for (tx_slot& slot : _tx) {
+            if (slot.buffer)
+                continue;
+
+            if (!slot.buffer.allocate(1, true)) {
+                for (tx_slot& allocated : _tx) {
+                    allocated.buffer.release();
+                }
+
+                return false;
+            }
+        }
+
         _dev     = mm::shweak<net::netdev>(reference);
         _mac     = mac::from_link_address(device.address());
         _address = device.address();
@@ -21,6 +34,20 @@ namespace astia::eth {
     }
 
     void link::detach() {
+        // Reclaim queued requests while this module is still mapped; their
+        // callbacks point into link::reclaim.
+        if (auto device = _dev.lock())
+            device->tx().reset();
+
+        for (tx_slot& slot : _tx) {
+            slot.buffer.release();
+
+            slot.owner = nullptr;
+            slot.used  = false;
+        }
+
+        clear_addresses();
+
         _dev     = {};
         _mac     = {};
         _address = {};
@@ -31,20 +58,12 @@ namespace astia::eth {
         return net::link_kind::ethernet;
     }
 
+    net::hardware_type link::hardware() const {
+        return net::hardware_type::ethernet;
+    }
+
     const net::link_address& link::local_address() const {
         return _address;
-    }
-
-    net::mtu link::mtu() const {
-        auto device = _dev.lock();
-
-        return device ? device->mtu() : net::mtu{};
-    }
-
-    bool link::up() const {
-        auto device = _dev.lock();
-
-        return device && (device->link_flags() & net::link_up) != 0;
     }
 
     link::tx_slot* link::acquire_slot() {
@@ -79,8 +98,11 @@ namespace astia::eth {
             slot->owner->release_slot(*slot);
     }
 
-    core::task<error_t> link::send(const net::link_address& dst,
-                                   net::protocol_id protocol, span<const u8> payload) {
+    core::task<void> link::send(const net::link_address& dst, net::protocol_id protocol,
+                                span<const u8> payload, core::cltoken token) {
+        if (token.canceled())
+            co_return error_t::ecanceled;
+
         auto device = _dev.lock();
         if (!device)
             co_return error_t::enodev;
@@ -117,28 +139,37 @@ namespace astia::eth {
 
         header.protocol = native.value;
 
+        u8* bytes = slot->buffer.as<u8>();
+
+        if (bytes == nullptr) {
+            release_slot(*slot);
+
+            co_return error_t::enomem;
+        }
+
         const auto* header_bytes = reinterpret_cast<const u8*>(&header);
 
         for (u32 i = 0; i < sizeof header; ++i) {
-            slot->bytes[i] = header_bytes[i];
+            bytes[i] = header_bytes[i];
         }
 
         for (u32 i = 0; i < payload.size(); ++i) {
-            slot->bytes[14 + i] = payload[i];
+            bytes[14 + i] = payload[i];
         }
 
         u32 length = static_cast<u32>(total);
 
         while (length < min_frame) {
-            slot->bytes[length++] = 0;
+            bytes[length++] = 0;
         }
 
         net::tx_request request{};
 
-        request.data    = slot->bytes;
-        request.length  = length;
-        request.cookie  = slot;
-        request.reclaim = &link::reclaim;
+        request.data     = bytes;
+        request.physical = slot->buffer.physical();
+        request.length   = length;
+        request.cookie   = slot;
+        request.reclaim  = &link::reclaim;
 
         const int result = device->tx().submit(request);
 
@@ -151,39 +182,14 @@ namespace astia::eth {
         co_return error_t::enone;
     }
 
-    bool link::copy_out(const net::packet_view& packet, u8* out, u32 length) {
-        const net::packet_segment* segments[2] = {&packet.first, &packet.second};
-
-        u32 copied = 0;
-
-        for (u32 segment_index = 0; segment_index < 2; ++segment_index) {
-            const net::packet_segment& segment = *segments[segment_index];
-
-            u32 take = segment.length;
-
-            if (take > length - copied)
-                take = length - copied;
-
-            for (u32 i = 0; i < take; ++i) {
-                out[copied + i] = segment.data[i];
-            }
-
-            copied += take;
-            if (copied == length)
-                return true;
-        }
-
-        return false;
-    }
-
     void link::rx(net::packet_view packet) {
-        const u32 available = packet.first.length + packet.second.length;
+        const usz available = packet.first.size() + packet.second.size();
         if (available < 14)
             return;
 
         ethernet_header header{};
 
-        if (!copy_out(packet, reinterpret_cast<u8*>(&header), sizeof header))
+        if (!packet.copy_to(reinterpret_cast<u8*>(&header), sizeof header))
             return;
 
         const net::link_address& local = local_address();
@@ -207,6 +213,6 @@ namespace astia::eth {
 
         const net::link_address source = header.source.to_link_address();
 
-        net::dispatch_protocol(protocol.value, *this, source, packet);
+        net::rx(protocol.value, *this, source, packet);
     }
 } // namespace astia::eth
