@@ -160,12 +160,14 @@ module stays mapped unless all of these hold:
 - no other used module lists it in `DT_NEEDED` and no other live handle
   references it.
 
-When a module cannot be unmapped it is kept mapped, removed from the global
-scope, marked `pending`, and `dlclose` still returns 0. The handle remains
-reserved as the retry token: calling `dlclose` on it again retries the unmap
-and releases the handle only after every pending module is gone. A module
-whose finalizer has run is also marked `finalized`; reopening it
-re-initializes it as described above. This conservative fallback means an
+When a module cannot be unmapped because the process is not quiescent, it is
+kept mapped, removed from the global scope, marked `pending`, and `dlclose`
+returns 0. The handle remains reserved as the retry token: calling `dlclose`
+on it again retries the unmap and releases the handle only after every
+pending module is gone. If `astia_dlunmap` itself fails, the same pending
+retry state is kept but `dlclose` records a `dlerror` message and returns
+-1. A module whose finalizer has run is also marked `finalized`; reopening
+it re-initializes it as described above. This conservative fallback means an
 active frame or a handler can defer unload indefinitely; the process owns the
 image until it exits or the same handle is closed again once quiescent.
 
