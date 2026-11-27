@@ -2101,11 +2101,30 @@ if (ARCH STREQUAL "x86_64")
         # from init_user, whose purpose is the raw syscall ABI regression.
         function(astia_add_native_program name source extra_include)
             set(_native_object ${_fix_dir}/${name}.o)
+            set(_native_objects ${_native_object})
+            set(_native_extra_objects)
+            set(_native_sources ${source})
             if (extra_include)
                 set(_native_extra_include -I${extra_include})
             else ()
                 set(_native_extra_include)
             endif ()
+            foreach (_extra_source IN LISTS ARGN)
+                get_filename_component(_extra_name ${_extra_source} NAME_WE)
+                set(_extra_object ${_fix_dir}/${name}-${_extra_name}.o)
+                add_custom_command(
+                        OUTPUT ${_extra_object}
+                        COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
+                        -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
+                        -fno-builtin -I${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                        -I${ASTIA_KERNEL_SOURCE_DIR}/include ${_native_extra_include}
+                        -o ${_extra_object} ${_extra_source}
+                        DEPENDS ${_extra_source}
+                        COMMENT "Building native ${name} ${_extra_name} object")
+                list(APPEND _native_objects ${_extra_object})
+                list(APPEND _native_extra_objects ${_extra_object})
+                list(APPEND _native_sources ${_extra_source})
+            endforeach ()
             add_custom_command(
                     OUTPUT ${_fix_dir}/${name}
                     COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
@@ -2116,9 +2135,9 @@ if (ARCH STREQUAL "x86_64")
                     COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
                     -Wl,--dynamic-linker=/lib/ld.astia.so
                     -Wl,-rpath-link,${_fix_dir}
-                    -o ${_fix_dir}/${name} ${_fix_dir}/crt0.o ${_native_object}
+                    -o ${_fix_dir}/${name} ${_fix_dir}/crt0.o ${_native_objects}
                     ${_libc_shared_so} -lgcc
-                    DEPENDS ${source}
+                    DEPENDS ${_native_sources} ${_native_extra_objects}
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
@@ -2129,7 +2148,8 @@ if (ARCH STREQUAL "x86_64")
         astia_add_native_program(native_init
                 ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c "")
         astia_add_native_program(native_daemond
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c "")
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c ""
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/stop.c)
         astia_add_native_program(native_daemondctl
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
@@ -2139,9 +2159,12 @@ if (ARCH STREQUAL "x86_64")
         astia_add_native_program(native_true
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+        astia_add_native_program(native_stop_client
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/stop_client.c "")
         add_custom_target(astia_native_programs
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_fix_dir}/native_true)
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_fix_dir}/native_true
+                ${_fix_dir}/native_stop_client)
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
@@ -2227,6 +2250,51 @@ if (ARCH STREQUAL "x86_64")
         set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 60)
         add_custom_target(astia_native_service_boot_initrd ALL
                 DEPENDS ${_fix_dir}/native_service_boot_initrd.cpio)
+
+        # SIGTERM escalation: the supervised service ignores SIGTERM, while a
+        # child outside its process group asks daemonctl to stop.  The
+        # supervisor must SIGKILL the service before it reports success, then
+        # shut down cleanly (a failed stop keeps it resident and times out).
+        add_custom_command(
+                OUTPUT ${_fix_dir}/native_escalation_boot_initrd.cpio
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_escalation_stage/sbin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_escalation_stage/bin
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_escalation_stage/etc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_escalation_stage/lib
+                COMMAND ${CMAKE_COMMAND} -E copy ${_libc_shared_so}
+                ${_fix_dir}/native_escalation_stage/lib/libc.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/ld.astia.so
+                ${_fix_dir}/native_escalation_stage/lib/ld.astia.so
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_init ${_fix_dir}/native_escalation_stage/sbin/init
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_escalation_stage/sbin/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_escalation_stage/bin/daemonctl
+                COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_stop_client ${_fix_dir}/native_escalation_stage/bin/stop-client
+                COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_escalation_stage/bin/init_libc
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/escalation.rc ${_fix_dir}/native_escalation_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                ${_fix_dir}/native_escalation_stage ${_fix_dir}/native_escalation_boot_initrd.cpio
+                sbin/init sbin/daemond bin/daemonctl bin/stop-client bin/init_libc etc/rc
+                lib/libc.so lib/ld.astia.so
+                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
+                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_stop_client
+                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/escalation.rc
+                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_userspace_libc_shared
+                ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                COMMENT "Packing native daemond SIGKILL escalation initrd")
+        add_test(NAME astia_native_daemond_escalation
+                COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
+                ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
+                ${_fix_dir}/native_escalation_boot_initrd.cpio
+                "init: daemond started"
+                "daemond: reaped service pid="
+                "ignored SIGTERM; sent SIGKILL"
+                "daemond: clean shutdown"
+                "init: clean shutdown")
+        set_tests_properties(astia_native_daemond_escalation PROPERTIES TIMEOUT 60)
+        add_custom_target(astia_native_escalation_boot_initrd ALL
+                DEPENDS ${_fix_dir}/native_escalation_boot_initrd.cpio)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_failure_boot_initrd.cpio
@@ -2478,7 +2546,8 @@ foreach (_astia_boot_test IN ITEMS
         astia_production_init_exit
         astia_native_daemond_idle astia_native_daemond_service
         astia_native_daemond_visibility astia_native_daemond_missing_rc
-        astia_native_daemond_launch_failure astia_native_daemond_failure)
+        astia_native_daemond_launch_failure astia_native_daemond_failure
+        astia_native_daemond_escalation)
     if(TEST ${_astia_boot_test})
         astia_add_test_label(${_astia_boot_test} "boot;qemu")
         set_tests_properties(${_astia_boot_test}
