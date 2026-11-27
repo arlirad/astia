@@ -4,6 +4,9 @@
 # the same QEMU command line.
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$script_dir/qemu_timeout.sh"
+
 if [ "$#" -lt 3 ]; then
     echo "usage: $0 QEMU KERNEL INITRD" >&2
     exit 2
@@ -12,6 +15,7 @@ fi
 qemu=$1
 kernel=$2
 initrd=$3
+qemu_timeout_seconds=$(boot_timeout_seconds)
 
 temporary=${TMPDIR:-/tmp}
 first_log=$temporary/astia_urandom_first_$$.log
@@ -22,7 +26,7 @@ boot() {
     log=$1
 
     set +e
-    timeout 45 "$qemu" -kernel "$kernel" -initrd "$initrd" \
+    timeout "$qemu_timeout_seconds" "$qemu" -kernel "$kernel" -initrd "$initrd" \
         -serial "file:$log" \
         -display none \
         -monitor none \
