@@ -67,21 +67,53 @@ add_custom_command(
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_NVME_TEARDOWN_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_teardown_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_test_support.hpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
         VERBATIM)
 add_custom_target(nvme_teardown_target ALL DEPENDS ${ASTIA_NVME_TEARDOWN_UNIT})
+
+set(ASTIA_NVME_START_UNIT ${CMAKE_CURRENT_BINARY_DIR}/nvme_start_unit)
+add_custom_command(
+        OUTPUT ${ASTIA_NVME_START_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -std=c++20 -Wall -Wextra -Werror -pedantic
+                -ffunction-sections -fdata-sections
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../..
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_start_test.cpp
+                -Wl,--gc-sections
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_NVME_START_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_start_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_test_support.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
+        VERBATIM)
+add_custom_target(nvme_start_target ALL DEPENDS ${ASTIA_NVME_START_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME nvme_protocol_unit
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh)
-    astia_append_test_label("module;nvme;host;deterministic")
+    astia_add_test_label(nvme_protocol_unit "module;nvme;host;deterministic")
     astia_add_test_label(nvme_protocol_unit "sanitizer-host")
     set_tests_properties(nvme_protocol_unit PROPERTIES
             ENVIRONMENT
             "ASTIA_HOST_SANITIZER_FLAGS=${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS};ASTIA_HOST_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
     add_test(NAME nvme_teardown_unit COMMAND ${ASTIA_NVME_TEARDOWN_UNIT})
-    astia_append_test_label("module;nvme;host;deterministic;teardown")
+    astia_add_test_label(nvme_teardown_unit
+            "module;nvme;host;deterministic;teardown")
     astia_add_test_label(nvme_teardown_unit "sanitizer-host")
+    add_test(NAME nvme_start_unit COMMAND ${ASTIA_NVME_START_UNIT})
+    astia_add_test_label(nvme_start_unit "module;nvme;host;deterministic;start")
+    astia_add_test_label(nvme_start_unit "sanitizer-host")
 endif()
