@@ -259,7 +259,12 @@ namespace astia::io::aio::test_support {
         socketpair_first  = {};
         socketpair_second = {};
         node_mode         = file_mode(file_type::regular, fs::default_file_permissions);
-        memory_allowed    = true;
+
+        set_node_mode("/tmp",
+                      file_mode(file_type::directory, fs::file_permissions(0755)));
+        set_node_owner("/tmp", uid_t{0}, gid_t{0});
+
+        memory_allowed         = true;
         last_chown_path_record = {};
         timer_hz_value         = 1000;
         timer_ticks_value      = 0;
@@ -848,6 +853,16 @@ namespace astia::proc {
 
     i64 process::resolve_path_at(fd_t, const char* path, span<char> buffer, bool) const {
         return compose_path(path, buffer);
+    }
+
+    i64 process::copy_root(span<char> buffer) const {
+        if (buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        buffer.data()[0] = '/';
+        buffer.data()[1] = '\0';
+
+        return 2;
     }
 
     bool process::in_group(gid_t group) const {

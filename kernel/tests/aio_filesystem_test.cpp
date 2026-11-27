@@ -306,6 +306,90 @@ ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
     restore_credentials();
 }
 
+ASTIA_TEST(aio_filesystem_openat_requires_search_on_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_openat(path, 0) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_requires_search_on_every_ancestor) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/locked", 0700, uid_t{0}, gid_t{0});
+    set_directory("/locked/open", 0755, uid_t{0}, gid_t{0});
+    set_file("/locked/open/file", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/locked/open/file";
+
+    ASTIA_CHECK(submit_openat(path, 0) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_allows_searchable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0755, uid_t{0}, gid_t{0});
+    set_file("/shared/file", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/shared/file";
+
+    ASTIA_CHECK(submit_openat(path, 0) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_root_bypasses_search) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/secret", 0600, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_openat(path, 0) == 3);
+}
+
+ASTIA_TEST(aio_filesystem_statx_requires_search_on_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{0}, gid_t{0});
+
+    astia_stat stat{};
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == -EACCES);
+
+    restore_credentials();
+}
+
 ASTIA_TEST(aio_filesystem_openat_write_only_requires_write_permission) {
     using namespace aio::test_support;
 

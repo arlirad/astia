@@ -15,6 +15,7 @@
 #include "../../ipc/unix_socket.hpp"
 #include "../../proc/mapping.hpp"
 #include "../../proc/proc.hpp"
+#include "../../proc/search_permission.hpp"
 #include "memory.hpp"
 #include "registry.hpp"
 #include "runner.hpp"
@@ -41,25 +42,63 @@ namespace astia::io::aio::dispatch {
                 io_device_ready_context(static_cast<io_device*>(context));
         }
 
+        long search_check(proc::process* current, const char* path, bool include_final) {
+            if (current == nullptr)
+                return -ESRCH;
+
+            char root[fs::path_max]{};
+
+            const i64 root_rc = current->copy_root(root, sizeof root);
+
+            if (root_rc < 0)
+                return static_cast<long>(root_rc);
+
+            const proc::process_search_permission search(*current);
+
+            return fs::check_search(root, path, &search, include_final);
+        }
+
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
                         char* out, usize capacity, bool follow_final) {
             if (current == nullptr)
                 return -ESRCH;
 
+            long rc;
+
             // The legacy path-only libc wrappers encode no directory fd as
             // -1; treat it like AT_FDCWD just as the explicit *at wrappers
             // do for AT_FDCWD.
-            if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
-                return current->resolve_path_at(fd_t{AT_FDCWD}, path,
-                                                span<char>(out, capacity), follow_final);
+            if (raw_dirfd == AT_FDCWD || raw_dirfd == -1) {
+                rc = current->resolve_path_at(fd_t{AT_FDCWD}, path,
+                                              span<char>(out, capacity), follow_final);
+            }
+            else {
+                auto dirfd = mapper<fd_t>::from(raw_dirfd);
 
-            auto dirfd = mapper<fd_t>::from(raw_dirfd);
+                if (!dirfd.has_value)
+                    return -EBADF;
 
-            if (!dirfd.has_value)
-                return -EBADF;
+                rc = current->resolve_path_at(dirfd.value, path,
+                                              span<char>(out, capacity), follow_final);
+            }
 
-            return current->resolve_path_at(dirfd.value, path, span<char>(out, capacity),
-                                            follow_final);
+            if (rc < 0)
+                return rc;
+
+            return search_check(current, out, false);
+        }
+
+        long resolve_path_for(proc::process* current, const char* path, char* out,
+                              usize capacity, bool follow_final) {
+            if (current == nullptr)
+                return -ESRCH;
+
+            const i64 resolve_rc =
+                current->resolve_path(path, span<char>(out, capacity), follow_final);
+            if (resolve_rc < 0)
+                return static_cast<long>(resolve_rc);
+
+            return search_check(current, out, false);
         }
 
         bool parent_allows(proc::process* current, const char* path,
@@ -984,6 +1023,11 @@ namespace astia::io::aio::dispatch {
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
                     usize capacity, bool follow_final) {
         return detail::resolve_at(current, raw_dirfd, path, out, capacity, follow_final);
+    }
+
+    long resolve_path_for(proc::process* current, const char* path, char* out,
+                          usize capacity, bool follow_final) {
+        return detail::resolve_path_for(current, path, out, capacity, follow_final);
     }
 
     bool parent_writable(proc::process* current, const char* path) {

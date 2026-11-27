@@ -165,6 +165,12 @@ namespace astia::proc {
             return copy_cwd(span<char>(buffer, length));
         }
 
+        i64 copy_root(span<char> buffer) const;
+
+        i64 copy_root(char* buffer, usize length) const {
+            return copy_root(span<char>(buffer, length));
+        }
+
         // Process helpers compose cwd/dirfd-relative paths; fs::resolve_path()
         // performs canonical VFS resolution as the second layer.
         i64 compose_path(const char* path, span<char> buffer) const;
