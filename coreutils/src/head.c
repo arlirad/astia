@@ -18,12 +18,19 @@ static int copy_lines(int fd, const char* name, unsigned long wanted) {
         long used = 0;
 
         while (used < count) {
-            if (cu_write_all(CU_STDOUT, buffer + used, 1) < 0)
-                return 1;
+            if (buffer[used++] != '\n')
+                continue;
 
-            if (buffer[used++] == '\n' && ++lines == wanted)
+            if (++lines == wanted) {
+                if (cu_write_all(CU_STDOUT, buffer, (size_t) used) < 0)
+                    return 1;
+
                 return 0;
+            }
         }
+
+        if (cu_write_all(CU_STDOUT, buffer, (size_t) count) < 0)
+            return 1;
     }
 }
 

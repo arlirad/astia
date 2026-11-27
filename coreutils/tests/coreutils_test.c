@@ -825,6 +825,8 @@ static int long_line_checks(void) {
     static char cut_line[LONG_LINE_PADDING + 64];
     static char sort_first[LONG_LINE_PADDING + 16];
     static char sort_second[LONG_LINE_PADDING + 16];
+    static char head_line[LONG_LINE_PADDING + 1];
+    static char head_fixture[LONG_LINE_PADDING + 8];
 
     static char sort_expected[2 * (LONG_LINE_PADDING + 16) + 1];
     static char sort_input[2 * (LONG_LINE_PADDING + 16) + 1];
@@ -833,6 +835,7 @@ static int long_line_checks(void) {
     char* cut_late_field[] = {"cut", "-d", ":", "-f", "2", NULL};
     char* sort_long[]      = {"sort", NULL};
     char* sort_unique[]    = {"sort", "-u", "/tmp/coreutils_long_sort", NULL};
+    char* head_long[]      = {"head", "-n", "1", "/tmp/coreutils_long_head", NULL};
 
     memset(grep_line, 'x', 4090);
     memcpy(grep_line + 4090, "cross-boundary", 14);
@@ -863,11 +866,28 @@ static int long_line_checks(void) {
     if (put_file("/tmp/coreutils_long_sort", sort_expected) != 0)
         return fail("long line sort fixture");
 
-    return check("grep line across 4095", grep_boundary, grep_line, 0, grep_line, 1) ||
-           check("cut field after 4095", cut_late_field, cut_line, 0, "tail-field\n",
-                 1) ||
-           check("sort long lines", sort_long, sort_input, 0, sort_expected, 1) ||
-           check("sort -u long lines", sort_unique, NULL, 0, sort_expected, 1);
+    memset(head_line, 'h', LONG_LINE_PADDING);
+
+    head_line[LONG_LINE_PADDING]     = '\n';
+    head_line[LONG_LINE_PADDING + 1] = '\0';
+
+    memset(head_fixture, 'h', LONG_LINE_PADDING);
+    memcpy(head_fixture + LONG_LINE_PADDING, "\ntail\n", 7);
+
+    if (put_file("/tmp/coreutils_long_head", head_fixture) != 0)
+        return fail("long line head fixture");
+
+    int status =
+        check("grep line across 4095", grep_boundary, grep_line, 0, grep_line, 1) ||
+        check("cut field after 4095", cut_late_field, cut_line, 0, "tail-field\n", 1) ||
+        check("sort long lines", sort_long, sort_input, 0, sort_expected, 1) ||
+        check("sort -u long lines", sort_unique, NULL, 0, sort_expected, 1) ||
+        check("head long line", head_long, NULL, 0, head_line, 1);
+
+    (void) unlink("/tmp/coreutils_long_head");
+    (void) unlink("/tmp/coreutils_long_sort");
+
+    return status;
 }
 
 #define SORT_GROWTH_LINES 300

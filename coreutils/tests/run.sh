@@ -51,6 +51,14 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/tee_eintr_test.c" "$out/host/tee_eintr_tee.o" \
     -o "$out/host/tee_eintr_test"
 "$out/host/tee_eintr_test"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" -Dmain=head_main \
+    -Dwrite=head_test_write -c "$root/coreutils/src/head.c" \
+    -o "$out/host/head_write_head.o"
+$clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
+    -I "$root/coreutils/src" "$root/coreutils/tests/head_write_test.c" \
+    "$out/host/head_write_head.o" -o "$out/host/head_write_test"
+"$out/host/head_write_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to
