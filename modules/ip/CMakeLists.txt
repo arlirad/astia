@@ -16,13 +16,24 @@ add_custom_command(
                 -MMD -MF ${ASTIA_IP_PART}.d -MT ${ASTIA_IP_PART}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
                 -c ${ASTIA_IP_SOURCE}
                 -o ${ASTIA_IP_PART}
         DEPFILE ${ASTIA_IP_PART}.d
         DEPENDS ${ASTIA_IP_SOURCE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/types/address.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/headers/ipv4.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/headers/icmp.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/headers/tcp.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/headers/udp.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/types/port.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/endian.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/checksum.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/types.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/header.hpp
         COMMENT "Compiling IP module ip.cpp"
         VERBATIM)
 

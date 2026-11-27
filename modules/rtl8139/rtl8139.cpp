@@ -1,5 +1,6 @@
 #include <astia/atomic.hpp>
 #include <astia/core/task.hpp>
+#include <astia/net/link_bus.hpp>
 #include <astia/module.hpp>
 
 #include "rtl8139_protocol.hpp"
@@ -13,10 +14,7 @@ namespace {
     using astia::rtl8139::pci_match;
     using astia::rtl8139::register_file;
     using astia::rtl8139::register_offset;
-    using astia::rtl8139::rx_action;
-    using astia::rtl8139::rx_deferred_callback;
     using astia::rtl8139::rx_inspect_result;
-    using astia::rtl8139::rx_irq_callback;
     using astia::rtl8139::rx_packet;
     using astia::rtl8139::rx_ring;
     using astia::rtl8139::tx_request;
@@ -35,7 +33,6 @@ namespace {
         dma_buffer                                                       _rx_ring_dma;
         rx_ring                                                          _rx_ring;
         tx_ring                                                          _tx_ring;
-        bounded_spsc_queue<rx_packet, astia::rtl8139::rx_deferred_depth> _rx_deferred;
         astia::module::msix_route                                        _irq_route{};
         net_device   _net_device{"rtl8139", this};
         device_state _state                 = device_state::detached;
@@ -189,17 +186,9 @@ namespace {
             view.wire_length = packet.view.wire_length;
             view.generation  = _net_device.generation();
 
-            rx_action action = _net_device.invoke_rx_irq(view);
+            _net_device.dispatch_rx(view);
 
-            if (action == rx_action::defer) {
-                if (_rx_deferred.push(packet))
-                    return false;
-
-                action = rx_action::drop;
-            }
-
-            if (action == rx_action::recycle || action == rx_action::drop)
-                recycle_rx(packet);
+            recycle_rx(packet);
 
             return true;
         }
@@ -262,12 +251,6 @@ namespace {
             }
 
             _net_device.tx().reset();
-
-            rx_packet packet{};
-
-            while (_rx_deferred.pop(packet)) {
-                recycle_rx(packet);
-            }
         }
 
         int attach(astia::hw::pci_device* device) {
@@ -315,6 +298,7 @@ namespace {
                 mac[i] = _registers.read8(offset_for(i));
             }
 
+            _net_device.set_kind(astia::net::link_kind::ethernet);
             _net_device.set_mac(mac);
             _net_device.set_mtu(1500);
             _net_device.set_link_flags(astia::net::link_up | astia::net::link_running);
@@ -335,11 +319,6 @@ namespace {
 
         int probe(astia::hw::pci_device* device) {
             return attach(device);
-        }
-
-        void set_callbacks(rx_irq_callback immediate, rx_deferred_callback deferred,
-                           void* context) {
-            _net_device.set_callbacks(immediate, deferred, context);
         }
 
         int submit(const tx_request& request) {
@@ -386,23 +365,6 @@ namespace {
             lock_process();
 
             unsigned count = _net_device.tx().poll();
-
-            if (_net_device.running()) {
-                rx_packet packet{};
-
-                if (_rx_deferred.pop(packet)) {
-                    astia::net::packet_view view{};
-
-                    view.first  = {packet.view.first.data, packet.view.first.length};
-                    view.second = {packet.view.second.data, packet.view.second.length};
-                    view.length = packet.view.length;
-                    view.wire_length = packet.view.wire_length;
-                    view.generation  = _net_device.generation();
-
-                    _net_device.invoke_rx_deferred(view);
-                    recycle_rx(packet);
-                }
-            }
 
             unlock_process();
 
@@ -564,6 +526,9 @@ class rtl8139_driver final : public astia::hw::driver {
 
             co_return -ENODEV;
         }
+
+        (void) co_await astia::net::link_bus::bind(*controller.device());
+
         co_return 0;
     }
 
@@ -580,6 +545,7 @@ class rtl8139_driver final : public astia::hw::driver {
     }
 
     astia::core::task<void> remove(const astia::hw::device_info&) override {
+        (void) co_await astia::net::link_bus::unbind(*controller.device());
         astia::net::devices().unregister_device(*controller.device());
         controller.detach_process();
         co_return astia::error_t::enone;

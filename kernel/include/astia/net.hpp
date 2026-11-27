@@ -5,8 +5,12 @@
 #include <astia/atomic.hpp>
 #include <astia/common.hpp>
 #include <astia/mm/shptr.hpp>
+#include <astia/net/address.hpp>
+#include <astia/net/types.hpp>
 
 namespace astia::net {
+    class link;
+
     struct packet_segment {
         const u8* data   = nullptr;
         u32       length = 0;
@@ -20,6 +24,30 @@ namespace astia::net {
         u64            generation                = 0;
         void*          owner                     = nullptr;
         void (*recycle)(void* owner, int status) = nullptr;
+
+        /// Consume `bytes` from the front.  `wire_length` keeps the original
+        /// on-wire length for diagnostics.
+        bool advance(u32 bytes) {
+            if (bytes > first.length + second.length)
+                return false;
+
+            if (bytes <= first.length) {
+                first.data += bytes;
+                first.length -= bytes;
+            }
+            else {
+                const u32 remaining = bytes - first.length;
+
+                first = second;
+                first.data += remaining;
+                first.length -= remaining;
+                second = {};
+            }
+
+            length = first.length + second.length;
+
+            return true;
+        }
     };
 
     struct tx_request;
@@ -34,16 +62,11 @@ namespace astia::net {
         tx_reclaim_fn reclaim    = nullptr;
     };
 
-    enum class rx_action : u8 { recycle, defer, drop };
-
     enum link_flags : u32 {
         link_up          = 1u << 0,
         link_running     = 1u << 1,
         link_full_duplex = 1u << 2,
     };
-
-    using rx_irq_callback      = u8 (*)(void*, const packet_view*);
-    using rx_deferred_callback = void (*)(void*, const packet_view*);
 
     enum class device_state : u8 {
         detached,
@@ -52,12 +75,6 @@ namespace astia::net {
         stopping,
         reset,
     };
-
-    inline rx_action rx_result(u8 value) {
-        return value == 1   ? rx_action::defer
-               : value == 2 ? rx_action::drop
-                            : rx_action::recycle;
-    }
 
     inline void recycle(packet_view& packet, int status = 0) {
         if (packet.recycle != nullptr) {
@@ -86,45 +103,41 @@ namespace astia::net {
         bounded_spsc_queue& operator=(const bounded_spsc_queue&) = delete;
 
         void initialize() {
-            astia::atomic_ref<u32>(_head).store(0, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_tail).store(0, astia::memory_order::relaxed);
+            atomic_ref<u32>(_head).store(0, memory_order::relaxed);
+            atomic_ref<u32>(_tail).store(0, memory_order::relaxed);
         }
 
         bool push(const T& value) {
-            const u32 head =
-                astia::atomic_ref<u32>(_head).load(astia::memory_order::relaxed);
-            const u32 tail =
-                astia::atomic_ref<u32>(_tail).load(astia::memory_order::acquire);
+            const u32 head = atomic_ref<u32>(_head).load(memory_order::relaxed);
+            const u32 tail = atomic_ref<u32>(_tail).load(memory_order::acquire);
 
             if (head - tail == Capacity)
                 return false;
 
             _values[head & (Capacity - 1u)] = value;
 
-            astia::atomic_ref<u32>(_head).store(head + 1u, astia::memory_order::release);
+            atomic_ref<u32>(_head).store(head + 1u, memory_order::release);
 
             return true;
         }
 
         bool pop(T& value) {
-            const u32 tail =
-                astia::atomic_ref<u32>(_tail).load(astia::memory_order::relaxed);
-            const u32 head =
-                astia::atomic_ref<u32>(_head).load(astia::memory_order::acquire);
+            const u32 tail = atomic_ref<u32>(_tail).load(memory_order::relaxed);
+            const u32 head = atomic_ref<u32>(_head).load(memory_order::acquire);
 
             if (tail == head)
                 return false;
 
             value = _values[tail & (Capacity - 1u)];
 
-            astia::atomic_ref<u32>(_tail).store(tail + 1u, astia::memory_order::release);
+            atomic_ref<u32>(_tail).store(tail + 1u, memory_order::release);
 
             return true;
         }
 
         u32 size() const {
-            return astia::atomic_ref<u32>(_head).load(astia::memory_order::acquire) -
-                   astia::atomic_ref<u32>(_tail).load(astia::memory_order::acquire);
+            return atomic_ref<u32>(_head).load(memory_order::acquire) -
+                   atomic_ref<u32>(_tail).load(memory_order::acquire);
         }
     };
 
@@ -150,36 +163,32 @@ namespace astia::net {
         bounded_mpsc_queue& operator=(const bounded_mpsc_queue&) = delete;
 
         void initialize() {
-            astia::atomic_ref<u32>(_enqueue_position)
-                .store(0, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_dequeue_position)
-                .store(0, astia::memory_order::relaxed);
+            atomic_ref<u32>(_enqueue_position).store(0, memory_order::relaxed);
+            atomic_ref<u32>(_dequeue_position).store(0, memory_order::relaxed);
 
             for (u32 i = 0; i < Capacity; ++i) {
-                astia::atomic_ref<u32>(_cells[i].sequence)
-                    .store(i, astia::memory_order::relaxed);
+                atomic_ref<u32>(_cells[i].sequence).store(i, memory_order::relaxed);
             }
         }
 
         bool push(const T& value) {
-            u32 position = astia::atomic_ref<u32>(_enqueue_position)
-                               .load(astia::memory_order::relaxed);
+            u32 position = atomic_ref<u32>(_enqueue_position).load(memory_order::relaxed);
 
             while (true) {
                 cell& slot = _cells[position & (Capacity - 1u)];
 
-                const u32 sequence = astia::atomic_ref<u32>(slot.sequence)
-                                         .load(astia::memory_order::acquire);
+                const u32 sequence =
+                    atomic_ref<u32>(slot.sequence).load(memory_order::acquire);
                 const i32 difference = static_cast<i32>(sequence - position);
                 if (difference == 0) {
-                    if (astia::atomic_ref<u32>(_enqueue_position)
+                    if (atomic_ref<u32>(_enqueue_position)
                             .compare_exchange_strong(position, position + 1u,
-                                                     astia::memory_order::relaxed,
-                                                     astia::memory_order::relaxed)) {
+                                                     memory_order::relaxed,
+                                                     memory_order::relaxed)) {
                         slot.value = value;
 
-                        astia::atomic_ref<u32>(slot.sequence)
-                            .store(position + 1u, astia::memory_order::release);
+                        atomic_ref<u32>(slot.sequence)
+                            .store(position + 1u, memory_order::release);
 
                         return true;
                     }
@@ -188,30 +197,30 @@ namespace astia::net {
                     return false;
                 }
                 else {
-                    position = astia::atomic_ref<u32>(_enqueue_position)
-                                   .load(astia::memory_order::relaxed);
+                    position =
+                        atomic_ref<u32>(_enqueue_position).load(memory_order::relaxed);
                 }
             }
         }
 
         bool pop(T& value) {
-            const u32 position = astia::atomic_ref<u32>(_dequeue_position)
-                                     .load(astia::memory_order::relaxed);
+            const u32 position =
+                atomic_ref<u32>(_dequeue_position).load(memory_order::relaxed);
 
             cell& slot = _cells[position & (Capacity - 1u)];
 
             const u32 sequence =
-                astia::atomic_ref<u32>(slot.sequence).load(astia::memory_order::acquire);
+                atomic_ref<u32>(slot.sequence).load(memory_order::acquire);
 
             if (static_cast<i32>(sequence - (position + 1u)) < 0)
                 return false;
 
             value = slot.value;
 
-            astia::atomic_ref<u32>(slot.sequence)
-                .store(position + Capacity, astia::memory_order::release);
-            astia::atomic_ref<u32>(_dequeue_position)
-                .store(position + 1u, astia::memory_order::relaxed);
+            atomic_ref<u32>(slot.sequence)
+                .store(position + Capacity, memory_order::release);
+            atomic_ref<u32>(_dequeue_position)
+                .store(position + 1u, memory_order::relaxed);
 
             return true;
         }
@@ -241,10 +250,9 @@ namespace astia::net {
         void lock_consumer() {
             u32 expected = 0;
 
-            while (!astia::atomic_ref<u32>(_consumer_lock)
-                        .compare_exchange_strong(expected, 1,
-                                                 astia::memory_order::acquire,
-                                                 astia::memory_order::relaxed)) {
+            while (!atomic_ref<u32>(_consumer_lock)
+                        .compare_exchange_strong(expected, 1, memory_order::acquire,
+                                                 memory_order::relaxed)) {
                 expected = 0;
 
                 arch::cpu::relax();
@@ -252,7 +260,7 @@ namespace astia::net {
         }
 
         void unlock_consumer() {
-            astia::atomic_ref<u32>(_consumer_lock).store(0, astia::memory_order::release);
+            atomic_ref<u32>(_consumer_lock).store(0, memory_order::release);
         }
 
         void reclaim(tx_request& request, int status) {
@@ -266,19 +274,16 @@ namespace astia::net {
         }
 
         void stop_accepting() {
-            astia::atomic_ref<u32>(_accepting).store(0, astia::memory_order::release);
+            atomic_ref<u32>(_accepting).store(0, memory_order::release);
 
-            while (
-                astia::atomic_ref<u32>(_submitters).load(astia::memory_order::acquire) !=
-                    0 ||
-                astia::atomic_ref<u32>(_completers).load(astia::memory_order::acquire) !=
-                    0) {
+            while (atomic_ref<u32>(_submitters).load(memory_order::acquire) != 0 ||
+                   atomic_ref<u32>(_completers).load(memory_order::acquire) != 0) {
                 arch::cpu::relax();
             }
         }
 
         void start_accepting() {
-            astia::atomic_ref<u32>(_accepting).store(1, astia::memory_order::release);
+            atomic_ref<u32>(_accepting).store(1, memory_order::release);
         }
 
         public:
@@ -292,11 +297,11 @@ namespace astia::net {
         void initialize(void* context = nullptr) {
             _pending.initialize();
             _completed.initialize();
-            astia::atomic_ref<u64>(_generation).store(1, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_accepting).store(1, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_submitters).store(0, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_completers).store(0, astia::memory_order::relaxed);
-            astia::atomic_ref<u32>(_consumer_lock).store(0, astia::memory_order::relaxed);
+            atomic_ref<u64>(_generation).store(1, memory_order::relaxed);
+            atomic_ref<u32>(_accepting).store(1, memory_order::relaxed);
+            atomic_ref<u32>(_submitters).store(0, memory_order::relaxed);
+            atomic_ref<u32>(_completers).store(0, memory_order::relaxed);
+            atomic_ref<u32>(_consumer_lock).store(0, memory_order::relaxed);
 
             _context = context;
         }
@@ -306,28 +311,22 @@ namespace astia::net {
                 request.reclaim == nullptr)
                 return -EINVAL;
 
-            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
-                0)
+            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0)
                 return -ECANCELED;
 
-            astia::atomic_ref<u32>(_submitters)
-                .add_fetch(1, astia::memory_order::acquire);
+            atomic_ref<u32>(_submitters).add_fetch(1, memory_order::acquire);
 
-            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
-                0) {
-                astia::atomic_ref<u32>(_submitters)
-                    .sub_fetch(1, astia::memory_order::release);
+            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0) {
+                atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::release);
 
                 return -ECANCELED;
             }
 
-            request.generation =
-                astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
+            request.generation = atomic_ref<u64>(_generation).load(memory_order::acquire);
 
             const bool pushed = _pending.push(request);
 
-            astia::atomic_ref<u32>(_submitters)
-                .sub_fetch(1, astia::memory_order::release);
+            atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::release);
 
             return pushed ? 0 : -EAGAIN;
         }
@@ -343,30 +342,26 @@ namespace astia::net {
         }
 
         bool complete(const tx_request& request, int status) {
-            astia::atomic_ref<u32>(_completers)
-                .add_fetch(1, astia::memory_order::acquire);
+            atomic_ref<u32>(_completers).add_fetch(1, memory_order::acquire);
 
-            if (astia::atomic_ref<u32>(_accepting).load(astia::memory_order::acquire) ==
-                    0 ||
-                request.generation != astia::atomic_ref<u64>(_generation)
-                                          .load(astia::memory_order::acquire)) {
-                astia::atomic_ref<u32>(_completers)
-                    .sub_fetch(1, astia::memory_order::release);
+            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0 ||
+                request.generation !=
+                    atomic_ref<u64>(_generation).load(memory_order::acquire)) {
+                atomic_ref<u32>(_completers).sub_fetch(1, memory_order::release);
 
                 return false;
             }
 
             const bool pushed = _completed.push({request, status});
 
-            astia::atomic_ref<u32>(_completers)
-                .sub_fetch(1, astia::memory_order::release);
+            atomic_ref<u32>(_completers).sub_fetch(1, memory_order::release);
 
             return pushed;
         }
 
         bool cancel(const tx_request& request) {
             const u64 generation =
-                astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
+                atomic_ref<u64>(_generation).load(memory_order::acquire);
 
             if (request.generation != 0 && request.generation != generation)
                 return false;
@@ -435,14 +430,11 @@ namespace astia::net {
                 reclaim(item.request, -ECANCELED);
             }
 
-            u64 generation =
-                astia::atomic_ref<u64>(_generation).load(astia::memory_order::relaxed) +
-                1;
+            u64 generation = atomic_ref<u64>(_generation).load(memory_order::relaxed) + 1;
             if (generation == 0)
                 generation = 1;
 
-            astia::atomic_ref<u64>(_generation)
-                .store(generation, astia::memory_order::release);
+            atomic_ref<u64>(_generation).store(generation, memory_order::release);
             unlock_consumer();
             start_accepting();
         }
@@ -463,85 +455,20 @@ namespace astia::net {
         }
 
         bool accepting() const {
-            return astia::atomic_ref<u32>(_accepting)
-                       .load(astia::memory_order::acquire) != 0;
+            return atomic_ref<u32>(_accepting).load(memory_order::acquire) != 0;
         }
 
         void set_generation(u64 value) {
-            astia::atomic_ref<u64>(_generation)
-                .store(value == 0 ? 1 : value, astia::memory_order::release);
+            atomic_ref<u64>(_generation)
+                .store(value == 0 ? 1 : value, memory_order::release);
         }
 
         u64 generation() const {
-            return astia::atomic_ref<u64>(_generation).load(astia::memory_order::acquire);
+            return atomic_ref<u64>(_generation).load(memory_order::acquire);
         }
 
         private:
         void* _context = nullptr;
-    };
-
-    class rx_path final {
-        public:
-        static constexpr u32 depth = 2;
-
-        rx_path(rx_irq_callback irq, rx_deferred_callback deferred, void* context)
-            : _irq(irq), _deferred(deferred), _context(context) {}
-
-        rx_action dispatch_irq(packet_view packet) {
-            const rx_action action =
-                _irq == nullptr ? rx_action::defer : rx_result(_irq(_context, &packet));
-
-            if (action == rx_action::defer && _deferred_path.push(packet))
-                return action;
-
-            recycle(packet, action == rx_action::defer ? -EAGAIN : 0);
-
-            return action == rx_action::defer ? rx_action::drop : action;
-        }
-
-        rx_action invoke_irq(packet_view& packet) const {
-            return _irq == nullptr ? rx_action::defer
-                                   : rx_result(_irq(_context, &packet));
-        }
-
-        void invoke_deferred(packet_view& packet) const {
-            if (_deferred != nullptr)
-                _deferred(_context, &packet);
-        }
-
-        void set_callbacks(rx_irq_callback irq, rx_deferred_callback deferred,
-                           void* context) {
-            _irq      = irq;
-            _deferred = deferred;
-            _context  = context;
-        }
-
-        u32 poll() {
-            if (_deferred == nullptr)
-                return 0;
-
-            u32 count = 0;
-
-            packet_view packet{};
-
-            while (_deferred_path.pop(packet)) {
-                _deferred(_context, &packet);
-                recycle(packet);
-                ++count;
-            }
-
-            return count;
-        }
-
-        bool deferred_full() const {
-            return _deferred_path.size() == depth;
-        }
-
-        private:
-        rx_irq_callback                        _irq      = nullptr;
-        rx_deferred_callback                   _deferred = nullptr;
-        void*                                  _context  = nullptr;
-        bounded_spsc_queue<packet_view, depth> _deferred_path;
     };
 
     class netdev final {
@@ -549,15 +476,12 @@ namespace astia::net {
         static constexpr u32 tx_pending_depth    = 16;
         static constexpr u32 tx_completion_depth = 4;
 
-        netdev(const char* name, void* context = nullptr, rx_irq_callback irq = nullptr,
-               rx_deferred_callback deferred = nullptr)
-            : _context(context), _rx(irq, deferred, context), _tx(context) {
-            initialize(name, context, irq, deferred);
+        netdev(const char* name, void* context = nullptr)
+            : _context(context), _tx(context) {
+            initialize(name, context);
         }
 
-        void initialize(const char* name, void* context = nullptr,
-                        rx_irq_callback      irq      = nullptr,
-                        rx_deferred_callback deferred = nullptr) {
+        void initialize(const char* name, void* context = nullptr) {
             _name[0] = '\0';
 
             u32 index = 0;
@@ -572,9 +496,11 @@ namespace astia::net {
             _tag         = contract_tag;
             _context     = context;
 
-            _rx.set_callbacks(irq, deferred, context);
             _tx.initialize(context);
 
+            _address = {};
+            _kind    = link_kind::unspecified;
+            _link    = {};
             _running = false;
         }
 
@@ -588,25 +514,39 @@ namespace astia::net {
             return _name;
         }
 
+        void set_address(const link_address& value) {
+            _address = value;
+        }
+
+        const link_address& address() const {
+            return _address;
+        }
+
+        void set_kind(link_kind value) {
+            _kind = value;
+        }
+
+        link_kind kind() const {
+            return _kind;
+        }
+
         void set_mac(const u8* value) {
             if (value == nullptr)
                 return;
 
-            for (u32 i = 0; i < 6; ++i) {
-                _mac[i] = value[i];
-            }
+            _address = link_address::from_packet(value, 6);
         }
 
         const u8* mac() const {
-            return _mac;
+            return _address.length == 6 ? _address.bytes : nullptr;
         }
 
         void set_mtu(u16 value) {
             _mtu = value;
         }
 
-        u16 mtu() const {
-            return _mtu;
+        net::mtu mtu() const {
+            return net::mtu{_mtu};
         }
 
         void set_link_flags(u32 value) {
@@ -637,34 +577,28 @@ namespace astia::net {
             return _context;
         }
 
-        rx_action dispatch_rx(packet_view packet) {
-            return _rx.dispatch_irq(packet);
+        /// Binds the L2 implementation.  netdev keeps a strong reference; the
+        /// link keeps only a weak reference back to the device.
+        bool attach(const mm::shptr<link>& value) {
+            if (_link || !value)
+                return false;
+
+            _link = value;
+
+            return true;
         }
 
-        rx_action invoke_rx_irq(packet_view& packet) const {
-            return _rx.invoke_irq(packet);
+        void detach() {
+            _link = {};
         }
 
-        void invoke_rx_deferred(packet_view& packet) const {
-            _rx.invoke_deferred(packet);
+        link* attached() const {
+            return _link.get();
         }
 
-        u32 poll_rx() {
-            return _rx.poll();
-        }
-
-        bool rx_deferred_full() const {
-            return _rx.deferred_full();
-        }
-
-        void set_callbacks(rx_irq_callback irq, rx_deferred_callback deferred,
-                           void* context) {
-            _rx.set_callbacks(irq, deferred, context);
-
-            _context = context;
-
-            _tx.set_context(context);
-        }
+        /// Hands a borrowed packet_view to the attached link; the caller
+        /// recycles it after this returns.  Defined in net.cpp.
+        void dispatch_rx(packet_view packet);
 
         tx_path<tx_pending_depth, tx_completion_depth>& tx() {
             return _tx;
@@ -673,12 +607,13 @@ namespace astia::net {
         private:
         char                                           _name[16]{};
         u64                                            _tag = contract_tag;
-        u8                                             _mac[6]{};
+        link_address                                   _address{};
+        link_kind                                      _kind = link_kind::unspecified;
+        mm::shptr<link>                                _link{};
         u16                                            _mtu        = 1500;
         u32                                            _link_flags = 0;
         bool                                           _running    = false;
         void*                                          _context    = nullptr;
-        rx_path                                        _rx;
         tx_path<tx_pending_depth, tx_completion_depth> _tx;
     };
 
@@ -688,25 +623,25 @@ namespace astia::net {
 
         bool register_device(netdev& device) {
             for (u32 i = 0; i < _count; ++i) {
-                if (_devices[i] == &device)
+                if (_devices[i].get() == &device)
                     return true;
             }
 
             if (!device.valid() || _count == max_devices)
                 return false;
 
-            _devices[_count++] = &device;
+            _devices[_count++] = mm::shptr<netdev>::borrowed(&device);
 
             return true;
         }
 
         bool unregister_device(netdev& device) {
             for (u32 i = 0; i < _count; ++i) {
-                if (_devices[i] != &device)
+                if (_devices[i].get() != &device)
                     continue;
 
                 _devices[i]      = _devices[--_count];
-                _devices[_count] = nullptr;
+                _devices[_count] = {};
 
                 return true;
             }
@@ -716,7 +651,7 @@ namespace astia::net {
 
         bool contains(const netdev& device) const {
             for (u32 i = 0; i < _count; ++i) {
-                if (_devices[i] == &device)
+                if (_devices[i].get() == &device)
                     return true;
             }
 
@@ -724,7 +659,7 @@ namespace astia::net {
         }
 
         netdev* at(u32 index) const {
-            return index < _count ? _devices[index] : nullptr;
+            return index < _count ? _devices[index].get() : nullptr;
         }
 
         u32 count() const {
@@ -732,72 +667,11 @@ namespace astia::net {
         }
 
         private:
-        netdev* _devices[max_devices]{};
-        u32     _count = 0;
+        mm::shptr<netdev> _devices[max_devices]{};
+        u32               _count = 0;
     };
 
     using net_device = netdev;
-
-    class netdev_handle final {
-        public:
-        netdev_handle() = default;
-
-        netdev_handle(registry& owner, netdev& value) : _owner(&owner), _value(&value) {
-            if (!_owner->contains(*_value))
-                _active = _owner->register_device(*_value);
-        }
-
-        netdev_handle(const netdev_handle&)            = delete;
-        netdev_handle& operator=(const netdev_handle&) = delete;
-
-        netdev_handle(netdev_handle&& other) noexcept
-            : _owner(other._owner), _value(other._value), _active(other._active) {
-            other._owner  = nullptr;
-            other._value  = nullptr;
-            other._active = false;
-        }
-
-        netdev_handle& operator=(netdev_handle&& other) noexcept {
-            if (this != &other) {
-                reset();
-
-                _owner        = other._owner;
-                _value        = other._value;
-                _active       = other._active;
-                other._owner  = nullptr;
-                other._value  = nullptr;
-                other._active = false;
-            }
-
-            return *this;
-        }
-
-        ~netdev_handle() {
-            reset();
-        }
-
-        explicit operator bool() const {
-            return _active;
-        }
-
-        netdev* get() const {
-            return _active ? _value : nullptr;
-        }
-
-        void reset() {
-            if (_active && _owner != nullptr && _value != nullptr)
-                _owner->unregister_device(*_value);
-
-            _owner  = nullptr;
-            _value  = nullptr;
-            _active = false;
-        }
-
-        private:
-        registry* _owner  = nullptr;
-        netdev*   _value  = nullptr;
-        bool      _active = false;
-    };
 
     registry& devices();
 } // namespace astia::net

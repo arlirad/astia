@@ -6,7 +6,7 @@
 namespace astia {
     /// Compile-time selected conversion from an ABI scalar to a validated
     /// domain type. Subsystems provide specializations in their mapping.hpp.
-    template <typename T>
+    template <typename To, typename From = u64>
     struct mapper;
 
     template <typename T, u64 ValidMask>
@@ -73,6 +73,10 @@ namespace astia {
             return ECANCELED;
         case error_t::epipe:
             return EPIPE;
+        case error_t::enodev:
+            return ENODEV;
+        case error_t::enotconn:
+            return ENOTCONN;
         }
 
         return EINVAL;
@@ -132,6 +136,10 @@ namespace astia {
             return error_t::ecanceled;
         case EPIPE:
             return error_t::epipe;
+        case ENODEV:
+            return error_t::enodev;
+        case ENOTCONN:
+            return error_t::enotconn;
         default:
             return error_t::eio;
         }

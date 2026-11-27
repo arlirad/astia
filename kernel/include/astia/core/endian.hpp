@@ -29,6 +29,18 @@ namespace astia::core {
     }
 
     namespace detail {
+        /// Storage type used on the wire.  Enums are stored as their
+        /// underlying integer type; every other type as itself.
+        template <typename T, bool IsEnum = __is_enum(T)>
+        struct wire_type {
+            using type = T;
+        };
+
+        template <typename T>
+        struct wire_type<T, true> {
+            using type = __underlying_type(T);
+        };
+
         template <typename T>
         T load(const u8* source, byte_order order) {
             T     native{};
@@ -61,8 +73,10 @@ namespace astia::core {
 
     template <typename T>
     class le {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 ||
-                      sizeof(T) == 8);
+        using storage_type = typename detail::wire_type<T>::type;
+
+        static_assert(sizeof(storage_type) == 1 || sizeof(storage_type) == 2 ||
+                      sizeof(storage_type) == 4 || sizeof(storage_type) == 8);
 
         public:
         le() = default;
@@ -72,7 +86,7 @@ namespace astia::core {
         }
 
         T get() const {
-            return detail::load<T>(_bytes, byte_order::little);
+            return static_cast<T>(detail::load<storage_type>(_bytes, byte_order::little));
         }
 
         T get() const volatile {
@@ -82,7 +96,7 @@ namespace astia::core {
                 copy[index] = _bytes[index];
             }
 
-            return detail::load<T>(copy, byte_order::little);
+            return static_cast<T>(detail::load<storage_type>(copy, byte_order::little));
         }
 
         operator T() const {
@@ -100,15 +114,17 @@ namespace astia::core {
         }
 
         void set(T value) {
-            detail::store(_bytes, value, byte_order::little);
+            detail::store(_bytes, static_cast<storage_type>(value), byte_order::little);
         }
 
         static T load(const void* source) {
-            return detail::load<T>(static_cast<const u8*>(source), byte_order::little);
+            return static_cast<T>(detail::load<storage_type>(
+                static_cast<const u8*>(source), byte_order::little));
         }
 
         void store(void* destination) const {
-            detail::store(static_cast<u8*>(destination), get(), byte_order::little);
+            detail::store(static_cast<u8*>(destination), static_cast<storage_type>(get()),
+                          byte_order::little);
         }
 
         private:
@@ -117,8 +133,10 @@ namespace astia::core {
 
     template <typename T>
     class be {
-        static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 ||
-                      sizeof(T) == 8);
+        using storage_type = typename detail::wire_type<T>::type;
+
+        static_assert(sizeof(storage_type) == 1 || sizeof(storage_type) == 2 ||
+                      sizeof(storage_type) == 4 || sizeof(storage_type) == 8);
 
         public:
         be() = default;
@@ -128,7 +146,7 @@ namespace astia::core {
         }
 
         T get() const {
-            return detail::load<T>(_bytes, byte_order::big);
+            return static_cast<T>(detail::load<storage_type>(_bytes, byte_order::big));
         }
 
         T get() const volatile {
@@ -138,7 +156,7 @@ namespace astia::core {
                 copy[index] = _bytes[index];
             }
 
-            return detail::load<T>(copy, byte_order::big);
+            return static_cast<T>(detail::load<storage_type>(copy, byte_order::big));
         }
 
         operator T() const {
@@ -156,15 +174,17 @@ namespace astia::core {
         }
 
         void set(T value) {
-            detail::store(_bytes, value, byte_order::big);
+            detail::store(_bytes, static_cast<storage_type>(value), byte_order::big);
         }
 
         static T load(const void* source) {
-            return detail::load<T>(static_cast<const u8*>(source), byte_order::big);
+            return static_cast<T>(detail::load<storage_type>(
+                static_cast<const u8*>(source), byte_order::big));
         }
 
         void store(void* destination) const {
-            detail::store(static_cast<u8*>(destination), get(), byte_order::big);
+            detail::store(static_cast<u8*>(destination), static_cast<storage_type>(get()),
+                          byte_order::big);
         }
 
         private:

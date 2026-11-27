@@ -13,15 +13,22 @@
 namespace astia::mm {
     struct shcontrol {
         atomic<u32> refs;
+        atomic<u32> weaks;
         void*       value;
         void*       owned;
         void (*destroy)(void*);
     };
 
     template <typename T>
+    class shweak;
+
+    template <typename T>
     class shptr {
         template <typename>
         friend class shptr;
+
+        template <typename>
+        friend class shweak;
 
         public:
         constexpr shptr() = default;
@@ -126,7 +133,17 @@ namespace astia::mm {
             return get() != nullptr;
         }
 
+        shweak<T> weak() const;
+
         private:
+        static shptr from_control(shcontrol* control) {
+            shptr result;
+
+            result._control = control;
+
+            return result;
+        }
+
         shcontrol* _control = nullptr;
 
         template <typename U>
@@ -148,6 +165,7 @@ namespace astia::mm {
             }
 
             control->refs.store(1, memory_order::relaxed);
+            control->weaks.store(1, memory_order::relaxed);
 
             control->value   = static_cast<T*>(value);
             control->owned   = value;
@@ -172,8 +190,12 @@ namespace astia::mm {
                 if (control->destroy != nullptr)
                     control->destroy(control->owned);
 
-                delete control;
+                if (control->weaks.fetch_sub(1, memory_order::acq_rel) == 1)
+                    delete control;
             }
         }
     };
+
 } // namespace astia::mm
+
+#include "shweak.hpp"

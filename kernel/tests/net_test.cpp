@@ -1,13 +1,22 @@
 #include <astia/net.hpp>
+#include <astia/net/link.hpp>
+#include <astia/net/socket_address.hpp>
 
 #include <atomic>
 #include <cassert>
 #include <thread>
 
+namespace astia::core {
+    bool schedule_resume(std::coroutine_handle<>, astia::u64) {
+        return false;
+    }
+
+    void cancel_resume(std::coroutine_handle<>, astia::u64) {}
+} // namespace astia::core
+
 namespace {
     struct tracker {
         int recycled    = 0;
-        int deferred    = 0;
         int reclaimed   = 0;
         int last_status = 0;
     };
@@ -18,18 +27,6 @@ namespace {
         ++value.recycled;
 
         value.last_status = status;
-    }
-
-    uint8_t defer_rx(void* context, const astia::net::packet_view*) {
-        auto& value = *static_cast<tracker*>(context);
-
-        ++value.deferred;
-
-        return static_cast<uint8_t>(astia::net::rx_action::defer);
-    }
-
-    void deliver_rx(void* context, const astia::net::packet_view*) {
-        ++static_cast<tracker*>(context)->deferred;
     }
 
     void reclaim_tx(void* context, const astia::net::tx_request*, int status) {
@@ -48,6 +45,39 @@ namespace {
         static_cast<concurrent_tracker*>(context)->reclaimed.fetch_add(
             1, std::memory_order_relaxed);
     }
+
+    struct fake_link final : astia::net::link {
+        astia::net::link_address address{};
+        astia::net::packet_view  last{};
+        int                      received = 0;
+
+        astia::net::link_kind kind() const override {
+            return astia::net::link_kind::ethernet;
+        }
+
+        const astia::net::link_address& local_address() const override {
+            return address;
+        }
+
+        astia::net::mtu mtu() const override {
+            return astia::net::mtu{1500};
+        }
+
+        bool up() const override {
+            return true;
+        }
+
+        astia::core::task<astia::error_t> send(const astia::net::link_address&,
+                                               astia::net::protocol_id,
+                                               astia::span<const astia::u8>) override {
+            co_return astia::error_t::enone;
+        }
+
+        void rx(astia::net::packet_view view) override {
+            ++received;
+            last = view;
+        }
+    };
 
     astia::net::packet_view packet(tracker& value) {
         static const uint8_t    bytes[] = {1, 2, 3, 4};
@@ -98,18 +128,69 @@ int main() {
 
     tracker rx{};
 
-    astia::net::rx_path path(defer_rx, deliver_rx, &rx);
+    astia::net::netdev device("hostnet", &rx);
 
-    auto first = packet(rx);
+    fake_link link;
 
-    assert(path.dispatch_irq(first) == astia::net::rx_action::defer);
-    assert(path.dispatch_irq(packet(rx)) == astia::net::rx_action::defer);
-    assert(path.dispatch_irq(packet(rx)) == astia::net::rx_action::drop);
-    assert(path.deferred_full());
-    assert(rx.deferred == 3);
-    assert(path.poll() == 2);
-    assert(rx.recycled == 3);
-    assert(rx.last_status == 0);
+    auto link_ref = astia::mm::shptr<astia::net::link>::borrowed(&link);
+
+    assert(device.attach(link_ref));
+
+    auto view = packet(rx);
+
+    device.dispatch_rx(view);
+    assert(link.received == 1);
+    assert(rx.recycled == 0);
+
+    astia::net::recycle(view);
+    assert(rx.recycled == 1);
+
+    device.detach();
+    assert(device.attached() == nullptr);
+
+    const astia::u8 mac[6] = {1, 2, 3, 4, 5, 6};
+    astia_sockaddr  wire{};
+
+    wire.family = AF_PACKET;
+    wire.len    = 2 + sizeof mac;
+
+    for (astia::u32 i = 0; i < sizeof mac; ++i) {
+        wire.data[i] = mac[i];
+    }
+
+    const auto decoded =
+        astia::mapper<astia::net::link_address, astia_sockaddr>::from(wire);
+
+    assert(decoded.has_value);
+    assert(decoded.value.family == astia::net::address_family::packet);
+    assert(decoded.value.length == 6);
+
+    const auto encoded =
+        astia::mapper<astia_sockaddr, astia::net::link_address>::from(decoded.value);
+
+    assert(encoded.has_value);
+    assert(encoded.value.len == 8 && encoded.value.family == AF_PACKET);
+
+    int shared_value = 7;
+
+    {
+        auto strong = astia::mm::shptr<int>::borrowed(&shared_value);
+        auto weak   = strong.weak();
+
+        assert(!weak.expired());
+
+        {
+            auto locked = weak.lock();
+
+            assert(locked);
+            assert(locked.get() == &shared_value);
+        }
+
+        strong = {};
+
+        assert(weak.expired());
+        assert(!weak.lock());
+    }
 
     astia::net::tx_path<2, 2> tx(&rx);
 
@@ -137,8 +218,6 @@ int main() {
     assert(tx.generation() == 2);
     assert(!tx.complete(active, 0));
 
-    astia::net::netdev device("hostnet", &rx);
-
     device.set_generation(7);
     assert(device.generation() == 7);
     assert(device.tx().generation() == 7);
@@ -163,16 +242,6 @@ int main() {
     assert(registry.register_device(device));
     assert(registry.count() == 1);
     assert(registry.unregister_device(device));
-    assert(registry.count() == 0);
-
-    {
-        astia::net::netdev_handle handle(registry, device);
-
-        assert(handle);
-        assert(handle.get() == &device);
-        assert(registry.count() == 1);
-    }
-
     assert(registry.count() == 0);
 
     concurrent_tracker concurrent{};

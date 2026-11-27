@@ -24,7 +24,6 @@ namespace astia::rtl8139 {
     constexpr uint32_t tx_max_frame          = 1792;
     constexpr uint32_t tx_queue_depth        = 16;
     constexpr uint32_t tx_completion_depth   = tx_descriptor_count;
-    constexpr uint32_t rx_deferred_depth     = 2;
 
     enum class register_offset : uint16_t {
         id0              = 0x00,
@@ -299,9 +298,6 @@ namespace astia::rtl8139 {
         }
     };
 
-    using rx_action            = astia::net::rx_action;
-    using rx_irq_callback      = astia::net::rx_irq_callback;
-    using rx_deferred_callback = astia::net::rx_deferred_callback;
     using tx_request           = astia::net::tx_request;
 
     struct tx_completion {
