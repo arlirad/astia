@@ -134,7 +134,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    qsort(lines, count, sizeof(char*), compare_lines);
+    if (count > 1)
+        qsort(lines, count, sizeof(char*), compare_lines);
 
     for (size_t i = 0; i < count; ++i) {
         if (unique_lines && i != 0 && strcmp(lines[i], lines[i - 1]) == 0) {
