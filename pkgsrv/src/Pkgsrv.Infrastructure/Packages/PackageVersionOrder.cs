@@ -1,9 +1,16 @@
+using System.Text;
 using Pkgsrv.Domain.Packages;
 
 namespace Pkgsrv.Infrastructure.Packages;
 
 public static class PackageVersionOrder
 {
+    public const string ReleaseSortKey = "\u0004";
+
+    private const string IdentifierSeparator = "\u0001";
+    private const string NumericIdentifierMarker = "\u0002";
+    private const string AlphaNumericIdentifierMarker = "\u0003";
+
     public static IComparer<PackageVersion> Comparer { get; } =
         Comparer<PackageVersion>.Create(Compare);
 
@@ -45,57 +52,72 @@ public static class PackageVersionOrder
             return result;
         }
 
-        result = ComparePreRelease(left.PreRelease, right.PreRelease);
+        result = string.CompareOrdinal(
+            CreatePreReleaseSortKey(left.PreRelease),
+            CreatePreReleaseSortKey(right.PreRelease));
 
         if (result != 0)
         {
             return result;
         }
 
-        result = CompareBuildMetadata(left.BuildMetadata, right.BuildMetadata);
-
-        return result != 0
-            ? result
-            : StringComparer.Ordinal.Compare(left.ToString(), right.ToString());
+        return StringComparer.Ordinal.Compare(left.ToString(), right.ToString());
     }
 
-    private static int ComparePreRelease(string? left, string? right)
+    public static string CreatePreReleaseSortKey(string? preRelease)
     {
-        if (left is null && right is null)
+        if (preRelease is null)
         {
-            return 0;
+            return ReleaseSortKey;
         }
 
-        if (left is null)
+        var identifiers = preRelease.Split('.');
+        var builder = new StringBuilder(preRelease.Length + identifiers.Length);
+
+        for (var index = 0; index < identifiers.Length; index++)
         {
-            return 1;
+            if (index > 0)
+            {
+                builder.Append(IdentifierSeparator);
+            }
+
+            AppendIdentifier(builder, identifiers[index]);
         }
 
-        if (right is null)
-        {
-            return -1;
-        }
-
-        return StringComparer.Ordinal.Compare(left, right);
+        return builder.ToString();
     }
 
-    private static int CompareBuildMetadata(string? left, string? right)
+    private static void AppendIdentifier(StringBuilder builder, string identifier)
     {
-        if (left is null && right is null)
+        if (IsNumericIdentifier(identifier))
         {
-            return 0;
+            builder.Append(NumericIdentifierMarker);
+            builder.Append(NumericIdentifierMarker[0], identifier.Length);
+            builder.Append(IdentifierSeparator);
+            builder.Append(identifier);
+            return;
         }
 
-        if (left is null)
+        builder.Append(AlphaNumericIdentifierMarker);
+        builder.Append(identifier);
+    }
+
+    private static bool IsNumericIdentifier(string identifier)
+    {
+        if (identifier.Length == 0
+            || (identifier.Length > 1 && identifier[0] == '0'))
         {
-            return -1;
+            return false;
         }
 
-        if (right is null)
+        foreach (var character in identifier)
         {
-            return 1;
+            if (character is < '0' or > '9')
+            {
+                return false;
+            }
         }
 
-        return StringComparer.Ordinal.Compare(left, right);
+        return true;
     }
 }

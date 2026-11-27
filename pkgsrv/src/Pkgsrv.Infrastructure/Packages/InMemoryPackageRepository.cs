@@ -112,6 +112,7 @@ public sealed class InMemoryPackageRepository : IPackageRepository, IPackageInde
         }
 
         return package.Manifest.Name.Value.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || package.Manifest.Version.ToString().Contains(search, StringComparison.OrdinalIgnoreCase)
             || package.Manifest.Source.CommitSha.StartsWith(search, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -361,11 +361,20 @@ complete idempotently; ambiguous state or hash/signature mismatch maps to the
 succeeds.
 
 List results are ordered deterministically by name, numeric major/minor/patch,
-pre-release text with releases after pre-releases, build-metadata text, and
-canonical version. Filtering, ordering, escaping, and the 1000-entry cap are applied
-in SQL before materialization. Search supports the bounded fields: case-insensitive
-package `name` contains and source commit prefix. Filtering remains bounded in SQL,
-but neither field is claimed as indexed unless verified in the current EF
+full SemVer 2.0 pre-release precedence, and canonical version. Pre-release
+identifiers compare numerically when numeric, lexically in ASCII order when
+alphanumeric, numeric identifiers sort below alphanumeric identifiers, shorter
+identifier sets sort first when prefixes match, and releases sort after every
+pre-release. Build metadata does not affect precedence; versions that compare
+equal by precedence are ordered by canonical version text. PostgreSQL orders by a
+persisted pre-release sort key produced by the same encoder as the in-memory
+comparer. Numeric identifiers with leading zeroes are outside SemVer and are
+encoded as alphanumeric text, so invalid input still has one deterministic order.
+Filtering, ordering, escaping, and the 1000-entry cap are applied in SQL before
+materialization. Search supports the bounded fields: case-insensitive package
+`name` contains, canonical `version` contains including pre-release and
+build-metadata text, and source commit prefix. Filtering remains bounded in SQL,
+but none of these fields is claimed as indexed unless verified in the current EF
 migration/schema. Provenance and other manifest metadata are returned but are not
 search fields; provenance containment search requires a reviewed trigram/index
 strategy ([#177](https://github.com/arlirad/astia/issues/177)). Search treats `%` and
@@ -736,6 +745,9 @@ chain is:
   idempotency-key primary key, package key, event type/payload, occurrence and
   availability timestamps, claim lease, attempt count, status, and last-error
   fields, plus package and status/availability indexes.
+- `20261127055233_AddSemVerPrecedenceKey` — adds and backfills the pre-release
+  precedence sort key and replaces the ordering index to use the same SemVer key
+  as the in-memory comparer.
 
 With `InitializeSchema=true`, startup calls `Database.MigrateAsync()` before
 listening. With `InitializeSchema=false`, startup never applies migrations; it
@@ -746,8 +758,9 @@ back to in-memory storage.
 An existing old custom-v1 schema is upgraded by the same EF migration chain: the
 baseline detects the existing `packages` table, adds missing timeout/pending-event
 columns and backfills timeout ticks, then the version-order migration adds and
-backfills version columns, and the publication migration adds the nullable
-`PublishedAt` marker. Existing rows and publication state are preserved. The old
+backfills version columns, the publication migration adds the nullable
+`PublishedAt` marker, and the SemVer precedence migration adds and backfills the
+pre-release sort key. Existing rows and publication state are preserved. The old
 `schema_versions` table may remain in place but is not used or treated as
 authoritative.
 
@@ -918,6 +931,32 @@ claim/retry/delivered replay transitions.
   provenance exclusion, and wildcard literals; the opt-in PostgreSQL integration
   test exercises the same behavior when its database connection is configured.
 
+## Issue #197 acceptance evidence
+
+- Precedence: numeric identifiers compare numerically, alphanumeric identifiers
+  lexically in ASCII order, numeric identifiers sort below alphanumeric ones,
+  shorter identifier sets sort first when prefixes match, and releases sort after
+  every pre-release. Build metadata does not affect precedence; canonical version
+  text is the deterministic final tiebreak.
+- Parity: `PackageVersionOrder.CreatePreReleaseSortKey` is the single encoder used
+  by the in-memory comparer and persisted by `PostgresPackageMapper`;
+  `BuildSearchQuery` orders by the same key under the `C` collation, so both stores
+  return the same order. The migration backfills existing rows with that encoding.
+- Search: canonical version text, including pre-release and build metadata, is a
+  case-insensitive contains field in both stores. Name contains and source commit
+  prefix behavior is unchanged, and `%`/`_` remain literal. No `pg_trgm` extension
+  or trigram index is added; version search is not claimed as indexed, consistent
+  with the reviewed [#177](https://github.com/arlirad/astia/issues/177) strategy.
+- Invalid input: numeric pre-release identifiers with leading zeroes are outside
+  SemVer and are encoded as alphanumeric text, giving deterministic ordering
+  without changing registration validation.
+- Tests: the SemVer specification example, rc.2 vs rc.10, numeric vs alphanumeric
+  identifiers, prefix and shorter-set ordering, release vs pre-release,
+  build-metadata ties, leading-zero handling, sort-key/comparer parity, in-memory
+  and SQL-shape search coverage, migration/model assertions, and opt-in live
+  PostgreSQL ordering-parity and version-search tests that skip without
+  `PKGSRV_TEST_POSTGRES_CONNECTION`.
+
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
@@ -1071,7 +1110,7 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 
 The `GET /packages` route currently returns the full bounded list and does not expose
 a search query parameter; the application index supports the restricted
-name/source-commit search described above.
+name/version/source-commit search described above.
 
 Every route except `/healthz` and `/readyz` requires `Authorization: Bearer <Irva access token>`.
 There are no pkgsrv login/register/session/refresh/proxy-auth endpoints. Error
@@ -1160,12 +1199,13 @@ listening endpoint section.
   `Persistence/Postgres/Migrations`; `__EFMigrationsHistory` is authoritative.
   `InitializeSchema=true` applies pending migrations, while `false` fails clearly
   when migrations are pending.
-- Full SemVer identifier precedence and version-aware search are not implemented;
-  list ordering is the deterministic contract above.
-- Search supports the bounded fields package `name` contains and source commit
-  prefix. Bounded SQL filtering is preserved, but neither field is claimed as indexed
-  unless verified in the current EF migration/schema. Provenance is returned metadata
-  but is not searchable until a reviewed trigram/index strategy exists
+- Version ordering implements full SemVer 2.0 identifier precedence, and search
+  includes canonical version text.
+- Search supports the bounded fields package `name` contains, canonical `version`
+  contains, and source commit prefix. Bounded SQL filtering is preserved, but the
+  fields are not claimed as indexed unless verified in the current EF
+  migration/schema. Provenance is returned metadata but is not searchable until a
+  reviewed trigram/index strategy exists
   ([#177](https://github.com/arlirad/astia/issues/177)).
 - The real Irva.Client project is optional and external. Default builds compile the
   fail-closed deny adapter; operators must build with `IrvaClientProject` and set

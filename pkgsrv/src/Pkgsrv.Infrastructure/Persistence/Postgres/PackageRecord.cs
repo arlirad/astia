@@ -16,6 +16,8 @@ public sealed class PackageRecord
 
     public string? VersionBuildMetadata { get; set; }
 
+    public string VersionPreReleaseSortKey { get; set; } = string.Empty;
+
     public string SourceUrl { get; set; } = string.Empty;
 
     public string SourceCommit { get; set; } = string.Empty;

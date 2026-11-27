@@ -67,6 +67,11 @@ public sealed class PostgresRepositoryIntegrationTests
             CancellationToken.None);
         Assert.DoesNotContain(byCommitSubstring, entry => entry.Manifest.Name.Value == name);
 
+        var byVersion = await repository.SearchAsync(
+            package.Manifest.Version.ToString(),
+            CancellationToken.None);
+        Assert.Contains(byVersion, entry => entry.Manifest.Name.Value == name);
+
         var byProvenance = await repository.SearchAsync(
             "ci://pkgsrv/tests/42",
             CancellationToken.None);

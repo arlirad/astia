@@ -24,12 +24,14 @@ public sealed class PostgresPackageQueryTests
         var predicate = sql[whereIndex..orderByIndex];
 
         Assert.Contains("Name", predicate, StringComparison.Ordinal);
+        Assert.Contains("Version", predicate, StringComparison.Ordinal);
         Assert.Contains("SourceCommit", predicate, StringComparison.Ordinal);
         Assert.DoesNotContain("Provenance", predicate, StringComparison.Ordinal);
 
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VersionMajor", sql, StringComparison.Ordinal);
+        Assert.Contains("VersionPreReleaseSortKey", sql, StringComparison.Ordinal);
     }
 
     [Fact]
