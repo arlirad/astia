@@ -122,6 +122,7 @@ namespace astia::fs {
     inline constexpr file_permissions default_device_permissions{0666};
     inline constexpr file_permissions readonly_file_permissions{0755};
     inline constexpr file_permissions readonly_directory_permissions{0755};
+    inline constexpr file_permissions mount_point_directory_permissions{0755};
 
     /// Access, modification and change timestamps in Unix epoch form.  A
     /// backend that records no timestamp leaves the corresponding fields at

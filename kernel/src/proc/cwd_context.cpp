@@ -281,7 +281,8 @@ namespace astia::proc {
                                      buffer.data(), buffer.size(), follow_final);
     }
 
-    core::task<i64> cwd_context::change_directory(const char* path) {
+    core::task<i64> cwd_context::change_directory(const char*                  path,
+                                                  const fs::search_permission* search) {
         if (path == nullptr || path[0] == '\0')
             co_return -EINVAL;
 
@@ -297,6 +298,19 @@ namespace astia::proc {
 
         if (type != fs::directory_dir)
             co_return -ENOTDIR;
+
+        char root[fs::path_max]{};
+
+        {
+            arch::interrupt_spinlock_guard guard(_lock);
+
+            if (!copy_path(root, _root))
+                co_return -ENAMETOOLONG;
+        }
+
+        const long search_rc = fs::check_search(root, full, search, true);
+        if (search_rc < 0)
+            co_return search_rc;
 
         {
             arch::interrupt_spinlock_guard guard(_lock);

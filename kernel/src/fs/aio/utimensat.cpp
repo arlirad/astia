@@ -20,8 +20,7 @@ namespace astia::io::aio::operations {
                 co_return -ESRCH;
 
             const long resolve_rc =
-                current->resolve_path(path, resolved, sizeof resolved, true);
-
+                resolve_path_for(current, path, resolved, sizeof resolved, true);
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 

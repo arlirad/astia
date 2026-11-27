@@ -9,6 +9,8 @@ namespace astia::io::aio::dispatch {
     mm::shptr<fs::open_file> file_for(i32 fd);
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
                     usize capacity, bool follow_final = true);
+    long resolve_path_for(proc::process* current, const char* path, char* out,
+                          usize capacity, bool follow_final);
     bool parent_writable(proc::process* current, const char* path);
     bool parent_searchable(proc::process* current, const char* path);
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,

@@ -201,6 +201,20 @@ namespace {
                 reinterpret_cast<astia::fs::mount*>(anchor_storage)),
             7};
     }
+
+    class denying_search final : public astia::fs::search_permission {
+        public:
+        bool allows(const char*) const override {
+            return false;
+        }
+    };
+
+    class permitting_search final : public astia::fs::search_permission {
+        public:
+        bool allows(const char*) const override {
+            return true;
+        }
+    };
 } // namespace
 
 ASTIA_TEST(cwd_context_composes_without_partial_output) {
@@ -241,6 +255,26 @@ ASTIA_TEST(cwd_context_commits_only_successful_directory_changes) {
     ASTIA_CHECK(std::strcmp(output, "/good") == 0);
     ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
     ASTIA_CHECK(std::strcmp(output, "/") == 0);
+}
+
+ASTIA_TEST(cwd_context_requires_search_permission_on_target) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    denying_search search;
+
+    char output[32];
+
+    ASTIA_CHECK(run(context.change_directory("/good", &search)) == -EACCES);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 2);
+    ASTIA_CHECK(std::strcmp(output, "/") == 0);
+
+    permitting_search allowed;
+
+    ASTIA_CHECK(run(context.change_directory("/good", &allowed)) == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 6);
+    ASTIA_CHECK(std::strcmp(output, "/good") == 0);
 }
 
 ASTIA_TEST(cwd_context_resolves_paths_with_interrupts_enabled) {

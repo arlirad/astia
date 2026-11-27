@@ -27,7 +27,8 @@ namespace astia::proc {
         public:
         cwd_context();
 
-        core::task<i64> change_directory(const char* path);
+        core::task<i64> change_directory(const char*                  path,
+                                         const fs::search_permission* search = nullptr);
         /// Bind the working directory to an already open directory.  The
         /// supplied path is recorded verbatim and never resolved again.
         i64 bind_directory(const char* path, const directory_anchor& anchor);

@@ -17,25 +17,35 @@
 #include "exec_hooks.hpp"
 #include "proc.hpp"
 #include "scheduler.hpp"
+#include "search_permission.hpp"
 
 void* operator new[](astia::usize size, void* where) noexcept;
 
 namespace astia::proc {
     core::task<i64> process::change_directory(const char* path) {
-        auto result = co_await _cwd.change_directory(path);
+        const process_search_permission search(*this);
+
+        auto result = co_await _cwd.change_directory(path, &search);
 
         co_return result ? result.value : -error_errno(result.error);
     }
 
     i64 process::change_directory(const fs::open_file& directory) {
-        if (!directory.mode().is_directory())
+        const fs::file_mode mode = directory.mode();
+
+        if (!mode.is_directory())
             return -ENOTDIR;
 
         const char* path = directory.path();
         if (path == nullptr)
             return -ENOENT;
 
-        const u64 inode = directory.parent() ? directory.parent()->inode() : 0;
+        const auto parent = directory.parent();
+
+        if (parent && !can_search(mode, parent->uid(), parent->gid()))
+            return -EACCES;
+
+        const u64 inode = parent ? parent->inode() : 0;
 
         return _cwd.bind_directory(path,
                                    directory_anchor{directory.mount_reference(), inode});
@@ -43,6 +53,10 @@ namespace astia::proc {
 
     i64 process::copy_cwd(span<char> buffer) const {
         return _cwd.copy_cwd(buffer);
+    }
+
+    i64 process::copy_root(span<char> buffer) const {
+        return _cwd.copy_root(buffer);
     }
 
     i64 process::compose_path(const char* path, span<char> buffer) const {
