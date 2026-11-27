@@ -17,6 +17,17 @@ typedef struct {
     int    options;
 } cu_args;
 
+static long cu_read_some(int fd, void* buffer, size_t length) {
+    for (;;) {
+        long got = read(fd, buffer, (unsigned long) length);
+
+        if (got < 0 && errno == EINTR)
+            continue;
+
+        return got;
+    }
+}
+
 static int cu_write_all(int fd, const void* data, size_t length) {
     const char* bytes = (const char*) data;
 
@@ -90,13 +101,9 @@ static int cu_read_line(cu_line_reader* reader) {
 
     for (;;) {
         if (reader->chunk_offset == reader->chunk_length) {
-            long got = read(reader->fd, reader->chunk, sizeof reader->chunk);
-            if (got < 0) {
-                if (errno == EINTR)
-                    continue;
-
+            long got = cu_read_some(reader->fd, reader->chunk, sizeof reader->chunk);
+            if (got < 0)
                 return -1;
-            }
 
             if (got == 0) {
                 if (reader->line_length == 0)

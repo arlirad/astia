@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
     char buffer[4096];
 
     for (;;) {
-        long length = read(CU_STDIN, buffer, sizeof buffer);
+        long length = cu_read_some(CU_STDIN, buffer, sizeof buffer);
         if (length == 0)
             break;
 
