@@ -1204,9 +1204,21 @@ namespace astia::fs {
 
         file_mode unix_mode = unix_node_mode(path, operation.instance());
 
-        return unix_mode.exists() ? unix_mode
-                                  : operation.instance()->node_mode(
-                                        relative_path(*operation.entry(), path));
+        if (unix_mode.exists())
+            return unix_mode;
+
+        mount_entry* entry = operation.entry();
+
+        file_mode mode = operation.instance()->node_mode(relative_path(*entry, path));
+
+        if (mode.exists())
+            return mode;
+
+        // Mirror node_type(): a mount point is a directory in the namespace
+        // even when the mounted filesystem cannot describe its own root.
+        return string_equal(entry->target, path)
+                   ? file_mode(file_type::directory, mount_point_directory_permissions)
+                   : mode;
     }
 
     u32 node_device(const char* path) {

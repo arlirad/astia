@@ -364,6 +364,16 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
 }
 
+ASTIA_TEST(devfs_mount_point_reports_a_directory_mode) {
+    initialize_runtime();
+
+    const auto mode = astia::fs::node_mode("/dev");
+
+    ASTIA_CHECK(astia::fs::node_type("/dev") == astia::fs::directory_dir);
+    ASTIA_CHECK(mode.is_directory());
+    ASTIA_CHECK(mode.other_allows(astia::fs::permission_bits::execute));
+}
+
 ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
     initialize_runtime();
     mount_fixture(fake_device, fake_file);
