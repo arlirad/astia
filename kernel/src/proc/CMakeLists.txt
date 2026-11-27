@@ -16,6 +16,7 @@ add_library(proc STATIC
         thread.cpp
         fd_table.cpp
         scheduler.cpp
+        shutdown_executor.cpp
         init.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/futex.cpp
 )
