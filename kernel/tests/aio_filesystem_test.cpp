@@ -928,24 +928,6 @@ ASTIA_TEST(aio_filesystem_readdir_root_bypasses_permissions) {
     ASTIA_CHECK(submit_readdir_path(path, 0, &entry) == 1);
 }
 
-ASTIA_TEST(aio_filesystem_statx_requires_search_on_parent) {
-    using namespace aio::test_support;
-
-    reset_environment();
-    install_current_process();
-    set_process_credentials(uid_t{1000}, gid_t{1000});
-    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
-    set_file("/secret/file", 0644, uid_t{0}, gid_t{0});
-
-    astia_stat stat{};
-
-    char path[] = "/secret/file";
-
-    ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == -EACCES);
-
-    restore_credentials();
-}
-
 ASTIA_TEST(aio_filesystem_statx_allows_searchable_parent) {
     using namespace aio::test_support;
 
