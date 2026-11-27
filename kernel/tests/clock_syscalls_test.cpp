@@ -70,7 +70,7 @@ namespace {
 
     astia::sys::user_ptr<astia_timespec> out_ptr(astia_timespec* ts) {
         return astia::sys::user_ptr<astia_timespec>(
-            static_cast<astia::u64>(reinterpret_cast<astia::usize>(ts)));
+            static_cast<astia::u64>(reinterpret_cast<astia::usz>(ts)));
     }
 
     astia::i64 getres(astia::i32 clock_id, astia_timespec* ts) {
@@ -111,13 +111,13 @@ namespace astia::mm {
         return false;
     }
 
-    bool address_space::valid_user_range(u64, usize) const {
+    bool address_space::valid_user_range(u64, usz) const {
         ++address_space_probes;
 
         return false;
     }
 
-    bool address_space::validate(u64, usize, access) const {
+    bool address_space::validate(u64, usz, access) const {
         ++address_space_probes;
 
         return false;
@@ -181,7 +181,7 @@ ASTIA_TEST(clock_getres_boottime_matches_monotonic_resolution) {
     const astia::u32 rates[]  = {1000, 3, 1};
     const astia::i64 expect[] = {1000000, 333333334, 1000000000};
 
-    for (astia::usize i = 0; i < sizeof rates / sizeof rates[0]; ++i) {
+    for (astia::usz i = 0; i < sizeof rates / sizeof rates[0]; ++i) {
         set_timer(rates[i], 0);
 
         astia_timespec monotonic = {garbage, garbage};
