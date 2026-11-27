@@ -85,13 +85,14 @@ namespace astia::io::aio::operations {
                 co_return -ENOENT;
 
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
-                auto requested = mapper<fs::file_permissions>::from(
+                const auto requested = mapper<fs::file_permissions>::from(
                     sqe.aux == 0 ? fs::default_file_permissions.raw() : sqe.aux);
 
                 if (!requested.has_value)
                     co_return -EINVAL;
 
-                (void) fs::chmod_path(resolved, requested.value);
+                (void) fs::chmod_path(resolved,
+                                      fs::apply_umask(requested.value, current->umask()));
                 (void) fs::chown_path(resolved, uid_t{current->uid()},
                                       gid_t{current->gid()});
             }
