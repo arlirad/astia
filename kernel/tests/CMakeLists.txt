@@ -1525,8 +1525,9 @@ if (ARCH STREQUAL "x86_64")
     add_custom_command(
             OUTPUT ${_fix_dir}/boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/mod
                 COMMAND ${CMAKE_COMMAND} -E copy
-                ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/
+                ${_fix_dir}/hello_initrd.o ${_fix_dir}/boot_stage/mod/
                 COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie -fno-builtin
                 -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
@@ -1823,7 +1824,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
-                hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
+                mod sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
@@ -1940,22 +1941,22 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory
                 ${_fix_dir}/module_syscall_stage/sbin
                 ${_fix_dir}/module_syscall_stage/bin
-                ${_fix_dir}/module_syscall_stage/mods
+                ${_fix_dir}/module_syscall_stage/mod
                 ${_fix_dir}/module_syscall_stage/etc
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
                 ${_fix_dir}/module_syscall_stage/sbin/init
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/module_syscall_init
                 ${_fix_dir}/module_syscall_stage/bin/init_libc
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/hello_initrd.o
-                ${_fix_dir}/module_syscall_stage/mods/hello.o
+                ${_fix_dir}/module_syscall_stage/mod/hello.o
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/module_missing_dependency.o
-                ${_fix_dir}/module_syscall_stage/mods/bad-dependency.o
+                ${_fix_dir}/module_syscall_stage/mod/bad-dependency.o
                 COMMAND dd if=${_fix_dir}/hello_initrd.o
-                of=${_fix_dir}/module_syscall_stage/mods/truncated.elf
+                of=${_fix_dir}/module_syscall_stage/mod/truncated.elf
                 bs=64 count=1 status=none
                 COMMAND dd if=/dev/zero
-                of=${_fix_dir}/module_syscall_stage/mods/huge.bin
+                of=${_fix_dir}/module_syscall_stage/mod/huge.bin
                 bs=1024 count=1025 status=none
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
@@ -1964,8 +1965,7 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/module_syscall_stage
                 ${_fix_dir}/module_syscall_initrd.cpio
-                sbin/init bin/init_libc mods/hello.o mods/truncated.elf
-                mods/bad-dependency.o mods/huge.bin etc/passwd
+                mod sbin/init bin/init_libc etc/passwd
                 DEPENDS ${_fix_dir}/module_syscall_init
                 ${_fix_dir}/hello_initrd.o ${_fix_dir}/module_missing_dependency.o
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
@@ -2010,7 +2010,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/boot_initrd.cpio
-                "mod: hello_initrd.o rc=0"
+                "mod: mod/hello_initrd.o rc=0"
                 "selftest: statx ok"
                 "user thread exit pid="
                 "spawn reaped pid=1 status=0 path=/sbin/init"
@@ -2061,7 +2061,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/boot_initrd.cpio.gz
                 "fs: initrd: gzip container"
-                "mod: hello_initrd.o rc=0"
+                "mod: mod/hello_initrd.o rc=0"
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"
@@ -2079,7 +2079,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/boot_initrd.cpio.zst
                 "fs: initrd: zstd container"
-                "mod: hello_initrd.o rc=0"
+                "mod: mod/hello_initrd.o rc=0"
                 "selftest: statx ok"
                 "astia: libc ok"
                 "astia: ld ok"

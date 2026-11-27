@@ -268,6 +268,10 @@ file(GLOB_RECURSE _astia_dev_initrd_sources CONFIGURE_DEPENDS
 list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
 
 set(_astia_dev_initrd_archive "${_astia_dev_initrd_run}/initrd.cpio")
+set(_astia_dev_initrd_modules
+    "${CMAKE_BINARY_DIR}/modules/rtl8139/rtl8139.o"
+    "${CMAKE_BINARY_DIR}/modules/eth/eth.o"
+    "${CMAKE_BINARY_DIR}/modules/ip/ip.o")
 add_custom_command(
     OUTPUT "${_astia_dev_initrd_archive}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_astia_dev_initrd_run}"
@@ -281,6 +285,7 @@ add_custom_command(
         "ZSH_BUILD=${ASTIA_DEV_INITRD_ZSH_BUILD}"
         "ASTIA_NANO_BUILD=${ASTIA_DEV_INITRD_NANO_BUILD}"
         "ASTIA_TEST_BUILD=${ASTIA_DEV_INITRD_KERNEL_BUILD}"
+        "ASTIA_DEV_INITRD_MODULES=${_astia_dev_initrd_modules}"
         "${CMAKE_SOURCE_DIR}/toolchain/run-zsh-qemu.sh"
     DEPENDS
         "${CMAKE_SOURCE_DIR}/.gitmodules"
@@ -297,6 +302,7 @@ add_custom_command(
         "${CMAKE_SOURCE_DIR}/kernel/tests/crt0.S"
         "${CMAKE_SOURCE_DIR}/kernel/tests/init_libc.c"
         "${CMAKE_BINARY_DIR}/kernel/tests/fixtures/boot_initrd.cpio"
+        ${_astia_dev_initrd_modules}
         "${CMAKE_SOURCE_DIR}/coreutils/build.sh"
         "${CMAKE_SOURCE_DIR}/sysutils/build.sh"
         ${_astia_dev_initrd_sources}
@@ -304,6 +310,7 @@ add_custom_command(
     USES_TERMINAL
     VERBATIM)
 add_custom_target(dev_initrd DEPENDS "${_astia_dev_initrd_archive}")
+add_dependencies(dev_initrd rtl8139_module eth_module ip_module)
 
 set(ASTIA_DIRECT_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the direct VGA/GDB launcher")

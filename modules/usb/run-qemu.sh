@@ -45,8 +45,9 @@ if test "${ASTIA_USB_ROLLBACK_TEST:-0}" = 1; then
     cmake --build "$artifact_build" --target astiakrn_module_runtime "${ASTIA_USB_MODULE_TARGET:-usb_failure_module}"
 fi
 mkdir -p "$staging"
-cp "${ASTIA_USB_MODULE:-$artifact_build/modules/usb/usb.o}" "$staging/usb.o"
-(cd "$staging" && find usb.o -print | cpio -o -H newc > "$initrd")
+mkdir -p "$staging/mod"
+cp "${ASTIA_USB_MODULE:-$artifact_build/modules/usb/usb.o}" "$staging/mod/usb.o"
+(cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 rm -f "$log" "$trace"
 set +e
@@ -65,7 +66,7 @@ if test "${ASTIA_USB_ROLLBACK_TEST:-0}" = 1; then
     printf '%s\n' 'QEMU xHCI PCI rollback smoke passed'
     exit 0
 fi
-grep -qF 'mod: usb.o rc=0' "$log"
+grep -qF 'mod: mod/usb.o rc=0' "$log"
 grep -qF 'usb: xhci started' "$log"
 cmd_ring=$(sed -n 's/.*usb: xhci cmd ring=\([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
 crcr=$(sed -n 's/.*usb: xhci crcr=\([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)

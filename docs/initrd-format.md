@@ -16,6 +16,13 @@ are not individually compressed by this layer.
 
 `kernel/src/fs/initrd_init.cpp` loads the boot module through
 `astia::initrd::load_boot_archive()` before mounting `/`.
+## Module layout
+
+ET_REL modules live under `mod/` in the archive (`mod/ip.o`,
+`mod/rtl8139.o`, ...).  `kernel/src/mod/init.cpp` loads only relocatable files
+from that directory; every other entry stays an ordinary initrdfs file.
+Staging scripts and the QEMU fixtures follow the same convention.
+
 `kernel/src/mod/init.cpp` opens the same published archive for ET_REL module
 discovery instead of opening or decompressing the image a second time.
 

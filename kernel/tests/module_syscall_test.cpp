@@ -284,7 +284,7 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
 
     astia_module_id id{};
 
-    char path[] = "/mods/sample";
+    char path[] = "/mod/sample";
 
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen, reinterpret_cast<astia::u64>(path),
                      0, reinterpret_cast<astia::u64>(&id)) == 0);

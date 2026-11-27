@@ -85,9 +85,19 @@ namespace astia::mod {
                 logs::info("module %llu rc=%d", static_cast<unsigned long long>(i), rc);
         }
 
-        // Per-file visitor for an initrd: load the file if it is an ELF image,
-        // skip anything else (configs, data, ...).
+        /// Modules are the ET_REL files under `mod/`; every other initrd
+        /// entry stays an ordinary file for initrdfs.
+        bool is_module_path(const char* name) {
+            return name != nullptr && name[0] == 'm' && name[1] == 'o' &&
+                   name[2] == 'd' && name[3] == '/' && name[4] != '\0';
+        }
+
+        // Per-file visitor for an initrd: load modules from mod/, skip
+        // anything else (executables, configs, data, ...).
         bool visit_initrd_file(void*, const initrd::file& f) {
+            if (!is_module_path(f.name))
+                return true;
+
             // ET_REL belongs to the kernel-module loader.  Executables
             // remain files in initrdfs and are launched by proc::spawnve.
             if (elf::loader::kind_of(f.data, f.size) != elf::loader::kind::relocatable)
