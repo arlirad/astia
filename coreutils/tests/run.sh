@@ -44,6 +44,39 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
 "$out/host/daemonctl_path_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
+# mkdir -p must accept any path the host filesystem can represent up to
+# PATH_MAX; the QEMU guest cannot receive such arguments yet (issue #184
+# limits exec argv and AIO paths to 256 bytes).
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
+    "$root/coreutils/src/mkdir.c" -o "$out/host/mkdir"
+repeat_character() {
+    repeat_value=
+    repeat_index=0
+    while [ "$repeat_index" -lt "$2" ]; do
+        repeat_value=$repeat_value$1
+        repeat_index=$((repeat_index + 1))
+    done
+    printf '%s' "$repeat_value"
+}
+long_path_root=$(mktemp -d)
+trap 'rm -rf "$long_path_root"' EXIT
+long_component_a=$(repeat_character a 100)
+long_component_b=$(repeat_character b 100)
+long_component_c=$(repeat_character c 100)
+long_path="$long_path_root/$long_component_a/$long_component_b/$long_component_c/leaf"
+test "${#long_path}" -gt 255
+"$out/host/mkdir" -p "$long_path"
+test -d "$long_path"
+"$out/host/mkdir" -p "$long_path"
+test -d "$long_path"
+overlong_path="$long_path_root/$(repeat_character x 5000)"
+if "$out/host/mkdir" -p "$overlong_path" 2>"$out/host/mkdir_too_long.err"; then
+    echo "mkdir -p accepted a path longer than PATH_MAX" >&2
+    exit 1
+fi
+grep -qF 'File name too long' "$out/host/mkdir_too_long.err"
+
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
 $clang $common -fno-builtin -nostdinc -isystem "$resource/include" \
