@@ -17,18 +17,18 @@ declared in `libc/include/dlfcn.h`.
 3. Opens each `DT_NEEDED` under `/lib/` and maps it with `dlmap`. The kernel
    shares the image physically, and `dlmap` is identity-keyed, so a diamond
    dependency maps once.
-4. Resolves `RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64` and `TPOFF64`/`TPOFF32`
-   against the payload and its dependencies; weak undefined references
-   resolve to zero.  GNU IFUNC symbols (`STT_GNU_IFUNC`) resolve in two
-   phases: relocation queues the slot and the resolver's address, then every
-   resolver runs after all relocations and before any `DT_INIT`, and its
-   result lands in the slot.  `R_X86_64_IRELATIVE` (a DSO referencing its own
-   IFUNC) follows the same path.  A resolver may call ordinary functions
-   whose relocations are already applied, but it must not call another
-   IFUNC: that slot is still unpatched, so the call would land on the second
-   resolver instead of its result.  Resolving such chains needs the per-slot
-   lazy thunk mechanism tracked with lazy PLT binding (#163), and remains a
-   known residual limitation.
+4. Resolves `RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64`, `TPOFF64`/`TPOFF32`
+   and `DTPMOD64`/`DTPOFF64` against the payload and its dependencies; weak
+   undefined references resolve to zero.  GNU IFUNC symbols (`STT_GNU_IFUNC`)
+   resolve in two phases: relocation queues the slot and the resolver's
+   address, then every resolver runs after all relocations and before any
+   `DT_INIT`, and its result lands in the slot.  `R_X86_64_IRELATIVE` (a DSO
+   referencing its own IFUNC) follows the same path.  A resolver may call
+   ordinary functions whose relocations are already applied, but it must not
+   call another IFUNC: that slot is still unpatched, so the call would land
+   on the second resolver instead of its result.  Resolving such chains needs
+   the per-slot lazy thunk mechanism tracked with lazy PLT binding (#163),
+   and remains a known residual limitation.
 5. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
    copies the templates after relocation, and applies the TLS relocations.
 6. Makes each module's `PT_GNU_RELRO` range read-only (`.data.rel.ro` and,
@@ -42,9 +42,14 @@ declared in `libc/include/dlfcn.h`.
    mapped by the kernel and is not in this base's module table, so its own
    RELRO is out of scope here.
 7. Appends the interpreter itself, prelinked: it is read from `AT_BASE`, its
-   headers are parsed for symbol lookup, and its relocations are skipped.
-8. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
-9. Jumps to `AT_ENTRY` with the original stack.
+   headers are parsed for symbol lookup, and its relocations are skipped. It
+   also exports `__tls_get_addr`, so it stays in the lookup table for DSOs
+   that use global-dynamic TLS.
+8. Builds a per-thread DTV lazily when a global-dynamic DSO calls
+   `__tls_get_addr`; every thread gets its own blocks and a forked child
+   inherits the parent's entry.
+9. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
+10. Jumps to `AT_ENTRY` with the original stack.
 
 The kernel applies `RELATIVE` when it maps an image and defers symbol
 relocations for `dlmap`ped images (`defer_symbol_relocs`); an `astia_dlmap`
@@ -170,6 +175,39 @@ Known gaps are tracked in the issue tracker under the `dl` label
 (`gh issue list --label dl`): lazy PLT binding, symbol versioning,
 global-dynamic TLS, and the eagerly allocated TLS reserve.  At most 64 IFUNC
 relocations per process (`LD_MAX_IFUNCS`) are supported.
+  additionally covers the lazy `.got.plt` slots;
+- `DT_INIT`/`DT_INIT_ARRAY` (dependencies first); `DT_FINI` is left to process
+  teardown;
+- static TLS for initial-exec DSOs; global-dynamic TLS through per-thread
+  DTVs and `__tls_get_addr` (still laid out in the static reserve);
+- at most 9 loaded modules (`LD_MAX_MODULES`: payload + 7 `DT_NEEDED` +
+  interpreter) and 7 `DT_NEEDED` per payload.
+
+Per-thread DTVs are bounded (`LD_MAX_THREADS`, 16) and never retired:
+thread-exit cleanup is not implemented, so the registry leaks one small entry
+per distinct thread pointer. A future `dlopen` module with TLS is allocated
+on first access; unloading is not supported.
+
+A new thread inherits the creating thread's DSO-TLS values: the kernel clones
+the materialized TLS arena, and the loader does not re-run templates on clone.
+Template reinitialisation on clone is a kernel follow-up.
+
+Static TLS is signal-safe: block addresses are computed from the thread
+pointer and constant metadata, with no per-entry initialisation window. DTV
+entries are claimed lock-free with a CAS on the thread-pointer key, so the
+registry is fork-safe (a child inherits the forking thread's valid entry).
+A re-entrant claim joins the existing entry rather than duplicating it.
+A future `dlopen` dynamic block is allocated outside any lock and published
+with a CAS; the loser unmaps its copy, and allocated blocks are never
+reclaimed at thread exit. The rest of the loader (dependency loading,
+relocation) is not reentrant, so this signal-safety covers the TLS lookup
+path only.
+
+Known gaps are tracked in the issue tracker under the `dl` label
+(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
+`dlopen`/`dlclose` scopes and unload quiescence, and the eagerly allocated
+TLS reserve.  At most 64 IFUNC relocations per process
+(`LD_MAX_IFUNCS`) are supported.
 
 A missing library or unresolved symbol exits with a non-zero status; the boot
 test turns that into a failure rather than a silent jump into a null pointer.

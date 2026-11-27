@@ -758,6 +758,7 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         fixture_gnu.c
         fixture_semihash.c
         fixture_ifunc.c
+        fixture_dynamic_tls.c
         interp_gnu.c
         interp_relative_ro.c
         interp_relro.c
@@ -772,7 +773,8 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_dep_b.c
         dl_dep_c.c
         dl_dep_a.c
-        interp_dlopen.c)
+        interp_dlopen.c
+        interp_dyntls.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include
         ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include)
@@ -1684,6 +1686,23 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_relro ${_fix_dir}/interp_relro_ok
                 ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libfixture_dynamic_tls.so
+                -o ${_fix_dir}/libfixture_dynamic_tls.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_dynamic_tls.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir} -Wl,--allow-shlib-undefined
+                -Wl,--dynamic-linker=/lib/ld.astia.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_dyntls
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_dyntls.c
+                ${_fix_dir}/libfixture_dynamic_tls.so
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture_dynamic_tls.so ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_dyntls ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -c -fPIE -ffreestanding
                 -fno-stack-protector -mno-red-zone
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
@@ -1724,6 +1743,7 @@ if (ARCH STREQUAL "x86_64")
                 lib/libdl_dep_base.so lib/libdl_dep_b.so lib/libdl_dep_c.so
                 lib/libdl_dep_a.so
                 bin/interp_dlopen
+                lib/libfixture_dynamic_tls.so bin/interp_dyntls
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
@@ -1765,6 +1785,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_c.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_a.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_dynamic_tls.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_dyntls.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
@@ -1901,6 +1923,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: interp ok"
                 "astia: relro ok"
                 "astia: ld ok"
+                "astia: dyntls ok"
                 "astia: ld nophdr ok"
                 "astia: gnu-hash ok"
                 "astia: tpoff32 ok"

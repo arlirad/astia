@@ -4939,6 +4939,33 @@ int main(int argc, char** argv) {
             printf("astia: ld ok\n");
     }
 
+    /* Global-dynamic TLS: the DSO's __tls_get_addr calls resolve against the
+       interpreter's per-thread DTV, and a new thread gets its own blocks. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 99;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_dyntls", NULL};
+
+            execv("/bin/interp_dyntls", child_argv);
+            _Exit(240); /* fixture not staged in this initrd */
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 99;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 99;
+        else
+            printf("astia: dyntls ok\n");
+    }
+
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
        recover the load bias from auxv instead of guessing zero. */
     {
