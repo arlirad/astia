@@ -27,7 +27,7 @@ namespace astia::mm {
         return *this;
     }
 
-    bool pinned_buffer::acquire(phys_region* region, usize first, usize count,
+    bool pinned_buffer::acquire(phys_region* region, usz first, usz count,
                                 bool destination) {
         if (region == nullptr || count == 0 || first >= region->pages() ||
             count > region->pages() - first)
@@ -62,9 +62,9 @@ namespace astia::mm {
         // can be its last reference — so nothing here may touch it after.
         phys_region* region = _region;
 
-        const usize first       = _first;
-        const usize count       = _count;
-        const bool  destination = _destination;
+        const usz  first       = _first;
+        const usz  count       = _count;
+        const bool destination = _destination;
 
         _region      = nullptr;
         _first       = 0;
@@ -79,7 +79,7 @@ namespace astia::mm {
         }
     }
 
-    void* pinned_buffer::direct(usize index) const {
+    void* pinned_buffer::direct(usz index) const {
         return _region == nullptr ? nullptr : _region->page_direct(_first + index);
     }
 
@@ -89,7 +89,7 @@ namespace astia::mm {
 
         u64 prior = _region->page_base(_first);
 
-        for (usize i = 1; i < _count; ++i) {
+        for (usz i = 1; i < _count; ++i) {
             const u64 current = _region->page_base(_first + i);
 
             if (current != prior + phys_region::frame_size)
@@ -101,7 +101,7 @@ namespace astia::mm {
         return true;
     }
 
-    u64 pinned_buffer::phys(usize index) const {
+    u64 pinned_buffer::phys(usz index) const {
         return _region == nullptr ? 0
                                   : _region->base() + static_cast<u64>(_first + index) *
                                                           phys_region::frame_size;

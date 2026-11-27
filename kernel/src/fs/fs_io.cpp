@@ -34,10 +34,10 @@ namespace astia::fs {
         bool buffer_bytes(span<const buffer> buffers, u64& total) {
             total = 0;
 
-            for (usize i = 0; i < buffers.size(); ++i) {
+            for (usz i = 0; i < buffers.size(); ++i) {
                 const buffer& entry = buffers[i];
 
-                if (entry.length > static_cast<usize>(~u32{0}))
+                if (entry.length > static_cast<usz>(~u32{0}))
                     return false;
 
                 if (total > ~u64{0} - entry.length)
@@ -57,7 +57,7 @@ namespace astia::fs {
                                       core::cltoken token) {
             i64 total = 0;
 
-            for (usize i = 0; i < buffers.size(); ++i) {
+            for (usz i = 0; i < buffers.size(); ++i) {
                 const buffer& entry = buffers[i];
 
                 if (entry.length == 0)
@@ -264,7 +264,7 @@ namespace astia::fs {
     }
 
     core::task<i64> open_file::read(span<u8> bytes, u64 offset, core::cltoken token) {
-        if (bytes.size() > static_cast<usize>(~u32{0}))
+        if (bytes.size() > static_cast<usz>(~u32{0}))
             co_return error_t::erange;
 
         fs::buffer entry{bytes.data(), bytes.size()};
@@ -277,7 +277,7 @@ namespace astia::fs {
 
     core::task<i64> open_file::write(span<const u8> bytes, u64 offset,
                                      core::cltoken token) {
-        if (bytes.size() > static_cast<usize>(~u32{0}))
+        if (bytes.size() > static_cast<usz>(~u32{0}))
             co_return error_t::erange;
 
         fs::buffer entry{const_cast<u8*>(bytes.data()), bytes.size()};

@@ -94,12 +94,12 @@ namespace astia::arch::x86_64::smp {
             return reinterpret_cast<const void*>(p < (1ull << 30) ? p : kernel_base + p);
         }
 
-        u8 checksum(const void* p, usize n) {
+        u8 checksum(const void* p, usz n) {
             const auto* b = static_cast<const u8*>(p);
 
             u8 sum = 0;
 
-            for (usize i = 0; i < n; ++i) {
+            for (usz i = 0; i < n; ++i) {
                 sum = static_cast<u8>(sum + b[i]);
             }
 
@@ -323,7 +323,7 @@ namespace astia::arch::x86_64::smp {
             if ((!broadcast && apic_ids[n] == bsp) || (broadcast && n != 0))
                 continue;
 
-            constexpr usize ap_stack_bytes = 16 * 1024;
+            constexpr usz ap_stack_bytes = 16 * 1024;
 
             auto stack = mm::heap::alloc(ap_stack_bytes);
             if (!stack) {

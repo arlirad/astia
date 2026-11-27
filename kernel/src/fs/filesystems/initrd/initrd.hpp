@@ -14,7 +14,7 @@ namespace astia::fs::filesystems {
         bool attach(const initrd::archive& archive);
         bool add(const char* path, astia::span<const u8> data);
 
-        bool add(const char* path, const void* data, usize size) {
+        bool add(const char* path, const void* data, usz size) {
             return add(path, astia::span<const u8>(static_cast<const u8*>(data), size));
         }
 

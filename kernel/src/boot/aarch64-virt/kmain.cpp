@@ -259,7 +259,7 @@ namespace {
 
     void print_memory(const pl011_uart& console, const astia::mm::memory_map& regions,
                       const char* label) {
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             console.write(label);
@@ -383,7 +383,7 @@ namespace {
         if (!add_checked(base, size, end))
             return false;
 
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             if (region.type != astia::mm::memory_type::usable)
@@ -403,7 +403,7 @@ namespace {
 
     [[nodiscard]] bool gic_conflicts_with_ram(const astia::mm::memory_map& regions,
                                               astia::u64 base, astia::u64 size) {
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             if (region.type != astia::mm::memory_type::usable)
@@ -551,7 +551,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     if (!map.valid())
         fail(console, "page-table arena allocation failed");
 
-    for (astia::usize index = 0; index < info.memory.count(); ++index) {
+    for (astia::usz index = 0; index < info.memory.count(); ++index) {
         const astia::mm::memory_region& region = info.memory[index];
 
         if (region.type != astia::mm::memory_type::usable)

@@ -18,7 +18,7 @@
 #include "signal_permission.hpp"
 #include "terminal_name.hpp"
 
-void* operator new[](astia::usize size, void* where) noexcept;
+void* operator new[](astia::usz size, void* where) noexcept;
 
 namespace astia::proc {
     namespace {
@@ -188,13 +188,13 @@ namespace astia::proc {
 
             owner->signal_termination(signal);
             self->exit(reinterpret_cast<void*>(
-                static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+                static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
             __builtin_unreachable();
         }
 
         if (owner->process_exit_requested() && self->exit_requested()) {
             self->exit(reinterpret_cast<void*>(
-                static_cast<usize>(owner->requested_exit_status())));
+                static_cast<usz>(owner->requested_exit_status())));
             __builtin_unreachable();
         }
 
@@ -210,7 +210,7 @@ namespace astia::proc {
 
         owner->terminate_for_signal(signal, self);
         self->exit(reinterpret_cast<void*>(
-            static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+            static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
         __builtin_unreachable();
     }
 
@@ -259,7 +259,7 @@ namespace astia::proc {
     }
 
     core::task<mm::shptr<process>> spawnve(process* parent, mm::shptr<fs::open_file> file,
-                                           usize length, char* const argv[],
+                                           usz length, char* const argv[],
                                            char* const envp[]) {
         if (parent == nullptr || !file || length == 0)
             co_return error_t::einval;

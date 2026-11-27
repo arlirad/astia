@@ -4855,6 +4855,39 @@ int main(int argc, char** argv) {
             return 86;
     }
 
+    /* PT_GNU_RELRO.  The control build writes only ordinary .data and must
+       exit 0, proving a plain-data fault cannot masquerade as a RELRO pass.
+       The fault build then writes .data.rel.ro, which must raise SIGSEGV once
+       the interpreter has made the RELRO pages read-only. */
+    {
+        const int control = run_staged_fixture("/bin/interp_relro_ok");
+        if (control < 0)
+            return 245;
+
+        if (control == 0) {
+            const pid_t child = fork();
+            if (child < 0)
+                return 245;
+
+            if (child == 0) {
+                char* child_argv[] = {(char*) "/bin/interp_relro", NULL};
+
+                execv("/bin/interp_relro", child_argv);
+                _Exit(241); /* fixture not staged in this initrd */
+            }
+
+            int status = 0;
+
+            if (waitpid(child, &status, 0) != child)
+                return 245;
+
+            if (WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)
+                printf("astia: relro ok\n");
+            else
+                return 245; /* the RELRO write did not fault */
+        }
+    }
+
     /* 52: PT_INTERP bootstrap.  The kernel must enter /lib/ld.stub.so,
        which stamps argc and jumps to the payload's AT_ENTRY; the payload
        exits 0 only if it saw the stamp and a non-zero AT_BASE. */
@@ -4867,6 +4900,34 @@ int main(int argc, char** argv) {
             printf("astia: interp ok\n");
     }
 
+    /* GNU IFUNC: ifunc_value's resolver calls into libfixture_base, so it can
+       only run once every image is relocated; the slot must hold the result,
+       and the DSO's own R_X86_64_IRELATIVE slot must too. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 99;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_ifunc", NULL};
+
+            execv("/bin/interp_ifunc", child_argv);
+            _Exit(240);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 99;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 99;
+        else
+            printf("astia: ifunc ok\n");
+    }
+
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {
@@ -4876,6 +4937,33 @@ int main(int argc, char** argv) {
 
         if (fixture == 0)
             printf("astia: ld ok\n");
+    }
+
+    /* Global-dynamic TLS: the DSO's __tls_get_addr calls resolve against the
+       interpreter's per-thread DTV, and a new thread gets its own blocks. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 99;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_dyntls", NULL};
+
+            execv("/bin/interp_dyntls", child_argv);
+            _Exit(240); /* fixture not staged in this initrd */
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child)
+            return 99;
+
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
+        else if (status != 0)
+            return 99;
+        else
+            printf("astia: dyntls ok\n");
     }
 
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
@@ -5555,6 +5643,18 @@ int main(int argc, char** argv) {
 
         if (unlink(file) != 0 || rmdir(dir) != 0)
             return 199;
+    }
+
+    /* 56: dlopen/dlsym/dlclose through the interpreter's handle API.  The
+       payload proves constructors, duplicate handles, the default scope,
+       NODELETE and real unload against a fresh image. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_dlopen");
+        if (fixture < 0)
+            return 207;
+
+        if (fixture == 0)
+            printf("astia: dlopen ok\n");
     }
 
     /* 52: chroot and privilege-separation sequence.  chroot does not

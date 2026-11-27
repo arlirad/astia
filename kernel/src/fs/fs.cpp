@@ -13,7 +13,7 @@
 #include "path_service.hpp"
 #include "unix_pathname.hpp"
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::fs {
     namespace {
@@ -203,7 +203,7 @@ namespace astia::fs {
             core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
                 mount_snapshot);
 
-            for (usize i = 0; i < snapshot.size(); ++i) {
+            for (usz i = 0; i < snapshot.size(); ++i) {
                 const auto& candidate = snapshot[i];
 
                 if (!candidate.used || !path_matches(candidate.target, path))
@@ -229,7 +229,7 @@ namespace astia::fs {
                 core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
                     mount_snapshot);
 
-                for (usize i = 0; i < snapshot.size(); ++i) {
+                for (usz i = 0; i < snapshot.size(); ++i) {
                     const auto& candidate = snapshot[i];
 
                     if (!candidate.used || !path_matches(candidate.target, path))
@@ -1350,7 +1350,7 @@ namespace astia::fs {
                                            uid, gid);
     }
 
-    long touch_path(const char* path, u64 sec, u64 nsec) {
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
 
@@ -1364,10 +1364,14 @@ namespace astia::fs {
 
         auto handle =
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
-        if (!handle)
-            return -ENOENT;
+        if (!handle) {
+            if (!follow_final && node_type(path) == directory_lnk)
+                return 0;
 
-        return handle->parent()->touch(sec, nsec);
+            return -ENOENT;
+        }
+
+        return handle->parent()->touch(times);
     }
 
     // The remaining file/open-file implementation stays in this TU.
@@ -1413,7 +1417,7 @@ namespace astia::fs {
         return 0;
     }
 
-    long file::touch(u64, u64) {
+    long file::touch(const file_timestamps&) {
         return -EROFS;
     }
 
@@ -1646,7 +1650,7 @@ namespace astia::fs {
         return ready & events;
     }
 
-    long open_file::ioctl(u64 request, void* argp, usize size) {
+    long open_file::ioctl(u64 request, void* argp, usz size) {
         if (request == TIOCGNAME) {
             if (argp == nullptr || size != sizeof(struct astia_tty_name))
                 return -EINVAL;
@@ -1659,19 +1663,19 @@ namespace astia::fs {
 
             auto* name = static_cast<struct astia_tty_name*>(argp);
 
-            usize i = 0;
+            usz i = 0;
 
             if (device != nullptr && device[0] != '\0') {
                 static constexpr char prefix[] = "/dev/";
 
-                for (usize j = 0; prefix[j] != '\0'; ++j) {
+                for (usz j = 0; prefix[j] != '\0'; ++j) {
                     if (i + 1 >= sizeof(name->path))
                         return -ENAMETOOLONG;
 
                     name->path[i++] = prefix[j];
                 }
 
-                for (usize j = 0; device[j] != '\0'; ++j) {
+                for (usz j = 0; device[j] != '\0'; ++j) {
                     if (i + 1 >= sizeof(name->path))
                         return -ENAMETOOLONG;
 

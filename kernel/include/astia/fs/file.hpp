@@ -83,7 +83,7 @@ namespace astia::fs {
         virtual file_timestamps timestamps() const;
         virtual u64             mtime_sec() const;
         virtual u64             mtime_nsec() const;
-        virtual long            touch(u64 sec, u64 nsec);
+        virtual long            touch(const file_timestamps& times);
         virtual void            duplicate(u32 flags);
         virtual void            close(u32 flags);
         /// Kernel-internal typed hook for protocol-specific file operations.

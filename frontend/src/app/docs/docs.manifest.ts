@@ -117,7 +117,7 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     slug: "docs-module-abi-inventory",
     title: "Module contract and lifetime inventory",
     group: "Design note",
-    summary: "Modules remain resident after module_main returns because their driver objects, callback tables, interrupt handlers, and device contexts may still be referenced. The owner must...",
+    summary: "Modules remain resident after module_main completes because their driver objects, callback tables, interrupt handlers, and device contexts may still be referenced. The owner mus...",
     sourcePath: "docs/module-abi-inventory.md",
     contentKind: "markdown",
   },
@@ -1399,5 +1399,19 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     syscallId: 79,
     synopsisKind: "public",
     synopsis: "long astia_power(uint32_t operation);",
+  },
+  {
+    slug: "syscall-80-thread-count",
+    title: "thread_count(2)",
+    group: "Syscall (2)",
+    summary: "Returns the number of live threads in the calling process, including the calling thread. A process that has not created threads therefore observes one. Returns the live thread c...",
+    sourcePath: "docs/2/abi/thread_count.md",
+    contentKind: "markdown",
+    implementationPath: "kernel/include/astia/api/syscalls.h",
+    subsystem: "abi",
+    category: "abi",
+    syscallId: 80,
+    synopsisKind: "public",
+    synopsis: "long astia_thread_count(void);",
   }
 ];

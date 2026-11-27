@@ -10,7 +10,7 @@ import {
 
 const SYSCALL_PAGES = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
 const CANONICAL_SYSCALL_IDS = [
-  ...Array.from({ length: 80 }, (_, index) => index),
+  ...Array.from({ length: 81 }, (_, index) => index),
 ];
 
 describe('Runtime section-2 syscall docs', () => {
@@ -61,7 +61,7 @@ describe('Runtime section-2 syscall docs', () => {
     return { page, element, headings };
   }
 
-  it('contains all 80 canonical syscall pages with stable IDs and slugs', () => {
+  it('contains all 81 canonical syscall pages with stable IDs and slugs', () => {
     expect(SYSCALL_PAGES.length).toBe(CANONICAL_SYSCALL_IDS.length);
     expect(
       SYSCALL_PAGES.map((page) => page.syscallId).sort((a, b) => (a ?? 0) - (b ?? 0)),
@@ -144,11 +144,11 @@ describe('Runtime section-2 syscall docs', () => {
     const shared = Object.fromEntries([...counts].filter(([, count]) => count > 1));
 
     expect(shared).toEqual({
-      'kernel/include/astia/api/syscalls.h': 26,
+      'kernel/include/astia/api/syscalls.h': 27,
       'kernel/src/proc/process.hpp': 8,
       'kernel/src/proc/proc.cpp': 2,
     });
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(80);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(81);
     expect(
       new Set(SYSCALL_PAGES.map((page) => page.implementationPath)).size,
     ).toBe(47);
@@ -163,10 +163,10 @@ describe('Runtime section-2 syscall docs', () => {
     );
   });
 
-  it('assigns exact taxonomy and physical paths for all 80 syscall pages', () => {
+  it('assigns exact taxonomy and physical paths for all 81 syscall pages', () => {
     const expected: Record<string, number[]> = {
       'fs/fs': [0, 1, 2, 3, 46, 47],
-      'abi/abi': [6, 7, 32, 33, 34, 35, 48, 49, 50, 51, 54, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69],
+      'abi/abi': [6, 7, 32, 33, 34, 35, 48, 49, 50, 51, 54, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 80],
       'proc/core': [10, 11, 20, 26, 27, 28, 52, 53, 55, 77, 79],
       'proc/ipc': [12],
       'proc/memory': [4, 5],
@@ -184,10 +184,10 @@ describe('Runtime section-2 syscall docs', () => {
     expect(Object.fromEntries(actual)).toEqual(expected);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'proc').length).toBe(43);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'fs').length).toBe(6);
-    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'abi').length).toBe(25);
+    expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'abi').length).toBe(26);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'dl').length).toBe(2);
     expect(SYSCALL_PAGES.filter((page) => page.subsystem === 'mod').length).toBe(4);
-    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(80);
+    expect(new Set(SYSCALL_PAGES.map((page) => page.sourcePath)).size).toBe(81);
     expect(SYSCALL_PAGES.some((page) => /^docs\/2\/[^/]+\.md$/.test(page.sourcePath))).toBeFalse();
     for (const page of SYSCALL_PAGES) {
       expect(page.sourcePath).toBe(

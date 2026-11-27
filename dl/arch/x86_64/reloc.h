@@ -11,4 +11,5 @@ enum {
     LD_R_DTPOFF64  = 17,
     LD_R_TPOFF64   = 18,
     LD_R_TPOFF32   = 23,
+    LD_R_IRELATIVE = 37,
 };

@@ -64,14 +64,14 @@ namespace astia::mod {
         };
 
         struct unload_plan {
-            usize                 index = 0;
+            usz                   index = 0;
             module_id             id{};
             void*                 base               = nullptr;
-            usize                 size               = 0;
+            usz                   size               = 0;
             void*                 context            = nullptr;
             elf::loader::unmap_fn unmap              = nullptr;
             close_waiter*         wakes[max_modules] = {};
-            usize                 wake_count         = 0;
+            usz                   wake_count         = 0;
         };
 
         registry_slot  slots[max_modules] = {};
@@ -245,7 +245,7 @@ namespace astia::mod {
 
         void copy_module_name(char (&destination)[max_module_name],
                               const char (&source)[max_module_name]) {
-            usize i = 0;
+            usz i = 0;
 
             while (i + 1 < max_module_name && source[i] != '\0') {
                 destination[i] = source[i];
@@ -298,7 +298,7 @@ namespace astia::mod {
             return nullptr;
         }
 
-        void abandon_slot(usize index, module_id id) {
+        void abandon_slot(usz index, module_id id) {
             arch::interrupt_spinlock_guard guard(registry_lock);
 
             registry_slot& slot = slots[index];
@@ -318,11 +318,11 @@ namespace astia::mod {
             if (dependencies.size() > max_module_dependencies)
                 return module_error::limit;
 
-            for (usize i = 0; i < dependencies.size(); ++i) {
+            for (usz i = 0; i < dependencies.size(); ++i) {
                 if (dependencies[i] == self || !dependencies[i].valid())
                     return module_error::invalid_argument;
 
-                for (usize j = 0; j < i; ++j) {
+                for (usz j = 0; j < i; ++j) {
                     if (dependencies[i] == dependencies[j])
                         return module_error::invalid_argument;
                 }
@@ -340,7 +340,7 @@ namespace astia::mod {
                     return module_error::would_block;
             }
 
-            for (usize i = 0; i < dependencies.size(); ++i) {
+            for (usz i = 0; i < dependencies.size(); ++i) {
                 module_error   error    = module_error::ok;
                 registry_slot* provider = find_slot_locked(dependencies[i], error);
 
@@ -457,7 +457,7 @@ namespace astia::mod {
             if (slot.close_wait != nullptr)
                 return false;
 
-            plan.index            = static_cast<usize>(&slot - slots);
+            plan.index            = static_cast<usz>(&slot - slots);
             plan.id               = slot.module.id;
             plan.base             = slot.module.base;
             plan.size             = slot.module.size;
@@ -466,7 +466,7 @@ namespace astia::mod {
             slot.module.quiescing = true;
             slot.state            = module_state::unloading;
 
-            for (usize i = 0; i < slot.module.dependency_count; ++i) {
+            for (usz i = 0; i < slot.module.dependency_count; ++i) {
                 module_error   error = module_error::ok;
                 registry_slot* provider =
                     find_slot_locked(slot.module.dependencies[i], error);
@@ -503,7 +503,7 @@ namespace astia::mod {
                 }
             }
 
-            for (usize i = 0; i < plan.wake_count; ++i) {
+            for (usz i = 0; i < plan.wake_count; ++i) {
                 deliver_waiter(plan.wakes[i], module_error::ok);
             }
         }
@@ -543,7 +543,7 @@ namespace astia::mod {
             return module_error::ok;
         }
 
-        bool depends_on_locked(usize start, module_id target, u32& visited) {
+        bool depends_on_locked(usz start, module_id target, u32& visited) {
             if (start >= max_modules || (visited & (1u << start)) != 0)
                 return false;
 
@@ -551,7 +551,7 @@ namespace astia::mod {
 
             const registry_slot& slot = slots[start];
 
-            for (usize i = 0; i < slot.module.dependency_count; ++i) {
+            for (usz i = 0; i < slot.module.dependency_count; ++i) {
                 const module_id dependency = slot.module.dependencies[i];
                 if (dependency == target)
                     return true;
@@ -579,16 +579,15 @@ namespace astia::mod {
         /// shares, so module text stays executable while a process CR3 is
         /// active. Never return the low identity alias: only [0, 1 GiB) is
         /// identity-mapped in the kernel map and none of it is shared.
-        void* image_map(void* context, u64 /*hint*/, usize size, usize align,
-                        bool fixed) {
+        void* image_map(void* context, u64 /*hint*/, usz size, usz align, bool fixed) {
             using fa = mm::frame_allocator;
 
             if (fixed || size == 0 || align > fa::frame_size) {
                 return nullptr; // the frame allocator cannot honor a fixed address
             }
 
-            usize frames = (size + fa::frame_size - 1) / fa::frame_size;
-            u64   phys   = mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
+            usz frames = (size + fa::frame_size - 1) / fa::frame_size;
+            u64 phys   = mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
 
             if (phys == fa::invalid_frame)
                 return nullptr;
@@ -601,11 +600,11 @@ namespace astia::mod {
             return image;
         }
 
-        void image_unmap(void*, void* address, usize size) {
+        void image_unmap(void*, void* address, usz size) {
             using fa = mm::frame_allocator;
 
-            usize frames = (size + fa::frame_size - 1) / fa::frame_size;
-            u64   phys   = mm::kernel_frames().to_phys(address);
+            usz frames = (size + fa::frame_size - 1) / fa::frame_size;
+            u64 phys   = mm::kernel_frames().to_phys(address);
 
             mm::kernel_frames().release(phys, frames);
         }
@@ -651,7 +650,7 @@ namespace astia::mod {
             if (options.dependencies.size() > max_module_dependencies)
                 return module_error::limit;
 
-            usize index = max_modules;
+            usz index = max_modules;
 
             module_id id{};
 
@@ -661,7 +660,7 @@ namespace astia::mod {
                 if (slot == nullptr)
                     return module_error::no_space;
 
-                index       = static_cast<usize>(slot - slots);
+                index       = static_cast<usz>(slot - slots);
                 slot->state = module_state::loading;
 
                 reset_loaded_module(slot->module);
@@ -709,11 +708,11 @@ namespace astia::mod {
                         slot.module.init_count  = loaded.init_count;
                         slot.module.fini_count  = loaded.fini_count;
 
-                        for (usize i = 0; i < loaded.init_count; ++i) {
+                        for (usz i = 0; i < loaded.init_count; ++i) {
                             slot.module.init_array[i] = loaded.init_array[i];
                         }
 
-                        for (usize i = 0; i < loaded.fini_count; ++i) {
+                        for (usz i = 0; i < loaded.fini_count; ++i) {
                             slot.module.fini_array[i] = loaded.fini_array[i];
                         }
 
@@ -727,7 +726,7 @@ namespace astia::mod {
                         slot.module.callback_inflight = 0;
                         slot.module.dependency_count  = options.dependencies.size();
 
-                        for (usize i = 0; i < options.dependencies.size(); ++i) {
+                        for (usz i = 0; i < options.dependencies.size(); ++i) {
                             slot.module.dependencies[i] = options.dependencies[i];
                         }
 
@@ -857,7 +856,7 @@ namespace astia::mod {
         struct open_parameters {
             bool      resident                              = false;
             bool      too_many                              = false;
-            usize     dependency_count                      = 0;
+            usz       dependency_count                      = 0;
             module_id dependencies[max_module_dependencies] = {};
             char      name[max_module_name]                 = {};
         };
@@ -877,7 +876,7 @@ namespace astia::mod {
 
             captured.dependency_count = options.dependencies.size();
 
-            for (usize i = 0; i < options.dependencies.size(); ++i) {
+            for (usz i = 0; i < options.dependencies.size(); ++i) {
                 captured.dependencies[i] = options.dependencies[i];
             }
 
@@ -1041,7 +1040,7 @@ namespace astia::mod {
 
         execution_session session(target, true);
 
-        for (usize i = 0; i < target->init_count; ++i) {
+        for (usz i = 0; i < target->init_count; ++i) {
             if (target->init_array[i] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
                 host_test::invoke_initializer(target->init_array[i]);
@@ -1138,7 +1137,7 @@ namespace astia::mod {
 
         finalize_exit_handlers(nullptr);
 
-        for (usize i = target->fini_count; i != 0; --i) {
+        for (usz i = target->fini_count; i != 0; --i) {
             if (target->fini_array[i - 1] != nullptr) {
 #ifdef ASTIA_MODULE_HOST_TEST
                 host_test::invoke_finalizer(target->fini_array[i - 1]);
@@ -1316,11 +1315,11 @@ namespace astia::mod {
         return module_error::ok;
     }
 
-    usize snapshot(span<module_info> out, usize* total) {
+    usz snapshot(span<module_info> out, usz* total) {
         arch::interrupt_spinlock_guard guard(registry_lock);
 
-        usize written = 0;
-        usize visible = 0;
+        usz written = 0;
+        usz visible = 0;
 
         for (const registry_slot& slot : slots) {
             if (!published(slot.state))
@@ -1339,7 +1338,7 @@ namespace astia::mod {
     }
 
     module_error snapshot_module(module_id id, module_info& out,
-                                 span<module_id> dependencies, usize& dependency_total) {
+                                 span<module_id> dependencies, usz& dependency_total) {
         dependency_total = 0;
 
         arch::interrupt_spinlock_guard guard(registry_lock);
@@ -1355,18 +1354,18 @@ namespace astia::mod {
 
         dependency_total = slot->module.dependency_count;
 
-        const usize count = dependencies.size() < slot->module.dependency_count
-                                ? dependencies.size()
-                                : slot->module.dependency_count;
+        const usz count = dependencies.size() < slot->module.dependency_count
+                              ? dependencies.size()
+                              : slot->module.dependency_count;
 
-        for (usize i = 0; i < count; ++i) {
+        for (usz i = 0; i < count; ++i) {
             dependencies[i] = slot->module.dependencies[i];
         }
 
         return module_error::ok;
     }
 
-    module_error dependency_at(module_id id, usize index, module_id& out) {
+    module_error dependency_at(module_id id, usz index, module_id& out) {
         out = {};
 
         arch::interrupt_spinlock_guard guard(registry_lock);
@@ -1409,7 +1408,7 @@ namespace astia::mod {
         if (dependent_slot->module.quiescing || provider_slot->module.quiescing)
             return module_error::would_block;
 
-        for (usize i = 0; i < dependent_slot->module.dependency_count; ++i) {
+        for (usz i = 0; i < dependent_slot->module.dependency_count; ++i) {
             if (dependent_slot->module.dependencies[i] == dependency)
                 return module_error::ok;
         }
@@ -1442,7 +1441,7 @@ namespace astia::mod {
 
             bool found = false;
 
-            for (usize i = 0; i < dependent_slot->module.dependency_count; ++i) {
+            for (usz i = 0; i < dependent_slot->module.dependency_count; ++i) {
                 if (dependent_slot->module.dependencies[i] != dependency)
                     continue;
 
@@ -1634,7 +1633,7 @@ namespace astia::mod {
         if (!owns_callback_context_locked())
             return -1;
 
-        for (usize i = 0; i < active->exit_count; ++i) {
+        for (usz i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 continue;
 
@@ -1664,7 +1663,7 @@ namespace astia::mod {
 
         void* identity = dso != nullptr ? dso : active->dso_identity;
 
-        for (usize i = 0; i < active->exit_count; ++i) {
+        for (usz i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 continue;
 
@@ -1693,9 +1692,9 @@ namespace astia::mod {
                 if (!owns_callback_context_locked())
                     return;
 
-                usize selected = active->exit_count;
+                usz selected = active->exit_count;
 
-                for (usize i = active->exit_count; i != 0; --i) {
+                for (usz i = active->exit_count; i != 0; --i) {
                     const loaded_module::exit_handler& candidate =
                         active->exit_handlers[i - 1];
 
@@ -1747,9 +1746,9 @@ namespace astia::mod {
         if (!owns_callback_context_locked())
             return;
 
-        usize remaining = 0;
+        usz remaining = 0;
 
-        for (usize i = 0; i < active->exit_count; ++i) {
+        for (usz i = 0; i < active->exit_count; ++i) {
             if (!active->exit_handlers[i].removed)
                 active->exit_handlers[remaining++] = active->exit_handlers[i];
         }
@@ -1757,10 +1756,10 @@ namespace astia::mod {
         active->exit_count = remaining;
     }
 
-    usize count() {
+    usz count() {
         arch::interrupt_spinlock_guard guard(registry_lock);
 
-        usize count = 0;
+        usz count = 0;
 
         for (const registry_slot& slot : slots) {
             if (published(slot.state))

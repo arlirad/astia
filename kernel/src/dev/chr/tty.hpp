@@ -67,7 +67,7 @@ namespace astia::dev {
         long write(const void* buf, u32 len, u64 off) override;
         long submit(io::request& request) override;
         u32  poll(u32 events, u32 flags) override;
-        long ioctl(u64 request, void* argp, usize size) override;
+        long ioctl(u64 request, void* argp, usz size) override;
         long acquire_controlling_terminal(i32 group) override;
 
 #ifdef ASTIA_TTY_HOST_TEST

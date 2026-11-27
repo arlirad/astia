@@ -7,11 +7,11 @@
 
 namespace astia::core {
     /// Sharded immutable hashmap with lockless readers and CAS writers.
-    template <typename Key, typename Value, usize Shards = 8, usize Retired = 8,
+    template <typename Key, typename Value, usz Shards = 8, usz Retired = 8,
               typename Hash = u64 (*)(const Key&)>
     class rcu_hashmap {
         static_assert(Shards != 0, "rcu_hashmap needs shards");
-        static constexpr usize bucket_count = 16;
+        static constexpr usz bucket_count = 16;
 
         struct node {
             Key             key;
@@ -37,12 +37,12 @@ namespace astia::core {
         bool (*equal_)(const Key&, const Key&);
         mutable shard shards_[Shards];
 
-        usize shard_index(const Key& key) const {
-            return static_cast<usize>(hash_(key) % Shards);
+        usz shard_index(const Key& key) const {
+            return static_cast<usz>(hash_(key) % Shards);
         }
 
-        usize bucket_index(const Key& key) const {
-            return static_cast<usize>(hash_(key) % bucket_count);
+        usz bucket_index(const Key& key) const {
+            return static_cast<usz>(hash_(key) % bucket_count);
         }
 
         snapshot* clone_without(const snapshot* old, const Key& key) const {
@@ -50,7 +50,7 @@ namespace astia::core {
             if (!next)
                 return {};
 
-            for (usize bucket = 0; bucket < bucket_count; ++bucket) {
+            for (usz bucket = 0; bucket < bucket_count; ++bucket) {
                 const node* item = old == nullptr ? nullptr : old->buckets[bucket].get();
 
                 for (; item != nullptr; item = item->next.get()) {
@@ -72,7 +72,7 @@ namespace astia::core {
         public:
         class read_guard {
             public:
-            read_guard(const rcu_hashmap& map, usize shard_index)
+            read_guard(const rcu_hashmap& map, usz shard_index)
                 : map_(map), shard_index_(shard_index) {
                 auto& state = map_.shards_[shard_index_];
 
@@ -104,7 +104,7 @@ namespace astia::core {
 
             private:
             const rcu_hashmap& map_;
-            usize              shard_index_;
+            usz                shard_index_;
             snapshot*          snapshot_ = nullptr;
         };
 
@@ -160,7 +160,7 @@ namespace astia::core {
                 }
 
                 if (!remove) {
-                    const usize bucket = bucket_index(key);
+                    const usz bucket = bucket_index(key);
 
                     auto item =
                         mm::shptr<node>(new node(key, value, next->buckets[bucket]));

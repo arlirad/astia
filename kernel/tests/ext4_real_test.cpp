@@ -16,7 +16,7 @@ namespace {
         std::vector<u8> bytes;
     };
 
-    bool read_image(void* context, u64 offset, void* buffer, astia::usize length) {
+    bool read_image(void* context, u64 offset, void* buffer, astia::usz length) {
         auto& source = *static_cast<image*>(context);
 
         if (offset > source.bytes.size() || length > source.bytes.size() - offset)

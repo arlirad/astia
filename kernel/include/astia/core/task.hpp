@@ -144,7 +144,7 @@ namespace astia::core {
             T         value{};
             error_t   result = error_t::enone;
 
-            static void* operator new(usize size) noexcept {
+            static void* operator new(usz size) noexcept {
                 return ::operator new(size);
             }
 
@@ -383,9 +383,9 @@ namespace astia::core {
     template <>
     class task<void> {
         public:
-        static constexpr usize frame_slot_bytes =
+        static constexpr usz frame_slot_bytes =
             resource_limits::coroutine::frame_slot_bytes;
-        static constexpr usize frame_slot_count = resource_limits::coroutine::frame_slots;
+        static constexpr usz frame_slot_count = resource_limits::coroutine::frame_slots;
         struct promise_type;
         using handle = std::coroutine_handle<promise_type>;
 
@@ -552,11 +552,11 @@ namespace astia::core {
             // kernel frame pool: the pool is per-image state and would add
             // frame_slot_bytes * frame_slot_count bytes of .bss to every
             // module. Module frames come from the kernel allocator instead.
-            static void* operator new(usize size) noexcept {
+            static void* operator new(usz size) noexcept {
                 return ::operator new(size);
             }
 
-            static void* operator new(usize size, const std::nothrow_t&) noexcept {
+            static void* operator new(usz size, const std::nothrow_t&) noexcept {
                 return ::operator new(size, std::nothrow);
             }
 
@@ -564,11 +564,11 @@ namespace astia::core {
                 ::operator delete(value);
             }
 #else
-            static void* operator new(usize size) noexcept {
+            static void* operator new(usz size) noexcept {
                 return allocate_frame(size);
             }
 
-            static void* operator new(usize size, const std::nothrow_t&) noexcept {
+            static void* operator new(usz size, const std::nothrow_t&) noexcept {
                 return allocate_frame(size);
             }
 
@@ -674,7 +674,7 @@ namespace astia::core {
             }
         }
 
-        static void* allocate_frame(usize size) noexcept {
+        static void* allocate_frame(usz size) noexcept {
             if (size > frame_slot_bytes)
                 return nullptr;
 
@@ -700,17 +700,17 @@ namespace astia::core {
         }
 
         static bool owns_frame(void* value, u32& index) {
-            const usize address = reinterpret_cast<usize>(value);
-            const usize first   = reinterpret_cast<usize>(_frame_pool[0].storage);
-            const usize last =
-                reinterpret_cast<usize>(_frame_pool[frame_slot_count - 1].storage) +
+            const usz address = reinterpret_cast<usz>(value);
+            const usz first   = reinterpret_cast<usz>(_frame_pool[0].storage);
+            const usz last =
+                reinterpret_cast<usz>(_frame_pool[frame_slot_count - 1].storage) +
                 sizeof(_frame_pool[frame_slot_count - 1].storage);
 
             if (address < first || address >= last)
                 return false;
 
-            const usize stride = sizeof(frame_slot);
-            const usize offset = address - first;
+            const usz stride = sizeof(frame_slot);
+            const usz offset = address - first;
 
             if (offset % stride != 0)
                 return false;

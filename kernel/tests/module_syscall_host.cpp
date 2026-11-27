@@ -27,7 +27,7 @@ namespace {
     char                     last_path[ASTIA_MODULE_PATH_MAX]{};
     astia::mod::module_error next_error = astia::mod::module_error::ok;
 
-    void* map_image(void*, astia::u64, astia::usize size, astia::usize, bool fixed) {
+    void* map_image(void*, astia::u64, astia::usz size, astia::usz, bool fixed) {
         if (fixed)
             return nullptr;
 
@@ -37,7 +37,7 @@ namespace {
         return image == MAP_FAILED ? nullptr : image;
     }
 
-    void unmap_image(void*, void* image, astia::usize size) {
+    void unmap_image(void*, void* image, astia::usz size) {
         if (image != nullptr)
             munmap(image, size);
     }
@@ -45,7 +45,7 @@ namespace {
     astia::u64 resolve_symbol(void*, const char* name) {
         if (std::strcmp(name, "_Znwm") == 0)
             return reinterpret_cast<astia::u64>(
-                static_cast<void* (*) (astia::usize)>(&::operator new));
+                static_cast<void* (*) (astia::usz)>(&::operator new));
 
         if (std::strcmp(name, "_ZdlPv") == 0)
             return reinterpret_cast<astia::u64>(
@@ -74,11 +74,11 @@ namespace astia::mm {
         return false;
     }
 
-    bool address_space::valid_user_range(u64, usize) const {
+    bool address_space::valid_user_range(u64, usz) const {
         return false;
     }
 
-    bool address_space::validate(u64, usize, access) const {
+    bool address_space::validate(u64, usz, access) const {
         return false;
     }
 
@@ -177,7 +177,7 @@ namespace astia::mod {
         std::memset(last_path, 0, sizeof last_path);
 
         if (path != nullptr) {
-            for (usize i = 0; i + 1 < sizeof last_path && path[i] != '\0'; ++i) {
+            for (usz i = 0; i + 1 < sizeof last_path && path[i] != '\0'; ++i) {
                 last_path[i] = path[i];
             }
         }

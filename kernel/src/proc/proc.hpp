@@ -71,7 +71,7 @@ namespace astia::proc {
     /// streamed through the asynchronous filesystem and argv/envp are
     /// materialized on the child's user stack after loading completes.
     core::task<mm::shptr<process>> spawnve(process* parent, mm::shptr<fs::open_file> file,
-                                           usize length, char* const argv[],
+                                           usz length, char* const argv[],
                                            char* const envp[]);
 
     /// Look up a live process by pid in the registry.

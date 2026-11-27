@@ -44,8 +44,8 @@ namespace astia::io::aio::test_support {
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
-        constexpr usize      node_override_capacity = 8;
-        constexpr usize      node_override_path_max = 128;
+        constexpr usz        node_override_capacity = 8;
+        constexpr usz        node_override_path_max = 512;
 
         struct node_override_entry {
             char      path[node_override_path_max]{};
@@ -61,6 +61,9 @@ namespace astia::io::aio::test_support {
 
         node_override_entry node_overrides[node_override_capacity];
 
+        touch_record touch_value;
+        bool         touch_value_valid = false;
+
         bool same_path(const char* left, const char* right) {
             while (*left != '\0' && *left == *right) {
                 ++left;
@@ -71,7 +74,7 @@ namespace astia::io::aio::test_support {
         }
 
         void copy_path(char* destination, const char* source) {
-            usize length = 0;
+            usz length = 0;
 
             while (length + 1 < node_override_path_max && source[length] != '\0') {
                 destination[length] = source[length];
@@ -158,9 +161,8 @@ namespace astia::io::aio::test_support {
                 source.null())
                 return false;
 
-            const usize limit =
-                source.empty() ? destination.length() - 1 : source.length();
-            usize length = 0;
+            const usz limit = source.empty() ? destination.length() - 1 : source.length();
+            usz       length = 0;
 
             while (length < limit && length + 1 < destination.length()) {
                 const char value = static_cast<char>(source[length]);
@@ -252,6 +254,8 @@ namespace astia::io::aio::test_support {
             entry = {};
         }
 
+        touch_value       = {};
+        touch_value_valid = false;
         open_file_value   = {};
         pipe_read_value   = {};
         pipe_write_value  = {};
@@ -387,6 +391,19 @@ namespace astia::io::aio::test_support {
 
     void set_memory_allowed(bool allowed) {
         memory_allowed = allowed;
+    }
+
+    bool touch_called() {
+        return touch_value_valid;
+    }
+
+    const touch_record& last_touch() {
+        return touch_value;
+    }
+
+    void clear_touch_record() {
+        touch_value       = {};
+        touch_value_valid = false;
     }
 
     void set_timer(u64 hz, u64 ticks) {
@@ -546,7 +563,7 @@ namespace astia::core {
 } // namespace astia::core
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 
@@ -564,7 +581,7 @@ namespace astia::mm::heap {
 
 namespace astia::mm {
     iovec::iovec(iovec&& other) noexcept {
-        for (usize i = 0; i < other._count; ++i) {
+        for (usz i = 0; i < other._count; ++i) {
             _segments[i].base   = other._segments[i].base;
             _segments[i].offset = other._segments[i].offset;
             _segments[i].length = other._segments[i].length;
@@ -586,7 +603,7 @@ namespace astia::mm {
         if (this != &other) {
             release();
 
-            for (usize i = 0; i < other._count; ++i) {
+            for (usz i = 0; i < other._count; ++i) {
                 _segments[i].base   = other._segments[i].base;
                 _segments[i].offset = other._segments[i].offset;
                 _segments[i].length = other._segments[i].length;
@@ -615,7 +632,7 @@ namespace astia::mm {
         _remaining = 0;
     }
 
-    usize iovec::bytes() const {
+    usz iovec::bytes() const {
         return _total;
     }
 
@@ -632,26 +649,26 @@ namespace astia::mm {
         return segment.base + segment.offset + _offset;
     }
 
-    usize iovec::chunk() const {
+    usz iovec::chunk() const {
         if (_remaining == 0 || _index >= _count)
             return 0;
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize left = segment.length - _offset;
+        const usz left = segment.length - _offset;
 
         return left < _remaining ? left : _remaining;
     }
 
-    usize iovec::advance(usize bytes) {
-        usize moved = 0;
+    usz iovec::advance(usz bytes) {
+        usz moved = 0;
 
         while (moved < bytes && _remaining != 0 && _index < _count) {
-            const usize take = chunk();
+            const usz take = chunk();
             if (take == 0)
                 break;
 
-            const usize step = take < bytes - moved ? take : bytes - moved;
+            const usz step = take < bytes - moved ? take : bytes - moved;
 
             _offset += step;
             _remaining -= step;
@@ -667,7 +684,7 @@ namespace astia::mm {
         return moved;
     }
 
-    bool iovec::append_kernel(void* address, usize length) {
+    bool iovec::append_kernel(void* address, usz length) {
         if (_count >= max_segments || length == 0)
             return _count < max_segments;
 
@@ -827,7 +844,7 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -836,23 +853,71 @@ namespace astia::proc {
         if (length + 1 > buffer.length())
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 
         return static_cast<i64>(length);
     }
 
-    i64 process::compose_path_at(fd_t, const char* path, span<char> buffer) const {
-        return compose_path(path, buffer);
+    i64 process::compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        if (path[0] == '/' || dirfd.value == AT_FDCWD)
+            return compose_path(path, buffer);
+
+        auto directory = descriptor(dirfd);
+        if (!directory)
+            return -EBADF;
+
+        const char* base = directory->path();
+
+        if (base == nullptr || !directory->mode().is_directory())
+            return -ENOTDIR;
+
+        usz length = 0;
+
+        while (base[length] != '\0') {
+            ++length;
+        }
+
+        usz suffix = 0;
+
+        while (path[suffix] != '\0') {
+            ++suffix;
+        }
+
+        if (length + suffix + 2 > buffer.length())
+            return -ENAMETOOLONG;
+
+        for (usz i = 0; i < length; ++i) {
+            buffer[i] = base[i];
+        }
+
+        if (length == 0 || buffer[length - 1] != '/')
+            buffer[length++] = '/';
+
+        for (usz i = 0; i <= suffix; ++i) {
+            buffer[length + i] = path[i];
+        }
+
+        return static_cast<i64>(length + suffix);
     }
 
     i64 process::resolve_path(const char* path, span<char> buffer, bool) const {
         return compose_path(path, buffer);
     }
 
-    i64 process::resolve_path_at(fd_t, const char* path, span<char> buffer, bool) const {
-        return compose_path(path, buffer);
+    i64 process::resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
+                                 bool) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        if (path[0] == '/' || dirfd.value == AT_FDCWD)
+            return compose_path(path, buffer);
+
+        return compose_path_at(dirfd, path, buffer);
     }
 
     i64 process::copy_root(span<char> buffer) const {
@@ -955,7 +1020,7 @@ namespace astia::fs {
         return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
-    long open_file::ioctl(u64 request, void* argument, usize size) {
+    long open_file::ioctl(u64 request, void* argument, usz size) {
         if (!_parent)
             return -EBADF;
 
@@ -1008,7 +1073,7 @@ namespace astia::fs {
         if (path == nullptr || buffer == nullptr)
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -1017,7 +1082,7 @@ namespace astia::fs {
         if (length + 1 > capacity)
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 
@@ -1083,7 +1148,18 @@ namespace astia::fs {
         return 0;
     }
 
-    long touch_path(const char*, u64, u64) {
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
+        auto& record = ::astia::io::aio::test_support::detail::touch_value;
+
+        record = {};
+
+        ::astia::io::aio::test_support::detail::copy_path(record.path,
+                                                          path != nullptr ? path : "");
+
+        record.times                                              = times;
+        record.follow_final                                       = follow_final;
+        ::astia::io::aio::test_support::detail::touch_value_valid = true;
+
         return 0;
     }
 

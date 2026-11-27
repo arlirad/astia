@@ -8,12 +8,12 @@
 
 namespace astia::fs::path_service {
     namespace {
-        long copy_string(char* destination, usize capacity, const char* source,
+        long copy_string(char* destination, usz capacity, const char* source,
                          long too_small) {
             if (destination == nullptr || source == nullptr || capacity == 0)
                 return -EINVAL;
 
-            usize length = 0;
+            usz length = 0;
 
             while (source[length] != '\0') {
                 ++length;
@@ -22,7 +22,7 @@ namespace astia::fs::path_service {
             if (length + 1 > capacity)
                 return too_small;
 
-            for (usize i = 0; i <= length; ++i) {
+            for (usz i = 0; i <= length; ++i) {
                 destination[i] = source[i];
             }
 
@@ -78,8 +78,8 @@ namespace astia::fs::path_service {
         if (path[0] == '.' && path[1] == '\0')
             return copy_string(buffer.data(), buffer.size(), base, -ERANGE);
 
-        char  candidate[path_max]{};
-        usize at = 0;
+        char candidate[path_max]{};
+        usz  at = 0;
 
         for (; base[at] != '\0' && at + 1 < sizeof candidate; ++at) {
             candidate[at] = base[at];
@@ -91,7 +91,7 @@ namespace astia::fs::path_service {
         if (at > 1 && at + 1 < sizeof candidate)
             candidate[at++] = '/';
 
-        usize source = 0;
+        usz source = 0;
 
         for (; path[source] != '\0' && at + 1 < sizeof candidate; ++source, ++at) {
             candidate[at] = path[source];
@@ -267,7 +267,6 @@ namespace astia::fs::path_service {
                     return n;
 
                 const u32 target_len = length_of(target);
-
                 if (target_len == 0)
                     return -ENOENT;
 

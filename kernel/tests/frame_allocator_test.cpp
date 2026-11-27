@@ -72,8 +72,8 @@ ASTIA_TEST(frame_allocator_tracks_free_count) {
 
     init_with_arena(alloc);
 
-    const astia::usize before = alloc.available_frames();
-    const astia::u64   frame  = alloc.alloc(3);
+    const astia::usz before = alloc.available_frames();
+    const astia::u64 frame  = alloc.alloc(3);
 
     ASTIA_CHECK(frame != frame_allocator::invalid_frame);
     ASTIA_CHECK(alloc.available_frames() == before - 3);
@@ -92,7 +92,7 @@ ASTIA_TEST(frame_allocator_zeroes_on_request) {
     const astia::u64 frame = alloc.alloc(1);
     auto*            words = reinterpret_cast<astia::u64*>(frame);
 
-    for (astia::usize i = 0; i < frame_size / sizeof(astia::u64); ++i) {
+    for (astia::usz i = 0; i < frame_size / sizeof(astia::u64); ++i) {
         words[i] = 0xdeadbeefcafef00dull;
     }
 
@@ -104,7 +104,7 @@ ASTIA_TEST(frame_allocator_zeroes_on_request) {
 
     bool zeroed = true;
 
-    for (astia::usize i = 0; i < frame_size / sizeof(astia::u64); ++i) {
+    for (astia::usz i = 0; i < frame_size / sizeof(astia::u64); ++i) {
         zeroed = zeroed && (words[i] == 0);
     }
 
@@ -121,7 +121,7 @@ ASTIA_TEST(frame_allocator_rejects_impossible_requests) {
                 frame_allocator::invalid_frame);
 
     // Even a request that fits exactly is satisfied.
-    const astia::usize free_frames = alloc.available_frames();
+    const astia::usz free_frames = alloc.available_frames();
 
     ASTIA_CHECK(alloc.alloc(free_frames) != frame_allocator::invalid_frame);
     ASTIA_CHECK(alloc.available_frames() == 0);

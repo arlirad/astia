@@ -13,8 +13,8 @@ static_assert(offsetof(astia_utsname, release) == 130);
 static_assert(offsetof(astia_utsname, version) == 195);
 static_assert(offsetof(astia_utsname, machine) == 260);
 
-static bool field_is_terminated_and_zero_padded(const char* field, astia::usize size) {
-    astia::usize i = 0;
+static bool field_is_terminated_and_zero_padded(const char* field, astia::usz size) {
+    astia::usz i = 0;
 
     while (i < size && field[i] != '\0') {
         ++i;
@@ -31,8 +31,8 @@ static bool field_is_terminated_and_zero_padded(const char* field, astia::usize 
     return true;
 }
 
-static bool field_equals(const char* field, astia::usize size, const char* value) {
-    for (astia::usize i = 0; i < size; ++i) {
+static bool field_equals(const char* field, astia::usz size, const char* value) {
+    for (astia::usz i = 0; i < size; ++i) {
         if (field[i] != value[i])
             return false;
 
@@ -47,7 +47,7 @@ static bool text_equals(const char* left, const char* right) {
     if (left == nullptr || right == nullptr)
         return left == right;
 
-    for (astia::usize i = 0;; ++i) {
+    for (astia::usz i = 0;; ++i) {
         if (left[i] != right[i])
             return false;
 
@@ -101,7 +101,7 @@ ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
     char long_release[100];
     char long_version[100];
 
-    for (astia::usize i = 0; i < sizeof long_release; ++i) {
+    for (astia::usz i = 0; i < sizeof long_release; ++i) {
         long_release[i] = 'r';
         long_version[i] = 'v';
     }
@@ -114,7 +114,7 @@ ASTIA_TEST(utsname_fill_truncates_long_fields_and_terminates) {
     ASTIA_CHECK(name.release[64] == '\0');
     ASTIA_CHECK(name.version[64] == '\0');
 
-    for (astia::usize i = 0; i < 64; ++i) {
+    for (astia::usz i = 0; i < 64; ++i) {
         ASTIA_CHECK(name.release[i] == 'r');
         ASTIA_CHECK(name.version[i] == 'v');
     }

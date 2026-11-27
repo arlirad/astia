@@ -7,13 +7,13 @@
 
 namespace astia::core {
     /// Immutable vector with lockless readers and lockless CAS writers.
-    template <typename T, usize Capacity>
+    template <typename T, usz Capacity>
     class rcu_vector {
         static_assert(Capacity != 0, "rcu_vector capacity must be non-zero");
 
         struct snapshot {
-            usize size = 0;
-            T     values[Capacity]{};
+            usz size = 0;
+            T   values[Capacity]{};
         };
 
         using grace = rcu_grace_period<snapshot>;
@@ -50,11 +50,11 @@ namespace astia::core {
                 return _snapshot == nullptr ? nullptr : _snapshot->values;
             }
 
-            usize size() const {
+            usz size() const {
                 return _snapshot == nullptr ? 0 : _snapshot->size;
             }
 
-            const T& operator[](usize index) const {
+            const T& operator[](usz index) const {
                 return data()[index];
             }
 
@@ -90,7 +90,7 @@ namespace astia::core {
 
             next->size = values.size();
 
-            for (usize i = 0; i < values.size(); ++i) {
+            for (usz i = 0; i < values.size(); ++i) {
                 next->values[i] = values[i];
             }
 
@@ -131,7 +131,7 @@ namespace astia::core {
             }
         }
 
-        usize size_approx() const {
+        usz size_approx() const {
             read_guard guard(*this);
 
             return guard.size();

@@ -11,6 +11,6 @@ namespace astia::core {
     /// 2..  Each pattern has its own counter, shared process-wide and
     /// serialised.  Returns false for a malformed pattern or when the
     /// rendered name does not fit.
-    bool name_letter_increment(char* buffer, usize capacity, const char* pattern);
-    bool name_number_increment(char* buffer, usize capacity, const char* pattern);
+    bool name_letter_increment(char* buffer, usz capacity, const char* pattern);
+    bool name_number_increment(char* buffer, usz capacity, const char* pattern);
 } // namespace astia::core

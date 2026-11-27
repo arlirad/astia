@@ -376,8 +376,8 @@ ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
 
     bool covered[sizeof(astia_siginfo_t)]{};
 
-    const auto cover = [&covered](astia::usize offset, astia::usize length) {
-        for (astia::usize i = 0; i < length; ++i) {
+    const auto cover = [&covered](astia::usz offset, astia::usz length) {
+        for (astia::usz i = 0; i < length; ++i) {
             covered[offset + i] = true;
         }
     };
@@ -390,7 +390,7 @@ ASTIA_TEST(signal_info_initialization_covers_full_abi_storage) {
     cover(offsetof(astia_siginfo_t, status), sizeof(info.status));
     cover(offsetof(astia_siginfo_t, addr), sizeof(info.addr));
 
-    for (astia::usize i = 0; i < sizeof(astia_siginfo_t); ++i) {
+    for (astia::usz i = 0; i < sizeof(astia_siginfo_t); ++i) {
         ASTIA_CHECK(covered[i] || bytes[i] == 0);
     }
 }

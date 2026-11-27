@@ -14,7 +14,7 @@ namespace astia::boot::virt {
                 return false;
 
             result = span<const u8>(static_cast<const u8*>(address),
-                                    static_cast<usize>(identity_map_limit - physical));
+                                    static_cast<usz>(identity_map_limit - physical));
 
             return true;
         }
@@ -28,7 +28,7 @@ namespace astia::boot::virt {
             return false;
 
         const span<const u8> physical_memory =
-            span<const u8>::bytes(0, static_cast<usize>(identity_map_limit));
+            span<const u8>::bytes(0, static_cast<usz>(identity_map_limit));
         const span<const u8> pvh_start(start_info.data(), 56);
 
         if (!parse_start_info(pvh_start, physical_memory, info) &&

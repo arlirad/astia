@@ -32,7 +32,7 @@ namespace astia::elf::loader {
             return true;
         }
 
-        bool section_name(const view& v, u16 index, const char*& out, usize& out_size) {
+        bool section_name(const view& v, u16 index, const char*& out, usz& out_size) {
             if (index >= v.shnum || v.shstr == nullptr)
                 return false;
 
@@ -57,8 +57,8 @@ namespace astia::elf::loader {
         // linked string table. Returns false on anything malformed or
         // truncated.
         bool parse_relocatable(span<const u8> bytes, view& v) {
-            const usize len  = bytes.size();
-            u16         type = 0;
+            const usz len  = bytes.size();
+            u16       type = 0;
 
             if (!ident_type(bytes, type) || type != et_rel)
                 return false;
@@ -92,7 +92,7 @@ namespace astia::elf::loader {
                 return false;
 
             v.shstr     = reinterpret_cast<const char*>(v.base + shstr.sh_offset);
-            v.shstrsize = static_cast<usize>(shstr.sh_size);
+            v.shstrsize = static_cast<usz>(shstr.sh_size);
 
             // Locate SHT_SYMTAB and follow sh_link to its SHT_STRTAB.
             for (u16 i = 0; i < v.shnum; ++i) {
@@ -125,10 +125,10 @@ namespace astia::elf::loader {
                 v.sym       = reinterpret_cast<const elf64_sym*>(v.base + sh.sh_offset);
                 v.symcount  = sh.sh_size / sizeof(elf64_sym);
                 v.str       = reinterpret_cast<const char*>(v.base + str.sh_offset);
-                v.strsize   = static_cast<usize>(str.sh_size);
+                v.strsize   = static_cast<usz>(str.sh_size);
                 v.sym_index = i;
 
-                for (usize j = 0; j < v.symcount; ++j) {
+                for (usz j = 0; j < v.symcount; ++j) {
                     const char* name = nullptr;
 
                     if (!symbol_name(v, v.sym[j], name))
@@ -245,9 +245,9 @@ namespace astia::elf::loader {
             const elf64_rela* rela =
                 reinterpret_cast<const elf64_rela*>(v.base + sh.sh_offset);
 
-            const usize count = sh.sh_size / sizeof(elf64_rela);
+            const usz count = sh.sh_size / sizeof(elf64_rela);
 
-            for (usize k = 0; k < count; ++k) {
+            for (usz k = 0; k < count; ++k) {
                 switch (r_type(rela[k].r_info)) {
                 case r_x86_64_none:
                 case r_x86_64_64:

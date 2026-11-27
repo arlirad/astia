@@ -11,8 +11,8 @@
 
 namespace astia::initrd {
     namespace {
-        constexpr usize gzip_header_min   = 10;
-        constexpr usize gzip_trailer_size = 8;
+        constexpr usz gzip_header_min   = 10;
+        constexpr usz gzip_trailer_size = 8;
 
         constexpr u8 gzip_flag_header_crc = 0x02;
         constexpr u8 gzip_flag_extra      = 0x04;
@@ -20,7 +20,7 @@ namespace astia::initrd {
         constexpr u8 gzip_flag_comment    = 0x10;
         constexpr u8 gzip_flag_reserved   = 0xe0;
 
-        constexpr usize zstd_workspace_bytes = 128 * 1024;
+        constexpr usz zstd_workspace_bytes = 128 * 1024;
 
         // The kernel is single-threaded during init, which is the only caller
         // of this decoder.  Both decoder states live in BSS so a malformed
@@ -28,8 +28,8 @@ namespace astia::initrd {
         tinfl_decompressor inflate_state;
         alignas(64) u8 zstd_workspace[zstd_workspace_bytes];
 
-        u32 crc32_update(u32 state, const u8* data, usize size) {
-            for (usize i = 0; i < size; ++i) {
+        u32 crc32_update(u32 state, const u8* data, usz size) {
+            for (usz i = 0; i < size; ++i) {
                 state ^= data[i];
 
                 for (u32 bit = 0; bit < 8; ++bit) {
@@ -52,16 +52,16 @@ namespace astia::initrd {
                    (static_cast<u32>(p[2]) << 16) | (static_cast<u32>(p[3]) << 24);
         }
 
-        bool range_ok(usize offset, usize length, usize limit) {
+        bool range_ok(usz offset, usz length, usz limit) {
             return offset <= limit && length <= limit - offset;
         }
 
-        decode_error check_sizes(usize compressed, u64 declared,
-                                 const decode_limits& limits, usize& size) {
+        decode_error check_sizes(usz compressed, u64 declared,
+                                 const decode_limits& limits, usz& size) {
             if (declared > limits.max_output)
                 return decode_error::output_limit;
 
-            size = static_cast<usize>(declared);
+            size = static_cast<usz>(declared);
 
             if (size <= limits.ratio_floor)
                 return decode_error::ok;
@@ -69,9 +69,9 @@ namespace astia::initrd {
             if (compressed == 0 || limits.max_ratio == 0)
                 return decode_error::ratio_limit;
 
-            const usize product = compressed > (~usize{0}) / limits.max_ratio
-                                      ? ~usize{0}
-                                      : compressed * limits.max_ratio;
+            const usz product = compressed > (~usz{0}) / limits.max_ratio
+                                    ? ~usz{0}
+                                    : compressed * limits.max_ratio;
 
             if (size > product)
                 return decode_error::ratio_limit;
@@ -80,10 +80,10 @@ namespace astia::initrd {
         }
 
         struct gzip_view {
-            usize deflate_offset = 0;
-            usize deflate_size   = 0;
-            u32   crc            = 0;
-            u32   isize          = 0;
+            usz deflate_offset    = 0;
+            usz deflate_size      = 0;
+            u32 crc               = 0;
+            u32 uncompressed_size = 0;
         };
 
         decode_error parse_gzip(span<const u8> image, gzip_view& view) {
@@ -99,9 +99,9 @@ namespace astia::initrd {
             if ((flags & gzip_flag_reserved) != 0)
                 return decode_error::unsupported;
 
-            const usize trailer = image.size() - gzip_trailer_size;
-            usize       offset  = gzip_header_min;
-            u32         crc     = 0xffffffffu;
+            const usz trailer = image.size() - gzip_trailer_size;
+            usz       offset  = gzip_header_min;
+            u32       crc     = 0xffffffffu;
 
             crc = crc32_update(crc, image.data(), gzip_header_min);
 
@@ -109,8 +109,8 @@ namespace astia::initrd {
                 if (!range_ok(offset, 2, trailer))
                     return decode_error::truncated;
 
-                const usize extra_size = read_le16(image.data() + offset);
-                const usize start      = offset;
+                const usz extra_size = read_le16(image.data() + offset);
+                const usz start      = offset;
 
                 offset += 2;
 
@@ -122,7 +122,7 @@ namespace astia::initrd {
             }
 
             if ((flags & gzip_flag_name) != 0) {
-                const usize start = offset;
+                const usz start = offset;
 
                 while (offset < trailer && image[offset] != 0) {
                     ++offset;
@@ -137,7 +137,7 @@ namespace astia::initrd {
             }
 
             if ((flags & gzip_flag_comment) != 0) {
-                const usize start = offset;
+                const usz start = offset;
 
                 while (offset < trailer && image[offset] != 0) {
                     ++offset;
@@ -166,15 +166,15 @@ namespace astia::initrd {
             if (offset >= trailer)
                 return decode_error::malformed;
 
-            view.deflate_offset = offset;
-            view.deflate_size   = trailer - offset;
-            view.crc            = read_le32(image.data() + trailer);
-            view.isize          = read_le32(image.data() + trailer + 4);
+            view.deflate_offset    = offset;
+            view.deflate_size      = trailer - offset;
+            view.crc               = read_le32(image.data() + trailer);
+            view.uncompressed_size = read_le32(image.data() + trailer + 4);
 
             return decode_error::ok;
         }
 
-        decode_error map_zstd_error(usize code) {
+        decode_error map_zstd_error(usz code) {
             switch (ZSTD_getErrorCode(code)) {
             case ZSTD_error_checksum_wrong:
                 return decode_error::checksum;
@@ -256,7 +256,7 @@ namespace astia::initrd {
     }
 
     decode_error decoded_size(archive_container container, span<const u8> image,
-                              const decode_limits& limits, usize& size) {
+                              const decode_limits& limits, usz& size) {
         if (image.data() == nullptr || image.size() == 0)
             return decode_error::malformed;
 
@@ -270,14 +270,14 @@ namespace astia::initrd {
             if (error != decode_error::ok)
                 return error;
 
-            return check_sizes(image.size(), view.isize, limits, size);
+            return check_sizes(image.size(), view.uncompressed_size, limits, size);
         }
 
         if (container == archive_container::zstd) {
             ZSTD_FrameHeader header{};
 
-            const usize result = ZSTD_getFrameHeader(&header, image.data(),
-                                                     static_cast<usize>(image.size()));
+            const usz result = ZSTD_getFrameHeader(&header, image.data(),
+                                                   static_cast<usz>(image.size()));
 
             if (ZSTD_isError(result))
                 return map_zstd_error(result);
@@ -297,8 +297,8 @@ namespace astia::initrd {
             if (header.windowSize > limits.max_window)
                 return decode_error::window_limit;
 
-            const usize frame_size = ZSTD_findFrameCompressedSize(
-                image.data(), static_cast<usize>(image.size()));
+            const usz frame_size = ZSTD_findFrameCompressedSize(
+                image.data(), static_cast<usz>(image.size()));
 
             if (ZSTD_isError(frame_size))
                 return map_zstd_error(frame_size);
@@ -314,7 +314,7 @@ namespace astia::initrd {
 
     decode_error decode(archive_container container, span<const u8> image,
                         span<u8> output, const decode_limits& limits) {
-        usize expected = 0;
+        usz expected = 0;
 
         const decode_error size_error = decoded_size(container, image, limits, expected);
 
@@ -333,8 +333,8 @@ namespace astia::initrd {
 
             tinfl_init(&inflate_state);
 
-            usize in_size  = view.deflate_size;
-            usize out_size = output.size();
+            usz in_size  = view.deflate_size;
+            usz out_size = output.size();
 
             const tinfl_status status =
                 tinfl_decompress(&inflate_state, image.data() + view.deflate_offset,
@@ -354,7 +354,7 @@ namespace astia::initrd {
             if (crc32_update(0xffffffffu, output.data(), output.size()) != ~view.crc)
                 return decode_error::checksum;
 
-            if (static_cast<u32>(output.size()) != view.isize)
+            if (static_cast<u32>(output.size()) != view.uncompressed_size)
                 return decode_error::malformed;
 
             return decode_error::ok;
@@ -369,9 +369,9 @@ namespace astia::initrd {
             if (context == nullptr)
                 return decode_error::allocation;
 
-            const usize result =
+            const usz result =
                 ZSTD_decompressDCtx(context, output.data(), output.size(), image.data(),
-                                    static_cast<usize>(image.size()));
+                                    static_cast<usz>(image.size()));
 
             if (ZSTD_isError(result))
                 return map_zstd_error(result);

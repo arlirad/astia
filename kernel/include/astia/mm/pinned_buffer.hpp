@@ -54,7 +54,7 @@ namespace astia::mm {
         /// a CoW split cannot move the mapping out from under the
         /// operation.  False — referencing nothing — when the range escapes
         /// the region or a counter would overflow.
-        bool acquire(phys_region* region, usize first, usize count, bool destination);
+        bool acquire(phys_region* region, usz first, usz count, bool destination);
 
         /// Drop the references taken by acquire().  Safe and idempotent on
         /// an empty buffer.  Task context only: it may take a lock and may
@@ -67,21 +67,21 @@ namespace astia::mm {
 
         bool contiguous() const;
 
-        usize pages() const {
+        usz pages() const {
             return _count;
         }
 
         /// Kernel address of page `index` — what a device should be handed.
-        void* direct(usize index = 0) const;
+        void* direct(usz index = 0) const;
 
         /// Physical address of page `index`, for a device that programs its
         /// own DMA.
-        u64 phys(usize index = 0) const;
+        u64 phys(usz index = 0) const;
 
         private:
         phys_region* _region      = nullptr;
-        usize        _first       = 0;
-        usize        _count       = 0;
+        usz          _first       = 0;
+        usz          _count       = 0;
         bool         _destination = false;
     };
 } // namespace astia::mm

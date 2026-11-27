@@ -8,7 +8,7 @@ namespace astia::fs::filesystems {
         u64 next_inode = 2;
     } // namespace
 
-    tmpfs_file::tmpfs_file(usize pages, file_mode mode)
+    tmpfs_file::tmpfs_file(usz pages, file_mode mode)
         : _storage(mode.is_directory() ? nullptr : mm::phys_region::create(pages, true)),
           _mode(mode), _inode(astia::atomic_ref<u64>(next_inode)
                                   .fetch_add(1u, astia::memory_order::relaxed)) {}
@@ -118,9 +118,9 @@ namespace astia::fs::filesystems {
             const u64 visible_end   = page_end < _size ? page_end : _size;
 
             const auto* source = static_cast<const u8*>(
-                mapping->page_direct(static_cast<usize>(current / page_bytes)));
+                mapping->page_direct(static_cast<usz>(current / page_bytes)));
             auto* target = static_cast<u8*>(
-                _storage->page_direct(static_cast<usize>(current / page_bytes)));
+                _storage->page_direct(static_cast<usz>(current / page_bytes)));
 
             if (source == nullptr || target == nullptr)
                 co_return -EIO;
@@ -174,25 +174,21 @@ namespace astia::fs::filesystems {
         return 0;
     }
 
-    long tmpfs_file::touch(u64 sec, u64 nsec) {
+    long tmpfs_file::touch(const file_timestamps& times) {
         core::spinlock_guard guard(_lock);
 
-        _times.atime_sec  = sec;
-        _times.atime_nsec = nsec;
-        _times.mtime_sec  = sec;
-        _times.mtime_nsec = nsec;
+        _times.atime_sec  = times.atime_sec;
+        _times.atime_nsec = times.atime_nsec;
+        _times.mtime_sec  = times.mtime_sec;
+        _times.mtime_nsec = times.mtime_nsec;
 
-        u64 ctime_sec  = 0;
-        u64 ctime_nsec = 0;
+        u64 ctime_sec  = times.mtime_sec;
+        u64 ctime_nsec = times.mtime_nsec;
 
-        if (fs::realtime_now(ctime_sec, ctime_nsec)) {
-            _times.ctime_sec  = ctime_sec;
-            _times.ctime_nsec = ctime_nsec;
-        }
-        else {
-            _times.ctime_sec  = sec;
-            _times.ctime_nsec = nsec;
-        }
+        (void) fs::realtime_now(ctime_sec, ctime_nsec);
+
+        _times.ctime_sec  = ctime_sec;
+        _times.ctime_nsec = ctime_nsec;
 
         return 0;
     }

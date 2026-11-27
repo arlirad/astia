@@ -259,7 +259,7 @@ namespace astia::dev {
         if (first > last)
             return false;
 
-        for (usize i = 0; i < grants.size(); ++i) {
+        for (usz i = 0; i < grants.size(); ++i) {
             const io_window_grant& grant = grants.data()[i];
 
             if (first >= grant.first && last <= grant.last)

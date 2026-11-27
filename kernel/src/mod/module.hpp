@@ -124,16 +124,16 @@ namespace astia::mod {
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
     /// registry off the heap.
-    inline constexpr usize max_modules = 16;
+    inline constexpr usz max_modules = 16;
 
     /// Upper bound on a module's dependency edges.
-    inline constexpr usize max_module_dependencies = 8;
+    inline constexpr usz max_module_dependencies = 8;
 
     /// Upper bound on a module's diagnostic name.
-    inline constexpr usize max_module_name = 64;
+    inline constexpr usz max_module_name = 64;
 
     /// Upper bound on a userspace module image accepted by open_path().
-    inline constexpr usize max_module_image_bytes = 1u << 20;
+    inline constexpr usz max_module_image_bytes = 1u << 20;
 
     /// Options for a transactional load.
     struct module_load_options {
@@ -155,28 +155,28 @@ namespace astia::mod {
             bool  removed       = false;
         };
 
-        static constexpr usize max_exit_handlers = 64;
+        static constexpr usz max_exit_handlers = 64;
 
         module_id id{};                        ///< Stable registry handle.
         char      name[max_module_name] = {};  ///< Module name (for diagnostics).
         void*     base              = nullptr; ///< Load address of the image allocation.
-        usize     size              = 0;       ///< Bytes allocated for the image.
+        usz       size              = 0;       ///< Bytes allocated for the image.
         core::task<void> (*entry)() = nullptr; ///< Resolved module_main().
         bool                  running     = false; ///< True once entry() has been called.
         bool                  initialized = false;
         elf::loader::init_fn  init_array[elf::loader::max_init_array_entries] = {};
-        usize                 init_count                                      = 0;
+        usz                   init_count                                      = 0;
         elf::loader::init_fn  fini_array[elf::loader::max_init_array_entries] = {};
-        usize                 fini_count                                      = 0;
+        usz                   fini_count                                      = 0;
         void*                 loader_context                                  = nullptr;
         elf::loader::unmap_fn loader_unmap                                    = nullptr;
         exit_handler          exit_handlers[max_exit_handlers]                = {};
-        usize                 exit_count                                      = 0;
+        usz                   exit_count                                      = 0;
         void*                 dso_identity                                    = nullptr;
 
         u32       active_refs                           = 0;
         u32       dependent_count                       = 0;
-        usize     dependency_count                      = 0;
+        usz       dependency_count                      = 0;
         module_id dependencies[max_module_dependencies] = {};
         bool      resident                              = false;
         bool      quiescing                             = false;
@@ -189,9 +189,9 @@ namespace astia::mod {
         module_id    id{};
         char         name[max_module_name] = {};
         module_state state                 = module_state::free;
-        usize        image_size            = 0;
+        usz          image_size            = 0;
         u32          active_refs           = 0;
-        usize        dependency_count      = 0;
+        usz          dependency_count      = 0;
         u32          dependent_count       = 0;
         bool         running               = false;
         bool         initialized           = false;
@@ -310,16 +310,16 @@ namespace astia::mod {
     /// Returns the number of entries written (truncated to `out.size()`).
     /// When `total` is non-null it receives the published count visible to
     /// the same snapshot, even when `out` is smaller or empty.
-    usize snapshot(span<module_info> out, usize* total = nullptr);
+    usz snapshot(span<module_info> out, usz* total = nullptr);
 
     /// One-lock snapshot of a module plus its bounded dependency ids.
     /// `dependency_total` receives the stored edge count regardless of the
     /// output span size.  Returns `busy` for an unpublished slot.
     module_error snapshot_module(module_id id, module_info& out,
-                                 span<module_id> dependencies, usize& dependency_total);
+                                 span<module_id> dependencies, usz& dependency_total);
 
     /// Bounded dependency enumeration for a module.
-    module_error dependency_at(module_id id, usize index, module_id& out);
+    module_error dependency_at(module_id id, usz index, module_id& out);
 
     /// Add/remove a lifetime dependency edge. A dependent blocks its provider's
     /// unload; cycles and self-edges are rejected.
@@ -379,5 +379,5 @@ namespace astia::mod {
     void finalize_exit_handlers(void* dso);
 
     /// Number of published (loaded, running, or exiting) modules.
-    usize count();
+    usz count();
 } // namespace astia::mod

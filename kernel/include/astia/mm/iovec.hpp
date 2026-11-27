@@ -51,8 +51,8 @@ namespace astia::mm {
     struct pinned_segment {
         pinned_buffer frames;
         u8*           base   = nullptr; // kernel address of byte 0, kernel entries
-        usize         offset = 0;       // first byte's position inside page 0
-        usize         length = 0;       // bytes from offset, within the pinned pages
+        usz           offset = 0;       // first byte's position inside page 0
+        usz           length = 0;       // bytes from offset, within the pinned pages
     };
 
     /// A pinned entry list plus the position of the operation inside it.
@@ -60,7 +60,7 @@ namespace astia::mm {
         public:
         /// Entries per operation.  A readv()/writev() longer than this is
         /// refused with EINVAL, not truncated.
-        static constexpr usize max_segments = resource_limits::policy::iovec_segments;
+        static constexpr usz max_segments = resource_limits::policy::iovec_segments;
 
         iovec()                        = default;
         iovec(const iovec&)            = delete;
@@ -76,22 +76,22 @@ namespace astia::mm {
         /// False only on a hard failure — no room left, or the frames cannot
         /// be referenced — and then nothing is kept.  `destination` carries
         /// the same meaning per entry that it does for pinned_buffer.
-        bool append(phys_region* region, usize first, usize count, usize offset,
-                    usize length, bool destination);
+        bool append(phys_region* region, usz first, usz count, usz offset, usz length,
+                    bool destination);
 
         /// Reference one more entry whose bytes are already kernel memory — an
         /// in-kernel caller's buffer, which cannot be unmapped and so needs no
         /// pin.  Such a caller can still park, so its operation walks the same
         /// cursor as everyone else's rather than needing a second engine path.
-        bool append_kernel(void* address, usize length);
+        bool append_kernel(void* address, usz length);
 
         /// Drop every reference.  Safe and idempotent on an empty list, and
         /// task context only: it may take a lock and may free a region.
         void release();
 
-        bool  empty() const;
-        usize count() const;
-        usize bytes() const; // total referenced bytes, the sum of the lengths
+        bool empty() const;
+        usz  count() const;
+        usz  bytes() const; // total referenced bytes, the sum of the lengths
 
         // ---- the cursor: where the operation is inside that list ----
 
@@ -99,10 +99,10 @@ namespace astia::mm {
         /// operation may be shorter than the list.  A list that is never aimed
         /// walks everything it holds, because appending arms what it appended;
         /// aim() is for starting over, or for deliberately walking less.
-        void aim(usize length);
+        void aim(usz length);
 
-        usize remaining() const;
-        bool  done() const; // nothing left to move
+        usz  remaining() const;
+        bool done() const; // nothing left to move
 
         /// Kernel address of the next byte, or nullptr when done.  Direct
         /// mapped, so it stays valid when the operation resumes in IRQ
@@ -113,18 +113,18 @@ namespace astia::mm {
 
         /// Bytes contiguous from window() before the entry or the operation
         /// ends, whichever comes first.
-        usize chunk() const;
+        usz chunk() const;
 
         /// Consume up to `bytes`; returns how many were consumed, so the
         /// caller's count and the cursor cannot drift apart.
-        usize advance(usize bytes);
+        usz advance(usz bytes);
 
         private:
         pinned_segment _segments[max_segments];
-        usize          _count     = 0;
-        usize          _total     = 0;
-        usize          _index     = 0;
-        usize          _offset    = 0;
-        usize          _remaining = 0;
+        usz            _count     = 0;
+        usz            _total     = 0;
+        usz            _index     = 0;
+        usz            _offset    = 0;
+        usz            _remaining = 0;
     };
 } // namespace astia::mm

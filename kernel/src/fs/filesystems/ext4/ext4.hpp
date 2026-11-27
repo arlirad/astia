@@ -70,7 +70,7 @@ namespace astia::fs::filesystems {
             return -EROFS;
         }
 
-        long touch(u64, u64) override {
+        long touch(const file_timestamps&) override {
             return -EROFS;
         }
 
@@ -140,8 +140,8 @@ namespace astia::fs::filesystems {
 
         private:
         friend class ext4_file;
-        static bool read_source(void* context, u64 offset, void* buffer, usize length);
-        bool        source_read(u64 offset, void* buffer, usize length) const;
+        static bool read_source(void* context, u64 offset, void* buffer, usz length);
+        bool        source_read(u64 offset, void* buffer, usz length) const;
         bool        lookup(const char* path, ext4::inode& node) const;
         bool child(const ext4::inode& parent, const char* name, ext4::inode& node) const;
         static file_type vfs_type(ext4::node_type type);

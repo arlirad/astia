@@ -53,7 +53,7 @@ namespace astia::proc::syscalls {
                     co_return -EINVAL;
 
                 co_return static_cast<i64>(
-                    process->map_anonymous(addr, static_cast<usize>(length),
+                    process->map_anonymous(addr, static_cast<usz>(length),
                                            mapped_prot.value, mapped_flags.value));
             }
 
@@ -74,7 +74,7 @@ namespace astia::proc::syscalls {
                 co_return -EINVAL;
 
             auto mapped = co_await process->map_file(
-                mapped_fd.value, addr, static_cast<usize>(length), mapped_prot.value,
+                mapped_fd.value, addr, static_cast<usz>(length), mapped_prot.value,
                 mapped_flags.value, static_cast<u64>(off));
             if (!mapped)
                 co_return error_errno(mapped.error);

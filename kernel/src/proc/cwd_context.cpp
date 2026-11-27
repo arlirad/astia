@@ -84,7 +84,7 @@ namespace astia::proc {
 
         const char* visible = root_relative(_root, _cwd);
 
-        usize length = 0;
+        usz length = 0;
 
         while (visible[length] != '\0') {
             ++length;
@@ -93,7 +93,7 @@ namespace astia::proc {
         if (length + 1 > buffer.size())
             return -ERANGE;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer.data()[i] = visible[i];
         }
 
@@ -106,7 +106,7 @@ namespace astia::proc {
 
         arch::interrupt_spinlock_guard guard(_lock);
 
-        usize length = 0;
+        usz length = 0;
 
         while (_root[length] != '\0') {
             ++length;
@@ -115,7 +115,7 @@ namespace astia::proc {
         if (length + 1 > buffer.size())
             return -ERANGE;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer.data()[i] = _root[i];
         }
 
@@ -161,7 +161,7 @@ namespace astia::proc {
     }
 
     i64 cwd_context::store_path_locked(const char* path) {
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -170,7 +170,7 @@ namespace astia::proc {
         if (length + 1 > sizeof(_cwd))
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             _cwd[i] = path[i];
         }
 
@@ -384,14 +384,14 @@ namespace astia::proc {
         {
             arch::interrupt_spinlock_guard guard(parent._lock);
 
-            for (usize i = 0; i < sizeof(root); ++i) {
+            for (usz i = 0; i < sizeof(root); ++i) {
                 root[i] = parent._root[i];
 
                 if (root[i] == '\0')
                     break;
             }
 
-            for (usize i = 0; i < sizeof(cwd); ++i) {
+            for (usz i = 0; i < sizeof(cwd); ++i) {
                 cwd[i] = parent._cwd[i];
 
                 if (cwd[i] == '\0')

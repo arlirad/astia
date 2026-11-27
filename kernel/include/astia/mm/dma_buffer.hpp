@@ -17,7 +17,7 @@ namespace astia::mm {
         dma_buffer& operator=(dma_buffer&& other) noexcept;
         ~dma_buffer();
 
-        bool allocate(usize pages = 1, bool zero = true);
+        bool allocate(usz pages = 1, bool zero = true);
         void release();
         void abandon();
 
@@ -33,7 +33,7 @@ namespace astia::mm {
             return _address;
         }
 
-        usize pages() const {
+        usz pages() const {
             return _pages;
         }
 
@@ -47,6 +47,6 @@ namespace astia::mm {
         private:
         u64   _physical = 0;
         void* _address  = nullptr;
-        usize _pages    = 0;
+        usz   _pages    = 0;
     };
 } // namespace astia::mm

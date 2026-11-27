@@ -92,7 +92,7 @@ namespace {
         }
     };
 
-    bool read_image(void* context, u64 offset, void* buffer, astia::usize length) {
+    bool read_image(void* context, u64 offset, void* buffer, astia::usz length) {
         auto& image = *static_cast<struct image*>(context);
 
         if (offset > image.bytes.size() || length > image.bytes.size() - offset)

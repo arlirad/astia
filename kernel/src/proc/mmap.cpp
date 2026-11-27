@@ -9,7 +9,7 @@
 #include "process.hpp"
 #include "scheduler.hpp"
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::proc {
     namespace {
@@ -25,8 +25,8 @@ namespace astia::proc {
             return ::new (storage.value) mmap_region{};
         }
 
-        constexpr usize clone_page_batch          = 64;
-        constexpr usize clone_saved_writable_unit = 64;
+        constexpr usz clone_page_batch          = 64;
+        constexpr usz clone_saved_writable_unit = 64;
 
         class clone_gate_guard {
             public:
@@ -109,19 +109,19 @@ namespace astia::proc {
         /// A stack region materialises its high end first, so only the slice
         /// above the current frontier counts; every other region maps all of
         /// its pages.
-        usize mapped_pages_in(const mmap_region& source, u64 base, u64 limit) {
+        usz mapped_pages_in(const mmap_region& source, u64 base, u64 limit) {
             if (limit <= base)
                 return 0;
 
             const u64 page_bytes = mm::phys_region::frame_size;
 
             if (!source.stack)
-                return static_cast<usize>((limit - base) / page_bytes);
+                return static_cast<usz>((limit - base) / page_bytes);
 
             const u64 frontier = source.end() - source.mapped_pages * page_bytes;
             const u64 mapped   = base > frontier ? base : frontier;
 
-            return mapped < limit ? static_cast<usize>((limit - mapped) / page_bytes) : 0;
+            return mapped < limit ? static_cast<usz>((limit - mapped) / page_bytes) : 0;
         }
 
         /// Write the [base, limit) slice of `source` into `node`, keeping the
@@ -135,14 +135,14 @@ namespace astia::proc {
             *node              = source;
             node->next         = next;
             node->base         = base;
-            node->pages        = static_cast<usize>((limit - base) / page_bytes);
+            node->pages        = static_cast<usz>((limit - base) / page_bytes);
             node->prot         = prot;
             node->mapped_pages = mapped_pages_in(source, base, limit);
             node->holds_ref    = holds_ref;
             node->pending      = pending;
             node->unloading    = false;
-            node->region_page  = source.region_page +
-                                static_cast<usize>((base - source.base) / page_bytes);
+            node->region_page =
+                source.region_page + static_cast<usz>((base - source.base) / page_bytes);
             node->file_offset = source.file_offset + (base - source.base);
         }
 
@@ -202,7 +202,7 @@ namespace astia::proc {
             if (path == nullptr)
                 return false;
 
-            usize i = 0;
+            usz i = 0;
 
             while (zero_path[i] != '\0') {
                 if (path[i] != zero_path[i])
@@ -248,8 +248,8 @@ namespace astia::proc {
         if (vma == nullptr || !vma->shared || vma->backing == nullptr)
             return -EINVAL;
 
-        const usize page =
-            vma->region_page + static_cast<usize>((addr - vma->base) / page_bytes);
+        const usz page =
+            vma->region_page + static_cast<usz>((addr - vma->base) / page_bytes);
 
         if (page >= vma->backing->pages() || !vma->backing->share_range(page, 1))
             return -EFAULT;
@@ -265,14 +265,14 @@ namespace astia::proc {
 
         out.backing  = vma->backing;
         out.identity = static_cast<mm::shptr<mm::phys_region_identity>&&>(identity);
-        out.offset   = static_cast<usize>(addr & (page_bytes - 1));
+        out.offset   = static_cast<usz>(addr & (page_bytes - 1));
         out.page     = page;
         out.word     = reinterpret_cast<u32*>(direct + out.offset);
 
         return 0;
     }
 
-    i32 process::pin_user(u64 addr, usize len, bool destination, mm::iovec& out) {
+    i32 process::pin_user(u64 addr, usz len, bool destination, mm::iovec& out) {
         if (!_address_space.attached() || len == 0)
             return 0;
 
@@ -314,17 +314,17 @@ namespace astia::proc {
                     break;
                 }
 
-                const u64   first  = cursor & ~(page_bytes - 1);
-                const usize page   = static_cast<usize>((first - vma->base) / page_bytes);
-                const usize offset = static_cast<usize>(cursor - first);
-                u64         piece_end = vma->end() < last ? vma->end() : last;
-                usize       count =
-                    static_cast<usize>((piece_end - first + page_bytes - 1) / page_bytes);
-                usize length = static_cast<usize>(piece_end - cursor);
+                const u64 first     = cursor & ~(page_bytes - 1);
+                const usz page      = static_cast<usz>((first - vma->base) / page_bytes);
+                const usz offset    = static_cast<usz>(cursor - first);
+                u64       piece_end = vma->end() < last ? vma->end() : last;
+                usz       count =
+                    static_cast<usz>((piece_end - first + page_bytes - 1) / page_bytes);
+                usz length = static_cast<usz>(piece_end - cursor);
 
                 mm::phys_region* region = vma->backing;
 
-                const usize region_page = vma->region_page + page;
+                const usz region_page = vma->region_page + page;
 
                 while (piece_end < last) {
                     mmap_region* next = find(piece_end);
@@ -341,9 +341,9 @@ namespace astia::proc {
 
                     const u64 next_end = next->end() < last ? next->end() : last;
 
-                    count += static_cast<usize>((next_end - piece_end + page_bytes - 1) /
-                                                page_bytes);
-                    length += static_cast<usize>(next_end - piece_end);
+                    count += static_cast<usz>((next_end - piece_end + page_bytes - 1) /
+                                              page_bytes);
+                    length += static_cast<usz>(next_end - piece_end);
                     piece_end = next_end;
                 }
 
@@ -367,11 +367,11 @@ namespace astia::proc {
         return status;
     }
 
-    bool process::install_mapping(u64 hint, usize pages, map_protection prot,
+    bool process::install_mapping(u64 hint, usz pages, map_protection prot,
                                   mm::phys_region*                region,
                                   const mm::shptr<fs::open_file>& file, u64 file_offset,
-                                  u64& base_out, usize region_page, bool shared,
-                                  bool stack, u64 fixed_base, bool cow) {
+                                  u64& base_out, usz region_page, bool shared, bool stack,
+                                  u64 fixed_base, bool cow) {
         const u64 page_bytes = mm::phys_region::frame_size;
 
         // A copy-on-write range is writable as a VMA but starts read-only in
@@ -459,7 +459,7 @@ namespace astia::proc {
         auto& mapping = _address_space;
 
         mm::mapping_transaction transaction(mapping, base + first_page * page_bytes,
-                                            static_cast<usize>(map_pages));
+                                            static_cast<usz>(map_pages));
 
         for (u64 page = first_page; page < first_page + map_pages; ++page) {
             if (stack && !region->ensure_page(region_page + page, true)) {
@@ -554,7 +554,7 @@ namespace astia::proc {
         return true;
     }
 
-    bool process::map_shared_range(u64 base, usize pages, map_protection prot,
+    bool process::map_shared_range(u64 base, usz pages, map_protection prot,
                                    mm::phys_region* region, u32 region_page, bool cow) {
         u64 out = 0;
 
@@ -574,13 +574,13 @@ namespace astia::proc {
         if (virt >= frontier)
             return _address_space.translate(virt) != mm::address_space::invalid;
 
-        const usize first = static_cast<usize>((virt - vma->base) / page_bytes);
-        const usize stop  = vma->pages - vma->mapped_pages;
+        const usz first = static_cast<usz>((virt - vma->base) / page_bytes);
+        const usz stop  = vma->pages - vma->mapped_pages;
 
         const auto flags = pte_flags(vma->prot);
 
-        for (usize page = first; page < stop; ++page) {
-            const usize backing_page = vma->region_page + page;
+        for (usz page = first; page < stop; ++page) {
+            const usz backing_page = vma->region_page + page;
 
             if (!vma->backing->ensure_page(backing_page, true))
                 return false;
@@ -605,7 +605,7 @@ namespace astia::proc {
         return _address_space.translate(virt) != mm::address_space::invalid;
     }
 
-    bool process::materialize_lazy_page(mmap_region* vma, u64 virt, usize backing_page,
+    bool process::materialize_lazy_page(mmap_region* vma, u64 virt, usz backing_page,
                                         bool write) {
         if (vma == nullptr || vma->backing == nullptr || vma->pending ||
             (write && !has(vma->prot, map_protection::write)))
@@ -787,17 +787,17 @@ namespace astia::proc {
                 off / page_bytes + pages > shared_region->pages())
                 co_return -ENOSYS;
 
-            if (!shared_region->share_range(static_cast<usize>(off / page_bytes),
-                                            static_cast<usize>(pages)))
+            if (!shared_region->share_range(static_cast<usz>(off / page_bytes),
+                                            static_cast<usz>(pages)))
                 co_return -EAGAIN;
 
             u64        base = 0;
             const bool installed =
                 install_mapping(addr, pages, prot, shared_region, file, off, base,
-                                static_cast<usize>(off / page_bytes), true);
+                                static_cast<usz>(off / page_bytes), true);
             if (!installed) {
-                shared_region->release_range(static_cast<usize>(off / page_bytes),
-                                             static_cast<usize>(pages));
+                shared_region->release_range(static_cast<usz>(off / page_bytes),
+                                             static_cast<usz>(pages));
 
                 co_return -ENOMEM;
             }
@@ -825,7 +825,7 @@ namespace astia::proc {
 
             auto got =
                 co_await file->read(span<u8>(static_cast<u8*>(region->page_direct(page)),
-                                             static_cast<usize>(chunk)),
+                                             static_cast<usz>(chunk)),
                                     at, {});
 
             io_ok = got && got.value >= 0 && static_cast<u64>(got.value) == chunk;
@@ -864,7 +864,7 @@ namespace astia::proc {
         return *task.value();
     }
 
-    i32 process::unmap(u64 addr, usize len) {
+    i32 process::unmap(u64 addr, usz len) {
         if (!_address_space.attached() || len == 0 ||
             (addr % mm::phys_region::frame_size) != 0)
             return -EINVAL;
@@ -1002,7 +1002,7 @@ namespace astia::proc {
 
                 it->backing->unmap_range(
                     it->region_page + (drop_from - it->base) / page_bytes,
-                    static_cast<usize>((drop_to - drop_from) / page_bytes));
+                    static_cast<usz>((drop_to - drop_from) / page_bytes));
             }
         });
 
@@ -1045,7 +1045,7 @@ namespace astia::proc {
         return 0;
     }
 
-    i32 process::protect(u64 addr, usize len, map_protection prot) {
+    i32 process::protect(u64 addr, usz len, map_protection prot) {
         if (!_address_space.attached() || len == 0 ||
             (addr % mm::phys_region::frame_size) != 0 ||
             static_cast<u64>(len) > ~u64{0} - mm::page_mask)
@@ -1064,8 +1064,8 @@ namespace astia::proc {
             return -EINVAL;
 
         while (true) {
-            usize needed = 0;
-            bool  valid  = true;
+            usz  needed = 0;
+            bool valid  = true;
 
             {
                 arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -1108,7 +1108,7 @@ namespace astia::proc {
 
             mmap_region* spare = nullptr;
 
-            usize spare_count = 0;
+            usz spare_count = 0;
 
             while (spare_count < needed) {
                 mmap_region* node = alloc_region();
@@ -1162,12 +1162,12 @@ namespace astia::proc {
                         return;
                     }
 
-                    const u64   middle = cursor > it->base ? cursor : it->base;
-                    const usize page   = static_cast<usize>(
-                        (middle - it->base) / page_bytes + it->region_page);
-                    const usize count = static_cast<usize>((end - middle) / page_bytes);
+                    const u64 middle = cursor > it->base ? cursor : it->base;
+                    const usz page   = static_cast<usz>((middle - it->base) / page_bytes +
+                                                        it->region_page);
+                    const usz count  = static_cast<usz>((end - middle) / page_bytes);
 
-                    for (usize offset = 0; offset < count; ++offset) {
+                    for (usz offset = 0; offset < count; ++offset) {
                         const u64 virt = middle + offset * page_bytes;
 
                         if (_address_space.translate(virt) == mm::address_space::invalid)
@@ -1204,8 +1204,8 @@ namespace astia::proc {
             {
                 arch::interrupt_spinlock_guard guard(_mmap_lock);
 
-                usize current_needed = 0;
-                u64   cursor         = first;
+                usz current_needed = 0;
+                u64 cursor         = first;
 
                 mmap_region* it = _mmap_regions;
 
@@ -1333,7 +1333,7 @@ namespace astia::proc {
         }
     }
 
-    core::task<i32> process::msync(u64 addr, usize len, u32 flags) {
+    core::task<i32> process::msync(u64 addr, usz len, u32 flags) {
         const u64 page_bytes = mm::phys_region::frame_size;
         const u32 modes      = flags & (MS_SYNC | MS_ASYNC);
 
@@ -1361,7 +1361,7 @@ namespace astia::proc {
             u64                      length  = 0;
         };
 
-        auto collect = [&](sync_request* requests, usize capacity, usize& count) -> i32 {
+        auto collect = [&](sync_request* requests, usz capacity, usz& count) -> i32 {
             count               = 0;
             u64          cursor = addr;
             mmap_region* it     = _mmap_regions;
@@ -1386,7 +1386,7 @@ namespace astia::proc {
                     if (it->file_offset > ~u64{0} - delta)
                         return -EOVERFLOW;
 
-                    if (count == ~usize{0})
+                    if (count == ~usz{0})
                         return -ENOMEM;
 
                     if (requests != nullptr && count < capacity) {
@@ -1407,11 +1407,11 @@ namespace astia::proc {
 
         struct sync_request* requests = nullptr;
 
-        usize request_count = 0;
+        usz request_count = 0;
 
         while (true) {
-            usize needed = 0;
-            i32   result = 0;
+            usz needed = 0;
+            i32 result = 0;
 
             {
                 arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -1423,7 +1423,7 @@ namespace astia::proc {
                 co_return result;
 
             if (needed != 0) {
-                if (needed > ~usize{0} / sizeof(sync_request))
+                if (needed > ~usz{0} / sizeof(sync_request))
                     co_return -ENOMEM;
 
                 auto storage = mm::heap::alloc(needed * sizeof(sync_request));
@@ -1432,12 +1432,12 @@ namespace astia::proc {
 
                 requests = reinterpret_cast<sync_request*>(storage.value);
 
-                for (usize i = 0; i < needed; ++i) {
+                for (usz i = 0; i < needed; ++i) {
                     ::new (requests + i) sync_request{};
                 }
             }
 
-            usize actual = 0;
+            usz actual = 0;
 
             {
                 arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -1446,7 +1446,7 @@ namespace astia::proc {
             }
 
             if (result < 0) {
-                for (usize i = 0; i < needed; ++i) {
+                for (usz i = 0; i < needed; ++i) {
                     requests[i].~sync_request();
                 }
 
@@ -1462,7 +1462,7 @@ namespace astia::proc {
                 break;
             }
 
-            for (usize i = 0; i < needed; ++i) {
+            for (usz i = 0; i < needed; ++i) {
                 requests[i].~sync_request();
             }
 
@@ -1474,7 +1474,7 @@ namespace astia::proc {
 
         i32 result = 0;
 
-        for (usize i = 0; i < request_count; ++i) {
+        for (usz i = 0; i < request_count; ++i) {
             auto contract = requests[i].file->parent()->as_mappable();
             if (!contract) {
                 result = -ENODEV;
@@ -1497,7 +1497,7 @@ namespace astia::proc {
             }
         }
 
-        for (usize i = 0; i < request_count; ++i) {
+        for (usz i = 0; i < request_count; ++i) {
             requests[i].~sync_request();
         }
 
@@ -1507,7 +1507,7 @@ namespace astia::proc {
         co_return result;
     }
 
-    i32 process::msync_sync(u64 addr, usize len, u32 flags) {
+    i32 process::msync_sync(u64 addr, usz len, u32 flags) {
         auto task = msync(addr, len, flags);
 
         task.resume();
@@ -1521,7 +1521,7 @@ namespace astia::proc {
         return *task.value();
     }
 
-    bool process::register_mapping(u64 base, usize pages, map_protection prot,
+    bool process::register_mapping(u64 base, usz pages, map_protection prot,
                                    mm::phys_region* region) {
         // PTEs are the caller's job — exec segments, the user stack,
         // and the TLS block map their own — and so is adopting the
@@ -1591,10 +1591,10 @@ namespace astia::proc {
         mmap_region** child_tail     = &child_regions;
         u8*           saved_writable = nullptr;
 
-        usize saved_writable_capacity = 0;
-        usize cow_pages               = 0;
-        u64   cursor                  = 0;
-        bool  have_cursor             = false;
+        usz  saved_writable_capacity = 0;
+        usz  cow_pages               = 0;
+        u64  cursor                  = 0;
+        bool have_cursor             = false;
 
         auto free_saved = [&]() {
             if (saved_writable != nullptr) {
@@ -1605,15 +1605,15 @@ namespace astia::proc {
             }
         };
 
-        auto grow_saved = [&](usize needed) {
+        auto grow_saved = [&](usz needed) {
             if (needed <= saved_writable_capacity)
                 return true;
 
-            usize capacity = saved_writable_capacity == 0 ? clone_saved_writable_unit
-                                                          : saved_writable_capacity;
+            usz capacity = saved_writable_capacity == 0 ? clone_saved_writable_unit
+                                                        : saved_writable_capacity;
 
             while (capacity < needed) {
-                if (capacity > ~usize{0} / 2) {
+                if (capacity > ~usz{0} / 2) {
                     capacity = needed;
 
                     break;
@@ -1635,8 +1635,8 @@ namespace astia::proc {
             return true;
         };
 
-        auto rollback = [&](usize saved_count) {
-            usize state_at = 0;
+        auto rollback = [&](usz saved_count) {
+            usz state_at = 0;
 
             for (mmap_region* it = child_regions; it != nullptr; it = it->next) {
                 const bool cow = !it->shared && has(it->prot, map_protection::write);
@@ -1664,7 +1664,7 @@ namespace astia::proc {
 
                 child_regions = victim->next;
 
-                for (usize page = 0; page < victim->pages; ++page) {
+                for (usz page = 0; page < victim->pages; ++page) {
                     (void) map.unmap(victim->base + page * page_bytes);
                 }
 
@@ -1689,11 +1689,11 @@ namespace astia::proc {
 
             mmap_region* source = nullptr;
 
-            bool  pending         = false;
-            bool  needs_growth    = false;
-            bool  share_failed    = false;
-            bool  cow_overflow    = false;
-            usize entry_cow_pages = 0;
+            bool pending         = false;
+            bool needs_growth    = false;
+            bool share_failed    = false;
+            bool cow_overflow    = false;
+            usz  entry_cow_pages = 0;
 
             {
                 arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -1716,7 +1716,7 @@ namespace astia::proc {
                             (!source->shared && has(source->prot, map_protection::write))
                                 ? source->pages
                                 : 0;
-                        cow_overflow = entry_cow_pages > ~usize{0} - cow_pages;
+                        cow_overflow = entry_cow_pages > ~usz{0} - cow_pages;
 
                         if (!cow_overflow) {
                             if (cow_pages + entry_cow_pages > saved_writable_capacity) {
@@ -1785,7 +1785,7 @@ namespace astia::proc {
         if (scheduler::runnable_ready())
             scheduler::yield();
 
-        usize saved_count = 0;
+        usz saved_count = 0;
 
         for (mmap_region* it = child_regions; it != nullptr; it = it->next) {
             const bool cow = !it->shared && has(it->prot, map_protection::write);
@@ -1798,15 +1798,15 @@ namespace astia::proc {
 
             bool failed = false;
 
-            for (usize first = 0; first < it->pages && !failed;) {
-                const usize remaining = it->pages - first;
-                const usize batch =
+            for (usz first = 0; first < it->pages && !failed;) {
+                const usz remaining = it->pages - first;
+                const usz batch =
                     remaining < clone_page_batch ? remaining : clone_page_batch;
 
                 {
                     arch::interrupt_spinlock_guard guard(_mmap_lock);
 
-                    for (usize page = first; page < first + batch; ++page) {
+                    for (usz page = first; page < first + batch; ++page) {
                         const u64 virt = it->base + page * page_bytes;
                         const u64 phys = it->backing->page_base(it->region_page + page);
 
@@ -1901,10 +1901,10 @@ namespace astia::proc {
             return false; // not ours, or a genuine violation
         }
 
-        const bool  held         = vma->holds_ref; // captured before the split
-        const u64   virt         = addr & ~(page_bytes - 1);
-        const u64   page         = (virt - vma->base) / page_bytes;
-        const usize backing_page = vma->region_page + page;
+        const bool held         = vma->holds_ref; // captured before the split
+        const u64  virt         = addr & ~(page_bytes - 1);
+        const u64  page         = (virt - vma->base) / page_bytes;
+        const usz  backing_page = vma->region_page + page;
 
         auto* back = vma->backing;
 
@@ -1993,12 +1993,12 @@ namespace astia::proc {
         // itself becomes the copy's sole mapping, the flanks keep the
         // shared backing.  Both new nodes are allocated before the
         // list is touched.
-        const u64   old_base        = vma->base;
-        const usize old_pages       = vma->pages;
-        const usize old_mapped      = vma->mapped_pages;
-        const usize old_frontier    = old_pages - old_mapped;
-        const usize old_region_page = vma->region_page;
-        const u64   old_offset      = vma->file_offset;
+        const u64 old_base        = vma->base;
+        const usz old_pages       = vma->pages;
+        const usz old_mapped      = vma->mapped_pages;
+        const usz old_frontier    = old_pages - old_mapped;
+        const usz old_region_page = vma->region_page;
+        const u64 old_offset      = vma->file_offset;
 
         mmap_region* old_next = vma->next;
 

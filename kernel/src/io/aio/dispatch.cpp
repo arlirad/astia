@@ -20,7 +20,7 @@
 #include "registry.hpp"
 #include "runner.hpp"
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::io::aio::dispatch {
     using namespace ring;
@@ -59,7 +59,7 @@ namespace astia::io::aio::dispatch {
         }
 
         long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
-                        char* out, usize capacity, bool follow_final) {
+                        char* out, usz capacity, bool follow_final) {
             if (current == nullptr)
                 return -ESRCH;
 
@@ -89,7 +89,7 @@ namespace astia::io::aio::dispatch {
         }
 
         long resolve_path_for(proc::process* current, const char* path, char* out,
-                              usize capacity, bool follow_final) {
+                              usz capacity, bool follow_final) {
             if (current == nullptr)
                 return -ESRCH;
 
@@ -117,12 +117,15 @@ namespace astia::io::aio::dispatch {
             if (current == nullptr || path == nullptr)
                 return false;
 
-            char parent[256]{};
+            char parent[fs::path_max]{};
             u32  n = 0;
 
             while (path[n]) {
                 ++n;
             }
+
+            if (n >= fs::path_max)
+                return false;
 
             while (n > 1 && path[n - 1] != '/') {
                 --n;
@@ -197,7 +200,7 @@ namespace astia::io::aio::dispatch {
                                        fs::permission_bits::write);
         }
 
-        constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
+        constexpr usz max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
 
         u64 poll_now_ns() {
             const u64 hz = arch::timer_hz();
@@ -337,8 +340,8 @@ namespace astia::io::aio::dispatch {
         /// would wipe the device_state the parked device left behind.
         io_outcome pump(parked_op& op, long& result) {
             while (true) {
-                const usize ask = static_cast<usize>(op.operation->request().length());
-                long        n   = 0;
+                const usz ask = static_cast<usz>(op.operation->request().length());
+                long      n   = 0;
 
                 if (op.operation->request().cancellation_requested() ||
                     !op.operation->request().begin_device()) {
@@ -397,7 +400,7 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
 
-                const usize consumed = op.entries.advance(static_cast<usize>(n));
+                const usz consumed = op.entries.advance(static_cast<usz>(n));
 
                 op.moved += consumed;
 
@@ -920,7 +923,7 @@ namespace astia::io::aio::dispatch {
 
                 if (s.length != 0 &&
                     !memory::copy_in(
-                        raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
+                        raw, span<u8>::bytes(s.address, static_cast<usz>(s.length) *
                                                             sizeof(astia_iovec))))
                     return context.complete(-EFAULT);
 
@@ -930,7 +933,7 @@ namespace astia::io::aio::dispatch {
                 // a raw pointer out of user memory.
                 for (u64 i = 0; i < s.length; ++i) {
                     ranges[i] = span<u8>::bytes(reinterpret_cast<u64>(raw[i].base),
-                                                static_cast<usize>(raw[i].len));
+                                                static_cast<usz>(raw[i].len));
                 }
 
                 count = static_cast<u32>(s.length);
@@ -941,7 +944,7 @@ namespace astia::io::aio::dispatch {
             // flight of the operation (see submit_request), so another
             // thread of the process unmapping one cannot pull a buffer out
             // from under the device.
-            usize total = 0;
+            usz total = 0;
 
             for (u32 i = 0; i < count; ++i) {
                 const bool kernel_buffer =
@@ -1004,19 +1007,19 @@ namespace astia::io::aio::dispatch {
 
                 if (s.length != 0 &&
                     !memory::copy_in(
-                        raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
+                        raw, span<u8>::bytes(s.address, static_cast<usz>(s.length) *
                                                             sizeof(astia_iovec))))
                     return error_t::efault;
 
                 for (u64 i = 0; i < s.length; ++i) {
                     ranges[i] = span<u8>::bytes(reinterpret_cast<u64>(raw[i].base),
-                                                static_cast<usize>(raw[i].len));
+                                                static_cast<usz>(raw[i].len));
                 }
 
                 count = static_cast<u32>(s.length);
             }
 
-            usize total = 0;
+            usz total = 0;
 
             for (u32 i = 0; i < count; ++i) {
                 const bool kernel_buffer =
@@ -1048,7 +1051,7 @@ namespace astia::io::aio::dispatch {
             while (!out.entries.done()) {
                 void* window = out.entries.window();
 
-                usize chunk = out.entries.chunk();
+                usz chunk = out.entries.chunk();
 
                 if (window == nullptr || chunk == 0)
                     break;
@@ -1077,12 +1080,12 @@ namespace astia::io::aio::dispatch {
     }
 
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
-                    usize capacity, bool follow_final) {
+                    usz capacity, bool follow_final) {
         return detail::resolve_at(current, raw_dirfd, path, out, capacity, follow_final);
     }
 
     long resolve_path_for(proc::process* current, const char* path, char* out,
-                          usize capacity, bool follow_final) {
+                          usz capacity, bool follow_final) {
         return detail::resolve_path_for(current, path, out, capacity, follow_final);
     }
 

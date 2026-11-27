@@ -8,12 +8,12 @@ namespace astia::acpi::detail {
     namespace {
         constexpr u64 signature_rsdp = 0x2052545020445352ull; // "RSD PTR "
 
-        bool checked_end(u64 address, usize length) {
+        bool checked_end(u64 address, usz length) {
             return address <= ~u64{0} - length;
         }
 
         bool read_bytes(const memory_reader& reader, u64 address, u8* destination,
-                        usize length) {
+                        usz length) {
             if (reader.read == nullptr || destination == nullptr ||
                 !checked_end(address, length))
                 return false;
@@ -21,10 +21,10 @@ namespace astia::acpi::detail {
             return reader.read(reader.context, address, destination, length);
         }
 
-        u8 checksum(const u8* bytes, usize length) {
+        u8 checksum(const u8* bytes, usz length) {
             u8 sum = 0;
 
-            for (usize i = 0; i < length; ++i) {
+            for (usz i = 0; i < length; ++i) {
                 sum = static_cast<u8>(sum + bytes[i]);
             }
 
@@ -35,19 +35,19 @@ namespace astia::acpi::detail {
             return load_u64(bytes) == signature_rsdp;
         }
 
-        bool checksum_range(const memory_reader& reader, u64 address, usize length) {
-            u8    chunk[64]{};
-            u8    sum    = 0;
-            usize offset = 0;
+        bool checksum_range(const memory_reader& reader, u64 address, usz length) {
+            u8  chunk[64]{};
+            u8  sum    = 0;
+            usz offset = 0;
 
             while (offset < length) {
-                const usize count =
+                const usz count =
                     length - offset < sizeof(chunk) ? length - offset : sizeof(chunk);
 
                 if (!read_bytes(reader, address + offset, chunk, count))
                     return false;
 
-                for (usize i = 0; i < count; ++i) {
+                for (usz i = 0; i < count; ++i) {
                     sum = static_cast<u8>(sum + chunk[i]);
                 }
 
@@ -261,7 +261,7 @@ namespace astia::acpi::detail {
     u64 load_u64(const u8* bytes) {
         u64 value = 0;
 
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             value |= static_cast<u64>(bytes[i]) << (i * 8);
         }
 
@@ -359,7 +359,7 @@ namespace astia::acpi::detail {
         }
     }
 
-    bool table_set::find(u32 wanted, usize occurrence, table& out) const {
+    bool table_set::find(u32 wanted, usz occurrence, table& out) const {
         table_record* record = nullptr;
 
         if (!find(wanted, occurrence, record))
@@ -370,8 +370,8 @@ namespace astia::acpi::detail {
         return true;
     }
 
-    bool table_set::find(u32 wanted, usize occurrence, table_record*& out) const {
-        usize index = 0;
+    bool table_set::find(u32 wanted, usz occurrence, table_record*& out) const {
+        usz index = 0;
 
         for (table_record* record = head; record != nullptr; record = record->next) {
             if (record->signature != wanted)
@@ -443,8 +443,8 @@ namespace astia::acpi::detail {
 
         const table root = out.head->value;
 
-        const u32   root_signature = load_u32(root.bytes.data());
-        const usize root_length    = root.bytes.size();
+        const u32 root_signature = load_u32(root.bytes.data());
+        const usz root_length    = root.bytes.size();
 
         if (root_signature != xsdt_signature && root_signature != rsdt_signature)
             return fail(table_error::bad_root_table);
@@ -452,12 +452,12 @@ namespace astia::acpi::detail {
         if (root_length < sdt_header_size)
             return fail(table_error::bad_table_length);
 
-        const usize entry_size = root_signature == xsdt_signature ? 8 : 4;
+        const usz entry_size = root_signature == xsdt_signature ? 8 : 4;
 
         if ((root_length - sdt_header_size) % entry_size != 0)
             return fail(table_error::bad_table_length);
 
-        const usize entry_count = (root_length - sdt_header_size) / entry_size;
+        const usz entry_count = (root_length - sdt_header_size) / entry_size;
 
         if (entry_count + 1 > max_tables)
             return fail(table_error::too_many_tables);
@@ -467,11 +467,11 @@ namespace astia::acpi::detail {
 
         u64 table_addresses[max_tables]{};
 
-        usize table_address_count = 1;
+        usz table_address_count = 1;
 
         table_addresses[0] = root_address;
 
-        for (usize i = 0; i < entry_count; ++i) {
+        for (usz i = 0; i < entry_count; ++i) {
             const u8* entry = root.bytes.data() + sdt_header_size + i * entry_size;
 
             const u64 address = entry_size == 8 ? load_u64(entry) : load_u32(entry);
@@ -479,7 +479,7 @@ namespace astia::acpi::detail {
             if (address == 0)
                 return fail(table_error::bad_root_table);
 
-            for (usize k = 0; k < table_address_count; ++k) {
+            for (usz k = 0; k < table_address_count; ++k) {
                 if (table_addresses[k] == address)
                     return fail(table_error::duplicate_table);
             }
@@ -513,7 +513,7 @@ namespace astia::acpi::detail {
             if (dsdt_address == 0)
                 return fail(table_error::no_dsdt);
 
-            for (usize k = 0; k < table_address_count; ++k) {
+            for (usz k = 0; k < table_address_count; ++k) {
                 if (table_addresses[k] == dsdt_address)
                     return fail(table_error::duplicate_table);
             }

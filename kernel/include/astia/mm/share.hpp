@@ -7,7 +7,7 @@
 // is the astia equivalent of aretev's mm::share(): allocation failure
 // is represented by an empty shptr instead of a kernel panic.
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::mm {
     template <typename T>

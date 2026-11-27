@@ -22,7 +22,7 @@ namespace astia::init {
         // The step table is bounded by a fixed size so the ordering pass needs
         // no dynamic allocation (it runs before, and independent of, the frame
         // allocator).
-        constexpr usize max_steps = astia::resource_limits::policy::init_steps;
+        constexpr usz max_steps = astia::resource_limits::policy::init_steps;
 
         enum class state : u8 { pending, ok, failed, skipped };
 
@@ -35,10 +35,10 @@ namespace astia::init {
             return *a == *b;
         }
 
-        isize find(const step* steps, usize count, const char* name) {
-            for (usize i = 0; i < count; ++i) {
+        isz find(const step* steps, usz count, const char* name) {
+            for (usz i = 0; i < count; ++i) {
                 if (names_equal(steps[i].name, name))
-                    return static_cast<isize>(i);
+                    return static_cast<isz>(i);
             }
 
             return -1;
@@ -46,16 +46,16 @@ namespace astia::init {
 
         struct plan {
             const step* steps = nullptr;
-            usize       count = 0;
-            usize       order[max_steps]{};
+            usz         count = 0;
+            usz         order[max_steps]{};
             state       status[max_steps]{};
             u8          color[max_steps]{}; // 0 unvisited, 1 on stack, 2 emitted
-            usize       emitted = 0;
+            usz         emitted = 0;
         };
 
         // Depth-first post-order: emit every dependency before its dependent.
         // Grey nodes catch cycles.
-        bool visit(plan& p, usize index) {
+        bool visit(plan& p, usz index) {
             if (p.color[index] == 2)
                 return true;
 
@@ -72,27 +72,27 @@ namespace astia::init {
 
             for (const char* const* deps = s.needs; deps != nullptr && *deps != nullptr;
                  ++deps) {
-                const isize dep = find(p.steps, p.count, *deps);
+                const isz dep = find(p.steps, p.count, *deps);
                 if (dep < 0) {
                     log_line(log::level::error, "unknown dependency %s", *deps);
 
                     return false;
                 }
 
-                if (!visit(p, static_cast<usize>(dep)))
+                if (!visit(p, static_cast<usz>(dep)))
                     return false;
             }
 
             for (const char* const* deps = s.after; deps != nullptr && *deps != nullptr;
                  ++deps) {
-                const isize dep = find(p.steps, p.count, *deps);
+                const isz dep = find(p.steps, p.count, *deps);
                 if (dep < 0) {
                     log_line(log::level::error, "unknown ordering %s", *deps);
 
                     return false;
                 }
 
-                if (!visit(p, static_cast<usize>(dep)))
+                if (!visit(p, static_cast<usz>(dep)))
                     return false;
             }
 
@@ -111,7 +111,7 @@ namespace astia::init {
             };
 
             for (phase level : phases) {
-                for (usize i = 0; i < p.count; ++i) {
+                for (usz i = 0; i < p.count; ++i) {
                     if (p.steps[i].level == level && p.color[i] == 0) {
                         if (!visit(p, i))
                             return false;
@@ -125,8 +125,8 @@ namespace astia::init {
         bool execute(plan& p, context& ctx) {
             bool failed = false;
 
-            for (usize k = 0; k < p.emitted; ++k) {
-                const usize index = p.order[k];
+            for (usz k = 0; k < p.emitted; ++k) {
+                const usz index = p.order[k];
 
                 const step& s = p.steps[index];
 
@@ -134,9 +134,9 @@ namespace astia::init {
 
                 for (const char* const* deps = s.needs;
                      deps != nullptr && *deps != nullptr; ++deps) {
-                    const isize dep = find(p.steps, p.count, *deps);
+                    const isz dep = find(p.steps, p.count, *deps);
 
-                    if (dep < 0 || p.status[static_cast<usize>(dep)] != state::ok) {
+                    if (dep < 0 || p.status[static_cast<usz>(dep)] != state::ok) {
                         missing = true;
 
                         break;
@@ -173,7 +173,7 @@ namespace astia::init {
     } // namespace
 
     bool run_steps(const step* first, const step* last, context& ctx) {
-        const usize count = static_cast<usize>(last - first);
+        const usz count = static_cast<usz>(last - first);
         if (count == 0)
             return true;
 
@@ -200,7 +200,7 @@ namespace astia::init {
     extern "C" const step __init_steps_end[];
 
     bool run(context& ctx) {
-        const usize count = static_cast<usize>(__init_steps_end - __init_steps_start);
+        const usz count = static_cast<usz>(__init_steps_end - __init_steps_start);
         if (count == 0) {
             astia::log::error("init no steps registered");
 

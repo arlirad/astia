@@ -120,7 +120,7 @@ ASTIA_TEST(aarch64_page_map_4k_split_and_unmap) {
 }
 
 ASTIA_TEST(aarch64_page_map_arena_is_bounded) {
-    astia::usize created = 0;
+    astia::usz created = 0;
 
     for (; created <= policy::table_capacity; ++created) {
         auto map = page_map::create();
