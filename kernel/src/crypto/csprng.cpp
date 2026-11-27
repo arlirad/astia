@@ -75,7 +75,7 @@ namespace astia::crypto {
         }
     }
 
-    void csprng::absorb(const void* material, usize length, u8 domain) {
+    void csprng::absorb(const void* material, usz length, u8 domain) {
         u32 state[state_words] = {0x61707865, 0x3320646e, 0x79622d32, 0x6b206574};
 
         for (u32 i = 0; i < 8; ++i) {
@@ -92,7 +92,7 @@ namespace astia::crypto {
 
         const auto* bytes = static_cast<const u8*>(material);
 
-        for (usize i = 0; i < length; ++i) {
+        for (usz i = 0; i < length; ++i) {
             state[4 + (i % 12)] ^= static_cast<u32>(bytes[i]) << (8 * ((i / 12) % 4));
         }
 
@@ -123,11 +123,11 @@ namespace astia::crypto {
         _seeded     = true;
     }
 
-    void csprng::reseed(const void* material, usize length) {
+    void csprng::reseed(const void* material, usz length) {
         absorb(material, length, 0x52);
     }
 
-    void csprng::stir(const void* material, usize length) {
+    void csprng::stir(const void* material, usz length) {
         absorb(material, length, 0x53);
     }
 
@@ -143,21 +143,21 @@ namespace astia::crypto {
         stir(material, sizeof material);
     }
 
-    bool csprng::fill(void* output, usize length) {
+    bool csprng::fill(void* output, usz length) {
         auto* bytes = static_cast<u8*>(output);
 
         if (output == nullptr && length != 0)
             return false;
 
         if (!_seeded) {
-            for (usize i = 0; i < length; ++i) {
+            for (usz i = 0; i < length; ++i) {
                 bytes[i] = 0;
             }
 
             return false;
         }
 
-        usize done = 0;
+        usz done = 0;
 
         while (done < length) {
             if (_block_used == block_size) {
@@ -167,10 +167,10 @@ namespace astia::crypto {
                 _block_used = 0;
             }
 
-            const usize available = block_size - _block_used;
-            const usize count     = length - done < available ? length - done : available;
+            const usz available = block_size - _block_used;
+            const usz count     = length - done < available ? length - done : available;
 
-            for (usize i = 0; i < count; ++i) {
+            for (usz i = 0; i < count; ++i) {
                 bytes[done + i] = _block[_block_used + i];
             }
 

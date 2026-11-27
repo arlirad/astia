@@ -35,7 +35,7 @@ namespace astia::proc::syscalls {
                 length > astia::arch::kernel_base - addr)
                 co_return -EINVAL;
 
-            co_return process->unmap(addr, static_cast<usize>(length));
+            co_return process->unmap(addr, static_cast<usz>(length));
         }
     };
 } // namespace astia::proc::syscalls

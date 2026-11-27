@@ -25,7 +25,7 @@ namespace astia::proc::syscalls {
             if (!mapped_prot)
                 co_return -EINVAL;
 
-            co_return process->protect(addr, static_cast<usize>(len), mapped_prot.value);
+            co_return process->protect(addr, static_cast<usz>(len), mapped_prot.value);
         }
     };
 } // namespace astia::proc::syscalls

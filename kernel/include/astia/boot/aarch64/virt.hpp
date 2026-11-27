@@ -4,7 +4,7 @@
 #include <astia/mm/memory_map.hpp>
 
 namespace astia::boot::aarch64::virt {
-    inline constexpr usize console_path_capacity = 256;
+    inline constexpr usz console_path_capacity = 256;
 
     enum class console_source : u8 {
         device_tree,

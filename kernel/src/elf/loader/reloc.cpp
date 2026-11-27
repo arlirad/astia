@@ -26,13 +26,13 @@ namespace astia::elf::loader {
         }
 
         bool ends_with(const char* value, const char* suffix) {
-            usize value_len = 0;
+            usz value_len = 0;
 
             while (value[value_len] != '\0') {
                 ++value_len;
             }
 
-            usize suffix_len = 0;
+            usz suffix_len = 0;
 
             while (suffix[suffix_len] != '\0') {
                 ++suffix_len;
@@ -45,7 +45,7 @@ namespace astia::elf::loader {
         }
 
         bool contains(const char* value, const char* needle) {
-            for (usize i = 0; value[i] != '\0'; ++i) {
+            for (usz i = 0; value[i] != '\0'; ++i) {
                 if (starts_with(value + i, needle))
                     return true;
             }
@@ -74,9 +74,9 @@ namespace astia::elf::loader {
             return false;
         }
 
-        bool array_priority(const char* name, usize name_size, const char* base,
+        bool array_priority(const char* name, usz name_size, const char* base,
                             u16& priority) {
-            usize i = 0;
+            usz i = 0;
 
             while (base[i] != '\0') {
                 if (i == name_size || name[i] != base[i])
@@ -117,16 +117,16 @@ namespace astia::elf::loader {
 
         struct array_section {
             const u8* data;
-            usize     count;
+            usz       count;
             u16       index;
             u16       priority;
         };
 
-        void sort_array_sections(array_section* sections, usize count) {
-            for (usize i = 1; i < count; ++i) {
+        void sort_array_sections(array_section* sections, usz count) {
+            for (usz i = 1; i < count; ++i) {
                 const array_section current = sections[i];
 
-                usize j = i;
+                usz j = i;
 
                 while (j != 0 && (current.priority < sections[j - 1].priority ||
                                   (current.priority == sections[j - 1].priority &&
@@ -146,7 +146,7 @@ namespace astia::elf::loader {
     // ========================================================================
 
     bool load_relocatable(span<const u8> bytes, const env& e, image& out) {
-        const usize len = bytes.size();
+        const usz len = bytes.size();
 
         if (e.map == nullptr || e.unmap == nullptr)
             return false;
@@ -200,18 +200,18 @@ namespace astia::elf::loader {
         if (!any_alloc || offset == 0)
             return false;
 
-        if (offset > static_cast<u64>(~usize{0}))
+        if (offset > static_cast<u64>(~usz{0}))
             return false;
 
-        void* block = e.map(e.ctx, 0, static_cast<usize>(offset),
-                            static_cast<usize>(max_align), false);
+        void* block =
+            e.map(e.ctx, 0, static_cast<usz>(offset), static_cast<usz>(max_align), false);
         if (block == nullptr)
             return false;
 
         struct mapped_block {
             const env& environment;
             void*      address;
-            usize      size;
+            usz        size;
 
             ~mapped_block() {
                 if (address != nullptr)
@@ -221,7 +221,7 @@ namespace astia::elf::loader {
             void keep() {
                 address = nullptr;
             }
-        } mapped{e, block, static_cast<usize>(offset)};
+        } mapped{e, block, static_cast<usz>(offset)};
 
         // Zero the whole block up front so .bss (SHT_NOBITS) and any padding
         // are already cleared without a separate pass.
@@ -299,13 +299,13 @@ namespace astia::elf::loader {
 
             u8* target = static_cast<u8*>(sec_base_storage[sh.sh_info]);
 
-            u64   target_size = v.sh[sh.sh_info].sh_size;
-            usize count       = sh.sh_size / sizeof(elf64_rela);
+            u64 target_size = v.sh[sh.sh_info].sh_size;
+            usz count       = sh.sh_size / sizeof(elf64_rela);
 
             const elf64_rela* rela =
                 reinterpret_cast<const elf64_rela*>(v.base + sh.sh_offset);
 
-            for (usize k = 0; k < count; ++k) {
+            for (usz k = 0; k < count; ++k) {
                 const elf64_rela& r = rela[k];
 
                 u32 type = r_type(r.r_info);
@@ -370,7 +370,7 @@ namespace astia::elf::loader {
 
         u32 entry_index = ~u32{0};
 
-        for (usize i = 0; i < v.symcount; ++i) {
+        for (usz i = 0; i < v.symcount; ++i) {
             const elf64_sym& sym = v.sym[i];
 
             const char* name = nullptr;
@@ -398,7 +398,7 @@ namespace astia::elf::loader {
 
         bool coroutine_entry = false;
 
-        for (usize i = 0; i < v.symcount; ++i) {
+        for (usz i = 0; i < v.symcount; ++i) {
             const elf64_sym& sym = v.sym[i];
 
             if (sym.st_shndx == shn_undef || sym.st_shndx >= v.shnum)
@@ -444,17 +444,17 @@ namespace astia::elf::loader {
         array_section init_sections[max_init_array_entries] = {};
         array_section fini_sections[max_init_array_entries] = {};
 
-        usize init_section_count = 0;
-        usize fini_section_count = 0;
-        usize init_entry_count   = 0;
-        usize fini_entry_count   = 0;
+        usz init_section_count = 0;
+        usz fini_section_count = 0;
+        usz init_entry_count   = 0;
+        usz fini_entry_count   = 0;
 
         for (u16 i = 0; i < v.shnum; ++i) {
             const elf64_shdr& section = v.sh[i];
 
             const char* name = nullptr;
 
-            usize name_size = 0;
+            usz name_size = 0;
 
             if (!section_name(v, i, name, name_size))
                 return false;
@@ -471,8 +471,8 @@ namespace astia::elf::loader {
                 section.sh_size % sizeof(u64) != 0)
                 return false;
 
-            const usize count    = section.sh_size / sizeof(u64);
-            u16         priority = 0;
+            const usz count    = section.sh_size / sizeof(u64);
+            u16       priority = 0;
 
             const char* base =
                 section.sh_type == sht_init_array ? ".init_array" : ".fini_array";
@@ -485,10 +485,9 @@ namespace astia::elf::loader {
 
             array_section* sections =
                 section.sh_type == sht_init_array ? init_sections : fini_sections;
-            usize* section_count = section.sh_type == sht_init_array
-                                       ? &init_section_count
-                                       : &fini_section_count;
-            usize* entry_count =
+            usz* section_count = section.sh_type == sht_init_array ? &init_section_count
+                                                                   : &fini_section_count;
+            usz* entry_count =
                 section.sh_type == sht_init_array ? &init_entry_count : &fini_entry_count;
 
             if (*section_count == max_init_array_entries ||
@@ -506,12 +505,12 @@ namespace astia::elf::loader {
         sort_array_sections(init_sections, init_section_count);
         sort_array_sections(fini_sections, fini_section_count);
 
-        const auto append_array = [&](const array_section* sections, usize section_count,
-                                      init_fn* destination, usize& destination_count) {
-            for (usize i = 0; i < section_count; ++i) {
+        const auto append_array = [&](const array_section* sections, usz section_count,
+                                      init_fn* destination, usz& destination_count) {
+            for (usz i = 0; i < section_count; ++i) {
                 const array_section& section = sections[i];
 
-                for (usize j = 0; j < section.count; ++j) {
+                for (usz j = 0; j < section.count; ++j) {
                     const u64 address = read_u64_bytes(section.data + j * sizeof(u64));
 
                     if (address != 0 && !executable_address(address))
@@ -537,7 +536,7 @@ namespace astia::elf::loader {
 
         out.entry     = reinterpret_cast<void*>(addr);
         out.base      = block;
-        out.size      = static_cast<usize>(offset);
+        out.size      = static_cast<usz>(offset);
         out.loaded    = kind::relocatable;
         out.load_bias = 0;
         out.nsegs     = 0;

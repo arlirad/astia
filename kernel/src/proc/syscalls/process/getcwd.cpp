@@ -21,11 +21,10 @@ namespace astia::proc::syscalls {
             if (rc < 0)
                 return rc;
 
-            const auto destination = buffer.validate(static_cast<usize>(rc));
+            const auto destination = buffer.validate(static_cast<usz>(rc));
 
-            return destination &&
-                           sys::copy_out(destination.value.bytes(static_cast<usize>(rc)),
-                                         copy)
+            return destination && sys::copy_out(
+                                      destination.value.bytes(static_cast<usz>(rc)), copy)
                        ? rc
                        : -EFAULT;
         }

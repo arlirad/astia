@@ -10,8 +10,8 @@ namespace astia::proc {
         mm::phys_region*                    backing = nullptr;
         mm::shptr<mm::phys_region_identity> identity;
         u32*                                word   = nullptr;
-        usize                               page   = 0;
-        usize                               offset = 0;
+        usz                                 page   = 0;
+        usz                                 offset = 0;
 
         void release() {
             mm::phys_region* region = backing;
@@ -91,7 +91,7 @@ namespace astia::proc {
     struct mmap_region {
         mmap_region*   next   = nullptr;
         u64            base   = 0; ///< page-aligned
-        usize          pages  = 0;
+        usz            pages  = 0;
         map_protection prot   = map_protection::none;
         bool           shared = false;
         // A reserved mapping is in the VMA list only to claim its address
@@ -105,13 +105,13 @@ namespace astia::proc {
         /// A lazy region whose untouched pages fault in zeroed on first
         /// access; kept on the VMA so clones inherit the same behaviour.
         bool             demand_zero  = false;
-        usize            mapped_pages = 0;
+        usz              mapped_pages = 0;
         bool             holds_ref    = false;
         mm::phys_region* backing      = nullptr;
         /// First page in `backing` represented by this VMA.  This is
         /// non-zero when an unmap trims the front of a region or when
         /// a shared file mapping starts at a page offset.
-        usize                    region_page = 0;
+        usz                      region_page = 0;
         mm::shptr<fs::open_file> file;
         u64                      file_offset = 0;
 

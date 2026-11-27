@@ -17,7 +17,7 @@ namespace astia::initrd {
     /// Load and publish the boot initrd.  Idempotent: later calls report the
     /// result of the first attempt.  Raw images stay in place; gzip and zstd
     /// images are decoded into owned, contiguous frames.
-    bool load_boot_archive(const void* image, usize length);
+    bool load_boot_archive(const void* image, usz length);
 
     bool boot_archive_ready();
 
@@ -27,10 +27,10 @@ namespace astia::initrd {
     archive_container boot_archive_container();
 
     /// Bytes the bootloader supplied (compressed or raw).
-    usize boot_archive_source_size();
+    usz boot_archive_source_size();
 
     /// Bytes of normalized cpio consumed by the VFS and module discovery.
-    usize boot_archive_stored_size();
+    usz boot_archive_stored_size();
 
     /// Error from the most recent load attempt, if it failed.
     decode_error boot_archive_error();

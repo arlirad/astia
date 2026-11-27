@@ -89,7 +89,7 @@ namespace astia::crypto {
         return generator.seeded();
     }
 
-    bool random_bytes(void* buffer, usize length) {
+    bool random_bytes(void* buffer, usz length) {
         if (buffer == nullptr && length != 0)
             return false;
 

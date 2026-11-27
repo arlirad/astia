@@ -11,10 +11,10 @@
 
 namespace astia::proc {
     namespace {
-        constexpr usize kernel_stack_bytes         = 16 * 1024;
-        constexpr u8    kernel_stack_fill          = 0xA5;
-        constexpr u32   kernel_stack_sample_period = 16;
-        constexpr usize kernel_stack_sample_bytes  = 256;
+        constexpr usz kernel_stack_bytes         = 16 * 1024;
+        constexpr u8  kernel_stack_fill          = 0xA5;
+        constexpr u32 kernel_stack_sample_period = 16;
+        constexpr usz kernel_stack_sample_bytes  = 256;
 
         extern "C" [[noreturn]] void thread_trampoline() {
             thread* current = proc::current_thread();
@@ -62,16 +62,16 @@ namespace astia::proc {
         const auto* words = static_cast<const volatile u64*>(_kernel_stack);
 
         constexpr u64 fill_word = u64{0xA5A5A5A5A5A5A5A5};
-        const usize   end       = _kernel_stack_scan_offset;
-        const usize   begin =
+        const usz     end       = _kernel_stack_scan_offset;
+        const usz     begin =
             end > kernel_stack_sample_bytes ? end - kernel_stack_sample_bytes : 0;
-        usize offset = begin;
+        usz offset = begin;
 
         while (offset + sizeof(u64) <= end) {
             if (words[offset / sizeof(u64)] != fill_word) {
-                for (usize byte = offset; byte < offset + sizeof(u64); ++byte) {
+                for (usz byte = offset; byte < offset + sizeof(u64); ++byte) {
                     if (bytes[byte] != kernel_stack_fill) {
-                        const usize used = _kernel_stack_size - byte;
+                        const usz used = _kernel_stack_size - byte;
                         if (used > _kernel_stack_high_water)
                             _kernel_stack_high_water = used;
                     }
@@ -83,7 +83,7 @@ namespace astia::proc {
 
         while (offset < end) {
             if (bytes[offset] != kernel_stack_fill) {
-                const usize used = _kernel_stack_size - offset;
+                const usz used = _kernel_stack_size - offset;
                 if (used > _kernel_stack_high_water)
                     _kernel_stack_high_water = used;
             }
@@ -112,7 +112,7 @@ namespace astia::proc {
         _kernel_stack_sample_count = 0;
         _kernel_stack_scan_offset  = _kernel_stack_size;
         _kernel_stack_top =
-            static_cast<u64>(reinterpret_cast<usize>(_kernel_stack)) + _kernel_stack_size;
+            static_cast<u64>(reinterpret_cast<usz>(_kernel_stack)) + _kernel_stack_size;
 
         return true;
     }
@@ -223,7 +223,7 @@ namespace astia::proc {
 
         if (_owner != nullptr) {
             const bool owner_reaped = _owner->thread_exited(
-                this, static_cast<i32>(reinterpret_cast<usize>(_result)));
+                this, static_cast<i32>(reinterpret_cast<usz>(_result)));
 
             // A detached thread with nobody to join it has no owner for
             // its destruction: the process's owning reference would

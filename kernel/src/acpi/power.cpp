@@ -158,7 +158,7 @@ namespace astia::acpi::detail {
 
         const u8* fadt = tables.fadt.bytes.data();
 
-        const usize length = tables.fadt.bytes.size();
+        const usz length = tables.fadt.bytes.size();
 
         if (length < 90) {
             error = power_error::short_fadt;

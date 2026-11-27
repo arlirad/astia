@@ -10,7 +10,7 @@ namespace astia::crypto {
     /// Fill `length` bytes from the kernel generator.  Returns false when the
     /// platform has no usable entropy source: callers must fail (EAGAIN)
     /// rather than substitute a predictable value.
-    bool random_bytes(void* buffer, usize length);
+    bool random_bytes(void* buffer, usz length);
 
     /// Rekey the generator for a forked child.  The kernel generator is
     /// global, so parent and child already consume one stream; the rekey

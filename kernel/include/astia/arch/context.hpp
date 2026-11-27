@@ -12,10 +12,10 @@ namespace astia::arch {
     /// Upper bound on a port's resumable user-context image.  Generic code
     /// owns an opaque buffer of this size; the port asserts its own layout
     /// fits, so no generic TU needs the register layout.
-    inline constexpr usize max_user_context_bytes = 256;
+    inline constexpr usz max_user_context_bytes = 256;
 
     /// Exact size of the port's resumable user-context image.
-    usize user_context_bytes();
+    usz user_context_bytes();
 
     /// Register image of a ring-3 caller at syscall time.  The arch
     /// syscall entry packs it from its frame; fork hands it to

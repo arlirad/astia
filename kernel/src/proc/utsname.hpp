@@ -4,12 +4,12 @@
 #include <astia/common.hpp>
 
 namespace astia::proc {
-    template <usize Capacity>
+    template <usz Capacity>
     inline void copy_utsname_field(char (&field)[Capacity], const char* value) {
         if (value == nullptr)
             return;
 
-        for (usize i = 0; i + 1 < Capacity && value[i] != '\0'; ++i) {
+        for (usz i = 0; i + 1 < Capacity && value[i] != '\0'; ++i) {
             field[i] = value[i];
         }
     }

@@ -18,7 +18,7 @@ namespace astia::arch {
 
         struct table_arena {
             alignas(4096) u64 entries[policy::table_capacity][policy::table_entries]{};
-            usize used = 0;
+            usz used = 0;
         };
 
         table_arena arena;
@@ -29,7 +29,7 @@ namespace astia::arch {
 
             u64* table = arena.entries[arena.used++];
 
-            for (usize index = 0; index < policy::table_entries; ++index) {
+            for (usz index = 0; index < policy::table_entries; ++index) {
                 table[index] = 0;
             }
 
@@ -40,19 +40,19 @@ namespace astia::arch {
             return reinterpret_cast<u64*>(phys);
         }
 
-        constexpr usize level0_index(vaddr_t virt) {
+        constexpr usz level0_index(vaddr_t virt) {
             return (virt >> 39) & 0x1ff;
         }
 
-        constexpr usize level1_index(vaddr_t virt) {
+        constexpr usz level1_index(vaddr_t virt) {
             return (virt >> 30) & 0x1ff;
         }
 
-        constexpr usize level2_index(vaddr_t virt) {
+        constexpr usz level2_index(vaddr_t virt) {
             return (virt >> 21) & 0x1ff;
         }
 
-        constexpr usize level3_index(vaddr_t virt) {
+        constexpr usz level3_index(vaddr_t virt) {
             return (virt >> 12) & 0x1ff;
         }
 
@@ -113,7 +113,7 @@ namespace astia::arch {
 
             u64* table = table_pointer(frame);
 
-            for (usize index = 0; index < policy::table_entries; ++index) {
+            for (usz index = 0; index < policy::table_entries; ++index) {
                 table[index] = (base + index * policy::page_size) | inherited |
                                policy::descriptor_valid | policy::descriptor_table;
             }
@@ -227,8 +227,8 @@ namespace astia::arch {
             return 0;
         }
 
-        bool clone_table(const u64* source, u64* destination, usize level) {
-            for (usize index = 0; index < policy::table_entries; ++index) {
+        bool clone_table(const u64* source, u64* destination, usz level) {
+            for (usz index = 0; index < policy::table_entries; ++index) {
                 const u64 entry = source[index];
 
                 if (!is_valid(entry)) {

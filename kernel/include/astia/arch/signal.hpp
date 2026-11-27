@@ -11,10 +11,10 @@ namespace astia::arch {
     /// Upper bound on a port's saved signal-context ABI.  Generic code keeps
     /// an opaque buffer of this size; a port asserts its own struct fits, so
     /// no generic translation unit ever needs the concrete type or its size.
-    inline constexpr usize max_signal_context_bytes = 256;
+    inline constexpr usz max_signal_context_bytes = 256;
 
     /// Exact size of the port's user signal-context ABI.
-    usize signal_context_bytes();
+    usz signal_context_bytes();
 
     /// Result of validating an opaque saved context copied from user memory.
     struct signal_restore_state {
@@ -42,7 +42,7 @@ namespace astia::arch {
     concept signal_context_port =
         requires(void* storage, const void* const_storage, syscall_return& image,
                  i64 result, u32 blocked, bool alt) {
-            { signal_context_bytes() } -> std::convertible_to<usize>;
+            { signal_context_bytes() } -> std::convertible_to<usz>;
             { capture_signal_context(storage, image, result, blocked, alt) };
             {
                 validate_signal_context(const_storage)

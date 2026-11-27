@@ -14,7 +14,7 @@ namespace astia::dev {
         long write(const void* buffer, u32 length, u64 offset) override;
         long submit(io::request& request) override;
         u32  poll(u32 events, u32 flags) override;
-        long ioctl(u64 request, void* argp, usize size) override;
+        long ioctl(u64 request, void* argp, usz size) override;
         long acquire_controlling_terminal(i32 group) override;
         void duplicate(u32 flags);
         void close(u32 flags);
@@ -33,7 +33,7 @@ namespace astia::dev {
         long master_write(const void* buffer, u32 length);
         long master_submit(io::request& request);
         u32  master_poll(u32 events) const;
-        long master_ioctl(u64 request, void* argp, usize size);
+        long master_ioctl(u64 request, void* argp, usz size);
         void master_duplicate();
         void master_close();
 

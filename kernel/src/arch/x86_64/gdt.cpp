@@ -38,7 +38,7 @@ namespace astia::arch::x86_64 {
 
         static_assert(sizeof(tss) == 104);
 
-        constexpr usize max_cpus = platform::max_cpu_count;
+        constexpr usz max_cpus = platform::max_cpu_count;
         alignas(8) u64 gdt[max_cpus][7];
         alignas(16) tss task_state[max_cpus];
         gdtr  descriptor[max_cpus];
@@ -76,7 +76,7 @@ namespace astia::arch::x86_64 {
     } // namespace
 
     bool init_gdt_tss_cpu(u32 cpu_index) {
-        constexpr usize kernel_stack_bytes = 16 * 1024;
+        constexpr usz kernel_stack_bytes = 16 * 1024;
 
         if (cpu_index >= max_cpus)
             return false;

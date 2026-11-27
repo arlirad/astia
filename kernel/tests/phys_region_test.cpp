@@ -20,7 +20,7 @@ namespace {
     // its objects from the heap; point both at the arena like the
     // other substrate-bound tests do, and report the free-frame count
     // so callers can assert full reclamation.
-    astia::usize init_world() {
+    astia::usz init_world() {
         astia_test::map_arena();
 
         static bool ready = false;
@@ -102,7 +102,7 @@ ASTIA_TEST(phys_region_split_page_copies_and_tracks) {
 
     auto* bytes = static_cast<astia::u8*>(region->page_direct(1));
 
-    for (astia::usize b = 0; b < phys_region::frame_size; ++b) {
+    for (astia::usz b = 0; b < phys_region::frame_size; ++b) {
         bytes[b] = static_cast<astia::u8>(b & 0xFF);
     }
 
@@ -176,10 +176,13 @@ ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
 
     ASTIA_CHECK(region != nullptr);
 
-    const auto   frame = region->page_base(0);
-    const auto   used  = astia::mm::heap::used();
-    void*        held[4096]{};
-    astia::usize held_count = 0;
+    if (region == nullptr)
+        return;
+
+    const auto frame = region->page_base(0);
+    const auto used  = astia::mm::heap::used();
+    void*      held[4096]{};
+    astia::usz held_count = 0;
 
     while (held_count < sizeof held / sizeof held[0]) {
         auto block = astia::mm::heap::alloc(16);
@@ -195,7 +198,7 @@ ASTIA_TEST(phys_region_copy_page_rolls_back_on_allocation_failure) {
     ASTIA_CHECK(region->uniquely_held(0));
     ASTIA_CHECK(region->references() == 1);
 
-    for (astia::usize i = 0; i < held_count; ++i) {
+    for (astia::usz i = 0; i < held_count; ++i) {
         astia::mm::heap::free(held[i]);
     }
 
@@ -300,7 +303,7 @@ ASTIA_TEST(pinned_buffer_exposes_one_contiguous_window) {
 
     ASTIA_CHECK(base == region->page_direct(1));
 
-    for (astia::usize page = 0; page < pin.pages(); ++page) {
+    for (astia::usz page = 0; page < pin.pages(); ++page) {
         ASTIA_CHECK(pin.direct(page) == base + page * phys_region::frame_size);
         ASTIA_CHECK(pin.phys(page) ==
                     region->base() + (1 + page) * phys_region::frame_size);
@@ -514,7 +517,7 @@ ASTIA_TEST(iovec_refuses_what_it_cannot_hold) {
     ASTIA_CHECK(list.empty());
     ASTIA_CHECK(region->references() == 1); // the refusals retained nothing
 
-    for (astia::usize i = 0; i < astia::mm::iovec::max_segments; ++i) {
+    for (astia::usz i = 0; i < astia::mm::iovec::max_segments; ++i) {
         ASTIA_CHECK(list.append(region, 0, 1, 0, 16, false));
     }
 

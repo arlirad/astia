@@ -10,7 +10,7 @@ namespace astia {
     /// brace initialization such as `{data, size}`.
     struct string_view {
         const char* data = nullptr;
-        usize       size = 0;
+        usz         size = 0;
 
         constexpr bool valid() const {
             return data != nullptr || size == 0;
@@ -26,7 +26,7 @@ namespace astia {
             if (!valid() || !other.valid() || size != other.size)
                 return false;
 
-            for (usize i = 0; i < size; ++i) {
+            for (usz i = 0; i < size; ++i) {
                 if (data[i] != other.data[i])
                     return false;
             }
@@ -39,7 +39,7 @@ namespace astia {
             if (!valid() || !prefix.valid() || prefix.size > size)
                 return false;
 
-            for (usize i = 0; i < prefix.size; ++i) {
+            for (usz i = 0; i < prefix.size; ++i) {
                 if (data[i] != prefix.data[i])
                     return false;
             }
@@ -57,9 +57,9 @@ namespace astia {
                 return valid() ? 1 : -1;
             }
 
-            const usize common = size < other.size ? size : other.size;
+            const usz common = size < other.size ? size : other.size;
 
-            for (usize i = 0; i < common; ++i) {
+            for (usz i = 0; i < common; ++i) {
                 const auto left  = static_cast<unsigned char>(data[i]);
                 const auto right = static_cast<unsigned char>(other.data[i]);
 
@@ -78,7 +78,7 @@ namespace astia {
             if (!valid())
                 return false;
 
-            for (usize i = 0; i < size; ++i) {
+            for (usz i = 0; i < size; ++i) {
                 if (data[i] == '\0') {
                     output = {data, i};
 
@@ -95,7 +95,7 @@ namespace astia {
             if (input == nullptr)
                 return {};
 
-            usize length = 0;
+            usz length = 0;
 
             while (input[length] != '\0') {
                 ++length;
@@ -173,13 +173,13 @@ namespace astia::strings {
         const char* c_str() const;
 
         /// Bytes, excluding the terminating NUL.
-        usize size() const;
+        usz size() const;
 
         bool empty() const;
 
         private:
         char* data_     = nullptr;
-        usize size_     = 0;
-        usize capacity_ = 0; // Allocated bytes, including the terminating NUL.
+        usz   size_     = 0;
+        usz   capacity_ = 0; // Allocated bytes, including the terminating NUL.
     };
 } // namespace astia::strings

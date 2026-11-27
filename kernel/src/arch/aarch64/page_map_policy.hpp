@@ -32,9 +32,9 @@ namespace astia::arch::aarch64::page_map_policy {
     inline constexpr u64 max_virtual_address  = (1ull << 48) - 1;
     inline constexpr u64 max_physical_address = (1ull << 40) - 1;
 
-    inline constexpr usize table_capacity = 256;
-    inline constexpr usize table_entries  = 512;
-    inline constexpr u64   table_bytes    = table_entries * sizeof(u64);
+    inline constexpr usz table_capacity = 256;
+    inline constexpr usz table_entries  = 512;
+    inline constexpr u64 table_bytes    = table_entries * sizeof(u64);
 
     inline constexpr u64 descriptor_valid    = 1ull << 0;
     inline constexpr u64 descriptor_table    = 1ull << 1;

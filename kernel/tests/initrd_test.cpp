@@ -15,8 +15,8 @@ extern unsigned int  initrd_zstd_blob_len;
 
 namespace {
     struct collect {
-        const char*  names[4];
-        astia::usize n = 0;
+        const char* names[4];
+        astia::usz  n = 0;
     };
 
     bool collect_visit(void* ctx, const astia::initrd::file& f) {
@@ -216,9 +216,9 @@ ASTIA_TEST(initrd_trailer_name_comparison_is_length_bounded) {
 
     constexpr char trailer[] = "TRAILER!!!";
 
-    astia::usize trailer_offset = image.size();
+    astia::usz trailer_offset = image.size();
 
-    for (astia::usize i = 0; i + sizeof(trailer) <= image.size(); ++i) {
+    for (astia::usz i = 0; i + sizeof(trailer) <= image.size(); ++i) {
         if (std::memcmp(image.data() + i, trailer, sizeof(trailer)) == 0) {
             trailer_offset = i;
 
@@ -243,7 +243,7 @@ ASTIA_TEST(initrd_trailer_name_comparison_is_length_bounded) {
 
     image.assign(initrd_newc_blob, initrd_newc_blob + initrd_newc_blob_len);
 
-    const astia::usize header_offset = trailer_offset - 110;
+    const astia::usz header_offset = trailer_offset - 110;
 
     std::memcpy(image.data() + header_offset + 94, "0000000c", 8);
     ASTIA_CHECK(astia::initrd::open(image.data(), image.size(), a));

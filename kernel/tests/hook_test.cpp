@@ -8,7 +8,7 @@ namespace {
     // Same payload, different tag: must get its own registry.
     struct other : astia::core::hook::event<other, int&> {};
 
-    using astia::usize;
+    using astia::usz;
     namespace priority = astia::core::hook::priority;
     using astia::core::hook::outcome;
 
@@ -215,7 +215,7 @@ ASTIA_TEST(hook_events_do_not_share_storage) {
 ASTIA_TEST(hook_capacity_is_bounded) {
     reset();
 
-    for (usize i = 0; i < probe::capacity; ++i) {
+    for (usz i = 0; i < probe::capacity; ++i) {
         ASTIA_CHECK(probe::add(capacity_names[i], 0, &record_first));
     }
 

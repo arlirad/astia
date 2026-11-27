@@ -4,10 +4,10 @@
 #include <astia/span.hpp>
 
 namespace astia::acpi::detail {
-    constexpr usize max_tables            = 64;
-    constexpr usize max_ssdts             = max_tables;
-    constexpr usize max_table_bytes       = 128 * 1024;
-    constexpr usize max_total_table_bytes = 512 * 1024;
+    constexpr usz max_tables            = 64;
+    constexpr usz max_ssdts             = max_tables;
+    constexpr usz max_table_bytes       = 128 * 1024;
+    constexpr usz max_total_table_bytes = 512 * 1024;
 
     constexpr u32 rsdp_v1_size    = 20;
     constexpr u32 rsdp_v2_size    = 36;
@@ -52,8 +52,8 @@ namespace astia::acpi::detail {
     const char* error_text(table_error error);
 
     struct memory_reader {
-        void* context                                                           = nullptr;
-        bool (*read)(void* context, u64 address, u8* destination, usize length) = nullptr;
+        void* context                                                         = nullptr;
+        bool (*read)(void* context, u64 address, u8* destination, usz length) = nullptr;
     };
 
     struct table {
@@ -75,7 +75,7 @@ namespace astia::acpi::detail {
 
     struct table_allocator {
         void* context                                 = nullptr;
-        void* (*allocate)(void* context, usize bytes) = nullptr;
+        void* (*allocate)(void* context, usz bytes)   = nullptr;
         void (*release)(void* context, void* pointer) = nullptr;
     };
 
@@ -99,15 +99,15 @@ namespace astia::acpi::detail {
         table_allocator allocator{};
         table_record*   head        = nullptr;
         table_record*   tail        = nullptr;
-        usize           count       = 0;
-        usize           total_bytes = 0;
+        usz             count       = 0;
+        usz             total_bytes = 0;
 
         table           fadt{};
         table           dsdt{};
         table           ssdt[max_ssdts]{};
-        usize           ssdt_count = 0;
+        usz             ssdt_count = 0;
         inventory_entry inventory[max_tables]{};
-        usize           inventory_count = 0;
+        usz             inventory_count = 0;
         table_error     error           = table_error::none;
         u64             rsdp_address    = 0;
         bool            valid_rsdp      = false;
@@ -116,8 +116,8 @@ namespace astia::acpi::detail {
         u32 root_signature     = 0;
 
         /// First record with `signature` at `occurrence` in discovery order.
-        bool find(u32 signature, usize occurrence, table& out) const;
-        bool find(u32 signature, usize occurrence, table_record*& out) const;
+        bool find(u32 signature, usz occurrence, table& out) const;
+        bool find(u32 signature, usz occurrence, table_record*& out) const;
 
         /// Release every retained table and reset all discovery metadata.
         void clear();

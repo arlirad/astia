@@ -6,7 +6,7 @@
 
 | Type | Ownership | Representation |
 | --- | --- | --- |
-| `astia::string_view` | non-owning | `{const char* data, usize size}` |
+| `astia::string_view` | non-owning | `{const char* data, usz size}` |
 | `astia::strings::string` | owning, heap-backed | `char*` block, `size`, `capacity` |
 
 The owning type sits in `namespace astia::strings`; `string_view` and the

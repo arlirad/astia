@@ -40,14 +40,14 @@ namespace {
 
         astia::string_view view() const {
             return {reinterpret_cast<const char*>(output),
-                    static_cast<astia::usize>(length)};
+                    static_cast<astia::usz>(length)};
         }
 
         bool equals(const char* text) const {
             return view().equals(astia::string_view::from_c_str(text));
         }
 
-        bool equals(const char* data, astia::usize size) const {
+        bool equals(const char* data, astia::usz size) const {
             return view().equals({data, size});
         }
 

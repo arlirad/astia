@@ -6,7 +6,7 @@ namespace astia::dev {
         return events & (POLLIN | POLLOUT);
     }
 
-    long device::ioctl(u64 request, void* argp, usize size) {
+    long device::ioctl(u64 request, void* argp, usz size) {
         (void) request;
         (void) argp;
         (void) size;

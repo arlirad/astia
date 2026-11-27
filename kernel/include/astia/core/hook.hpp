@@ -45,7 +45,7 @@ namespace astia::core::hook {
         public:
         using handler = outcome (*)(Args...);
 
-        static constexpr usize capacity = 16;
+        static constexpr usz capacity = 16;
 
         /// Register `call` under `id`.  Lower priority runs first; equal
         /// priorities keep registration order.  Fails when the id is
@@ -56,7 +56,7 @@ namespace astia::core::hook {
 
             core::spinlock_guard guard(_lock);
 
-            for (usize i = 0; i < _count; ++i) {
+            for (usz i = 0; i < _count; ++i) {
                 if (same(_entries[i].id, id))
                     return false;
             }
@@ -64,13 +64,13 @@ namespace astia::core::hook {
             if (_count == capacity)
                 return false;
 
-            usize at = _count;
+            usz at = _count;
 
             while (at > 0 && _entries[at - 1].priority > priority) {
                 --at;
             }
 
-            for (usize i = _count; i > at; --i) {
+            for (usz i = _count; i > at; --i) {
                 _entries[i] = _entries[i - 1];
             }
 
@@ -88,11 +88,11 @@ namespace astia::core::hook {
 
             core::spinlock_guard guard(_lock);
 
-            for (usize i = 0; i < _count; ++i) {
+            for (usz i = 0; i < _count; ++i) {
                 if (!same(_entries[i].id, id))
                     continue;
 
-                for (usize j = i + 1; j < _count; ++j) {
+                for (usz j = i + 1; j < _count; ++j) {
                     _entries[j - 1] = _entries[j];
                 }
 
@@ -110,9 +110,9 @@ namespace astia::core::hook {
         static void emit(Args... args) {
             entry batch[capacity];
 
-            const usize count = snapshot(batch);
+            const usz count = snapshot(batch);
 
-            for (usize i = 0; i < count; ++i) {
+            for (usz i = 0; i < count; ++i) {
                 if (batch[i].call != nullptr)
                     (void) batch[i].call(args...);
             }
@@ -124,9 +124,9 @@ namespace astia::core::hook {
         static outcome emit_until(Args... args) {
             entry batch[capacity];
 
-            const usize count = snapshot(batch);
+            const usz count = snapshot(batch);
 
-            for (usize i = 0; i < count; ++i) {
+            for (usz i = 0; i < count; ++i) {
                 if (batch[i].call == nullptr)
                     continue;
 
@@ -138,7 +138,7 @@ namespace astia::core::hook {
         }
 
         /// Number of registered handlers.
-        static usize size() {
+        static usz size() {
             core::spinlock_guard guard(_lock);
 
             return _count;
@@ -148,7 +148,7 @@ namespace astia::core::hook {
         static void clear() {
             core::spinlock_guard guard(_lock);
 
-            for (usize i = 0; i < _count; ++i) {
+            for (usz i = 0; i < _count; ++i) {
                 _entries[i] = entry{};
             }
 
@@ -180,10 +180,10 @@ namespace astia::core::hook {
         /// Copy the current registrations so handlers run without the lock.
         /// The caller owns the snapshot, so concurrent and nested emits are
         /// independent.
-        static usize snapshot(entry* batch) {
+        static usz snapshot(entry* batch) {
             core::spinlock_guard guard(_lock);
 
-            for (usize i = 0; i < _count; ++i) {
+            for (usz i = 0; i < _count; ++i) {
                 batch[i] = _entries[i];
             }
 
@@ -191,7 +191,7 @@ namespace astia::core::hook {
         }
 
         inline static entry          _entries[capacity]{};
-        inline static usize          _count = 0;
+        inline static usz            _count = 0;
         inline static core::spinlock _lock{};
     };
 } // namespace astia::core::hook

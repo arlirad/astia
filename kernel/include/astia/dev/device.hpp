@@ -73,21 +73,21 @@ namespace astia::dev {
 
         // Device-specific control: TCGETS/TCSETS on a tty, geometry on
         // a disk.  -ENOTTY when the request is unknown.
-        virtual long ioctl(u64 request, void* argp, usize size);
+        virtual long ioctl(u64 request, void* argp, usz size);
         virtual long acquire_controlling_terminal(i32 group);
 
         // Span adapters keep internal device call sites from carrying a
         // pointer and length separately; the virtual compatibility seam above
         // remains unchanged for file/driver implementations.
         long read(astia::span<u8> buffer, u64 off) {
-            if (buffer.size() > static_cast<usize>(~u32{0}))
+            if (buffer.size() > static_cast<usz>(~u32{0}))
                 return -EINVAL;
 
             return read(buffer.data(), static_cast<u32>(buffer.size()), off);
         }
 
         long write(astia::span<const u8> buffer, u64 off) {
-            if (buffer.size() > static_cast<usize>(~u32{0}))
+            if (buffer.size() > static_cast<usz>(~u32{0}))
                 return -EINVAL;
 
             return write(buffer.data(), static_cast<u32>(buffer.size()), off);

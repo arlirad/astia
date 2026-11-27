@@ -44,8 +44,8 @@ namespace astia::io::aio::test_support {
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
-        constexpr usize      node_override_capacity = 8;
-        constexpr usize      node_override_path_max = 512;
+        constexpr usz        node_override_capacity = 8;
+        constexpr usz        node_override_path_max = 512;
 
         struct node_override_entry {
             char      path[node_override_path_max]{};
@@ -74,7 +74,7 @@ namespace astia::io::aio::test_support {
         }
 
         void copy_path(char* destination, const char* source) {
-            usize length = 0;
+            usz length = 0;
 
             while (length + 1 < node_override_path_max && source[length] != '\0') {
                 destination[length] = source[length];
@@ -161,9 +161,8 @@ namespace astia::io::aio::test_support {
                 source.null())
                 return false;
 
-            const usize limit =
-                source.empty() ? destination.length() - 1 : source.length();
-            usize length = 0;
+            const usz limit = source.empty() ? destination.length() - 1 : source.length();
+            usz       length = 0;
 
             while (length < limit && length + 1 < destination.length()) {
                 const char value = static_cast<char>(source[length]);
@@ -564,7 +563,7 @@ namespace astia::core {
 } // namespace astia::core
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 
@@ -582,7 +581,7 @@ namespace astia::mm::heap {
 
 namespace astia::mm {
     iovec::iovec(iovec&& other) noexcept {
-        for (usize i = 0; i < other._count; ++i) {
+        for (usz i = 0; i < other._count; ++i) {
             _segments[i].base   = other._segments[i].base;
             _segments[i].offset = other._segments[i].offset;
             _segments[i].length = other._segments[i].length;
@@ -604,7 +603,7 @@ namespace astia::mm {
         if (this != &other) {
             release();
 
-            for (usize i = 0; i < other._count; ++i) {
+            for (usz i = 0; i < other._count; ++i) {
                 _segments[i].base   = other._segments[i].base;
                 _segments[i].offset = other._segments[i].offset;
                 _segments[i].length = other._segments[i].length;
@@ -633,7 +632,7 @@ namespace astia::mm {
         _remaining = 0;
     }
 
-    usize iovec::bytes() const {
+    usz iovec::bytes() const {
         return _total;
     }
 
@@ -650,26 +649,26 @@ namespace astia::mm {
         return segment.base + segment.offset + _offset;
     }
 
-    usize iovec::chunk() const {
+    usz iovec::chunk() const {
         if (_remaining == 0 || _index >= _count)
             return 0;
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize left = segment.length - _offset;
+        const usz left = segment.length - _offset;
 
         return left < _remaining ? left : _remaining;
     }
 
-    usize iovec::advance(usize bytes) {
-        usize moved = 0;
+    usz iovec::advance(usz bytes) {
+        usz moved = 0;
 
         while (moved < bytes && _remaining != 0 && _index < _count) {
-            const usize take = chunk();
+            const usz take = chunk();
             if (take == 0)
                 break;
 
-            const usize step = take < bytes - moved ? take : bytes - moved;
+            const usz step = take < bytes - moved ? take : bytes - moved;
 
             _offset += step;
             _remaining -= step;
@@ -685,7 +684,7 @@ namespace astia::mm {
         return moved;
     }
 
-    bool iovec::append_kernel(void* address, usize length) {
+    bool iovec::append_kernel(void* address, usz length) {
         if (_count >= max_segments || length == 0)
             return _count < max_segments;
 
@@ -845,7 +844,7 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -854,7 +853,7 @@ namespace astia::proc {
         if (length + 1 > buffer.length())
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 
@@ -877,13 +876,13 @@ namespace astia::proc {
         if (base == nullptr || !directory->mode().is_directory())
             return -ENOTDIR;
 
-        usize length = 0;
+        usz length = 0;
 
         while (base[length] != '\0') {
             ++length;
         }
 
-        usize suffix = 0;
+        usz suffix = 0;
 
         while (path[suffix] != '\0') {
             ++suffix;
@@ -892,14 +891,14 @@ namespace astia::proc {
         if (length + suffix + 2 > buffer.length())
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i < length; ++i) {
+        for (usz i = 0; i < length; ++i) {
             buffer[i] = base[i];
         }
 
         if (length == 0 || buffer[length - 1] != '/')
             buffer[length++] = '/';
 
-        for (usize i = 0; i <= suffix; ++i) {
+        for (usz i = 0; i <= suffix; ++i) {
             buffer[length + i] = path[i];
         }
 
@@ -1021,7 +1020,7 @@ namespace astia::fs {
         return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
-    long open_file::ioctl(u64 request, void* argument, usize size) {
+    long open_file::ioctl(u64 request, void* argument, usz size) {
         if (!_parent)
             return -EBADF;
 
@@ -1074,7 +1073,7 @@ namespace astia::fs {
         if (path == nullptr || buffer == nullptr)
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -1083,7 +1082,7 @@ namespace astia::fs {
         if (length + 1 > capacity)
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 

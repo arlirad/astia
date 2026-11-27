@@ -87,11 +87,11 @@ namespace astia::sys {
         }
 
         private:
-        validated_user_span(u64 address, usize length)
+        validated_user_span(u64 address, usz length)
             : address_(address), length_(length) {}
 
-        u64   address_ = 0;
-        usize length_  = 0;
+        u64 address_ = 0;
+        usz length_  = 0;
     };
 
     template <typename T>
@@ -99,14 +99,13 @@ namespace astia::sys {
         public:
         constexpr user_span() = default;
 
-        constexpr user_span(u64 address, usize count)
-            : address_(address), count_(count) {}
+        constexpr user_span(u64 address, usz count) : address_(address), count_(count) {}
 
         constexpr u64 address() const {
             return address_;
         }
 
-        constexpr usize count() const {
+        constexpr usz count() const {
             return count_;
         }
 
@@ -117,8 +116,8 @@ namespace astia::sys {
         optional<validated_user_span<T>> validate() const;
 
         private:
-        u64   address_ = 0;
-        usize count_   = 0;
+        u64 address_ = 0;
+        usz count_   = 0;
     };
 
     /// A typed borrowed view formed only after page-map validation.
@@ -138,11 +137,11 @@ namespace astia::sys {
             return reinterpret_cast<T*>(address_);
         }
 
-        span<T> view(usize count = 1) const {
+        span<T> view(usz count = 1) const {
             return span<T>(get(), count);
         }
 
-        span<u8> bytes(usize count = 1) const {
+        span<u8> bytes(usz count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
 
@@ -170,7 +169,7 @@ namespace astia::sys {
             return address_ == 0;
         }
 
-        constexpr span<u8> bytes(usize count = 1) const {
+        constexpr span<u8> bytes(usz count = 1) const {
             return span<u8>::bytes(address_, sizeof(T) * count);
         }
 
@@ -180,9 +179,9 @@ namespace astia::sys {
             return span<u8>::string(address_);
         }
 
-        optional<validated_user_ptr<T>> validate(usize count = 1) const;
+        optional<validated_user_ptr<T>> validate(usz count = 1) const;
         optional<validated_user_ptr<T>> validate_for(proc::process* owner,
-                                                     usize          count = 1) const;
+                                                     usz            count = 1) const;
 
         private:
         u64 address_ = 0;
@@ -292,14 +291,14 @@ namespace astia::sys {
     }
 
     template <typename T>
-    optional<validated_user_ptr<T>> user_ptr<T>::validate(usize count) const {
+    optional<validated_user_ptr<T>> user_ptr<T>::validate(usz count) const {
         return validate_for(proc::current_process(), count);
     }
 
     template <typename T>
     optional<validated_user_ptr<T>> user_ptr<T>::validate_for(proc::process* owner,
-                                                              usize count) const {
-        if (count > (~usize{0} / sizeof(T)))
+                                                              usz count) const {
+        if (count > (~usz{0} / sizeof(T)))
             return error_t::erange;
 
         if (!user_span_ok_for(owner, bytes(count)))
@@ -323,7 +322,7 @@ namespace astia::sys {
 
     template <typename T>
     optional<validated_user_span<T>> user_span<T>::validate() const {
-        if (count_ > (~usize{0} / sizeof(T)))
+        if (count_ > (~usz{0} / sizeof(T)))
             return error_t::erange;
 
         if (!user_span_ok(bytes()))
@@ -413,7 +412,7 @@ namespace astia::sys {
 
             const auto* from = static_cast<const u8*>(source);
 
-            usize copied = 0;
+            usz copied = 0;
 
             while (copied < destination.length()) {
                 const u64 address = destination.address() + copied;
@@ -424,13 +423,13 @@ namespace astia::sys {
                 if (target == nullptr)
                     return false;
 
-                const usize within = static_cast<usize>(address - page);
-                usize       chunk  = mm::page_size - within;
+                const usz within = static_cast<usz>(address - page);
+                usz       chunk  = mm::page_size - within;
 
                 if (chunk > destination.length() - copied)
                     chunk = destination.length() - copied;
 
-                for (usize i = 0; i < chunk; ++i) {
+                for (usz i = 0; i < chunk; ++i) {
                     target[within + i] = from[copied + i];
                 }
 
@@ -443,7 +442,7 @@ namespace astia::sys {
         auto*       to   = reinterpret_cast<u8*>(destination.address());
         const auto* from = static_cast<const u8*>(source);
 
-        for (usize i = 0; i < destination.length(); ++i) {
+        for (usz i = 0; i < destination.length(); ++i) {
             to[i] = from[i];
         }
 
@@ -462,7 +461,7 @@ namespace astia::sys {
         auto*       to   = static_cast<u8*>(destination);
         const auto* from = reinterpret_cast<const u8*>(source.address());
 
-        for (usize i = 0; i < source.length(); ++i) {
+        for (usz i = 0; i < source.length(); ++i) {
             to[i] = from[i];
         }
 
@@ -479,7 +478,7 @@ namespace astia::sys {
     /// Fails if any page is unmapped or the terminator is not found within
     /// the capacity bound.
     inline bool copy_in_string(span<char> destination, span<u8> source) {
-        const usize capacity = destination.size();
+        const usz capacity = destination.size();
 
         if (capacity == 0 || source.null())
             return false;
@@ -492,7 +491,7 @@ namespace astia::sys {
 
         if (space == nullptr ||
             !space->attached()) { // kernel client: bounded straight copy
-            for (usize i = 0; i < capacity; ++i) {
+            for (usz i = 0; i < capacity; ++i) {
                 destination.data()[i] = static_cast<char>(from[i]);
 
                 if (destination.data()[i] == '\0')
@@ -508,7 +507,7 @@ namespace astia::sys {
         if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1)))
             return false;
 
-        for (usize i = 0; i < capacity; ++i, ++byte) {
+        for (usz i = 0; i < capacity; ++i, ++byte) {
             if (!space->valid_user_range(byte, 1))
                 return false;
 

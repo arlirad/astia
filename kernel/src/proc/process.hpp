@@ -40,9 +40,9 @@ namespace astia::proc {
         resource_limits::policy::supplementary_groups;
 
     /// Userspace spawn limits for the startup frame (argv/envp).
-    inline constexpr u32   max_argv_entries = resource_limits::policy::argv_entries;
-    inline constexpr u32   max_env_entries  = resource_limits::policy::env_entries;
-    inline constexpr usize max_spawn_string_bytes =
+    inline constexpr u32 max_argv_entries = resource_limits::policy::argv_entries;
+    inline constexpr u32 max_env_entries  = resource_limits::policy::env_entries;
+    inline constexpr usz max_spawn_string_bytes =
         resource_limits::policy::spawn_string_bytes;
 
     enum class process_state : u8 {
@@ -183,13 +183,13 @@ namespace astia::proc {
         i64             change_directory(const fs::open_file& directory);
         i64             copy_cwd(span<char> buffer) const;
 
-        i64 copy_cwd(char* buffer, usize length) const {
+        i64 copy_cwd(char* buffer, usz length) const {
             return copy_cwd(span<char>(buffer, length));
         }
 
         i64 copy_root(span<char> buffer) const;
 
-        i64 copy_root(char* buffer, usize length) const {
+        i64 copy_root(char* buffer, usz length) const {
             return copy_root(span<char>(buffer, length));
         }
 
@@ -197,14 +197,14 @@ namespace astia::proc {
         // performs canonical VFS resolution as the second layer.
         i64 compose_path(const char* path, span<char> buffer) const;
 
-        i64 compose_path(const char* path, char* buffer, usize length) const {
+        i64 compose_path(const char* path, char* buffer, usz length) const {
             return compose_path(path, span<char>(buffer, length));
         }
 
         i64 compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const;
 
         i64 compose_path_at(fd_t dirfd, const char* path, char* buffer,
-                            usize length) const {
+                            usz length) const {
             return compose_path_at(dirfd, path, span<char>(buffer, length));
         }
 
@@ -213,7 +213,7 @@ namespace astia::proc {
         /// and fail with -ENOENT while cwd is outside the root.
         i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
 
-        i64 resolve_path(const char* path, char* buffer, usize length,
+        i64 resolve_path(const char* path, char* buffer, usz length,
                          bool follow_final) const {
             return resolve_path(path, span<char>(buffer, length), follow_final);
         }
@@ -223,7 +223,7 @@ namespace astia::proc {
         i64 resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
                             bool follow_final) const;
 
-        i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usize length,
+        i64 resolve_path_at(fd_t dirfd, const char* path, char* buffer, usz length,
                             bool follow_final) const {
             return resolve_path_at(dirfd, path, span<char>(buffer, length), follow_final);
         }
@@ -449,7 +449,7 @@ namespace astia::proc {
         /// user entry/TSS return is an architecture step after this.
         bool load_user_image(span<const u8> bytes, u64* entry_out);
 
-        bool load_user_image(const void* bytes, usize length, u64* entry_out) {
+        bool load_user_image(const void* bytes, usz length, u64* entry_out) {
             return load_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    entry_out);
         }
@@ -491,7 +491,7 @@ namespace astia::proc {
         /// `region_page..+pages`; this mapping adopts it.  `cow` installs the
         /// page table entries read-only (the VMA stays writable) so the first
         /// store faults into a private copy.
-        bool map_shared_range(u64 base, usize pages, map_protection prot,
+        bool map_shared_range(u64 base, usz pages, map_protection prot,
                               mm::phys_region* region, u32 region_page, bool cow);
         /// Create the process's first user thread.  Builds the
         /// userspace startup frame (argc/argv/envp, arch-neutral
@@ -505,14 +505,13 @@ namespace astia::proc {
         /// `argument` becomes the new entry's first ABI argument.
         mm::shptr<thread> create_thread(u64 entry, u64 user_stack_top, u64 argument,
                                         u64 argument1 = 0, bool owns_user_stack = false,
-                                        u64   user_stack_base = 0,
-                                        usize user_stack_size = 0);
+                                        u64 user_stack_base = 0, usz user_stack_size = 0);
 
         struct thread_stack_snapshot {
-            u64   stack_base = 0;
-            usize stack_size = 0;
-            bool  detached   = false;
-            bool  supported  = false;
+            u64  stack_base = 0;
+            usz  stack_size = 0;
+            bool detached   = false;
+            bool supported  = false;
         };
 
         mm::shptr<thread> thread_stack_info(tid_t id, thread_stack_snapshot& snapshot);
@@ -556,12 +555,12 @@ namespace astia::proc {
         /// munmap: drop [addr, addr + len) rounded up to pages; parts
         /// of mapped regions outside the range are kept.  Returns 0,
         /// or a negated errno.  Unmapping never-mapped space succeeds.
-        i32 unmap(u64 addr, usize len);
+        i32 unmap(u64 addr, usz len);
 
-        i32 protect(u64 addr, usize len, map_protection prot);
+        i32 protect(u64 addr, usz len, map_protection prot);
 
-        core::task<i32> msync(u64 addr, usize len, u32 flags);
-        i32             msync_sync(u64 addr, usize len, u32 flags);
+        core::task<i32> msync(u64 addr, usz len, u32 flags);
+        i32             msync_sync(u64 addr, usz len, u32 flags);
 
         /// The mmap_region covering `addr`, or nullptr — the entry
         /// point for the future user page-fault path.
@@ -579,7 +578,7 @@ namespace astia::proc {
         /// with no address space should not be here at all: its pointers are
         /// kernel memory, which cannot be unmapped out from under the
         /// operation in the first place (see sys::pin_user_span).
-        i32 pin_user(u64 addr, usize len, bool destination, mm::iovec& out);
+        i32 pin_user(u64 addr, usz len, bool destination, mm::iovec& out);
 
         /// Copy-on-write fork support (called on the parent): build
         /// `child`'s address space from this one.  Every VMA's backing
@@ -624,24 +623,24 @@ namespace astia::proc {
         bool exec_user_image(span<const u8> bytes, char* const argv[], char* const envp[],
                              u64* entry_out, u64* stack_out);
 
-        bool exec_user_image(const void* bytes, usize length, char* const argv[],
+        bool exec_user_image(const void* bytes, usz length, char* const argv[],
                              char* const envp[], u64* entry_out, u64* stack_out) {
             return exec_user_image(span<const u8>(static_cast<const u8*>(bytes), length),
                                    argv, envp, entry_out, stack_out);
         }
 
         core::task<exec_result> exec_user_file_async(mm::shptr<fs::open_file> file,
-                                                     usize length, char* const argv[],
+                                                     usz length, char* const argv[],
                                                      char* const envp[]);
-        core::task<bool> load_user_file_async(mm::shptr<fs::open_file> file, usize length,
+        core::task<bool> load_user_file_async(mm::shptr<fs::open_file> file, usz length,
                                               u64* entry_out);
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
         mm::shptr<thread> create_fork_thread(const arch::user_context& uctx,
                                              signal_mask               blocked_signals,
-                                             u64   user_stack_base = 0,
-                                             usize user_stack_size = 0);
+                                             u64 user_stack_base = 0,
+                                             usz user_stack_size = 0);
 
         /// Resolve a ring-3 write fault: a uniquely-held CoW page
         /// regains its write bit, otherwise the page is copied out and
@@ -656,26 +655,26 @@ namespace astia::proc {
         /// + pages): `region` adopts the `pages` contiguous frames the
         /// caller mapped PTEs for, and the entry takes over its
         /// reference.
-        bool register_mapping(u64 base, usize pages, map_protection prot,
+        bool register_mapping(u64 base, usz pages, map_protection prot,
                               mm::phys_region* region);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         void rollback_tls_failure(void* image, mm::address_space& map);
         void reset_signal_stacks_for_exec();
         bool clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
-                                  usize& mapping_pages);
+                                  usz& mapping_pages);
         void replace_image(process& staging);
         /// Reserve an address, install PTEs without _mmap_lock, then publish
         /// the VMA.  On failure the reservation and PTEs are rolled back and
         /// `region` stays the caller's.
-        bool install_mapping(u64 hint, usize pages, map_protection prot,
+        bool install_mapping(u64 hint, usz pages, map_protection prot,
                              mm::phys_region*                region,
                              const mm::shptr<fs::open_file>& file, u64 file_offset,
-                             u64& base_out, usize region_page = 0, bool shared = false,
+                             u64& base_out, usz region_page = 0, bool shared = false,
                              bool stack = false, u64 fixed_base = 0, bool cow = false);
 
         bool   grow_stack(mmap_region* vma, u64 addr, bool write);
-        bool   materialize_lazy_page(mmap_region* vma, u64 virt, usize backing_page,
+        bool   materialize_lazy_page(mmap_region* vma, u64 virt, usz backing_page,
                                      bool write);
         pid_t  _pid;
         pid_t  _parent_pid;

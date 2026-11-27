@@ -353,7 +353,7 @@ namespace astia::arch {
     }
 
     bool init_interrupts() {
-        for (usize i = 0; i < 256; ++i) {
+        for (usz i = 0; i < 256; ++i) {
             const u64 handler = isr_stub_table[i];
 
             idt[i].offset_low  = static_cast<u16>(handler & 0xffff);

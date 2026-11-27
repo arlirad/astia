@@ -18,7 +18,7 @@ namespace astia::mm::heap {
         /// multiple of 16, so a 16-aligned region start keeps every payload
         /// 16-byte aligned.
         struct block {
-            usize  size; // payload bytes
+            usz    size; // payload bytes
             block* prev;
             block* next;
             bool   free;
@@ -30,18 +30,18 @@ namespace astia::mm::heap {
         core::spinlock _lock{};
 
         u8*    _base         = nullptr;
-        usize  _bytes        = 0;
+        usz    _bytes        = 0;
         map_fn _mapper       = nullptr;
         block* _head         = nullptr;
-        usize  _used         = 0;
+        usz    _used         = 0;
         bool   _ready        = false;
         bool   _initializing = false;
 
         /// Wire the whole region into the page map, one frame at a time. A
         /// failure here means the machine is out of memory; the caller fails
         /// the boot (the already-mapped frames are not worth unwinding).
-        bool map_backing(u8* base, usize bytes, map_fn mapper) {
-            for (usize off = 0; off < bytes; off += page_bytes) {
+        bool map_backing(u8* base, usz bytes, map_fn mapper) {
+            for (usz off = 0; off < bytes; off += page_bytes) {
                 const u64 frame = kernel_frames().alloc(1, frame_flags::zeroed);
 
                 if (frame == frame_allocator::invalid_frame)
@@ -56,7 +56,7 @@ namespace astia::mm::heap {
 
         /// Carve `need` bytes off `b` when the leftover could stand on its
         /// own (header + at least 16 payload bytes).
-        void split(block* b, usize need) {
+        void split(block* b, usz need) {
             if (b->size < need + sizeof(block) + 16)
                 return;
 
@@ -96,7 +96,7 @@ namespace astia::mm::heap {
         }
     } // namespace
 
-    void configure(void* base, usize bytes, map_fn map) {
+    void configure(void* base, usz bytes, map_fn map) {
         arch::interrupt_spinlock_guard guard(_lock);
 
         if (_initializing)
@@ -125,7 +125,7 @@ namespace astia::mm::heap {
         _initializing  = true;
         u8* const base = _base;
 
-        const usize bytes = _bytes;
+        const usz bytes = _bytes;
 
         const map_fn mapper = _mapper;
 
@@ -157,11 +157,11 @@ namespace astia::mm::heap {
         return _ready && !_initializing;
     }
 
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 
-        const usize need = align_up(bytes, 16);
+        const usz need = align_up(bytes, 16);
 
         arch::interrupt_spinlock_guard guard(_lock);
 
@@ -184,7 +184,7 @@ namespace astia::mm::heap {
         return error_t::enomem;
     }
 
-    optional<u8*> alloc_zeroed(usize bytes) {
+    optional<u8*> alloc_zeroed(usz bytes) {
         auto result = alloc(bytes);
         if (result)
             fill_zero(result.value, bytes);
@@ -205,10 +205,10 @@ namespace astia::mm::heap {
         // Do not subtract from an arbitrary pointer before proving that it
         // belongs to this heap.  Apart from accepting interior pointers, that
         // would make a foreign pointer invoke undefined pointer arithmetic.
-        const usize address = reinterpret_cast<usize>(ptr);
+        const usz address = reinterpret_cast<usz>(ptr);
 
         for (block* b = _head; b != nullptr; b = b->next) {
-            const usize payload = reinterpret_cast<usize>(b) + sizeof(block);
+            const usz payload = reinterpret_cast<usz>(b) + sizeof(block);
             if (payload != address)
                 continue;
 
@@ -225,13 +225,13 @@ namespace astia::mm::heap {
         }
     }
 
-    usize used() {
+    usz used() {
         arch::interrupt_spinlock_guard guard(_lock);
 
         return _used;
     }
 
-    usize capacity() {
+    usz capacity() {
         arch::interrupt_spinlock_guard guard(_lock);
 
         return _bytes >= sizeof(block) + 16 ? _bytes - sizeof(block) : 0;

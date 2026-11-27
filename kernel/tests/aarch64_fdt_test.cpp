@@ -10,10 +10,10 @@ namespace {
 
     constexpr fdt::console_policy trusted_console{0x09000000ULL, 0x1000U};
 
-    constexpr usize blob_capacity    = 4096;
-    constexpr u32   header_size      = 40;
-    constexpr u32   fdt_magic        = 0xd00dfeedU;
-    constexpr usize strings_capacity = 512;
+    constexpr usz blob_capacity    = 4096;
+    constexpr u32 header_size      = 40;
+    constexpr u32 fdt_magic        = 0xd00dfeedU;
+    constexpr usz strings_capacity = 512;
 
     void store_be32(u8* destination, u32 value) {
         core::be<u32> encoded{value};
@@ -124,7 +124,7 @@ namespace {
             const u32 strings_offset    = structure_offset + structure_length_;
             const u32 total_size        = strings_offset + strings_length_;
 
-            for (usize index = 0; index < blob_capacity; ++index) {
+            for (usz index = 0; index < blob_capacity; ++index) {
                 destination[index] = 0;
             }
 

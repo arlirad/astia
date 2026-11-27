@@ -29,7 +29,7 @@ namespace astia::dev {
         }
 
         u8 context_line(void* context) {
-            return static_cast<u8>(reinterpret_cast<usize>(context) - 1);
+            return static_cast<u8>(reinterpret_cast<usz>(context) - 1);
         }
 
         bool enter_route(void* context) {
@@ -97,7 +97,7 @@ namespace astia::dev {
             return false;
         }
 
-        void* context = reinterpret_cast<void*>(static_cast<usize>(_line) + 1);
+        void* context = reinterpret_cast<void*>(static_cast<usz>(_line) + 1);
 
         if (!arch::register_irq_handler(_line, handler, enter_route, leave_route,
                                         context)) {

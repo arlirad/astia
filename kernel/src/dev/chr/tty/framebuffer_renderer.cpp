@@ -36,7 +36,7 @@ namespace astia::dev {
 
         const u64 bytes = static_cast<u64>(info.pitch) * info.height;
 
-        return bytes != 0 && bytes <= ~usize{0};
+        return bytes != 0 && bytes <= ~usz{0};
     }
 
     bool framebuffer_renderer::attach(const boot::framebuffer_info& info,
@@ -87,8 +87,8 @@ namespace astia::dev {
             _info.pixel_format == boot::framebuffer_pixel_format::bgr888;
         const u32 bytes_per_pixel = packed ? 3 : 4;
 
-        volatile u8* destination = _pixels + static_cast<usize>(y) * _info.pitch +
-                                   static_cast<usize>(x) * bytes_per_pixel;
+        volatile u8* destination = _pixels + static_cast<usz>(y) * _info.pitch +
+                                   static_cast<usz>(x) * bytes_per_pixel;
 
         const u8 r = static_cast<u8>(value >> 16);
         const u8 g = static_cast<u8>(value >> 8);

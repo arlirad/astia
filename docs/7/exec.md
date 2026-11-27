@@ -13,7 +13,7 @@ long execve(const char *path, char *const argv[], char *const envp[]);
 
 ```cpp
 core::task<elf::image> elf::load_executable_stream(
-    elf::async_env, usize file_size);
+    elf::async_env, usz file_size);
 ```
 
 ## DESCRIPTION

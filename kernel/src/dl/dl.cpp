@@ -163,12 +163,12 @@ namespace astia::dl {
             core::cltoken            token;
             u64                      base   = 0;
             u64                      frames = mm::frame_allocator::invalid_frame;
-            usize                    pages  = 0;
+            usz                      pages  = 0;
             u64                      mapped = 0;
-            usize                    span   = 0;
+            usz                      span   = 0;
         };
 
-        void* map_span(void* opaque, u64 hint, usize size, usize align, bool fixed) {
+        void* map_span(void* opaque, u64 hint, usz size, usz align, bool fixed) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (context.frames != mm::frame_allocator::invalid_frame || size == 0 ||
@@ -184,7 +184,7 @@ namespace astia::dl {
                 return nullptr;
 
             context.frames = frames;
-            context.pages  = static_cast<usize>(pages);
+            context.pages  = static_cast<usz>(pages);
             context.mapped = context.base + hint;
             context.span   = size;
 
@@ -207,7 +207,7 @@ namespace astia::dl {
             return true;
         }
 
-        void unmap_span(void* opaque, void*, usize) {
+        void unmap_span(void* opaque, void*, usz) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (context.frames != mm::frame_allocator::invalid_frame) {
@@ -228,8 +228,7 @@ namespace astia::dl {
             co_return result.value;
         }
 
-        core::task<i64> read_to_span(void* opaque, u64 address, usize length,
-                                     u64 offset) {
+        core::task<i64> read_to_span(void* opaque, u64 address, usz length, u64 offset) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (address < context.mapped || address - context.mapped > context.span ||
@@ -354,7 +353,7 @@ namespace astia::dl {
             for (; mapped < value->segment_count; ++mapped) {
                 auto& item = value->segments[mapped];
 
-                const auto pages = static_cast<usize>(item.bytes / page_bytes);
+                const auto pages = static_cast<usz>(item.bytes / page_bytes);
 
                 if (!value->region->share_range(item.region_page, pages))
                     break;

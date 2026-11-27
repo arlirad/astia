@@ -10,7 +10,7 @@
 #include <thread>
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize size) {
+    optional<u8*> alloc(usz size) {
         return static_cast<u8*>(std::malloc(size));
     }
 
@@ -168,8 +168,8 @@ ASTIA_TEST(device_constructor_does_not_probe_past_name_capacity) {
 }
 
 ASTIA_TEST(device_span_adapters_reject_u32_overflow) {
-    test_device        device("bounded");
-    const astia::usize oversized = static_cast<astia::usize>(~astia::u32{0}) + 1;
+    test_device      device("bounded");
+    const astia::usz oversized = static_cast<astia::usz>(~astia::u32{0}) + 1;
 
     ASTIA_CHECK(device.read(astia::span<astia::u8>(nullptr, oversized), 0) == -EINVAL);
     ASTIA_CHECK(device.write(astia::span<const astia::u8>(nullptr, oversized), 0) ==

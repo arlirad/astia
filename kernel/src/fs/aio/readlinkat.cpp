@@ -40,7 +40,7 @@ namespace astia::io::aio::operations {
                 co_return (i32) n;
 
             if (n != 0 && !memory::copy_out(
-                              span<u8>::bytes(sqe.offset, static_cast<usize>(n)), target))
+                              span<u8>::bytes(sqe.offset, static_cast<usz>(n)), target))
                 co_return -EFAULT;
 
             co_return (i32) n;

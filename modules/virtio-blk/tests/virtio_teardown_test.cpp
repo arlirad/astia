@@ -20,7 +20,7 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usize, bool) {
+    bool dma_buffer::allocate(usz, bool) {
         return false;
     }
 

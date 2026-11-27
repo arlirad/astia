@@ -8,7 +8,7 @@ int spawnve(const char *path, char *const argv[], char *const envp[]);
 
 ```cpp
 core::task<mm::shptr<process>> proc::spawnve(
-    process *parent, const mm::shptr<fs::open_file> &file, usize length,
+    process *parent, const mm::shptr<fs::open_file> &file, usz length,
     char *const argv[], char *const envp[]);
 ```
 

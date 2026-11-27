@@ -27,7 +27,7 @@ namespace astia::fs {
         if (root == nullptr || root[0] != '/' || path == nullptr || path[0] != '/')
             return -EINVAL;
 
-        usize root_length = 0;
+        usz root_length = 0;
 
         while (root[root_length] != '\0') {
             ++root_length;
@@ -39,7 +39,7 @@ namespace astia::fs {
         if (root_length > 1 && root[root_length - 1] == '/')
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -49,7 +49,7 @@ namespace astia::fs {
             return -ENAMETOOLONG;
 
         if (root_length > 1) {
-            for (usize i = 0; i < root_length; ++i) {
+            for (usz i = 0; i < root_length; ++i) {
                 if (path[i] != root[i])
                     return -EINVAL;
             }
@@ -60,7 +60,7 @@ namespace astia::fs {
 
         char prefix[path_max]{};
 
-        for (usize end = 1; end <= length; ++end) {
+        for (usz end = 1; end <= length; ++end) {
             if (end != length && path[end] != '/')
                 continue;
 
@@ -73,7 +73,7 @@ namespace astia::fs {
             if (end == length && !include_final)
                 continue;
 
-            usize cut = end;
+            usz cut = end;
 
             while (cut > 1 && path[cut - 1] == '/') {
                 --cut;
@@ -82,7 +82,7 @@ namespace astia::fs {
             if (cut <= 1)
                 continue;
 
-            for (usize i = 0; i < cut; ++i) {
+            for (usz i = 0; i < cut; ++i) {
                 prefix[i] = path[i];
             }
 

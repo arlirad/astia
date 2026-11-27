@@ -109,7 +109,7 @@ namespace astia::fs {
         if (target == nullptr)
             return -ENOENT;
 
-        const usize length = std::strlen(target);
+        const usz length = std::strlen(target);
 
         if (capacity <= length)
             return -ENAMETOOLONG;

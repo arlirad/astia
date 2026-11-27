@@ -10,16 +10,16 @@ namespace astia::proc {
     /// materialise on first touch, so an interpreter that lays out only a
     /// few hundred bytes of DSO TLS does not pay for the whole 64 KiB limit.
     struct tls_arena {
-        u64   reserve_bytes  = 0;
-        usize reserve_pages  = 0;
-        usize payload_pages  = 0;
-        usize total_pages    = 0;
-        u64   payload_offset = 0;
+        u64 reserve_bytes  = 0;
+        usz reserve_pages  = 0;
+        usz payload_pages  = 0;
+        usz total_pages    = 0;
+        u64 payload_offset = 0;
     };
 
     /// Size the arena for `payload_pages` eagerly materialised frames.
     /// False when the geometry would overflow or has no payload.
-    bool measure_tls_arena(usize payload_pages, tls_arena& out);
+    bool measure_tls_arena(usz payload_pages, tls_arena& out);
 
     /// Create the region `measure_tls_arena` sized: the payload pages are
     /// allocated zeroed, the reserve pages stay unmaterialised.  nullptr on

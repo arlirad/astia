@@ -21,14 +21,14 @@ namespace astia::mod {
                 release();
             }
 
-            bool allocate(usize bytes) {
+            bool allocate(usz bytes) {
                 release();
 
                 if (bytes == 0)
                     return false;
 
-                const usize frames = (bytes + mm::frame_allocator::frame_size - 1) /
-                                     mm::frame_allocator::frame_size;
+                const usz frames = (bytes + mm::frame_allocator::frame_size - 1) /
+                                   mm::frame_allocator::frame_size;
                 const u64 physical =
                     mm::kernel_frames().alloc(frames, mm::frame_flags::contiguous);
 
@@ -58,9 +58,9 @@ namespace astia::mod {
                 _bytes    = 0;
             }
 
-            u64   _physical = mm::frame_allocator::invalid_frame;
-            usize _frames   = 0;
-            usize _bytes    = 0;
+            u64 _physical = mm::frame_allocator::invalid_frame;
+            usz _frames   = 0;
+            usz _bytes    = 0;
         };
 
         module_error path_error(long result) {
@@ -133,7 +133,7 @@ namespace astia::mod {
             co_return result;
         }
 
-        const usize bytes = static_cast<usize>(size);
+        const usz bytes = static_cast<usz>(size);
         if (bytes > max_module_image_bytes) {
             result.error = module_error::limit;
 

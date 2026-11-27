@@ -110,11 +110,11 @@ namespace astia::fs::filesystems {
         }
     }
 
-    bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usize length) {
+    bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usz length) {
         return static_cast<ext4_mount*>(context)->source_read(offset, buffer, length);
     }
 
-    bool ext4_mount::source_read(u64 offset, void* buffer, usize length) const {
+    bool ext4_mount::source_read(u64 offset, void* buffer, usz length) const {
         if (!_source || (buffer == nullptr && length != 0))
             return false;
 
@@ -128,17 +128,17 @@ namespace astia::fs::filesystems {
         auto* output = static_cast<u8*>(buffer);
 
         while (length != 0) {
-            const u64   sector = offset - offset % source_sector_size;
-            const u32   within = static_cast<u32>(offset - sector);
-            const usize amount = length < source_sector_size - within
-                                     ? length
-                                     : source_sector_size - within;
-            u8          block[4096]{};
+            const u64 sector = offset - offset % source_sector_size;
+            const u32 within = static_cast<u32>(offset - sector);
+            const usz amount = length < source_sector_size - within
+                                   ? length
+                                   : source_sector_size - within;
+            u8        block[4096]{};
 
             if (_source->read(block, source_sector_size, sector) != source_sector_size)
                 return false;
 
-            for (usize i = 0; i < amount; ++i) {
+            for (usz i = 0; i < amount; ++i) {
                 output[i] = block[within + i];
             }
 
@@ -294,7 +294,7 @@ namespace astia::fs::filesystems {
                 buffer[i] = static_cast<char>(node.block[i]);
             }
         }
-        else if (!_reader.read_file(node, 0, buffer, static_cast<usize>(node.size))) {
+        else if (!_reader.read_file(node, 0, buffer, static_cast<usz>(node.size))) {
             return -EIO;
         }
 

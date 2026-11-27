@@ -18,7 +18,7 @@ namespace astia::dev {
 } // namespace astia::dev
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 

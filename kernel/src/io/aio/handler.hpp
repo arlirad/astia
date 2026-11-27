@@ -138,13 +138,13 @@ namespace astia::io::aio {
         static constexpr operation_descriptor descriptor{Opcode, &handler::thunk};
     };
 
-    constexpr bool validate_manifest(const operation_descriptor* entries, usize count) {
+    constexpr bool validate_manifest(const operation_descriptor* entries, usz count) {
         if (entries == nullptr || count != opcode_count)
             return false;
 
         bool seen[opcode_count]{};
 
-        for (usize i = 0; i < count; ++i) {
+        for (usz i = 0; i < count; ++i) {
             const operation_descriptor& entry = entries[i];
 
             const u32 value = static_cast<u32>(entry.operation);
@@ -163,9 +163,9 @@ namespace astia::io::aio {
         return true;
     }
 
-    bool validate_descriptors(const operation_descriptor* entries, usize count);
+    bool validate_descriptors(const operation_descriptor* entries, usz count);
 
-    template <usize N>
+    template <usz N>
     consteval bool valid_descriptors(const operation_descriptor (&entries)[N]) {
         return validate_manifest(entries, N);
     }

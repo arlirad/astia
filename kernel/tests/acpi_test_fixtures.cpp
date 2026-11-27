@@ -6,15 +6,15 @@ namespace {
     using astia::u32;
     using astia::u64;
     using astia::u8;
-    using astia::usize;
+    using astia::usz;
 
-    constexpr u64   fixture_base = 0x100000;
-    constexpr usize fixture_size = 4096;
+    constexpr u64 fixture_base = 0x100000;
+    constexpr usz fixture_size = 4096;
 
-    constexpr usize rsdp_offset = 0x000;
-    constexpr usize rsdt_offset = 0x040;
-    constexpr usize fadt_offset = 0x080;
-    constexpr usize dsdt_offset = 0x100;
+    constexpr usz rsdp_offset = 0x000;
+    constexpr usz rsdt_offset = 0x040;
+    constexpr usz fadt_offset = 0x080;
+    constexpr usz dsdt_offset = 0x100;
 
     u8  memory[fixture_size]{};
     u64 memory_base = 0;
@@ -22,7 +22,7 @@ namespace {
     struct fixture_reader {
         const u8* bytes = nullptr;
         u64       base  = 0;
-        usize     size  = 0;
+        usz       size  = 0;
     };
 
     fixture_reader reader_context{};
@@ -50,34 +50,34 @@ namespace {
     }
 
     void write_u32(u8* bytes, u32 value) {
-        for (usize i = 0; i < 4; ++i) {
+        for (usz i = 0; i < 4; ++i) {
             bytes[i] = static_cast<u8>(value >> (i * 8));
         }
     }
 
-    void finalize_checksum(u8* bytes, usize length) {
+    void finalize_checksum(u8* bytes, usz length) {
         bytes[9] = 0;
 
         u8 sum = 0;
 
-        for (usize i = 0; i < length; ++i) {
+        for (usz i = 0; i < length; ++i) {
             sum = static_cast<u8>(sum + bytes[i]);
         }
 
         bytes[9] = static_cast<u8>(0x100 - sum);
     }
 
-    u8* table_at(usize offset) {
+    u8* table_at(usz offset) {
         return memory + offset;
     }
 
-    usize write_table(usize offset, const char* signature, u8 revision, const u8* body,
-                      usize body_length) {
+    usz write_table(usz offset, const char* signature, u8 revision, const u8* body,
+                    usz body_length) {
         u8* table = table_at(offset);
 
-        const usize length = 36 + body_length;
+        const usz length = 36 + body_length;
 
-        for (usize i = 0; i < 4; ++i) {
+        for (usz i = 0; i < 4; ++i) {
             table[i] = static_cast<u8>(signature[i]);
         }
 
@@ -100,7 +100,7 @@ namespace {
     }
 
     void build_tables(bool corrupt_rsdp, bool malformed_aml) {
-        for (usize i = 0; i < fixture_size; ++i) {
+        for (usz i = 0; i < fixture_size; ++i) {
             memory[i] = 0;
         }
 
@@ -112,7 +112,7 @@ namespace {
 
         write_u32(rsdt_body, static_cast<u32>(fadt_address));
 
-        const usize rsdt_length =
+        const usz rsdt_length =
             write_table(rsdt_offset, "RSDT", 1, rsdt_body, sizeof(rsdt_body));
 
         u8 fadt_body[80]{};
@@ -132,13 +132,13 @@ namespace {
 
         const u8* aml = malformed_aml ? bad_aml : good_aml;
 
-        const usize aml_length = malformed_aml ? sizeof(bad_aml) : sizeof(good_aml);
+        const usz aml_length = malformed_aml ? sizeof(bad_aml) : sizeof(good_aml);
 
         write_table(dsdt_offset, "DSDT", 2, aml, aml_length);
 
         u8* rsdp = table_at(rsdp_offset);
 
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             rsdp[i] = static_cast<u8>("RSD PTR "[i]);
         }
 
@@ -150,7 +150,7 @@ namespace {
 
         u8 rsdp_sum = 0;
 
-        for (usize i = 0; i < 20; ++i) {
+        for (usz i = 0; i < 20; ++i) {
             rsdp_sum = static_cast<u8>(rsdp_sum + rsdp[i]);
         }
 
@@ -167,7 +167,7 @@ namespace {
         memory_base          = fixture_base;
     }
 
-    bool read_fixture(void* context, u64 address, u8* destination, usize length) {
+    bool read_fixture(void* context, u64 address, u8* destination, usz length) {
         const auto* reader = static_cast<const fixture_reader*>(context);
 
         if (reader == nullptr || reader->bytes == nullptr || address < reader->base)

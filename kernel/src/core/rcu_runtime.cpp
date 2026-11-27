@@ -1,6 +1,6 @@
 #include <astia/core/rcu_runtime.hpp>
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::core {
     system_rcu_type& system_rcu_domain() {

@@ -8,8 +8,8 @@ namespace astia::mm {
         constexpr u16 max_page_mappings = ~u16{0};
     } // namespace
 
-    bool phys_region::initialize(u64 base, usize pages, bool lazy) {
-        if (pages > (~usize{0}) / sizeof(u16))
+    bool phys_region::initialize(u64 base, usz pages, bool lazy) {
+        if (pages > (~usz{0}) / sizeof(u16))
             return false;
 
         shptr<phys_region_identity> identity(new phys_region_identity{});
@@ -31,7 +31,7 @@ namespace astia::mm {
         void* page_bases = nullptr;
 
         if (lazy) {
-            if (pages > (~usize{0}) / sizeof(u64)) {
+            if (pages > (~usz{0}) / sizeof(u64)) {
                 heap::free(destinations.value);
                 heap::free(storage.value);
 
@@ -59,7 +59,7 @@ namespace astia::mm {
         // A freshly-created/adopted region carries its initial
         // mapping reference.  This preserves the existing ownership
         // contract: the creator transfers that reference to its VMA.
-        for (usize i = 0; i < pages; ++i) {
+        for (usz i = 0; i < pages; ++i) {
             _page_refs[i] = 1;
             _dest_refs[i] = 0;
 
@@ -70,7 +70,7 @@ namespace astia::mm {
         return true;
     }
 
-    phys_region* phys_region::create(usize page_count, bool zero) {
+    phys_region* phys_region::create(usz page_count, bool zero) {
         if (page_count == 0)
             return nullptr;
 
@@ -94,7 +94,7 @@ namespace astia::mm {
         return region;
     }
 
-    phys_region* phys_region::create_lazy(usize page_count) {
+    phys_region* phys_region::create_lazy(usz page_count) {
         if (page_count == 0)
             return nullptr;
 
@@ -109,7 +109,7 @@ namespace astia::mm {
         return region;
     }
 
-    phys_region* phys_region::adopt(u64 base, usize page_count) {
+    phys_region* phys_region::adopt(u64 base, usz page_count) {
         if (base == 0 || (base % frame_size) != 0 || page_count == 0)
             return nullptr;
 
@@ -124,14 +124,14 @@ namespace astia::mm {
         return region;
     }
 
-    bool phys_region::retain_mapping(usize first, usize count) {
+    bool phys_region::retain_mapping(usz first, usz count) {
         if (count == 0)
             return true;
 
         if (first >= _pages || count > _pages - first || _page_refs == nullptr)
             return false;
 
-        usize changed = 0;
+        usz changed = 0;
 
         for (; changed < count; ++changed) {
             u16* slot = &_page_refs[first + changed];
@@ -140,7 +140,7 @@ namespace astia::mm {
 
             while (true) {
                 if (old == 0 || old == max_page_mappings) {
-                    for (usize rollback = 0; rollback < changed; ++rollback) {
+                    for (usz rollback = 0; rollback < changed; ++rollback) {
                         u16* prior = &_page_refs[first + rollback];
 
                         astia::atomic_ref<u16>(*prior).fetch_sub(
@@ -162,14 +162,14 @@ namespace astia::mm {
         return true;
     }
 
-    bool phys_region::unmap_range(usize first, usize count) {
+    bool phys_region::unmap_range(usz first, usz count) {
         if (count == 0)
             return true;
 
         if (first >= _pages || count > _pages - first || _page_refs == nullptr)
             return false;
 
-        for (usize i = 0; i < count; ++i) {
+        for (usz i = 0; i < count; ++i) {
             u16* slot = &_page_refs[first + i];
 
             u16 old = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
@@ -207,7 +207,7 @@ namespace astia::mm {
         return true;
     }
 
-    bool phys_region::share_range(usize first, usize count) {
+    bool phys_region::share_range(usz first, usz count) {
         if (count == 0 || first >= _pages || count > _pages - first)
             return false;
 
@@ -243,14 +243,14 @@ namespace astia::mm {
         return _refs;
     }
 
-    void* phys_region::page_direct(usize index) {
+    void* phys_region::page_direct(usz index) {
         const u64 frame = page_base(index);
 
         return frame == frame_allocator::invalid_frame ? nullptr
                                                        : kernel_frames().to_virt(frame);
     }
 
-    u64 phys_region::page_base(usize index) const {
+    u64 phys_region::page_base(usz index) const {
         if (index >= _pages)
             return frame_allocator::invalid_frame;
 
@@ -261,7 +261,7 @@ namespace astia::mm {
         return _base + index * frame_size;
     }
 
-    bool phys_region::ensure_page(usize index, bool zero, bool* created) {
+    bool phys_region::ensure_page(usz index, bool zero, bool* created) {
         if (created != nullptr)
             *created = false;
 
@@ -328,7 +328,7 @@ namespace astia::mm {
         // Any still-live pages are owned by this last allocation
         // reference.  Normally their mapping counters are already zero;
         // releasing here is the defensive final cleanup.
-        for (usize i = 0; i < _pages; ++i) {
+        for (usz i = 0; i < _pages; ++i) {
             u16 old = astia::atomic_ref<u16>(_page_refs[i])
                           .exchange(u16{0}, astia::memory_order::acq_rel);
             if (old != 0) {
@@ -360,7 +360,7 @@ namespace astia::mm {
         delete this;
     }
 
-    bool phys_region::release_range(usize first, usize count) {
+    bool phys_region::release_range(usz first, usz count) {
         if (!unmap_range(first, count))
             return false;
 
@@ -410,7 +410,7 @@ namespace astia::mm {
             _parent = nullptr;
     }
 
-    phys_region* phys_region::split_page(usize index) {
+    phys_region* phys_region::split_page(usz index) {
         auto* copy = copy_page(index);
 
         if (copy == nullptr || !unmap_range(index, 1)) {
@@ -423,7 +423,7 @@ namespace astia::mm {
         return copy;
     }
 
-    phys_region* phys_region::copy_page(usize index) {
+    phys_region* phys_region::copy_page(usz index) {
         // Keep a temporary atomic page claim while allocation and copying run
         // without _lock.  A concurrent unmap can consume its own claim, but
         // cannot free the source frame until this claim is dropped.
@@ -456,7 +456,7 @@ namespace astia::mm {
             return nullptr;
         }
 
-        for (usize b = 0; b < frame_size; ++b) {
+        for (usz b = 0; b < frame_size; ++b) {
             target[b] = source[b];
         }
 
@@ -478,7 +478,7 @@ namespace astia::mm {
         return copy;
     }
 
-    bool phys_region::uniquely_held(usize index) {
+    bool phys_region::uniquely_held(usz index) {
         if (index >= _pages || _page_refs == nullptr)
             return false;
 
@@ -486,14 +486,14 @@ namespace astia::mm {
                    .load(astia::memory_order::acquire) == 1;
     }
 
-    bool phys_region::retain_destination(usize first, usize count) {
+    bool phys_region::retain_destination(usz first, usz count) {
         if (count == 0)
             return true;
 
         if (first >= _pages || count > _pages - first || _dest_refs == nullptr)
             return false;
 
-        usize marked = 0;
+        usz marked = 0;
 
         for (; marked < count; ++marked) {
             u16* slot = &_dest_refs[first + marked];
@@ -519,12 +519,12 @@ namespace astia::mm {
         return true;
     }
 
-    void phys_region::release_destination(usize first, usize count) {
+    void phys_region::release_destination(usz first, usz count) {
         if (count == 0 || first >= _pages || count > _pages - first ||
             _dest_refs == nullptr)
             return;
 
-        for (usize i = 0; i < count; ++i) {
+        for (usz i = 0; i < count; ++i) {
             u16* slot = &_dest_refs[first + i];
 
             u16 old = astia::atomic_ref<u16>(*slot).load(astia::memory_order::acquire);
@@ -544,7 +544,7 @@ namespace astia::mm {
         }
     }
 
-    bool phys_region::destination_pinned(usize index) const {
+    bool phys_region::destination_pinned(usz index) const {
         if (index >= _pages || _dest_refs == nullptr)
             return false;
 

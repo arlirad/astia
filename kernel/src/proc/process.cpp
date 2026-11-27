@@ -19,7 +19,7 @@
 #include "scheduler.hpp"
 #include "search_permission.hpp"
 
-void* operator new[](astia::usize size, void* where) noexcept;
+void* operator new[](astia::usz size, void* where) noexcept;
 
 namespace astia::proc {
     core::task<i64> process::change_directory(const char* path) {
@@ -270,8 +270,8 @@ namespace astia::proc {
     }
 
     namespace {
-        usize cstr_length(const char* value, usize limit) {
-            usize length = 0;
+        usz cstr_length(const char* value, usz limit) {
+            usz length = 0;
 
             while (value != nullptr && value[length] != '\0' && length < limit) {
                 ++length;
@@ -281,7 +281,7 @@ namespace astia::proc {
         }
 
         bool write_user(process* owner, u64 base, u64 top, u64 vaddr, const void* src,
-                        usize length) {
+                        usz length) {
             const auto* bytes = static_cast<const u8*>(src);
 
             while (length != 0) {
@@ -302,12 +302,12 @@ namespace astia::proc {
                 if (target == nullptr)
                     return false;
 
-                const usize within = static_cast<usize>(vaddr - page);
-                usize       chunk  = mm::frame_allocator::frame_size - within;
+                const usz within = static_cast<usz>(vaddr - page);
+                usz       chunk  = mm::frame_allocator::frame_size - within;
                 if (chunk > length)
                     chunk = length;
 
-                for (usize i = 0; i < chunk; ++i) {
+                for (usz i = 0; i < chunk; ++i) {
                     target[within + i] = bytes[i];
                 }
 
@@ -345,7 +345,7 @@ namespace astia::proc {
             for (u32 i = envc; i > 0; --i) {
                 const char* text = envp[i - 1];
 
-                const usize length = cstr_length(text, max_spawn_string_bytes);
+                const usz length = cstr_length(text, max_spawn_string_bytes);
 
                 if (cursor < base + length + 1)
                     return false;
@@ -362,7 +362,7 @@ namespace astia::proc {
             for (u32 i = argc; i > 0; --i) {
                 const char* text = argv[i - 1];
 
-                const usize length = cstr_length(text, max_spawn_string_bytes);
+                const usz length = cstr_length(text, max_spawn_string_bytes);
 
                 if (cursor < base + length + 1)
                     return false;
@@ -1128,8 +1128,8 @@ namespace astia::proc {
             value->tls_mapping_pages() == 0)
             return;
 
-        const u64   base  = value->tls_mapping_base();
-        const usize bytes = value->tls_mapping_pages() * mm::phys_region::frame_size;
+        const u64 base  = value->tls_mapping_base();
+        const usz bytes = value->tls_mapping_pages() * mm::phys_region::frame_size;
 
         value->clear_tls_mapping();
         (void) unmap(base, bytes);
@@ -1144,8 +1144,8 @@ namespace astia::proc {
 
         value->clear_user_stack_metadata();
 
-        u64   base  = 0;
-        usize bytes = 0;
+        u64 base  = 0;
+        usz bytes = 0;
 
         {
             arch::interrupt_spinlock_guard guard(_mmap_lock);
@@ -1153,7 +1153,7 @@ namespace astia::proc {
             for (mmap_region* it = _mmap_regions; it != nullptr; it = it->next) {
                 if (it->stack && it->covers(stack_top - 1)) {
                     base  = it->base;
-                    bytes = static_cast<usize>(it->size());
+                    bytes = static_cast<usz>(it->size());
 
                     break;
                 }
@@ -1572,8 +1572,7 @@ namespace astia::proc {
     }
 
     core::task<exec_result> process::exec_user_file_async(mm::shptr<fs::open_file> file,
-                                                          usize                    length,
-                                                          char* const              argv[],
+                                                          usz length, char* const argv[],
                                                           char* const envp[]) {
         if (!file)
             co_return error_t::ebadf;
@@ -1651,15 +1650,15 @@ namespace astia::proc {
 
     mm::shptr<thread> process::create_thread(u64 entry, u64 user_stack_top, u64 argument,
                                              u64 argument1, bool owns_user_stack,
-                                             u64 user_stack_base, usize user_stack_size) {
+                                             u64 user_stack_base, usz user_stack_size) {
         if (!_address_space.attached() || entry == 0 || user_stack_top == 0)
             return {};
 
         const tid_t id = proc::allocate_tid();
 
-        u64   fs_base   = _tls_tp;
-        u64   tls_base  = 0;
-        usize tls_pages = 0;
+        u64 fs_base   = _tls_tp;
+        u64 tls_base  = 0;
+        usz tls_pages = 0;
 
         if (_tls_tp != 0 && !clone_tls_for_thread(id, fs_base, tls_base, tls_pages))
             return {};
@@ -1695,7 +1694,7 @@ namespace astia::proc {
     }
 
     bool process::clone_tls_for_thread(tid_t id, u64& fs_base, u64& mapping_base,
-                                       usize& mapping_pages) {
+                                       usz& mapping_pages) {
         if (_tls_tp == 0) {
             mapping_base  = 0;
             mapping_pages = 0;
@@ -1751,10 +1750,10 @@ namespace astia::proc {
         if (copy == nullptr)
             return false;
 
-        const usize tp_index = source->region_page +
-                               static_cast<usize>((_tls_tp - source->base) / page_bytes);
+        const usz tp_index =
+            source->region_page + static_cast<usz>((_tls_tp - source->base) / page_bytes);
 
-        for (usize page = 0; page < source->pages; ++page) {
+        for (usz page = 0; page < source->pages; ++page) {
             const bool materialized =
                 source->backing->page_base(page) != mm::frame_allocator::invalid_frame;
 
@@ -1846,7 +1845,7 @@ namespace astia::proc {
     mm::shptr<thread> process::create_fork_thread(const arch::user_context& uctx,
                                                   signal_mask blocked_signals,
                                                   u64         user_stack_base,
-                                                  usize       user_stack_size) {
+                                                  usz         user_stack_size) {
         auto value = mm::share<thread>(this, proc::allocate_tid());
 
         if (!value || !value->prepare_fork_user(uctx))

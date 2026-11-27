@@ -12,19 +12,19 @@ namespace astia::sys {
 #endif
 
     namespace {
-        constexpr usize table_capacity = syscall_table_capacity;
+        constexpr usz table_capacity = syscall_table_capacity;
 
         const syscall_descriptor* table[table_capacity] = {};
         bool                      registry_ready        = false;
 
 #if !defined(ASTIA_MODULE_HOST_TEST)
-        usize registry_size() {
-            return static_cast<usize>(__stop_astia_syscall_handlers -
-                                      __start_astia_syscall_handlers);
+        usz registry_size() {
+            return static_cast<usz>(__stop_astia_syscall_handlers -
+                                    __start_astia_syscall_handlers);
         }
 
         bool build_table() {
-            for (usize i = 0; i < registry_size(); ++i) {
+            for (usz i = 0; i < registry_size(); ++i) {
                 const syscall_descriptor* entry = __start_astia_syscall_handlers[i];
                 if (entry == nullptr)
                     return false;

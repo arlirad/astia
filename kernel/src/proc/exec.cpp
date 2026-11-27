@@ -79,7 +79,7 @@ namespace astia::proc {
                 cleanup_pending(map, *map.map);
         }
 
-        void* map_user(void* opaque, u64 hint, usize size, usize align, bool fixed) {
+        void* map_user(void* opaque, u64 hint, usz size, usz align, bool fixed) {
             auto& image = *static_cast<image_map*>(opaque);
 
             if (align == 0 || (align & (align - 1)) != 0)
@@ -160,7 +160,7 @@ namespace astia::proc {
             return false;
         }
 
-        bool stream_destination(image_map& image, u64 address, usize length,
+        bool stream_destination(image_map& image, u64 address, usz length,
                                 u8*& destination) {
             for (u32 i = 0; i < image.count; ++i) {
                 const auto& seg = image.segs[i];
@@ -180,7 +180,7 @@ namespace astia::proc {
             return false;
         }
 
-        void unmap_user(void* opaque, void* address, usize size) {
+        void unmap_user(void* opaque, void* address, usz size) {
             auto& image = *static_cast<image_map*>(opaque);
 
             for (u32 i = 0; i < image.count; ++i) {
@@ -201,7 +201,7 @@ namespace astia::proc {
             }
         }
 
-        void rollback_unmap(void* context, u64 address, usize pages) {
+        void rollback_unmap(void* context, u64 address, usz pages) {
             unmap_run(*static_cast<mm::address_space*>(context), address, pages);
         }
 
@@ -213,7 +213,7 @@ namespace astia::proc {
             static_cast<mm::phys_region*>(region)->release();
         }
 
-        void rollback_mapping_failure(mm::address_space& map, u64 address, usize pages,
+        void rollback_mapping_failure(mm::address_space& map, u64 address, usz pages,
                                       u64 frames, mm::phys_region* region) {
             detail::rollback_mapping(&map, address, pages, frames, region, rollback_unmap,
                                      rollback_release_frames, rollback_release_region);
@@ -260,7 +260,7 @@ namespace astia::proc {
                 tls_span + user_tls_tcb_headroom + elf::loader::page_size - 1;
 
             return measure_tls_arena(
-                static_cast<usize>(payload_bytes / elf::loader::page_size), arena);
+                static_cast<usz>(payload_bytes / elf::loader::page_size), arena);
         }
 
         bool map_tls_template(mm::address_space& map, span<const u8> bytes,
@@ -277,15 +277,15 @@ namespace astia::proc {
                 image.tls_filesz > bytes.size() - image.tls_offset)
                 return false;
 
-            const auto source = astia::span<const u8>(
-                bytes.data() + image.tls_offset, static_cast<usize>(image.tls_filesz));
-            auto* region = create_tls_arena(arena);
+            const auto source = astia::span<const u8>(bytes.data() + image.tls_offset,
+                                                      static_cast<usz>(image.tls_filesz));
+            auto*      region = create_tls_arena(arena);
             if (region == nullptr)
                 return false;
 
             const u64 bottom = user_tls_base - user_dso_tls_reserve;
             const u64 first  = bottom + arena.reserve_pages * elf::loader::page_size;
-            usize     mapped = 0;
+            usz       mapped = 0;
 
             auto fail = [&]() {
                 unmap_run(map, first, mapped);
@@ -294,7 +294,7 @@ namespace astia::proc {
                 return false;
             };
 
-            for (usize page = arena.reserve_pages; page < arena.total_pages; ++page) {
+            for (usz page = arena.reserve_pages; page < arena.total_pages; ++page) {
                 if (!map.map_4k(bottom + page * elf::loader::page_size,
                                 region->page_base(page),
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
@@ -307,7 +307,7 @@ namespace astia::proc {
             if (!write_tls_payload(
                     *region, arena, 0,
                     astia::span<const u8>(source.data(),
-                                          static_cast<usize>(image.tls_filesz))))
+                                          static_cast<usz>(image.tls_filesz))))
                 return fail();
 
             tp_out = user_tls_base + tls_span;
@@ -335,7 +335,7 @@ namespace astia::proc {
         for (u32 i = 0; i < image.count; ++i) {
             auto& segment = image.segs[i];
 
-            entries[i] = {segment.virt,    static_cast<usize>(segment.pages),
+            entries[i] = {segment.virt,    static_cast<usz>(segment.pages),
                           segment.frames,  nullptr,
                           &segment.mapped, &segment.used,
                           segment.used};
@@ -352,7 +352,7 @@ namespace astia::proc {
 
         detail::rollback_image_transaction(
             &transaction, entries, image.count,
-            [](void* value, u64 address, usize pages) {
+            [](void* value, u64 address, usz pages) {
                 auto& transaction = *static_cast<transaction_context*>(value);
 
                 unmap_run(*transaction.map, address, pages);
@@ -514,7 +514,7 @@ namespace astia::proc {
             co_return result.value;
         }
 
-        core::task<i64> read_stream_to_async(void* opaque, u64 address, usize length,
+        core::task<i64> read_stream_to_async(void* opaque, u64 address, usz length,
                                              u64 offset) {
             auto* context = static_cast<stream_context*>(opaque);
 
@@ -534,7 +534,7 @@ namespace astia::proc {
             co_return result.value;
         }
 
-        void unmap_user_stream(void* opaque, void* address, usize size) {
+        void unmap_user_stream(void* opaque, void* address, usz size) {
             auto* context = static_cast<stream_context*>(opaque);
 
             if (context == nullptr || context->map.map == nullptr)
@@ -555,8 +555,7 @@ namespace astia::proc {
             }
         }
 
-        void* map_user_stream(void* opaque, u64 hint, usize size, usize align,
-                              bool fixed) {
+        void* map_user_stream(void* opaque, u64 hint, usz size, usz align, bool fixed) {
             return map_user(&static_cast<stream_context*>(opaque)->map, hint, size, align,
                             fixed);
         }
@@ -579,14 +578,14 @@ namespace astia::proc {
 
             const u64 bottom = user_tls_base - user_dso_tls_reserve;
             const u64 first  = bottom + arena.reserve_pages * elf::loader::page_size;
-            usize     mapped = 0;
+            usz       mapped = 0;
 
             auto cleanup = [&]() {
                 unmap_run(map, first, mapped);
                 region->release();
             };
 
-            for (usize page = arena.reserve_pages; page < arena.total_pages; ++page) {
+            for (usz page = arena.reserve_pages; page < arena.total_pages; ++page) {
                 if (!map.map_4k(bottom + page * elf::loader::page_size,
                                 region->page_base(page),
                                 mm::mapping_flags::present | mm::mapping_flags::writable |
@@ -604,13 +603,13 @@ namespace astia::proc {
             u64 done = 0;
 
             while (done < image.tls_filesz) {
-                const u64   within = arena.payload_offset + done;
-                const usize page   = static_cast<usize>(within / elf::loader::page_size);
-                const usize offset = static_cast<usize>(within % elf::loader::page_size);
-                usize       chunk  = elf::loader::page_size - offset;
+                const u64 within = arena.payload_offset + done;
+                const usz page   = static_cast<usz>(within / elf::loader::page_size);
+                const usz offset = static_cast<usz>(within % elf::loader::page_size);
+                usz       chunk  = elf::loader::page_size - offset;
 
                 if (chunk > image.tls_filesz - done)
-                    chunk = static_cast<usize>(image.tls_filesz - done);
+                    chunk = static_cast<usz>(image.tls_filesz - done);
 
                 auto* destination = static_cast<u8*>(region->page_direct(page));
                 if (destination == nullptr) {
@@ -646,7 +645,7 @@ namespace astia::proc {
     }
 
     core::task<bool> process::load_user_file_async(mm::shptr<fs::open_file> file,
-                                                   usize length, u64* entry_out) {
+                                                   usz length, u64* entry_out) {
         if (!file || length == 0 || entry_out == nullptr || _address_space.attached())
             co_return false;
 

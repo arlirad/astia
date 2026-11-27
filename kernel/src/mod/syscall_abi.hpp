@@ -77,7 +77,7 @@ namespace astia::mod {
 
     inline void copy_public_name(char (&destination)[ASTIA_MODULE_NAME_MAX],
                                  const char (&source)[max_module_name]) {
-        usize i = 0;
+        usz i = 0;
 
         while (i + 1 < ASTIA_MODULE_NAME_MAX && source[i] != '\0') {
             destination[i] = source[i];
@@ -95,16 +95,16 @@ namespace astia::mod {
         if (path == nullptr)
             return;
 
-        usize start = 0;
+        usz start = 0;
 
-        for (usize i = 0; path[i] != '\0'; ++i) {
+        for (usz i = 0; path[i] != '\0'; ++i) {
             if (path[i] == '/')
                 start = i + 1;
         }
 
-        usize destination = 0;
+        usz destination = 0;
 
-        for (usize i = start; path[i] != '\0' && destination + 1 < ASTIA_MODULE_NAME_MAX;
+        for (usz i = start; path[i] != '\0' && destination + 1 < ASTIA_MODULE_NAME_MAX;
              ++i) {
             out[destination++] = path[i];
         }
@@ -130,7 +130,7 @@ namespace astia::mod {
     }
 
     inline void fill_module_stat(const module_info& info, const module_id* dependencies,
-                                 usize dependency_total, astia_module_stat& out) {
+                                 usz dependency_total, astia_module_stat& out) {
         out                  = {};
         out.size             = sizeof(astia_module_stat);
         out.version          = ASTIA_MODULE_STAT_VERSION;
@@ -146,13 +146,13 @@ namespace astia::mod {
 
         copy_public_name(out.name, info.name);
 
-        const usize capacity = dependency_total < ASTIA_MODULE_MAX_DEPENDENCIES
-                                   ? dependency_total
-                                   : static_cast<usize>(ASTIA_MODULE_MAX_DEPENDENCIES);
+        const usz capacity = dependency_total < ASTIA_MODULE_MAX_DEPENDENCIES
+                                 ? dependency_total
+                                 : static_cast<usz>(ASTIA_MODULE_MAX_DEPENDENCIES);
 
         out.dependencies_written = static_cast<u32>(capacity);
 
-        for (usize i = 0; i < capacity; ++i) {
+        for (usz i = 0; i < capacity; ++i) {
             out.dependencies[i].id.slot       = dependencies[i].slot;
             out.dependencies[i].id.reserved   = 0;
             out.dependencies[i].id.generation = dependencies[i].generation;

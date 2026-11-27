@@ -69,7 +69,7 @@ namespace astia::dev {
                 return owner_->poll(events, flags);
             }
 
-            core::task<i64> ioctl(u64 request, void* argp, usize size,
+            core::task<i64> ioctl(u64 request, void* argp, usz size,
                                   core::cltoken) override {
                 co_return owner_->ioctl(request, argp, size);
             }
@@ -142,7 +142,7 @@ namespace astia::dev {
                 return owner_->master_poll(events);
             }
 
-            core::task<i64> ioctl(u64 request, void* argp, usize size,
+            core::task<i64> ioctl(u64 request, void* argp, usz size,
                                   core::cltoken) override {
                 co_return owner_->master_ioctl(request, argp, size);
             }

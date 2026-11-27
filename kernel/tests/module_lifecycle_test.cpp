@@ -196,8 +196,7 @@ namespace {
 
     void lifecycle_record(int event);
 
-    void* map_image(void* context, astia::u64, astia::usize size, astia::usize,
-                    bool fixed) {
+    void* map_image(void* context, astia::u64, astia::usz size, astia::usz, bool fixed) {
         if (fixed)
             return nullptr;
 
@@ -214,7 +213,7 @@ namespace {
         return image;
     }
 
-    void unmap_image(void* context, void* image, astia::usize size) {
+    void unmap_image(void* context, void* image, astia::usz size) {
         auto* state = static_cast<loader_state*>(context);
 
         munmap(image, size);
@@ -256,7 +255,7 @@ namespace {
 
         if (std::strcmp(name, "_Znwm") == 0)
             return reinterpret_cast<std::uintptr_t>(
-                static_cast<void* (*) (astia::usize)>(&::operator new));
+                static_cast<void* (*) (astia::usz)>(&::operator new));
 
         if (std::strcmp(name, "_ZdlPv") == 0)
             return reinterpret_cast<std::uintptr_t>(
@@ -380,7 +379,7 @@ ASTIA_TEST(module_lifecycle_runs_loaded_image_and_unloads_after_exit) {
     active_observation = &observation;
 
     const astia::elf::loader::env    env    = environment(state);
-    const astia::usize               before = astia::mod::count();
+    const astia::usz                 before = astia::mod::count();
     const astia::mod::loaded_module* module =
         load_module_sync(blob(module_lifecycle_blob, module_lifecycle_blob_len), env);
 
@@ -598,7 +597,7 @@ ASTIA_TEST(module_lifecycle_rolls_back_failed_load) {
     state.resolve_enabled = false;
 
     const astia::elf::loader::env env    = environment(state);
-    const astia::usize            before = astia::mod::count();
+    const astia::usz              before = astia::mod::count();
 
     ASTIA_CHECK(load_module_sync(blob(module_lifecycle_blob, module_lifecycle_blob_len),
                                  env) == nullptr);
@@ -720,7 +719,7 @@ ASTIA_TEST(module_lifecycle_rolls_back_unpublished_dependency_failure) {
     const astia::elf::loader::env   env = environment(state);
     astia::mod::module_id           stale{};
     astia::mod::module_load_options options{};
-    const astia::usize              before = astia::mod::count();
+    const astia::usz                before = astia::mod::count();
 
     ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
                                             module_lifecycle_no_fini_blob_len),
@@ -995,7 +994,7 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
                                             module_lifecycle_no_fini_blob_len),
                                        env, {}, second) == astia::mod::module_error::ok);
 
-    const astia::usize total = astia::mod::count();
+    const astia::usz total = astia::mod::count();
 
     ASTIA_CHECK(total >= 2);
 
@@ -1006,7 +1005,7 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
     ASTIA_CHECK(bounded[0].id.valid());
 
     astia::mod::module_info all[astia::mod::max_modules]{};
-    const astia::usize      written = astia::mod::snapshot(
+    const astia::usz        written = astia::mod::snapshot(
         astia::span<astia::mod::module_info>(all, astia::mod::max_modules));
 
     ASTIA_CHECK(written == total);
@@ -1014,7 +1013,7 @@ ASTIA_TEST(module_lifecycle_snapshot_is_bounded_and_consistent) {
     bool saw_first  = false;
     bool saw_second = false;
 
-    for (astia::usize i = 0; i < written; ++i) {
+    for (astia::usz i = 0; i < written; ++i) {
         if (all[i].id == first)
             saw_first = true;
 
@@ -1375,7 +1374,7 @@ ASTIA_TEST(module_lifecycle_concurrent_slot_reuse_is_generation_safe) {
 ASTIA_TEST(module_lifecycle_rejects_32bit_absolute_relocation_before_mapping) {
     loader_state                  state{};
     const astia::elf::loader::env env    = environment(state);
-    const astia::usize            before = astia::mod::count();
+    const astia::usz              before = astia::mod::count();
 
     const astia::span<const astia::u8> image =
         blob(module_lifecycle_reloc32_blob, module_lifecycle_reloc32_blob_len);

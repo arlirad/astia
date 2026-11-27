@@ -4,15 +4,15 @@
 
 namespace astia::proc {
     namespace {
-        constexpr usize tls_reserve_pages =
+        constexpr usz tls_reserve_pages =
             user_dso_tls_reserve / mm::phys_region::frame_size;
         static_assert(user_dso_tls_reserve % mm::phys_region::frame_size == 0,
                       "the DSO TLS reserve must be a whole number of pages");
         static_assert(tls_reserve_pages != 0);
     } // namespace
 
-    bool measure_tls_arena(usize payload_pages, tls_arena& out) {
-        if (payload_pages == 0 || payload_pages > ~usize{0} - tls_reserve_pages)
+    bool measure_tls_arena(usz payload_pages, tls_arena& out) {
+        if (payload_pages == 0 || payload_pages > ~usz{0} - tls_reserve_pages)
             return false;
 
         out.reserve_bytes  = user_dso_tls_reserve;
@@ -34,7 +34,7 @@ namespace astia::proc {
         if (region == nullptr)
             return nullptr;
 
-        for (usize page = layout.reserve_pages; page < layout.total_pages; ++page) {
+        for (usz page = layout.reserve_pages; page < layout.total_pages; ++page) {
             if (!region->ensure_page(page, true)) {
                 region->release();
 
@@ -47,13 +47,13 @@ namespace astia::proc {
 
     bool write_tls_payload(mm::phys_region& region, const tls_arena& layout, u64 offset,
                            span<const u8> source) {
-        usize done = 0;
+        usz done = 0;
 
         while (done < source.size()) {
-            const u64   within = layout.payload_offset + offset + done;
-            const usize page   = static_cast<usize>(within / mm::phys_region::frame_size);
-            const usize page_offset =
-                static_cast<usize>(within % mm::phys_region::frame_size);
+            const u64 within = layout.payload_offset + offset + done;
+            const usz page   = static_cast<usz>(within / mm::phys_region::frame_size);
+            const usz page_offset =
+                static_cast<usz>(within % mm::phys_region::frame_size);
 
             if (page >= layout.total_pages)
                 return false;
@@ -62,7 +62,7 @@ namespace astia::proc {
             if (target == nullptr)
                 return false;
 
-            usize chunk = mm::phys_region::frame_size - page_offset;
+            usz chunk = mm::phys_region::frame_size - page_offset;
 
             if (chunk > source.size() - done)
                 chunk = source.size() - done;

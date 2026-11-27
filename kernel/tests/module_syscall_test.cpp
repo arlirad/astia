@@ -49,7 +49,7 @@ namespace {
 
     module_load_options named(const char* name) {
         module_load_options options{};
-        astia::usize        i = 0;
+        astia::usz          i = 0;
 
         while (i + 1 < sizeof options.name && name[i] != '\0') {
             options.name[i] = name[i];
@@ -94,19 +94,19 @@ namespace {
         set_root(true);
 
         while (true) {
-            module_info        infos[astia::mod::max_modules]{};
-            astia::usize       total   = 0;
-            const astia::usize visible = astia::mod::snapshot(
+            module_info      infos[astia::mod::max_modules]{};
+            astia::usz       total   = 0;
+            const astia::usz visible = astia::mod::snapshot(
                 astia::span<module_info>(infos, astia::mod::max_modules), &total);
             if (visible == 0)
                 return;
 
             bool progressed = false;
 
-            for (astia::usize i = 0; i < visible; ++i) {
+            for (astia::usz i = 0; i < visible; ++i) {
                 const module_id id = infos[i].id;
 
-                for (astia::usize d = 0; d < infos[i].dependency_count; ++d) {
+                for (astia::usz d = 0; d < infos[i].dependency_count; ++d) {
                     module_id dependency{};
 
                     if (astia::mod::dependency_at(id, 0, dependency) == module_error::ok)
@@ -313,7 +313,7 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
 
     astia::mod::set_open_path_error(module_error::load_failed);
 
-    const astia::usize before = astia::mod::count();
+    const astia::usz before = astia::mod::count();
 
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen, reinterpret_cast<astia::u64>(path),
                      0, reinterpret_cast<astia::u64>(&id)) == -ENOEXEC);

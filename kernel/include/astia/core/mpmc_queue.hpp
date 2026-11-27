@@ -5,7 +5,7 @@
 #include <astia/core/spinlock.hpp>
 
 // The kernel supplies placement new without pulling in a hosted C++ runtime.
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::core {
     /// A bounded, non-blocking multiple-producer/multiple-consumer queue.
@@ -19,7 +19,7 @@ namespace astia::core {
     /// participant. They may report false when the queue is currently full
     /// or empty, so callers that need blocking semantics must provide their
     /// own wait strategy.
-    template <typename T, usize Capacity>
+    template <typename T, usz Capacity>
     class mpmc_queue {
         static_assert(Capacity >= 2, "mpmc_queue capacity must be at least two");
         static_assert((Capacity & (Capacity - 1)) == 0,
@@ -170,7 +170,7 @@ namespace astia::core {
         mpmc_queue(const mpmc_queue&)            = delete;
         mpmc_queue& operator=(const mpmc_queue&) = delete;
 
-        static constexpr usize capacity() {
+        static constexpr usz capacity() {
             return Capacity;
         }
 
@@ -237,7 +237,7 @@ namespace astia::core {
 
         /// Approximate item count. It is only a snapshot and may be stale
         /// immediately after returning when producers or consumers race.
-        usize size_approx() const {
+        usz size_approx() const {
             if (!initialized())
                 return 0;
 
@@ -247,8 +247,7 @@ namespace astia::core {
                                  .load(astia::memory_order::acquire);
             const u64 size = tail - head;
 
-            return size > static_cast<u64>(Capacity) ? Capacity
-                                                     : static_cast<usize>(size);
+            return size > static_cast<u64>(Capacity) ? Capacity : static_cast<usz>(size);
         }
 
         bool empty_approx() const {

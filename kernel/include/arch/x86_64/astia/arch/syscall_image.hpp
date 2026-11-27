@@ -28,7 +28,7 @@ namespace astia::arch {
     /// the entry hands those to the dispatcher directly.
     class syscall_return {
         public:
-        static constexpr usize bytes = 16 * sizeof(u64);
+        static constexpr usz bytes = 16 * sizeof(u64);
 
         void set_mode(return_mode mode) noexcept {
             raw_.mode = static_cast<u64>(mode);

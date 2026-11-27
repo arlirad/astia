@@ -3,16 +3,16 @@
 #include "tables.hpp"
 
 namespace astia::acpi::detail {
-    constexpr usize max_aml_nodes           = 2048;
-    constexpr usize max_aml_values          = 4096;
-    constexpr usize max_aml_name_refs       = 1024;
-    constexpr usize max_aml_name_segments   = 16;
-    constexpr usize max_aml_package_items   = 256;
-    constexpr u32   max_aml_eval_steps      = 100000;
-    constexpr u32   max_aml_call_depth      = 8;
-    constexpr u32   max_aml_reference_depth = 16;
-    constexpr u32   max_aml_package_depth   = 32;
-    constexpr u32   max_aml_term_depth      = 64;
+    constexpr usz max_aml_nodes           = 2048;
+    constexpr usz max_aml_values          = 4096;
+    constexpr usz max_aml_name_refs       = 1024;
+    constexpr usz max_aml_name_segments   = 16;
+    constexpr usz max_aml_package_items   = 256;
+    constexpr u32 max_aml_eval_steps      = 100000;
+    constexpr u32 max_aml_call_depth      = 8;
+    constexpr u32 max_aml_reference_depth = 16;
+    constexpr u32 max_aml_package_depth   = 32;
+    constexpr u32 max_aml_term_depth      = 64;
 
     using value_id = u32;
     using node_id  = u32;
@@ -119,11 +119,11 @@ namespace astia::acpi::detail {
             return as_integer(id, out);
         }
 
-        usize node_count() const {
+        usz node_count() const {
             return _node_count;
         }
 
-        usize value_count() const {
+        usz value_count() const {
             return _value_count;
         }
 
@@ -238,17 +238,17 @@ namespace astia::acpi::detail {
         bool execute_statement(cursor& c, execution& e);
         bool execute_if(cursor& c, execution& e);
         bool execute_while(cursor& c, execution& e);
-        bool execute_method(node_id method, const value_id* arguments, usize count,
+        bool execute_method(node_id method, const value_id* arguments, usz count,
                             value_id& out);
 
         bool step();
 
         node      _nodes[max_aml_nodes]{};
-        usize     _node_count = 0;
+        usz       _node_count = 0;
         value     _values[max_aml_values]{};
-        usize     _value_count = 0;
+        usz       _value_count = 0;
         name_ref  _references[max_aml_name_refs]{};
-        usize     _reference_count = 0;
+        usz       _reference_count = 0;
         aml_error _error           = aml_error::none;
         u32       _steps           = 0;
         u32       _call_depth      = 0;

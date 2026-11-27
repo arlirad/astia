@@ -21,7 +21,7 @@ namespace astia::io::aio::memory {
             return reinterpret_cast<T*>(_address);
         }
 
-        span<u8> bytes(usize count = 1) const {
+        span<u8> bytes(usz count = 1) const {
             return span<u8>::bytes(_address, sizeof(T) * count);
         }
 
@@ -40,13 +40,13 @@ namespace astia::io::aio::memory {
             return _address;
         }
 
-        optional<validated_user_ptr<T>> validate(usize count = 1) const {
+        optional<validated_user_ptr<T>> validate(usz count = 1) const {
             return validate_for(proc::current_process(), count);
         }
 
         optional<validated_user_ptr<T>> validate_for(proc::process* owner,
-                                                     usize          count = 1) const {
-            if (count > (~usize{0} / sizeof(T)))
+                                                     usz            count = 1) const {
+            if (count > (~usz{0} / sizeof(T)))
                 return error_t::erange;
 
             const span<u8> range = span<u8>::bytes(_address, sizeof(T) * count);

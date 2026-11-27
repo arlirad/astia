@@ -2,9 +2,9 @@
 #include <astia/common.hpp>
 #include <astia/span.hpp>
 namespace astia::proc::syscalls::detail {
-    inline constexpr usize path_cap = 256;
-    inline constexpr usize arg_cap  = 256;
-    inline constexpr usize vec_max  = 32;
+    inline constexpr usz path_cap = 256;
+    inline constexpr usz arg_cap  = 256;
+    inline constexpr usz vec_max  = 32;
 
     // Owns the complete argv/envp staging block.  Keeping the vectors and
     // their string pools together preserves the loader-facing layout while

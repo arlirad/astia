@@ -52,7 +52,7 @@ namespace astia::proc::syscalls {
 
             auto child = co_await astia::proc::spawnve(
                 owner, static_cast<mm::shptr<fs::open_file>&&>(file),
-                static_cast<usize>(image_size), staging.argv(), staging.envp());
+                static_cast<usz>(image_size), staging.argv(), staging.envp());
             if (!child)
                 co_return -astia::errno_value(child.error);
 

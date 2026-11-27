@@ -42,8 +42,8 @@ namespace {
         bool       used  = false;
     };
 
-    constexpr astia::usize fake_owner_limit = 8;
-    fake_owner             fake_owners[fake_owner_limit]{};
+    constexpr astia::usz fake_owner_limit = 8;
+    fake_owner           fake_owners[fake_owner_limit]{};
 
     void reset_fake_owners() {
         for (auto& owner : fake_owners) {

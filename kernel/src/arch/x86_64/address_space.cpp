@@ -102,7 +102,7 @@ namespace astia::mm {
         return valid() && static_cast<const arch::page_map*>(_native)->executable(virt);
     }
 
-    bool address_space::valid_user_range(u64 address, usize length) const {
+    bool address_space::valid_user_range(u64 address, usz length) const {
         if (length == 0)
             return true;
 
@@ -118,7 +118,7 @@ namespace astia::mm {
         return arch::user_layout_policy::is_canonical(last);
     }
 
-    bool address_space::validate(u64 address, usize length, access required) const {
+    bool address_space::validate(u64 address, usz length, access required) const {
         if (length == 0)
             return true;
 
@@ -151,7 +151,7 @@ namespace astia::mm {
     }
 
     mapping_transaction::mapping_transaction(address_space& space, vaddr_t first,
-                                             usize pages)
+                                             usz pages)
         : _space(&space), _first(first), _pages(pages) {}
 
     mapping_transaction::~mapping_transaction() {
@@ -193,7 +193,7 @@ namespace astia::mm {
         if (_finished || _space == nullptr)
             return;
 
-        for (usize page = 0; page < _mapped; ++page) {
+        for (usz page = 0; page < _mapped; ++page) {
             const vaddr_t virt = _first + page * page_size;
 
             (void) _space->unmap(virt);

@@ -79,7 +79,7 @@ namespace {
 
         auto result =
             co_await astia::proc::spawnve(astia::proc::kernel_process(), file,
-                                          static_cast<astia::usize>(size), argv, envp);
+                                          static_cast<astia::usz>(size), argv, envp);
         if (!result)
             launch_failed(path);
 

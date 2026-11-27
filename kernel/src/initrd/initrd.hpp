@@ -37,7 +37,7 @@ namespace astia::initrd {
     struct file {
         const char* name = nullptr;
         const void* data = nullptr;
-        usize       size = 0;
+        usz         size = 0;
     };
 
     /// An opened archive: a validated view over a cpio image held in place.
@@ -45,7 +45,7 @@ namespace astia::initrd {
         span<const u8> image;
         // Compatibility views for existing in-kernel consumers.
         const u8*      base   = nullptr;
-        usize          len    = 0;
+        usz            len    = 0;
         archive_format format = archive_format::cpio_newc;
     };
 
@@ -55,7 +55,7 @@ namespace astia::initrd {
     /// Identify an outer container without attempting decompression.
     archive_container detect_container(span<const u8> image);
 
-    inline archive_container detect_container(const void* image, usize length) {
+    inline archive_container detect_container(const void* image, usz length) {
         return detect_container(span<const u8>(static_cast<const u8*>(image), length));
     }
 
@@ -63,7 +63,7 @@ namespace astia::initrd {
     /// see `boot.hpp` for the decompressing boot path.
     bool open(span<const u8> image, archive& out);
 
-    inline bool open(const void* image, usize length, archive& out) {
+    inline bool open(const void* image, usz length, archive& out) {
         return open(span<const u8>(static_cast<const u8*>(image), length), out);
     }
 
@@ -81,5 +81,5 @@ namespace astia::initrd {
     bool find(const archive& a, const char* name, file& out);
 
     /// Number of regular (non-empty) files in the archive.
-    usize count(const archive& a);
+    usz count(const archive& a);
 } // namespace astia::initrd
