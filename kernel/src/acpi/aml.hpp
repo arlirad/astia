@@ -144,8 +144,7 @@ namespace astia::acpi::detail {
         };
 
         struct target {
-            value_id* slot    = nullptr;
-            bool      discard = false;
+            value_id* slot = nullptr;
         };
 
         bool fail(aml_error error);
