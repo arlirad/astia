@@ -20,6 +20,7 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 
+#include <aio.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -1481,6 +1482,171 @@ static int libc_zsh_io_contract(void) {
     return 0;
 }
 
+enum { aio_deferred_ops = 120 };
+
+static void aio_read_request(struct aiocb* cb, int fd, void* buffer, off_t offset) {
+    memset(cb, 0, sizeof *cb);
+    cb->aio_fildes     = fd;
+    cb->aio_buf        = buffer;
+    cb->aio_nbytes     = 1;
+    cb->aio_offset     = offset;
+    cb->aio_lio_opcode = LIO_READ;
+}
+
+static int aio_deferred_contract(void) {
+    const char*         name = "/tmp/astia_aio_deferred";
+    unsigned char       data[aio_deferred_ops + 8];
+    unsigned char       file_buffer[aio_deferred_ops];
+    unsigned char       pipe_buffer[2] = {0, 0};
+    struct aiocb        file_cb[aio_deferred_ops];
+    struct aiocb        pipe_cb;
+    struct aiocb*       lio_list[aio_deferred_ops];
+    const struct aiocb* wait_list[2];
+    int                 pipe_fds[2];
+    int                 fd;
+    int                 i;
+
+    for (i = 0; i < (int) sizeof data; ++i)
+        data[i] = (unsigned char) (0xA5u + (unsigned) i * 7u);
+    fd = open(name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (fd < 0)
+        return 193;
+    if (write(fd, data, aio_deferred_ops) != aio_deferred_ops)
+        return 193;
+    if (pipe(pipe_fds) != 0)
+        return 193;
+
+    aio_read_request(&pipe_cb, pipe_fds[0], pipe_buffer, 0);
+    if (aio_read(&pipe_cb) != 0)
+        return 194;
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        if (aio_read(&file_cb[i]) != 0)
+            return 194;
+    }
+
+    for (i = 0; i < 4; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 195;
+
+    wait_list[0] = &pipe_cb;
+    wait_list[1] = &file_cb[4];
+    if (aio_suspend(wait_list, 2, NULL) != 0)
+        return 196;
+    if (aio_error(&pipe_cb) != EINPROGRESS)
+        return 196;
+    if (write(pipe_fds[1], "Z", 1) != 1)
+        return 197;
+
+    wait_list[0] = &pipe_cb;
+    if (aio_suspend(wait_list, 1, NULL) != 0 || aio_error(&pipe_cb) != 0 ||
+        aio_return(&pipe_cb) != 1 || pipe_buffer[0] != 'Z')
+        return 197;
+
+    for (i = 4; i < aio_deferred_ops; ++i) {
+        wait_list[0] = &file_cb[i];
+        if (aio_suspend(wait_list, 1, NULL) != 0 || aio_error(&file_cb[i]) != 0 ||
+            aio_return(&file_cb[i]) != 1 || file_buffer[i] != data[i])
+            return 198;
+    }
+
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        lio_list[i] = &file_cb[i];
+    }
+    if (lio_listio(LIO_WAIT, lio_list, aio_deferred_ops, NULL) != 0)
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 199;
+
+    if (write(pipe_fds[1], "Q", 1) != 1)
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i) {
+        aio_read_request(&file_cb[i], fd, &file_buffer[i], i);
+        if (aio_read(&file_cb[i]) != 0)
+            return 199;
+    }
+    aio_read_request(&pipe_cb, pipe_fds[0], pipe_buffer, 0);
+    lio_list[0] = &pipe_cb;
+    if (lio_listio(LIO_WAIT, lio_list, 1, NULL) != 0)
+        return 199;
+    if (aio_error(&pipe_cb) != 0 || aio_return(&pipe_cb) != 1 || pipe_buffer[0] != 'Q')
+        return 199;
+    for (i = 0; i < aio_deferred_ops; ++i)
+        if (aio_error(&file_cb[i]) != 0 || aio_return(&file_cb[i]) != 1 ||
+            file_buffer[i] != data[i])
+            return 199;
+
+    if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+        return 199;
+    if (close(fd) != 0 || unlink(name) != 0)
+        return 199;
+    return 0;
+}
+
+enum { aio_backpressure_ops = 128 };
+
+static int aio_transact_backpressure_contract(void) {
+    static struct aiocb  read_cb[aio_backpressure_ops];
+    static unsigned char file_data[aio_backpressure_ops];
+    static unsigned char read_data[aio_backpressure_ops];
+    const char*          read_name  = "/tmp/astia_aio_backpressure";
+    const char*          write_name = "/tmp/astia_aio_backpressure_out";
+    unsigned char        byte       = 'F';
+    int                  pipe_fds[2];
+    int                  read_fd;
+    int                  write_fd;
+    int                  i;
+
+    for (i = 0; i < aio_backpressure_ops; ++i)
+        file_data[i] = (unsigned char) (0x51u + (unsigned) i * 3u);
+    read_fd = open(read_name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (read_fd < 0)
+        return 200;
+    if (write(read_fd, file_data, aio_backpressure_ops) != aio_backpressure_ops)
+        return 200;
+    write_fd = open(write_name, O_CREAT | O_TRUNC | O_RDWR, 0600);
+    if (write_fd < 0)
+        return 200;
+    if (pipe(pipe_fds) != 0)
+        return 200;
+    if (write(pipe_fds[1], &byte, 1) != 1)
+        return 200;
+
+    for (i = 0; i < aio_backpressure_ops; ++i) {
+        aio_read_request(&read_cb[i], read_fd, &read_data[i], i);
+        if (aio_read(&read_cb[i]) != 0)
+            return 201;
+    }
+
+    byte = 0;
+    if (read(pipe_fds[0], &byte, 1) != 1 || byte != 'F')
+        return 202;
+
+    byte  = 'W';
+    errno = 0;
+    if (write(write_fd, &byte, 1) != -1 || errno != EAGAIN)
+        return 203;
+
+    for (i = 0; i < aio_backpressure_ops; ++i)
+        if (aio_return(&read_cb[i]) != 1 || read_data[i] != file_data[i])
+            return 204;
+
+    if (write(write_fd, &byte, 1) != 1)
+        return 205;
+    if (lseek(write_fd, 0, SEEK_END) != 1)
+        return 205;
+
+    if (close(pipe_fds[0]) != 0 || close(pipe_fds[1]) != 0)
+        return 206;
+    if (close(read_fd) != 0 || unlink(read_name) != 0)
+        return 206;
+    if (close(write_fd) != 0 || unlink(write_name) != 0)
+        return 206;
+    return 0;
 static volatile sig_atomic_t sigpipe_hits;
 
 static void sigpipe_handler(int signal_number) {
@@ -4864,6 +5030,18 @@ int main(int argc, char** argv) {
             printf("astia: ld ok\n");
     }
 
+    {
+        int aio_result = aio_deferred_contract();
+        if (aio_result != 0)
+            return aio_result;
+        printf("astia: aio deferred ok\n");
+    }
+
+    {
+        int aio_result = aio_transact_backpressure_contract();
+        if (aio_result != 0)
+            return aio_result;
+        printf("astia: aio deferred backpressure ok\n");
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
        recover the load bias from auxv instead of guessing zero. */
     {

@@ -51,6 +51,8 @@ static int aio_update(struct aio_slot* slot) {
         return 1;
 
     rc = __astia_fio_aio_result(slot->tag, &result);
+    if (rc == -EAGAIN)
+        return 0;
     if (rc < 0) {
         slot->result   = rc;
         slot->complete = 1;
