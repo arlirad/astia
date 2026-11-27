@@ -7,6 +7,7 @@
 #include "module.hpp"
 
 #include <astia/api/errno.h>
+#include <astia/arch/layout.hpp>
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/atomic.hpp>
@@ -475,6 +476,12 @@ namespace astia::mod {
                 return nullptr;
 
             void* image = mm::kernel_frames().to_virt(phys);
+
+            if (image == nullptr) {
+                mm::kernel_frames().release(phys, frames);
+
+                return nullptr;
+            }
 
             if (context != nullptr)
                 static_cast<load_state*>(context)->dso = image;

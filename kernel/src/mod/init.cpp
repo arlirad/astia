@@ -1,5 +1,6 @@
 #include <astia/boot.hpp>
 #include <astia/elf.hpp>
+#include <astia/fs.hpp>
 #include <astia/init.hpp>
 #include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
@@ -18,6 +19,9 @@
 //
 // Depends on `frames` (the frame allocator places section contents) and
 // `boot_info` (the ramdisk and the module list).
+
+extern unsigned char astia_devfs_module_image[];
+extern unsigned int  astia_devfs_module_image_len;
 
 namespace astia::mod {
     namespace {
@@ -77,6 +81,47 @@ namespace astia::mod {
 
         // Per-file visitor for an initrd: load the file if it is an ELF image,
         // skip anything else (configs, data, ...).
+        bool load_required_devfs() {
+            module_load_options options{};
+
+            options.resident = true;
+
+            constexpr char name[] = "devfs";
+
+            for (usize i = 0; i + 1 < sizeof options.name && name[i] != '\0'; ++i) {
+                options.name[i] = name[i];
+            }
+
+            module_id id{};
+
+            const span<const u8> image(static_cast<const u8*>(astia_devfs_module_image),
+                                       static_cast<usize>(astia_devfs_module_image_len));
+
+            if (load_image(image, options, id) != module_error::ok) {
+                logs::error("required devfs module failed to load");
+
+                return false;
+            }
+
+            int rc = 0;
+
+            if (run(id, rc) != module_error::ok || rc != 0) {
+                logs::error("required devfs module failed rc=%d", rc);
+
+                return false;
+            }
+
+            if (!astia::fs::device_namespace_ready()) {
+                logs::error("required devfs module did not mount /dev");
+
+                return false;
+            }
+
+            logs::info("devfs resident rc=%d", rc);
+
+            return true;
+        }
+
         bool visit_initrd_file(void*, const initrd::file& f) {
             // ET_REL belongs to the kernel-module loader.  Executables
             // remain files in initrdfs and are launched by proc::spawnve.
@@ -92,6 +137,9 @@ namespace astia::mod {
 
     static bool step_mod(init::context& ctx) {
         if (!ctx.info)
+            return false;
+
+        if (!load_required_devfs())
             return false;
 
         // This step runs before the fs mount, so it loads and publishes the
@@ -148,4 +196,5 @@ namespace astia::mod {
     }
 } // namespace astia::mod
 
+ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames", "fs")
 ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames", "interrupts")

@@ -104,10 +104,6 @@ namespace astia::fs::filesystems {
         gid_t     node_gid(const char* path) const override;
         long      readlink(const char* path, char* buffer, u32 capacity) const override;
 
-        long register_file(const char*, const mm::shptr<file>&) override {
-            return -EROFS;
-        }
-
         long mkdir(const char*, file_mode) override {
             return -EROFS;
         }

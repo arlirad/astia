@@ -18,6 +18,7 @@ alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
 
 #include <astia/dev/blk/blkdev.hpp>
 
+#include "../../modules/devfs/devfs.hpp"
 #include "../src/dev/device_file.hpp"
 #include "../src/fs/filesystem.hpp"
 
@@ -240,10 +241,13 @@ namespace {
         u32 _reads = 0;
     };
 
-    fake_blkdev             fake_device;
-    astia::dev::device_file fake_file(&fake_device);
-    bool                    fake_registered = false;
-    bool                    fake_mountpoint = false;
+    fake_blkdev                         fake_device;
+    astia::dev::device_file             fake_file(&fake_device);
+    astia::fs::filesystems::devfs       devfs_type;
+    astia::fs::filesystems::devfs_mount devfs_mount;
+    astia::fs::device_node_handle       fake_handle{};
+    bool                                fake_registered = false;
+    bool                                fake_mountpoint = false;
 
     bool no_mapping(u64, u64) {
         return true;
@@ -266,14 +270,24 @@ namespace {
         ASTIA_CHECK(astia::mm::heap::init());
         ASTIA_CHECK(astia::fs::init());
 
+        devfs_type.attach(&devfs_mount);
+        ASTIA_CHECK(astia::fs::register_type(&devfs_type) == 0);
+        ASTIA_CHECK(astia::fs::mount_type("devfs", "/dev") == 0);
+        ASTIA_CHECK(astia::fs::activate_device_namespace() == 0);
+
         initialized = true;
     }
 
     void mount_fixture(fake_blkdev& device, astia::dev::device_file& file) {
         if (!fake_registered) {
-            ASTIA_CHECK(astia::fs::register_device(
-                            "/dev/fake-ext4",
-                            astia::mm::shptr<astia::fs::file>::borrowed(&file)) == 0);
+            astia::fs::device_node_descriptor descriptor{};
+
+            descriptor.name        = "fake-ext4";
+            descriptor.node        = astia::mm::shptr<astia::fs::file>::borrowed(&file);
+            descriptor.type        = astia::fs::file_type::block;
+            descriptor.permissions = astia::fs::default_device_permissions;
+
+            ASTIA_CHECK(astia::fs::register_device_node(descriptor, fake_handle) == 0);
 
             fake_registered = true;
         }
@@ -368,13 +382,21 @@ ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
     auto old        = astia::fs::open("/dev/fake-ext4");
 
     ASTIA_CHECK(old);
-    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == 0);
+    ASTIA_CHECK(astia::fs::unregister_device_node(fake_handle) == 0);
 
     fake_registered = false;
 
-    ASTIA_CHECK(astia::fs::unregister_device("/dev/fake-ext4", registered) == -ENOENT);
+    ASTIA_CHECK(astia::fs::unregister_device_node(fake_handle) == -ENOENT);
     ASTIA_CHECK(!astia::fs::node_mode("/dev/fake-ext4").exists());
-    ASTIA_CHECK(astia::fs::register_device("/dev/fake-ext4", registered) == 0);
+
+    astia::fs::device_node_descriptor descriptor{};
+
+    descriptor.name        = "fake-ext4";
+    descriptor.node        = registered;
+    descriptor.type        = astia::fs::file_type::block;
+    descriptor.permissions = astia::fs::default_device_permissions;
+
+    ASTIA_CHECK(astia::fs::register_device_node(descriptor, fake_handle) == 0);
 
     fake_registered = true;
 

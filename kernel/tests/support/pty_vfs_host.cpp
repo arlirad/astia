@@ -13,7 +13,11 @@ namespace astia::dev {
         return false;
     }
 
-    bool pty_node_is_directory(const char*) {
-        return false;
+    bool pty_node_is_directory(const char* path) {
+        if (path != nullptr && path[0] == '/')
+            ++path;
+
+        return path != nullptr && path[0] == 'p' && path[1] == 't' && path[2] == 's' &&
+               path[3] == '\0';
     }
 }

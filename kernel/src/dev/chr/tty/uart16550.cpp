@@ -680,16 +680,31 @@ namespace astia::dev {
     }
 
 #ifndef ASTIA_UART16550_HOST_TEST
+    namespace {
+        bool register_uart_node(const char* name) {
+            fs::device_node_descriptor descriptor{};
+
+            descriptor.name        = name;
+            descriptor.node        = mm::shptr<fs::file>::borrowed(&com1_file);
+            descriptor.type        = fs::file_type::character;
+            descriptor.permissions = fs::default_device_permissions;
+            descriptor.capabilities =
+                static_cast<u32>(fs::device_node_capability::readable) |
+                static_cast<u32>(fs::device_node_capability::writable) |
+                static_cast<u32>(fs::device_node_capability::pollable) |
+                static_cast<u32>(fs::device_node_capability::ioctlable);
+
+            fs::device_node_handle handle{};
+
+            return fs::register_device_node(descriptor, handle) == 0;
+        }
+    } // namespace
+
     bool uart16550::init_irq() {
         if (!_irq.claim(uart16550_irq_handler))
             return false;
 
-        if (fs::register_device(device_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
-            0)
-            return false;
-
-        if (fs::register_device(console_path, mm::shptr<fs::file>::borrowed(&com1_file)) <
-            0)
+        if (!register_uart_node("tts0") || !register_uart_node("console"))
             return false;
 
         _ready_file = &com1_file;

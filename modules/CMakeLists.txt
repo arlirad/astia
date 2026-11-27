@@ -8,6 +8,7 @@ set(ASTIA_ARCH_INCLUDE_DIR
         ${ASTIA_KERNEL_SOURCE_DIR}/include/arch/${ARCH})
 
 add_subdirectory(tests)
+add_subdirectory(devfs)
 add_subdirectory(nvme)
 add_subdirectory(virtio-blk)
 add_subdirectory(usb)

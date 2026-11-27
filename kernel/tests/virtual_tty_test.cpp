@@ -48,10 +48,6 @@ namespace astia::fs {
     mm::shptr<open_file> open(const char*, u32) {
         return {};
     }
-
-    long register_device(const char*, const mm::shptr<file>&) {
-        return 0;
-    }
 }
 
 namespace {
