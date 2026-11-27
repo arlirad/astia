@@ -1583,6 +1583,17 @@ int main(int argc, char** argv) {
         _Exit(0);
     }
 
+    if (argc > 1 && strcmp(argv[1], "--setpgid-exec-child") == 0) {
+        char marker = 'x';
+
+        if (write(3, &marker, 1) != 1)
+            _Exit(260);
+
+        for (;;) {
+            sleep(1);
+        }
+    }
+
     if (argc > 1 && strcmp(argv[1], "--chroot-check") == 0) {
         char cwd[64];
         int  fd;
@@ -5441,6 +5452,71 @@ int main(int argc, char** argv) {
 
         printf("astia: urandom %016llx\n", probe);
         printf("astia: random ok\n");
+    }
+
+    /* 59: POSIX keeps a parent out of a child's process group once that
+       child has exec'd.  The child signals from its new image so the
+       parent cannot race the setpgid() ahead of the exec transition. */
+    {
+        const pid_t parent_group = getpgrp();
+
+        struct pollfd ready = {0};
+
+        int sync_pipe[2];
+        int status = 0;
+
+        if (pipe(sync_pipe) != 0)
+            return 261;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 262;
+
+        if (child == 0) {
+            char marker = 'x';
+
+            close(sync_pipe[0]);
+
+            if (sync_pipe[1] != 3) {
+                if (dup2(sync_pipe[1], 3) != 3)
+                    _Exit(263);
+
+                close(sync_pipe[1]);
+            }
+
+            execl(argv[0], argv[0], "--setpgid-exec-child", NULL);
+            _Exit(264);
+        }
+
+        close(sync_pipe[1]);
+
+        char marker = 0;
+
+        ready.fd     = sync_pipe[0];
+        ready.events = POLLIN;
+
+        if (poll(&ready, 1, 5000) != 1 || read(sync_pipe[0], &marker, 1) != 1) {
+            kill(child, SIGKILL);
+            (void) waitpid(child, NULL, 0);
+
+            return 265;
+        }
+
+        close(sync_pipe[0]);
+
+        errno = 0;
+
+        if (setpgid(child, parent_group) != -1 || errno != EACCES) {
+            kill(child, SIGKILL);
+            (void) waitpid(child, NULL, 0);
+
+            return 266;
+        }
+
+        if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child)
+            return 267;
+
+        printf("astia: setpgid exec ok\n");
     }
 
     /* 52: chroot and privilege-separation sequence.  chroot does not

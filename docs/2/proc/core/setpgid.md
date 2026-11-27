@@ -20,4 +20,5 @@ Returns zero on success, or a negative errno.
 - `-EPERM`: The target is not the caller's child.
 - `-EPERM`: The target belongs to another session.
 - `-EPERM`: The target is a session leader.
+- `-EACCES`: The target is a child that has already executed a new image.
 - `-ESRCH`: The target process does not exist.

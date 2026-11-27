@@ -1549,6 +1549,7 @@ namespace astia::proc {
         replace_image(staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
+        mark_execed();
 
         *entry_out = entry;
         *stack_out = stack;
@@ -1593,6 +1594,7 @@ namespace astia::proc {
         replace_image(staging);
         _signals.reset_caught_for_exec();
         reset_signal_stacks_for_exec();
+        mark_execed();
 
         co_return exec_result{entry, stack};
     }

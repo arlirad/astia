@@ -1818,6 +1818,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
                 "astia: sigpipe ok"
+                "astia: setpgid exec ok"
                 "astia: libc.so ok"
         )
         set_tests_properties(astia_initrd_boot PROPERTIES TIMEOUT 60)
