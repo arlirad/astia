@@ -1,4 +1,5 @@
 set(ASTIA_PUBLIC_HEADERS
+        astia/api/syscalls.h
         astia/acpi.hpp
         astia/arch/io.hpp
         astia/shutdown.hpp

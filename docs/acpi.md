@@ -2,8 +2,10 @@
 
 This kernel subsystem discovers ACPI tables, validates them, interprets the AML
 needed to build a namespace and evaluate `\_S5`, and enters S5 through the FADT
-PM1 control registers. It is kernel-side only: there is no `/dev` node, syscall,
-VFS file, ioctl, or raw table/AML exposure.
+PM1 control registers. It also validates the FADT reset register for reboot.
+The ACPI layer itself is kernel-side only; the `power(2)` syscall is the only
+userspace entry point, and there is no `/dev` node, VFS file, ioctl, or raw
+table/AML exposure.
 
 ## Specification basis
 
@@ -12,10 +14,15 @@ Implementation and review used the official **ACPI Specification, Release 6.5
 
 - 4.8.1.2 PM1 Control Registers and 4.8.3.2 PM1 Control Grouping (SLP_TYPx,
   SLP_EN, PM1_CNT_LEN).
-- 5.2.3.2 Generic Address Structure.
+- 4.8.3.6 Reset Register, including the 8-bit register, complete-system reset,
+  and the System I/O, System Memory, and bus-0 PCI Configuration address-space
+  restrictions.
+- 5.2.3.2 Generic Address Structure, including Address Space ID, Register Bit
+  Width, Register Bit Offset, Access Size, and the bus-0 PCI Configuration
+  address encoding.
 - 5.2.5 RSDP, 5.2.6 System Description Table Header, 5.2.7 RSDT, 5.2.8 XSDT,
-  and 5.2.9 FADT (including the extended X_PM1a_CNT_BLK / X_PM1b_CNT_BLK GAS
-  fields).
+  and 5.2.9 FADT (including RESET_REG, RESET_VALUE, RESET_REG_SUP, and the
+  extended X_PM1a_CNT_BLK / X_PM1b_CNT_BLK GAS fields).
 - 7.4.2.6 System `\_S5` State (Soft Off), including SLP_TYPa/SLP_TYPb package
   layout.
 - Chapter 20, ACPI Machine Language (AML) Specification, complete sections
@@ -37,13 +44,20 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 - `bool astia::acpi::shutdown_supported()`: FADT, DSDT, AML namespace, `\_S5`,
   and PM1 registers all validated and the platform handler registered.
 - `bool astia::acpi::shutdown()`: enter the tiered shutdown sequence.
+- `bool astia::acpi::reboot_supported()`: RESET_REG_SUP is set and the FADT
+  reset register passed validation.
+- `bool astia::acpi::reboot()`: run the ordered shutdown tiers and write
+  RESET_VALUE to RESET_REG as the final action. A successful reset does not
+  return; any return is a failure.
 
 `<astia/shutdown.hpp>`:
 
 - `tier::{prepare, flush, quiesce, platform, final}` are dispatched in ascending
   order. `final` is reserved for the single irreversible poweroff action; only
   one final handler may be registered, so no later firmware-driven work can run
-  after S5.
+  after S5. Reboot passes a one-shot reset action as the final override for that
+  dispatch, skipping the registered S5 final while preserving the one-final
+  registration invariant.
 - `register_handler(tier, name, fn, context)` preserves registration order within
   a tier and is rejected once dispatch starts.
 - `initiate()` runs each handler once. A failing handler is logged and the
@@ -111,6 +125,16 @@ S5 handler. They are not silently guessed or byte-searched:
   relinks namespace nodes.
 - Hardware-reduced ACPI SLEEP_CONTROL_REG/SLEEP_STATUS_REG S5 is not implemented;
   only PM1a/PM1b control registers and the S5 sleep type are used.
+- System suspend (S3 or another G1 sleep state), wake vectors, and resume are
+  not implemented. The power syscall reports ENOTSUP rather than aliasing this
+  to a process or thread sleep.
+- Reboot requires a validated FADT RESET_REG. There is no triple-fault,
+  keyboard-controller, or arbitrary port-write fallback. System I/O and System
+  Memory reset registers are executable; bus-0 PCI Configuration is spec-valid
+  but rejected as unsupported until a native byte-write contract exists, because
+  the current PCI config helper performs a dword read-modify-write. Malformed
+  widths, offsets, access sizes, addresses, or missing RESET_REG_SUP make
+  reboot unsupported.
 - No general ACPI device enumeration, `_PRT`, EC/battery/thermal, wake/resume, or
   AML debugger.
 
@@ -121,8 +145,9 @@ claimed. Unsupported platforms must not assume ACPI shutdown works.
 
 - `acpi_host_test`: synthetic RSDP v1/v2, RSDT/XSDT, checksum/duplicate
   rejection, `_S5` Name and Method, malformed/unsupported AML, FADT legacy and
-  extended GAS plans, invalid SLP types, and shutdown tier ordering/failure
-  behavior.
+  extended GAS plans, invalid SLP types, shutdown tier ordering/failure
+  behavior, and FADT reset plans for System I/O, System Memory, and bus-0 PCI
+  Configuration space.
 - `acpi_q35_shutdown`: GRUB Multiboot2 q35 boot; requires QEMU to exit normally
   with status 0 after the S5 write, plus inventory/S5/platform-handler markers.
 - `acpi_q35_malformed_rsdp`, `acpi_q35_malformed_aml`: synthetic corrupt RSDP

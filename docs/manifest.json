@@ -948,6 +948,18 @@
         "source": "kernel/src/proc/syscalls/process/chroot.cpp",
         "synopsisKind": "public",
         "synopsis": "long astia_chroot(const char* path);"
+      },
+      {
+        "id": 79,
+        "name": "power",
+        "slug": "syscall-79-power",
+        "title": "power(2)",
+        "subsystem": "proc",
+        "category": "core",
+        "sourcePath": "docs/2/proc/core/power.md",
+        "source": "kernel/src/proc/syscalls/power.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_power(uint32_t operation);"
       }
     ]
   },
