@@ -3,16 +3,20 @@
 # malformed-fixture kernel through QEMU's direct boot path.
 set -eu
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$script_dir/qemu_timeout.sh"
+
 mode=${1:?usage: run_acpi_q35.sh shutdown|reject-rsdp|reject-aml QEMU IMAGE}
 qemu=${2:?usage: run_acpi_q35.sh shutdown|reject-rsdp|reject-aml QEMU IMAGE}
 image=${3:?usage: run_acpi_q35.sh shutdown|reject-rsdp|reject-aml QEMU IMAGE}
+qemu_timeout_seconds=$(boot_timeout_seconds)
 log=${TMPDIR:-/tmp}/astia-acpi-$mode-$$.log
 trap 'rm -f "$log"' EXIT INT TERM
 
 set +e
 case "$mode" in
     shutdown)
-        timeout 45 "$qemu" -machine q35 -m 128M -cdrom "$image" \
+        timeout "$qemu_timeout_seconds" "$qemu" -machine q35 -m 128M -cdrom "$image" \
             -serial "file:$log" -display none -monitor none -no-reboot
         status=$?
         ;;

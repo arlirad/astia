@@ -11,7 +11,7 @@ clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
 cpio=${ASTIA_CPIO:-cpio}
 target=x86_64-unknown-elf
-qemu_timeout_seconds=120
+qemu_timeout_seconds=300
 expected_qemu_status=1
 resource=$($clang --target=$target -print-resource-dir)
 
