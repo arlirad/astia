@@ -1,4 +1,5 @@
 #include "common.h"
+#include "read_retry.h"
 #include <sys/stat.h>
 
 #include <fcntl.h>
@@ -56,7 +57,7 @@ static int copy_file(const char* source, const char* destination) {
     int  status = 0;
 
     for (;;) {
-        long count = read(input, buffer, sizeof buffer);
+        long count = cu_read_retry(input, buffer, sizeof buffer);
         if (count == 0)
             break;
 

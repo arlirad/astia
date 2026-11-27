@@ -1,4 +1,5 @@
 #include "common.h"
+#include "read_retry.h"
 #include <sys/stat.h>
 
 #include <dirent.h>
@@ -117,7 +118,7 @@ static int copy_fd(int input, int output, const char* name) {
     char buffer[4096];
 
     for (;;) {
-        long count = read(input, buffer, sizeof buffer);
+        long count = cu_read_retry(input, buffer, sizeof buffer);
         if (count == 0)
             return 0;
 

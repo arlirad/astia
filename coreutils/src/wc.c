@@ -1,4 +1,5 @@
 #include "common.h"
+#include "read_retry.h"
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -60,7 +61,7 @@ static int count_fd(int fd, const char* name, const wc_fields* fields,
     int           in_word = 0;
 
     for (;;) {
-        long count = read(fd, buffer, sizeof buffer);
+        long count = cu_read_retry(fd, buffer, sizeof buffer);
         if (count == 0)
             break;
 
