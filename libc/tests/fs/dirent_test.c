@@ -34,7 +34,12 @@ static void cleanup(void) {
     (void) rmdir(renamed);
 }
 
-static int collect(DIR* stream, char names[][16], int capacity) {
+struct observed_entry {
+    char          name[16];
+    unsigned long ino;
+};
+
+static int observe(DIR* stream, struct observed_entry* entries, int capacity) {
     struct dirent* entry;
 
     int count = 0;
@@ -47,9 +52,10 @@ static int collect(DIR* stream, char names[][16], int capacity) {
                 ++length;
             }
 
-            memcpy(names[count], entry->d_name, length);
+            memcpy(entries[count].name, entry->d_name, length);
 
-            names[count][length] = '\0';
+            entries[count].name[length] = '\0';
+            entries[count].ino          = entry->d_ino;
         }
 
         ++count;
@@ -58,12 +64,71 @@ static int collect(DIR* stream, char names[][16], int capacity) {
     return count;
 }
 
+static const struct observed_entry* find_observed(const struct observed_entry* entries,
+                                                  int count, const char* name) {
+    for (int i = 0; i < count; ++i) {
+        if (strcmp(entries[i].name, name) == 0)
+            return &entries[i];
+    }
+
+    return NULL;
+}
+
+static void check_inode_identity(void) {
+    struct observed_entry first[8];
+    struct observed_entry second[8];
+
+    char path[256];
+
+    DIR* stream = opendir(directory);
+
+    CHECK(stream != NULL);
+
+    if (stream == NULL)
+        return;
+
+    int count = observe(stream, first, 8);
+
+    CHECK(count == 3);
+
+    for (int i = 0; i < count && i < 8; ++i) {
+        struct stat st;
+
+        CHECK(snprintf(path, sizeof path, "%s/%s", directory, first[i].name) > 0);
+        CHECK(stat(path, &st) == 0);
+        CHECK(first[i].ino == st.st_ino);
+
+        for (int j = i + 1; j < count && j < 8; ++j) {
+            CHECK(first[i].ino != first[j].ino);
+        }
+    }
+
+    rewinddir(stream);
+
+    int repeated = observe(stream, second, 8);
+
+    CHECK(repeated == count);
+
+    for (int i = 0; i < count && i < 8; ++i) {
+        const struct observed_entry* match =
+            find_observed(second, repeated, first[i].name);
+
+        CHECK(match != NULL);
+        CHECK(match != NULL && match->ino == first[i].ino);
+    }
+
+    CHECK(closedir(stream) == 0);
+}
+
 int main(void) {
-    char names[8][16];
+    struct observed_entry observed[8];
 
     DIR* stream;
 
     int fd;
+
+    CHECK(DT_UNKNOWN == 0 && DT_FIFO == 1 && DT_CHR == 2 && DT_DIR == 4);
+    CHECK(DT_BLK == 6 && DT_REG == 8 && DT_LNK == 10 && DT_SOCK == 12);
 
     cleanup();
 
@@ -83,6 +148,8 @@ int main(void) {
 
     if (fd >= 0)
         CHECK(close(fd) == 0);
+
+    check_inode_identity();
 
     errno = 0;
 
@@ -160,7 +227,7 @@ int main(void) {
 
     stream = opendir(directory);
     if (stream != NULL) {
-        CHECK(collect(stream, names, 8) == 3);
+        CHECK(observe(stream, observed, 8) == 3);
         CHECK(closedir(stream) == 0);
     }
 

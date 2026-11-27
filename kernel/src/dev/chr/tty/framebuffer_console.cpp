@@ -11,17 +11,17 @@ namespace astia::dev {
     }
 
     bool framebuffer_console::initialize(const boot::framebuffer_info& info) {
-        if (!info.valid() || static_cast<u64>(info.pitch) * info.height > ~usize{0})
+        if (!info.valid() || static_cast<u64>(info.pitch) * info.height > ~usz{0})
             return false;
 
-        const usize font_length =
-            static_cast<usize>(_binary_aex2_font_psf_end - _binary_aex2_font_psf_start);
+        const usz font_length =
+            static_cast<usz>(_binary_aex2_font_psf_end - _binary_aex2_font_psf_start);
 
         if (!_font.load(span<const u8>(_binary_aex2_font_psf_start, font_length)))
             return false;
 
         auto mapping = mmio_mapping::map(info.physical_address,
-                                         static_cast<usize>(info.pitch) * info.height);
+                                         static_cast<usz>(info.pitch) * info.height);
         if (!mapping)
             return false;
 
@@ -30,7 +30,7 @@ namespace astia::dev {
 
         constexpr char marker[] = "\x1b[1;32mASTIA_VGA_READY\x1b[0m\n";
 
-        for (usize i = 0; marker[i] != 0; ++i) {
+        for (usz i = 0; marker[i] != 0; ++i) {
             _renderer.write_byte(static_cast<u8>(marker[i]));
         }
 

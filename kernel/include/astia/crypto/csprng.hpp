@@ -32,11 +32,11 @@ namespace astia::crypto {
                                    u32 counter, u8 output[block_size]);
 
         /// Replace the key from `length` bytes of entropy material.
-        void reseed(const void* material, usize length);
+        void reseed(const void* material, usz length);
 
         /// Mix additional material into the current key without discarding it.
         /// Used for fork derivation and explicit reseeding.
-        void stir(const void* material, usize length);
+        void stir(const void* material, usz length);
 
         /// Derive a child stream from the current state and a child identity.
         void fork_derive(u64 child_pid);
@@ -47,10 +47,10 @@ namespace astia::crypto {
 
         /// Fill exactly `length` bytes.  Returns false, and clears the output,
         /// while the generator has no seed.
-        bool fill(void* output, usize length);
+        bool fill(void* output, usz length);
 
         private:
-        void absorb(const void* material, usize length, u8 domain);
+        void absorb(const void* material, usz length, u8 domain);
 
         u8   _key[key_size]{};
         u8   _nonce[nonce_size]{};

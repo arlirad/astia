@@ -40,6 +40,9 @@ int main(void) {
 
     int fd;
 
+    CHECK(S_ISBLK(S_IFBLK) && !S_ISBLK(S_IFCHR));
+    CHECK(S_ISSOCK(S_IFSOCK) && !S_ISSOCK(S_IFREG));
+
     (void) unlink(file);
     (void) unlink(link);
     (void) rmdir(dir);
@@ -60,11 +63,13 @@ int main(void) {
     if (fd >= 0) {
         CHECK(write(fd, "abc", 3) == 3);
         CHECK(fstat(fd, &fst) == 0 && S_ISREG(fst.st_mode) && fst.st_size == 3);
+        CHECK(fst.st_atime != 0 && fst.st_mtime != 0 && fst.st_ctime != 0);
         poison_stat(&fst);
         CHECK(fstat(fd, &fst) == 0);
         CHECK(fst.st_rdev == 0);
         CHECK(fst.st_blksize == 512);
         CHECK(stat(file, &st) == 0 && S_ISREG(st.st_mode) && st.st_size == 3);
+        CHECK(st.st_atime != 0 && st.st_mtime != 0 && st.st_ctime != 0);
         poison_stat(&st);
         CHECK(stat(file, &st) == 0);
         CHECK(st.st_rdev == 0);
@@ -161,6 +166,57 @@ int main(void) {
     time_t before = st.st_mtime;
 
     CHECK(utime(file, NULL) == 0 && stat(file, &st) == 0 && st.st_mtime >= before);
+
+    {
+        struct timespec explicit_times[2] = {{1000, 111}, {2000, 222}};
+        struct timespec omit_both[2]      = {{0, UTIME_OMIT}, {0, UTIME_OMIT}};
+        struct timespec omit_atime[2]     = {{0, UTIME_OMIT}, {3000, 333}};
+        struct timespec now_times[2]      = {{0, UTIME_NOW}, {0, UTIME_NOW}};
+        struct timespec relative[2]       = {{4000, 0}, {5000, 0}};
+        struct timespec bad_nsec[2]       = {{0, 1000000000L}, {0, 0}};
+        struct utimbuf  converted         = {6000, 7000};
+
+        CHECK(utimensat(AT_FDCWD, file, explicit_times, 0) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_atime == 1000 && st.st_mtime == 2000);
+
+        CHECK(utimensat(AT_FDCWD, file, omit_both, 0) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_atime == 1000 && st.st_mtime == 2000);
+
+        CHECK(utimensat(AT_FDCWD, file, omit_atime, 0) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_atime == 1000 && st.st_mtime == 3000);
+
+        CHECK(utimensat(AT_FDCWD, file, now_times, 0) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_atime > 1000 && st.st_mtime > 1000);
+
+        fd = open(dir, O_RDONLY | O_DIRECTORY, 0);
+
+        CHECK(fd >= 0);
+
+        if (fd >= 0) {
+            CHECK(utimensat(fd, "file", relative, 0) == 0);
+            CHECK(close(fd) == 0);
+            CHECK(stat(file, &st) == 0 && st.st_atime == 4000 && st.st_mtime == 5000);
+        }
+
+        CHECK(utime(file, &converted) == 0);
+        CHECK(stat(file, &st) == 0 && st.st_atime == 6000 && st.st_mtime == 7000);
+
+        errno = 0;
+
+        CHECK(utimensat(AT_FDCWD, file, explicit_times, 0x400) == -1 && errno == EINVAL);
+
+        errno = 0;
+
+        CHECK(utimensat(AT_FDCWD, file, bad_nsec, 0) == -1 && errno == EINVAL);
+    }
+
+    {
+        struct timespec link_times[2] = {{8000, 0}, {9000, 0}};
+
+        CHECK(utimensat(AT_FDCWD, link, link_times, AT_SYMLINK_NOFOLLOW) == 0);
+        CHECK(lstat(link, &st) == 0 && st.st_atime == 8000 && st.st_mtime == 9000);
+        CHECK(stat(file, &st) == 0 && st.st_mtime == 7000);
+    }
 
     errno = 0;
 

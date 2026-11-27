@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/core/task.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/span.hpp>
@@ -26,7 +27,8 @@ namespace astia::proc {
         public:
         cwd_context();
 
-        i64 change_directory(const char* path);
+        core::task<i64> change_directory(const char*                  path,
+                                         const fs::search_permission* search = nullptr);
         /// Bind the working directory to an already open directory.  The
         /// supplied path is recorded verbatim and never resolved again.
         i64 bind_directory(const char* path, const directory_anchor& anchor);
@@ -34,17 +36,17 @@ namespace astia::proc {
         i64 copy_cwd(span<char> buffer) const;
         i64 copy_root(span<char> buffer) const;
 
-        i64 copy_cwd(char* buffer, usize length) const {
+        i64 copy_cwd(char* buffer, usz length) const {
             return copy_cwd(span<char>(buffer, length));
         }
 
-        i64 copy_root(char* buffer, usize length) const {
+        i64 copy_root(char* buffer, usz length) const {
             return copy_root(span<char>(buffer, length));
         }
 
         i64 compose_path(const char* path, span<char> buffer) const;
 
-        i64 compose_path(const char* path, char* buffer, usize length) const {
+        i64 compose_path(const char* path, char* buffer, usz length) const {
             return compose_path(path, span<char>(buffer, length));
         }
 
@@ -52,13 +54,13 @@ namespace astia::proc {
                             span<char> buffer) const;
 
         i64 compose_path_at(const char* directory, const char* path, char* buffer,
-                            usize length) const {
+                            usz length) const {
             return compose_path_at(directory, path, span<char>(buffer, length));
         }
 
         i64 resolve_path(const char* path, span<char> buffer, bool follow_final) const;
 
-        i64 resolve_path(const char* path, char* buffer, usize length,
+        i64 resolve_path(const char* path, char* buffer, usz length,
                          bool follow_final) const {
             return resolve_path(path, span<char>(buffer, length), follow_final);
         }
@@ -67,7 +69,7 @@ namespace astia::proc {
                             bool follow_final) const;
 
         i64 resolve_path_at(const char* directory, const char* path, char* buffer,
-                            usize length, bool follow_final) const {
+                            usz length, bool follow_final) const {
             return resolve_path_at(directory, path, span<char>(buffer, length),
                                    follow_final);
         }

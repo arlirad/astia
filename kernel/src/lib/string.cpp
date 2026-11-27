@@ -56,7 +56,7 @@ namespace astia::strings {
     }
 
     bool string::assign(string_view input) {
-        if (!input.valid())
+        if (!input.valid() || input.size == static_cast<usz>(-1))
             return false;
 
         if (input.size == 0) {
@@ -78,7 +78,7 @@ namespace astia::strings {
             capacity_ = input.size + 1;
         }
 
-        for (usize i = 0; i < input.size; ++i) {
+        for (usz i = 0; i < input.size; ++i) {
             data_[i] = input.data[i];
         }
 
@@ -95,7 +95,7 @@ namespace astia::strings {
         if (suffix.size == 0)
             return true;
 
-        const usize needed = size_ + suffix.size + 1;
+        const usz needed = size_ + suffix.size + 1;
         if (needed <= size_)
             return false; // Length overflow.
 
@@ -107,10 +107,14 @@ namespace astia::strings {
 
             char* grown = reinterpret_cast<char*>(block.value);
 
-            if (data_ != nullptr) {
-                for (usize i = 0; i < size_; ++i) {
-                    grown[i] = data_[i];
-                }
+            for (usz i = 0; i < size_; ++i) {
+                grown[i] = data_[i];
+            }
+
+            // Copy the suffix before releasing the old block: it may be a
+            // view into this string, as in append(view()).
+            for (usz i = 0; i < suffix.size; ++i) {
+                grown[size_ + i] = suffix.data[i];
             }
 
             if (data_ != nullptr)
@@ -119,9 +123,10 @@ namespace astia::strings {
             data_     = grown;
             capacity_ = needed;
         }
-
-        for (usize i = 0; i < suffix.size; ++i) {
-            data_[size_ + i] = suffix.data[i];
+        else {
+            for (usz i = 0; i < suffix.size; ++i) {
+                data_[size_ + i] = suffix.data[i];
+            }
         }
 
         size_ += suffix.size;
@@ -151,7 +156,7 @@ namespace astia::strings {
         return data_;
     }
 
-    usize string::size() const {
+    usz string::size() const {
         return size_;
     }
 

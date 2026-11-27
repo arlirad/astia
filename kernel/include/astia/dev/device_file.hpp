@@ -43,7 +43,7 @@ namespace astia::dev {
                                core::cltoken token, bool nonblock) override;
         long            submit(io::request& request) override;
         u32             poll(u32 events, u32 flags) override;
-        core::task<i64> ioctl(u64 request, void* argp, usize size,
+        core::task<i64> ioctl(u64 request, void* argp, usz size,
                               core::cltoken token) override;
         long            acquire_controlling_terminal(i32 group) override;
         long            size() const override;

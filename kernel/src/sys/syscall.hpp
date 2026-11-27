@@ -96,6 +96,8 @@ namespace astia::sys {
         modclose              = 76,
         getrandom             = 77,
         chroot                = 78,
+        power                 = 79,
+        thread_count          = 80,
     };
 
     /// How many registers the ABI hands every trap — and so the most
@@ -139,13 +141,13 @@ namespace astia::sys {
     void invoke_exit_hook(arch::syscall_return& image, i64 result);
 
     namespace detail {
-        template <usize... I>
+        template <usz... I>
         struct index_sequence {};
 
-        template <usize N, usize... I>
+        template <usz N, usz... I>
         struct make_index_sequence : make_index_sequence<N - 1, N - 1, I...> {};
 
-        template <usize... I>
+        template <usz... I>
         struct make_index_sequence<0, I...> {
             using type = index_sequence<I...>;
         };
@@ -171,7 +173,7 @@ namespace astia::sys {
         struct is_trap_argument<syscall_trap> : std::true_type {};
 
         template <typename First, typename... Rest>
-        inline constexpr usize abi_argument_count =
+        inline constexpr usz abi_argument_count =
             sizeof...(Rest) +
             (is_trap_argument<std::remove_cvref_t<First>>::value ? 0 : 1);
 
@@ -202,7 +204,7 @@ namespace astia::sys {
         struct typed_task_handler<core::task<i64> (*)(Args...)>
             : valid_typed_arguments<Args...> {};
 
-        template <typename... Args, usize... I>
+        template <typename... Args, usz... I>
         bool valid_arguments(const u64 (&arguments)[syscall_argument_count],
                              index_sequence<I...>) {
             return (argument_decoder<Args>::valid(arguments[I]) && ...);
@@ -226,7 +228,7 @@ namespace astia::sys {
             }
 
             private:
-            template <usize... I>
+            template <usz... I>
             static R call_arguments(R (*function)(Args...),
                                     const u64 (&arguments)[syscall_argument_count],
                                     index_sequence<I...>) {
@@ -249,7 +251,7 @@ namespace astia::sys {
             }
 
             private:
-            template <usize... I>
+            template <usz... I>
             static R call_arguments(R (*function)(syscall_trap, Args...),
                                     syscall_trap trap,
                                     const u64 (&arguments)[syscall_argument_count],

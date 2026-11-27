@@ -31,7 +31,7 @@ namespace astia::fs {
         // map (a ring-3 spawnve reads the image through this fs).
         const void* data = mm::kernel_frames().to_virt(ramdisk.paddr);
 
-        if (!initrd::load_boot_archive(data, static_cast<usize>(ramdisk.size))) {
+        if (!initrd::load_boot_archive(data, static_cast<usz>(ramdisk.size))) {
             logs::error("initrd: %s container failed: %s",
                         initrd::container_name(initrd::boot_archive_container()),
                         initrd::decode_error_name(initrd::boot_archive_error()));

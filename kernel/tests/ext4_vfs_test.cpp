@@ -325,13 +325,17 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
 
     astia::fs::file_type type{};
 
-    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 0, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 0, name, sizeof name, &type,
+                                          nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, ".") == 0 && type == astia::fs::directory_dir);
-    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type,
+                                          nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "known.txt") == 0 && type == astia::fs::directory_reg);
-    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 3, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 3, name, sizeof name, &type,
+                                          nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "known") == 0 && type == astia::fs::directory_lnk);
-    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 4, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 4, name, sizeof name, &type,
+                                          nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "long") == 0 && type == astia::fs::directory_lnk);
 
     char long_target[65]{};
@@ -358,6 +362,16 @@ ASTIA_TEST(ext4_vfs_mount_read_stat_readdir_and_lifetime) {
     link  = {};
 
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+}
+
+ASTIA_TEST(devfs_mount_point_reports_a_directory_mode) {
+    initialize_runtime();
+
+    const auto mode = astia::fs::node_mode("/dev");
+
+    ASTIA_CHECK(astia::fs::node_type("/dev") == astia::fs::directory_dir);
+    ASTIA_CHECK(mode.is_directory());
+    ASTIA_CHECK(mode.other_allows(astia::fs::permission_bits::execute));
 }
 
 ASTIA_TEST(devfs_unregister_and_reprobe_replaces_node) {
@@ -427,7 +441,8 @@ ASTIA_TEST(ext4_vfs_reads_indexed_directory) {
 
     astia::fs::file_type type{};
 
-    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(astia::fs::read_directory("/tmp/ext4", 2, name, sizeof name, &type,
+                                          nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "known.txt") == 0 && type == astia::fs::directory_reg);
 
     known = {};

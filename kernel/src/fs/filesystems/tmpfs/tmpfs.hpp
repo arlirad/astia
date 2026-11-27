@@ -6,8 +6,8 @@
 #include "../../filesystem.hpp"
 
 namespace astia::fs::filesystems {
-    inline constexpr u32   tmpfs_max_entries = 32;
-    inline constexpr usize tmpfs_max_pages   = 16;
+    inline constexpr u32 tmpfs_max_entries = 32;
+    inline constexpr usz tmpfs_max_pages   = 16;
 
     class tmpfs_file final : public file,
                              public readable,
@@ -16,7 +16,7 @@ namespace astia::fs::filesystems {
                              public truncatable,
                              public syncable {
         public:
-        explicit tmpfs_file(usize     pages = tmpfs_max_pages,
+        explicit tmpfs_file(usz       pages = tmpfs_max_pages,
                             file_mode mode  = file_mode(file_type::regular,
                                                         default_file_permissions));
         ~tmpfs_file();
@@ -91,6 +91,7 @@ namespace astia::fs::filesystems {
         long chmod(file_permissions permissions) override {
             core::spinlock_guard guard(_lock);
             _mode = _mode.chmod(permissions);
+            advance_times(false, false, true);
             return 0;
         }
 
@@ -98,25 +99,33 @@ namespace astia::fs::filesystems {
             core::spinlock_guard guard(_lock);
             _uid = owner;
             _gid = group;
+            advance_times(false, false, true);
             return 0;
         }
 
         u64 mtime_sec() const override {
             core::spinlock_guard guard(_lock);
-            return _mtime_sec;
+            return _times.mtime_sec;
         }
 
         u64 mtime_nsec() const override {
             core::spinlock_guard guard(_lock);
-            return _mtime_nsec;
+            return _times.mtime_nsec;
         }
 
-        long touch(u64 sec, u64 nsec) override;
+        file_timestamps timestamps() const override {
+            core::spinlock_guard guard(_lock);
+            return _times;
+        }
+
+        long touch(const file_timestamps& times) override;
 
         void set_mode(file_mode mode) {
             core::spinlock_guard guard(_lock);
 
             _mode = mode;
+
+            advance_times(false, false, true);
         }
 
         mm::phys_region* memory_region() override {
@@ -131,16 +140,16 @@ namespace astia::fs::filesystems {
         long read_ready(void* buffer, u32 length, u64 offset) override;
         long write_ready(const void* buffer, u32 length, u64 offset) override;
         long truncate_ready(u64 length);
+        void advance_times(bool atime, bool mtime, bool ctime);
 
         mm::phys_region* _storage = nullptr;
         u64              _size    = 0;
         file_mode        _mode = file_mode(file_type::regular, default_file_permissions);
         uid_t            _uid{};
         gid_t            _gid{};
-        u64              _mtime_sec  = 0;
-        u64              _mtime_nsec = 0;
-        u64              _inode      = 0;
-        u32              _nlink      = 1;
+        file_timestamps  _times = current_timestamps();
+        u64              _inode = 0;
+        u32              _nlink = 1;
         // File lock is always acquired after a mount namespace lock.
         mutable core::spinlock _lock;
     };
@@ -153,7 +162,7 @@ namespace astia::fs::filesystems {
                               mm::shptr<open_file>& result);
         long      unlink_shared(const char* path);
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                 file_type* type) override;
+                                 file_type* type, u64* inode) override;
         long      mkdir(const char* path, file_mode mode) override;
         long      unlink(const char* path, bool directory) override;
         long      rename(const char* old_path, const char* new_path) override;
@@ -163,10 +172,11 @@ namespace astia::fs::filesystems {
         u64       node_inode(const char* path) const override;
         uid_t     node_uid(const char* path) const override;
         gid_t     node_gid(const char* path) const override;
-        long      chmod(const char* path, file_permissions permissions) override;
-        long      chown(const char* path, uid_t uid, gid_t gid) override;
-        long      symlink(const char* target, const char* path) override;
-        long      readlink(const char* path, char* buffer, u32 capacity) const override;
+        file_timestamps node_timestamps(const char* path) const override;
+        long            chmod(const char* path, file_permissions permissions) override;
+        long            chown(const char* path, uid_t uid, gid_t gid) override;
+        long            symlink(const char* target, const char* path) override;
+        long readlink(const char* path, char* buffer, u32 capacity) const override;
 
         private:
         file_type node_type_unlocked(const char* path) const;
@@ -182,6 +192,9 @@ namespace astia::fs::filesystems {
         };
 
         entry _entries[tmpfs_max_entries]{};
+        // The mount root has no entry; stamp it on first lookup once a clock
+        // exists so stat("/tmp") reports a stable creation time.
+        mutable file_timestamps _root_times{};
         // rename/link run entirely under _namespace_lock and share this
         // scratch so their 4096-byte working path stays off the kernel stack.
         char _path_scratch[path_max]{};

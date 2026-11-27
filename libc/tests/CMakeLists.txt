@@ -174,6 +174,10 @@ add_executable(libc_memstream_test stdio/memstream_test.c support/backend_host.c
 target_link_libraries(libc_memstream_test PRIVATE astia_libc)
 add_test(NAME libc_memstream_test COMMAND libc_memstream_test)
 
+add_executable(libc_scanf_test stdio/scanf_test.c)
+target_link_libraries(libc_scanf_test PRIVATE astia_libc)
+add_test(NAME libc_scanf_test COMMAND libc_scanf_test)
+
 # <sys/uio.h>: the position-based vector pair, same object trick.  The
 # port's readv/writev go by raw syscall there, because this libc is the
 # definition the binary would otherwise resolve them to.
@@ -197,6 +201,14 @@ add_test(NAME libc_rename_test COMMAND libc_rename_test)
 add_executable(libc_realpath_test fs/realpath_test.c support/backend_host.c)
 target_link_libraries(libc_realpath_test PRIVATE astia_libc)
 add_test(NAME libc_realpath_test COMMAND libc_realpath_test)
+
+add_executable(libc_creat_test fs/creat_test.c support/backend_host.c)
+target_link_libraries(libc_creat_test PRIVATE astia_libc)
+add_test(NAME libc_creat_test COMMAND libc_creat_test)
+
+add_executable(libc_settimeofday_test time/settimeofday_test.c support/time_host.c)
+target_link_libraries(libc_settimeofday_test PRIVATE astia_libc)
+add_test(NAME libc_settimeofday_test COMMAND libc_settimeofday_test)
 
 add_executable(libc_dirent_test fs/dirent_test.c support/backend_host.c)
 target_link_libraries(libc_dirent_test PRIVATE astia_libc)

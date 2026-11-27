@@ -38,6 +38,10 @@ namespace astia::fs {
         return {};
     }
 
+    file_timestamps file::timestamps() const {
+        return {};
+    }
+
     long file::chmod(file_permissions) {
         return -ENOSYS;
     }
@@ -54,7 +58,7 @@ namespace astia::fs {
         return 0;
     }
 
-    long file::touch(u64, u64) {
+    long file::touch(const file_timestamps&) {
         return -EROFS;
     }
 

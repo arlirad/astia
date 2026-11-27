@@ -17,7 +17,7 @@ namespace astia::dev {
 
         explicit regs(volatile void* base) : _base(static_cast<volatile u8*>(base)) {}
 
-        volatile T& operator[](usize offset) const {
+        volatile T& operator[](usz offset) const {
             return *reinterpret_cast<volatile T*>(_base + offset);
         }
 

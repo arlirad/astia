@@ -20,12 +20,12 @@ namespace astia::proc::syscalls {
             if (!target || target->state() == thread_state::dead)
                 return -ESRCH;
 
-            target->request_cancellation();
+            const bool parked = target->request_cancellation();
+
             target->wake_join_for_cancellation();
+            (void) futex_interrupt_thread(target.get());
 
-            const bool futex_woken = futex_interrupt_thread(target.get());
-
-            if (!futex_woken && target->state() == thread_state::blocked) {
+            if (parked) {
                 (void) target->wake_wait();
                 (void) scheduler::wake(target.get());
             }

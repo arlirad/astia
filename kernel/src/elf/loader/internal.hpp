@@ -9,11 +9,11 @@ namespace astia::elf::loader::detail {
     using u64 = astia::u64;
     using i64 = astia::i64;
 
-    inline constexpr usize ei_nident    = elf_ident_size;
-    inline constexpr u32   ei_class     = 4;
-    inline constexpr u32   ei_data      = 5;
-    inline constexpr u8    elfclass64   = 2;
-    inline constexpr u8    elfdatal2lsb = 1;
+    inline constexpr usz ei_nident    = elf_ident_size;
+    inline constexpr u32 ei_class     = 4;
+    inline constexpr u32 ei_data      = 5;
+    inline constexpr u8  elfclass64   = 2;
+    inline constexpr u8  elfdatal2lsb = 1;
 
     inline constexpr u16 et_rel    = 1;
     inline constexpr u16 et_exec   = 2;
@@ -214,18 +214,18 @@ namespace astia::elf::loader::detail {
         return total == 0;
     }
 
-    inline bool in_bounds(u64 off, u64 size, usize len) {
+    inline bool in_bounds(u64 off, u64 size, usz len) {
         return off <= len && size <= len - off;
     }
 
     inline void write_u32(u8* destination, u32 value) {
-        for (usize i = 0; i < 4; ++i) {
+        for (usz i = 0; i < 4; ++i) {
             destination[i] = static_cast<u8>(value >> (i * 8));
         }
     }
 
     inline void write_u64(u8* destination, u64 value) {
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             destination[i] = static_cast<u8>(value >> (i * 8));
         }
     }
@@ -233,7 +233,7 @@ namespace astia::elf::loader::detail {
     inline u64 read_u64_bytes(const u8* source) {
         u64 value = 0;
 
-        for (usize i = 0; i < 8; ++i) {
+        for (usz i = 0; i < 8; ++i) {
             value |= static_cast<u64>(source[i]) << (i * 8);
         }
 
@@ -269,21 +269,21 @@ namespace astia::elf::loader::detail {
 
     struct view {
         const u8*         base      = nullptr;
-        usize             len       = 0;
+        usz               len       = 0;
         const elf64_ehdr* eh        = nullptr;
         const elf64_shdr* sh        = nullptr;
         u16               shnum     = 0;
         u16               sym_index = 0;
         const elf64_sym*  sym       = nullptr;
-        usize             symcount  = 0;
+        usz               symcount  = 0;
         const char*       str       = nullptr;
-        usize             strsize   = 0;
+        usz               strsize   = 0;
         const char*       shstr     = nullptr;
-        usize             shstrsize = 0;
+        usz               shstrsize = 0;
     };
 
     bool symbol_name(const view& v, const elf64_sym& sym, const char*& out);
-    bool section_name(const view& v, u16 index, const char*& out, usize& out_size);
+    bool section_name(const view& v, u16 index, const char*& out, usz& out_size);
     bool parse_relocatable(span<const u8> bytes, view& v);
     bool sym_addr(const view& v, const env& e, const void* const* sec_base, u32 index,
                   u64& out);

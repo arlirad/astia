@@ -37,12 +37,12 @@ namespace astia::mod::syscalls {
 
             module_info infos[ASTIA_MODULE_LIST_MAX]{};
 
-            usize       total   = 0;
-            const usize written = snapshot(span<module_info>(infos, capacity), &total);
+            usz       total   = 0;
+            const usz written = snapshot(span<module_info>(infos, capacity), &total);
 
             astia_module_record result[ASTIA_MODULE_LIST_MAX]{};
 
-            for (usize i = 0; i < written; ++i) {
+            for (usz i = 0; i < written; ++i) {
                 fill_module_record(infos[i], result[i]);
             }
 

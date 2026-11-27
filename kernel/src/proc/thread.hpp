@@ -98,6 +98,14 @@ namespace astia::proc {
             _queued = value;
         }
 
+        u32 run_slot() const {
+            return _run_slot;
+        }
+
+        void run_slot(u32 value) {
+            _run_slot = value;
+        }
+
         scheduling_class sched_class() const {
             return _sched_class;
         }
@@ -140,11 +148,11 @@ namespace astia::proc {
             return _kernel_stack_top;
         }
 
-        usize kernel_stack_size() const {
+        usz kernel_stack_size() const {
             return _kernel_stack_size;
         }
 
-        usize kernel_stack_high_water_bytes() const {
+        usz kernel_stack_high_water_bytes() const {
             return _kernel_stack_high_water;
         }
 
@@ -158,7 +166,7 @@ namespace astia::proc {
             return _user_stack_base;
         }
 
-        usize user_stack_size() const {
+        usz user_stack_size() const {
             return _user_stack_size;
         }
 
@@ -166,7 +174,7 @@ namespace astia::proc {
             return _user_stack_metadata_supported;
         }
 
-        void user_stack_metadata(u64 base, usize size) {
+        void user_stack_metadata(u64 base, usz size) {
             _user_stack_base               = base;
             _user_stack_size               = size;
             _user_stack_metadata_supported = base != 0 && size != 0;
@@ -186,7 +194,7 @@ namespace astia::proc {
             return _tls_mapping_base;
         }
 
-        usize tls_mapping_pages() const {
+        usz tls_mapping_pages() const {
             return _tls_mapping_pages;
         }
 
@@ -209,7 +217,7 @@ namespace astia::proc {
         core::task<long> join(void** result = nullptr);
         bool             arm_join(std::coroutine_handle<> continuation);
         void             arm_wait(std::coroutine_handle<> continuation);
-        bool             arm_wait_unless_cancelled(std::coroutine_handle<> continuation);
+        bool             arm_park_unless_cancelled(std::coroutine_handle<> continuation);
         bool             wake_wait();
         bool             park_unless_woken();
         void             request_resume(std::coroutine_handle<> continuation);
@@ -331,10 +339,11 @@ namespace astia::proc {
             astia::atomic_ref<u8>(_kill_pending).store(1, astia::memory_order::release);
         }
 
-        void request_cancellation() {
-            astia::atomic_ref<u8>(_cancellation_pending)
-                .store(1, astia::memory_order::release);
-        }
+        /// Publish a cancellation request.  The flag and the park transition
+        /// share the park lock, so a waiter either observes the request before
+        /// blocking or is reported as parked.  Returns true when the target was
+        /// already blocked, which makes the caller responsible for waking it.
+        bool request_cancellation();
 
         /// Consume the request after the thread handled it, so a thread that
         /// stays alive is not interrupted by every later wait.
@@ -345,7 +354,7 @@ namespace astia::proc {
 
         bool wake_join_for_cancellation();
 
-        void tls_mapping(u64 base, usize pages) {
+        void tls_mapping(u64 base, usz pages) {
             _tls_mapping_base  = base;
             _tls_mapping_pages = pages;
         }
@@ -370,17 +379,17 @@ namespace astia::proc {
         u64                     _kernel_stack_top              = 0;
         u64                     _user_stack_top                = 0;
         u64                     _user_stack_base               = 0;
-        usize                   _user_stack_size               = 0;
+        usz                     _user_stack_size               = 0;
         bool                    _user_stack_metadata_supported = false;
         u64                     _tls_mapping_base              = 0;
-        usize                   _tls_mapping_pages             = 0;
+        usz                     _tls_mapping_pages             = 0;
         arch::context*          _context                       = nullptr;
         kernel_entry            _entry_function                = nullptr;
         void*                   _entry_argument                = nullptr;
         void*                   _kernel_stack                  = nullptr;
-        usize                   _kernel_stack_size             = 0;
-        usize                   _kernel_stack_high_water       = 0;
-        usize                   _kernel_stack_scan_offset      = 0;
+        usz                     _kernel_stack_size             = 0;
+        usz                     _kernel_stack_high_water       = 0;
+        usz                     _kernel_stack_scan_offset      = 0;
         u32                     _kernel_stack_sample_count     = 0;
         thread*                 _joiner                        = nullptr;
         std::coroutine_handle<> _async_join_handle{};
@@ -403,6 +412,7 @@ namespace astia::proc {
         bool                    _migratable           = false;
         core::spinlock          _lifecycle_lock       = {};
         u32                     _cpu_owner            = 0;
+        u32                     _run_slot             = ~u32{0};
         u32                     _signal_restore_mask  = 0;
         bool                    _signal_restore_armed = false;
         signal_state            _signals{};

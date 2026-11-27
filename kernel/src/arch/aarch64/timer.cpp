@@ -59,24 +59,37 @@ namespace astia::arch::aarch64::timer {
         return error::none;
     }
 
-    error arm_one_shot(arm_result& result) {
+    error start_periodic(periodic_result& result) {
         const u32 frequency = read_frequency();
         u32       ticks     = 0;
 
-        if (!one_shot_ticks(frequency, one_shot_interval_ms, ticks))
+        if (!interval_ticks(frequency, tick_interval_ms, ticks))
             return frequency == 0 ? error::frequency_zero
                                   : error::interval_unrepresentable;
+
+        const u64 start_ms = now_ms();
+
+        begin_timekeeping(start_ms);
 
         u32 control = 0;
 
         const error arm_error = arm_interval(ticks, control);
 
-        if (arm_error != error::none)
-            return arm_error;
+        if (arm_error != error::none) {
+            timekeeping.active = false;
 
-        result = arm_result{frequency, ticks, control};
+            return arm_error;
+        }
+
+        result = periodic_result{frequency, ticks, control, start_ms};
 
         return error::none;
+    }
+
+    void stop_periodic() {
+        timekeeping.active = false;
+
+        disable_and_clear();
     }
 
     void disable_and_clear() {

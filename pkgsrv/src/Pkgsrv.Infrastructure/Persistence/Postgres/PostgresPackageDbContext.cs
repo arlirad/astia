@@ -11,6 +11,8 @@ public sealed class PostgresPackageDbContext : DbContext
 
     public DbSet<PackageRecord> Packages => Set<PackageRecord>();
 
+    public DbSet<PackageOutboxRecord> PackageOutbox => Set<PackageOutboxRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var package = modelBuilder.Entity<PackageRecord>();
@@ -33,16 +35,32 @@ public sealed class PostgresPackageDbContext : DbContext
         package.HasIndex(record => record.State).HasDatabaseName("IX_packages_State");
         package.HasIndex(record => record.RegisteredAt).HasDatabaseName("IX_packages_RegisteredAt");
         package.HasIndex(record => new
-            {
-                record.Name,
-                record.VersionMajor,
-                record.VersionMinor,
-                record.VersionPatch,
-                record.VersionPreRelease,
-                record.VersionBuildMetadata,
-                record.Version
-            })
+        {
+            record.Name,
+            record.VersionMajor,
+            record.VersionMinor,
+            record.VersionPatch,
+            record.VersionPreReleaseSortKey,
+            record.Version
+        })
             .HasDatabaseName("IX_packages_VersionOrder");
+
+        var outbox = modelBuilder.Entity<PackageOutboxRecord>();
+
+        outbox.ToTable("package_outbox");
+        outbox.HasKey(record => record.IdempotencyKey);
+        outbox.Property(record => record.IdempotencyKey).IsRequired();
+        outbox.Property(record => record.PackageName).IsRequired();
+        outbox.Property(record => record.PackageVersion).IsRequired();
+        outbox.Property(record => record.EventType).IsRequired();
+        outbox.Property(record => record.Payload).IsRequired();
+        outbox.Property(record => record.OccurredAt).HasColumnType("timestamp with time zone");
+        outbox.Property(record => record.AvailableAt).HasColumnType("timestamp with time zone");
+        outbox.Property(record => record.ClaimedAt).HasColumnType("timestamp with time zone");
+        outbox.HasIndex(record => record.PackageName)
+            .HasDatabaseName("IX_package_outbox_PackageName");
+        outbox.HasIndex(record => new { record.Status, record.AvailableAt })
+            .HasDatabaseName("IX_package_outbox_Status_AvailableAt");
 
         base.OnModelCreating(modelBuilder);
     }

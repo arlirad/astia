@@ -1,6 +1,7 @@
 #include "../internal/socket_wire.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <sys/un.h>
 
 #include <errno.h>
 #include <stdint.h>
@@ -161,6 +162,20 @@ long recvfrom(int f, void* b, unsigned long n, int flags, struct sockaddr* a,
     astia_sockaddr x;
     uint32_t       cap = sizeof x;
 
+    if (a != NULL) {
+        if (alen == NULL) {
+            errno = EFAULT;
+
+            return -1;
+        }
+
+        if (*alen < 2) {
+            errno = EINVAL;
+
+            return -1;
+        }
+    }
+
     long v = __astia_fio_recvfrom(f, b, n, flags, &x, &cap);
     if (v < 0) {
         errno = (int) -v;
@@ -169,20 +184,20 @@ long recvfrom(int f, void* b, unsigned long n, int flags, struct sockaddr* a,
     }
 
     if (a && alen) {
-        unsigned int out = *alen;
+        unsigned int path = x.len > 2 ? x.len - 2 : 0;
 
-        if (out < 3 || out > sizeof(struct sockaddr)) {
-            errno = EINVAL;
+        if (path > sizeof(struct sockaddr_un) - 2)
+            path = sizeof(struct sockaddr_un) - 2;
 
-            return -1;
-        }
+        if (path > *alen - 2)
+            path = *alen - 2;
 
         a->sa_family = (unsigned short) x.family;
 
-        if (x.len > 2)
-            memcpy(a->sa_data, x.data, x.len - 2 > 12 ? 12 : x.len - 2);
+        if (path)
+            memcpy((unsigned char*) a + 2, x.data, path);
 
-        *alen = x.len;
+        *alen = x.len < 2 ? x.len : 2 + path;
     }
 
     return v;

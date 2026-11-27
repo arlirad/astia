@@ -294,10 +294,16 @@ derive authorization from local token contents or client headers.
 - A package can transition to durable `Published` only after publication succeeds;
   the transition is a conditional write requiring the expected build state, hash,
   and signature. Downloads refuse until that marker is persisted.
-- Domain events are published from a stable snapshot. In PostgreSQL mode they are
-  also persisted in the package row; both the in-memory aggregate and the durable
-  pending-event representation are acknowledged only after publication succeeds.
-  A publication or acknowledgement-persistence failure retains the pending event.
+- In PostgreSQL mode package registration/build state and its supported domain
+  events are committed in one transaction into the package row and the
+  `package_outbox` table. A crash cannot commit a package without its outbox rows.
+  In-memory mode keeps the synchronous in-memory publisher and has no outbox.
+- A PostgreSQL background dispatcher claims outbox rows with row locks, publishes
+  through an injected event publisher adapter, and marks a row delivered only after
+  publication succeeds. Failed deliveries retain the row, retry with bounded
+  exponential backoff, and stop at the configured maximum attempt count. Delivery
+  is at-least-once; every outbox row exposes a stable idempotency key and consumers
+  must deduplicate on it.
 - PostgreSQL build transitions use a conditional row update requiring the persisted
   state to still be `Registered`; a stale transition raises the 409 conflict path.
 - `PendingPackageSigner` returns a pending signature; it does not sign.
@@ -355,30 +361,75 @@ complete idempotently; ambiguous state or hash/signature mismatch maps to the
 succeeds.
 
 List results are ordered deterministically by name, numeric major/minor/patch,
-pre-release text with releases after pre-releases, build-metadata text, and
-canonical version. Filtering, ordering, escaping, and the 1000-entry cap are applied
-in SQL before materialization. Search supports the bounded fields: case-insensitive
-package `name` contains and source commit prefix. Filtering remains bounded in SQL,
-but neither field is claimed as indexed unless verified in the current EF
+full SemVer 2.0 pre-release precedence, and canonical version. Pre-release
+identifiers compare numerically when numeric, lexically in ASCII order when
+alphanumeric, numeric identifiers sort below alphanumeric identifiers, shorter
+identifier sets sort first when prefixes match, and releases sort after every
+pre-release. Build metadata does not affect precedence; versions that compare
+equal by precedence are ordered by canonical version text. PostgreSQL orders by a
+persisted pre-release sort key produced by the same encoder as the in-memory
+comparer. Numeric identifiers with leading zeroes are outside SemVer and are
+encoded as alphanumeric text, so invalid input still has one deterministic order.
+Filtering, ordering, escaping, and the 1000-entry cap are applied in SQL before
+materialization. Search supports the bounded fields: case-insensitive package
+`name` contains, canonical `version` contains including pre-release and
+build-metadata text, and source commit prefix. Filtering remains bounded in SQL,
+but none of these fields is claimed as indexed unless verified in the current EF
 migration/schema. Provenance and other manifest metadata are returned but are not
 search fields; provenance containment search requires a reviewed trigram/index
 strategy ([#177](https://github.com/arlirad/astia/issues/177)). Search treats `%` and
 `_` in user input literally by escaping them, matching the in-memory
 `Contains`/`StartsWith` behavior.
 
-Pending domain events are stored in the same row in `PendingEventsJson` and are
-written atomically with registration/build state. Only the supported
-`PackageRegistered` and `PackageBuildRequested` event kinds are serialized by
-Infrastructure. On load, pending events are rehydrated into the aggregate without
-raising new events. Acknowledgement removes only semantically published
-descriptors and uses a compare-and-swap on the exact pending-events JSON with
-bounded retries; newer pending events are preserved, and exhausted retries map to
-the `409` package-conflict path. After successful publication, handlers clear the
-persisted pending events and then the in-memory list. If publication or
-acknowledgement persistence fails, the durable pending event remains.
+PostgreSQL registration and build transitions use a transactional outbox. The
+package row and one `package_outbox` row per supported domain event are written in
+the same EF Core transaction. After the outbox rows insert successfully, the same
+transaction clears the package row's legacy `PendingEventsJson` compatibility
+payload, so a later backfill cannot enqueue the same event twice. Only the supported
+`PackageRegistered` and `PackageBuildRequested` events are serialized, including
+their manifest/build-policy fields and no authorization tokens or connection
+secrets. Payload JSON is deterministic.
 
-This is an **at-least-once durable pending-event/outbox boundary**. Publishers must
-be idempotent. Automatic outbox dispatch/retry is not implemented yet.
+The `BackfillPendingPackageEvents` migration converts supported legacy
+`PendingEventsJson` descriptors into `package_outbox` rows before the outbox
+dispatcher can start. It validates every descriptor's event type, package name and
+version, and occurrence timestamp; reconstructs registered manifest and build
+policy fields from the package row; inserts with the same idempotency-key scheme as
+live writes (`eventType|name|version|utcTicks`); and clears `PendingEventsJson`
+only after every insert for every package has succeeded. The whole backfill is one
+transaction, so a malformed or unsupported descriptor rolls it back and preserves
+the original JSON and package rows. The key is derived from the raw descriptor
+timestamp text rather than the PostgreSQL `timestamp with time zone` value, so
+100-nanosecond ticks survive even though the stored `OccurredAt` column has only
+microsecond precision. A descriptor that maps to an event already present in
+`package_outbox` conflicts on the primary key and inserts nothing. Historical
+events that were never recorded in `PendingEventsJson` cannot be reconstructed
+from package rows; the backfill only replays descriptors that were durably
+recorded.
+
+> **Rollout requirement:** stop every pkgsrv instance running a pre-outbox binary
+> before applying `BackfillPendingPackageEvents`, and do not start an old binary
+> afterward. The migration takes an `ACCESS EXCLUSIVE` lock on `packages` before
+> scanning, so concurrent writers cannot commit descriptors between the scan and
+> the clear, and it clears only the package keys processed in that locked snapshot.
+> The lock cannot stop a pre-outbox process from writing new `PendingEventsJson`
+> descriptors after the migration commits, so old writers must not be resumed.
+
+The outbox table uses a stable idempotency key as its primary key: event type,
+package name/version, and occurrence timestamp. Replaying the same semantic event
+inserts nothing (`ON CONFLICT DO NOTHING`), so duplicate writes do not create
+duplicate rows. A PostgreSQL `PackageOutboxDispatcher` hosted service polls in
+bounded batches, claims pending rows with `FOR UPDATE SKIP LOCKED` plus a lease,
+publishes after commit through the configured publisher adapter, and marks rows
+delivered only after success. Failures retain the row and retry with bounded
+exponential backoff up to a maximum attempt count; exhausted rows remain durably
+`Failed`. Restart or a crash after claim is recovered after the lease expires.
+
+This is an **at-least-once durable transactional outbox**. Consumers must
+deduplicate on the exposed idempotency key. A publication failure after the atomic
+commit cannot roll back the package write and does not fail the package request;
+the row remains for the dispatcher. In-memory mode has no outbox table or hosted
+dispatcher and keeps its simple synchronous publisher for development and tests.
 
 ## Health and readiness
 
@@ -715,6 +766,20 @@ chain is:
   index.
 - `20261126095757_AddPublicationTimestamp` — adds the nullable `PublishedAt`
   publication marker non-destructively.
+- `20261126210108_AddPackageOutbox` — creates the `package_outbox` table with the
+  idempotency-key primary key, package key, event type/payload, occurrence and
+  availability timestamps, claim lease, attempt count, status, and last-error
+  fields, plus package and status/availability indexes.
+- `20261127055233_AddSemVerPrecedenceKey` — adds and backfills the pre-release
+  precedence sort key and replaces the ordering index to use the same SemVer key
+  as the in-memory comparer.
+- `20261127062004_BackfillPendingPackageEvents` — transactionally converts
+  supported legacy `PendingEventsJson` descriptors into `package_outbox` rows and
+  clears the descriptors only after every insert succeeds. It takes an
+  `ACCESS EXCLUSIVE` lock on `packages` before scanning and clears only the package
+  keys processed in that locked snapshot. Malformed, mismatched, or unsupported
+  descriptors fail the migration closed and roll it back without clearing the
+  original JSON.
 
 With `InitializeSchema=true`, startup calls `Database.MigrateAsync()` before
 listening. With `InitializeSchema=false`, startup never applies migrations; it
@@ -725,10 +790,12 @@ back to in-memory storage.
 An existing old custom-v1 schema is upgraded by the same EF migration chain: the
 baseline detects the existing `packages` table, adds missing timeout/pending-event
 columns and backfills timeout ticks, then the version-order migration adds and
-backfills version columns, and the publication migration adds the nullable
-`PublishedAt` marker. Existing rows and publication state are preserved. The old
-`schema_versions` table may remain in place but is not used or treated as
-authoritative.
+backfills version columns, the publication migration adds the nullable
+`PublishedAt` marker, the SemVer precedence migration adds and backfills the
+pre-release sort key, and the pending-event backfill migration converts supported
+legacy descriptors into `package_outbox` rows. Existing rows and publication state
+are preserved. The old `schema_versions` table may remain in place but is not used
+or treated as authoritative.
 
 Create a migration and apply it with the standard EF commands:
 
@@ -746,9 +813,14 @@ dotnet ef database update \
 The design-time factory reads `PKGSRV_DESIGN_POSTGRES_CONNECTION` when generating or
 applying migrations.
 
-An opt-in integration test runs only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
-otherwise the PostgreSQL tests are reported as skipped. It covers fresh creation and
-old-v1 upgrade/data preservation through the EF migration chain.
+Opt-in integration tests run only when `PKGSRV_TEST_POSTGRES_CONNECTION` is set;
+otherwise the PostgreSQL tests are reported as skipped. They cover fresh creation,
+old-v1 upgrade/data preservation through the EF migration chain, legacy pending
+event backfill including registration and build descriptors, idempotent backfill
+re-runs, deduplication against existing writer rows, malformed/unsupported
+descriptor rollback and preservation, atomic package+outbox commit/rollback,
+duplicate idempotency-key deduplication, and claim/retry/delivered replay
+transitions.
 
 ## Issue #175 acceptance evidence
 
@@ -778,9 +850,63 @@ old-v1 upgrade/data preservation through the EF migration chain.
   notification follows it; Postgres payload/channel unit tests; and an opt-in
   live PostgreSQL integration test skipped unless
   `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
-- Future: a durable bus/transactional outbox remains tracked in
-  [#176](https://github.com/arlirad/astia/issues/176). No deployment
+- Package domain events now use the durable transactional outbox from
+  [#176](https://github.com/arlirad/astia/issues/176); cache invalidation remains a
+  separate best-effort notification channel with the absolute TTL fallback. No
+  deployment configuration changes are part of #176.
+
+## Issue #176 acceptance evidence
+
+- Transactional write path: PostgreSQL `IPackageEventOutbox` is implemented by the
+  repository. Register and build handlers use it when composed, so the package
+  insert/state update and its supported outbox rows commit or roll back together.
+  In-memory composition registers no outbox and keeps the synchronous
+  `InMemoryDomainEventPublisher` path.
+- Schema and idempotency: `package_outbox` stores the idempotency key as its primary
+  key plus package key, event type, deterministic JSON payload, occurrence and
+  availability timestamps, claim lease, attempt count, status, and last error. Only
+  `PackageRegistered` and `PackageBuildRequested` are serialized; payloads contain no
+  authorization tokens or connection secrets. The write path clears the legacy
+  `PendingEventsJson` compatibility payload in the same transaction after the
+  outbox insert succeeds, so a future backfill cannot duplicate a live event.
+- Backfill and preservation: the `BackfillPendingPackageEvents` migration converts
+  supported legacy descriptors into full outbox rows using package-row manifest and
+  build-policy fields, with the live writer idempotency-key scheme. It takes an
+  `ACCESS EXCLUSIVE` lock on `packages` before scanning, validates event type,
+  package key, and timestamp, preserves 100-nanosecond ticks from the raw descriptor
+  JSON, deduplicates on the outbox primary key, and clears `PendingEventsJson` only
+  for the package keys processed in that locked snapshot after all inserts succeed.
+  It fails closed on malformed or unsupported descriptors without clearing or
+  dropping data.
+- Dispatch semantics: a PostgreSQL-only hosted dispatcher polls bounded batches,
+  claims rows with `FOR UPDATE SKIP LOCKED` plus a lease, publishes through an
+  injected adapter that exposes the idempotency key, and marks delivered only after
+  publication succeeds. Failures retain the row with bounded exponential backoff and
+  a maximum attempt count; exhausted rows remain `Failed`. Lease expiry and restart
+  replay pending rows. Dispatcher or publication failures cannot roll back a
+  committed package write, and the hosted service does not block startup.
+- Tests: DB-free coverage asserts serializer determinism/round-trip and unsupported
+  event rejection, migration SQL shape including lock-before-scan and
+  processed-key-only clearing, 100-nanosecond key preservation, retry/backoff
+  bounds, dispatcher success/failure/exhaustion, mark-delivered ordering, restart
+  replay, handler atomic commit/rollback behavior, no synchronous publish in outbox
+  mode, and InMemory/PostgreSQL composition differences. The opt-in live
+  PostgreSQL suite verifies atomic package+outbox commit, rollback on outbox write
+  failure, duplicate idempotency-key deduplication, registration/build
+  pending-event backfill, idempotent re-runs, deduplication against existing outbox
+  rows, malformed/unsupported rollback and preservation, writer-empty-event
+  preservation, concurrent legacy-writer lock contention, and
+  claim/retry/delivered replay; it is skipped unless
+  `PKGSRV_TEST_POSTGRES_CONNECTION` is set.
+- Delivery is at-least-once and consumers must deduplicate on the idempotency key.
+  Live PostgreSQL outbox conformance remains part of the opt-in
+  [#174](https://github.com/arlirad/astia/issues/174) harness. No deployment
   configuration changes are part of this issue.
+- Residuals: the default composition still binds the in-memory event publisher, so
+  external delivery requires a deployment-supplied `IDomainEventPublisher`/consumer
+  adapter. Historical events that are absent from both `package_outbox` and
+  `PendingEventsJson` cannot be reconstructed from package rows; the migration
+  replays only descriptors that were durably recorded.
 
 ## Issue #179 acceptance evidence
 
@@ -856,6 +982,32 @@ old-v1 upgrade/data preservation through the EF migration chain.
   provenance exclusion, and wildcard literals; the opt-in PostgreSQL integration
   test exercises the same behavior when its database connection is configured.
 
+## Issue #197 acceptance evidence
+
+- Precedence: numeric identifiers compare numerically, alphanumeric identifiers
+  lexically in ASCII order, numeric identifiers sort below alphanumeric ones,
+  shorter identifier sets sort first when prefixes match, and releases sort after
+  every pre-release. Build metadata does not affect precedence; canonical version
+  text is the deterministic final tiebreak.
+- Parity: `PackageVersionOrder.CreatePreReleaseSortKey` is the single encoder used
+  by the in-memory comparer and persisted by `PostgresPackageMapper`;
+  `BuildSearchQuery` orders by the same key under the `C` collation, so both stores
+  return the same order. The migration backfills existing rows with that encoding.
+- Search: canonical version text, including pre-release and build metadata, is a
+  case-insensitive contains field in both stores. Name contains and source commit
+  prefix behavior is unchanged, and `%`/`_` remain literal. No `pg_trgm` extension
+  or trigram index is added; version search is not claimed as indexed, consistent
+  with the reviewed [#177](https://github.com/arlirad/astia/issues/177) strategy.
+- Invalid input: numeric pre-release identifiers with leading zeroes are outside
+  SemVer and are encoded as alphanumeric text, giving deterministic ordering
+  without changing registration validation.
+- Tests: the SemVer specification example, rc.2 vs rc.10, numeric vs alphanumeric
+  identifiers, prefix and shorter-set ordering, release vs pre-release,
+  build-metadata ties, leading-zero handling, sort-key/comparer parity, in-memory
+  and SQL-shape search coverage, migration/model assertions, and opt-in live
+  PostgreSQL ordering-parity and version-search tests that skip without
+  `PKGSRV_TEST_POSTGRES_CONNECTION`.
+
 ## JSON read cache
 
 Successful `GET /packages` and `GET /packages/{name}/{version}` responses are
@@ -902,7 +1054,8 @@ host shutdown.
 The in-memory provider has no cross-process channel, so invalidation is
 process-local. Notifications are best-effort and can be lost during a transient
 PostgreSQL outage. The bounded absolute TTL still caps how long an instance can
-serve stale data. A durable bus/transactional outbox remains tracked in
+serve stale data. Cache invalidation notifications remain best-effort and are not
+part of the package-event transactional outbox added in
 [#176](https://github.com/arlirad/astia/issues/176).
 
 ## Listening endpoint
@@ -1008,7 +1161,7 @@ reverse_proxy unix//run/pkgsrv/pkgsrv.sock
 
 The `GET /packages` route currently returns the full bounded list and does not expose
 a search query parameter; the application index supports the restricted
-name/source-commit search described above.
+name/version/source-commit search described above.
 
 Every route except `/healthz` and `/readyz` requires `Authorization: Bearer <Irva access token>`.
 There are no pkgsrv login/register/session/refresh/proxy-auth endpoints. Error
@@ -1088,18 +1241,24 @@ listening endpoint section.
   the artifact root or mutate mount configuration.
 - PostgreSQL durability depends on a configured database and a provisioned schema;
   in-memory mode is not durable.
-- Automatic pending-event dispatch/retry is not implemented. The durable boundary
-  is at-least-once, so publishers must be idempotent.
+- The transactional outbox dispatcher is PostgreSQL-only. Delivery is
+  at-least-once, so consumers must deduplicate on the exposed idempotency key;
+  exhausted rows remain `Failed` until an operator replays them. Legacy
+  `PendingEventsJson` descriptors are backfilled by the migration, but events that
+  were never recorded in either the outbox or `PendingEventsJson` cannot be
+  reconstructed from package rows. Live PostgreSQL outbox and backfill integration
+  remains opt-in and is skipped without `PKGSRV_TEST_POSTGRES_CONNECTION`.
 - Versioned schema DDL is owned by EF Core migrations under
   `Persistence/Postgres/Migrations`; `__EFMigrationsHistory` is authoritative.
   `InitializeSchema=true` applies pending migrations, while `false` fails clearly
   when migrations are pending.
-- Full SemVer identifier precedence and version-aware search are not implemented;
-  list ordering is the deterministic contract above.
-- Search supports the bounded fields package `name` contains and source commit
-  prefix. Bounded SQL filtering is preserved, but neither field is claimed as indexed
-  unless verified in the current EF migration/schema. Provenance is returned metadata
-  but is not searchable until a reviewed trigram/index strategy exists
+- Version ordering implements full SemVer 2.0 identifier precedence, and search
+  includes canonical version text.
+- Search supports the bounded fields package `name` contains, canonical `version`
+  contains, and source commit prefix. Bounded SQL filtering is preserved, but the
+  fields are not claimed as indexed unless verified in the current EF
+  migration/schema. Provenance is returned metadata but is not searchable until a
+  reviewed trigram/index strategy exists
   ([#177](https://github.com/arlirad/astia/issues/177)).
 - The real Irva.Client project is optional and external. Default builds compile the
   fail-closed deny adapter; operators must build with `IrvaClientProject` and set
@@ -1140,8 +1299,13 @@ listening endpoint section.
   namespace policy exists; no per-build disk-I/O controller.
 - [#174](https://github.com/arlirad/astia/issues/174) - live PostgreSQL integration
   and migration conformance tests.
-- [#176](https://github.com/arlirad/astia/issues/176) - transactional outbox
-  dispatch/retry for package domain events.
+- [#176](https://github.com/arlirad/astia/issues/176) - PostgreSQL transactional
+  outbox dispatch/retry and legacy pending-event backfill are implemented; live
+  database outbox and backfill conformance remain opt-in and are covered with the
+  [#174](https://github.com/arlirad/astia/issues/174) live PostgreSQL test harness
+  when `PKGSRV_TEST_POSTGRES_CONNECTION` is set. Events never recorded in either
+  `package_outbox` or `PendingEventsJson` cannot be reconstructed from package
+  rows.
 - [#177](https://github.com/arlirad/astia/issues/177) - search supports name
   contains and source-commit prefix with bounded SQL filtering; neither field is
   claimed as indexed unless verified in the current EF migration/schema; provenance

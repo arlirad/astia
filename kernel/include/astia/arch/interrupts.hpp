@@ -87,6 +87,9 @@ namespace astia::arch {
     /// callback context.
     bool mask_irq_handler(u8 irq);
 
+    /// Unmask a claimed line and reopen its handler table entry.
+    bool unmask_irq_handler(u8 irq);
+
     /// Clear a claimed line's handler and guard pointers. Refuses while a
     /// dispatch is in flight, so the caller can retry after references drain.
     bool unregister_irq_handler(u8 irq);

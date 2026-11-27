@@ -11,10 +11,10 @@
 
 namespace astia::proc {
     namespace {
-        constexpr usize kernel_stack_bytes         = 16 * 1024;
-        constexpr u8    kernel_stack_fill          = 0xA5;
-        constexpr u32   kernel_stack_sample_period = 16;
-        constexpr usize kernel_stack_sample_bytes  = 256;
+        constexpr usz kernel_stack_bytes         = 16 * 1024;
+        constexpr u8  kernel_stack_fill          = 0xA5;
+        constexpr u32 kernel_stack_sample_period = 16;
+        constexpr usz kernel_stack_sample_bytes  = 256;
 
         extern "C" [[noreturn]] void thread_trampoline() {
             thread* current = proc::current_thread();
@@ -62,16 +62,16 @@ namespace astia::proc {
         const auto* words = static_cast<const volatile u64*>(_kernel_stack);
 
         constexpr u64 fill_word = u64{0xA5A5A5A5A5A5A5A5};
-        const usize   end       = _kernel_stack_scan_offset;
-        const usize   begin =
+        const usz     end       = _kernel_stack_scan_offset;
+        const usz     begin =
             end > kernel_stack_sample_bytes ? end - kernel_stack_sample_bytes : 0;
-        usize offset = begin;
+        usz offset = begin;
 
         while (offset + sizeof(u64) <= end) {
             if (words[offset / sizeof(u64)] != fill_word) {
-                for (usize byte = offset; byte < offset + sizeof(u64); ++byte) {
+                for (usz byte = offset; byte < offset + sizeof(u64); ++byte) {
                     if (bytes[byte] != kernel_stack_fill) {
-                        const usize used = _kernel_stack_size - byte;
+                        const usz used = _kernel_stack_size - byte;
                         if (used > _kernel_stack_high_water)
                             _kernel_stack_high_water = used;
                     }
@@ -83,7 +83,7 @@ namespace astia::proc {
 
         while (offset < end) {
             if (bytes[offset] != kernel_stack_fill) {
-                const usize used = _kernel_stack_size - offset;
+                const usz used = _kernel_stack_size - offset;
                 if (used > _kernel_stack_high_water)
                     _kernel_stack_high_water = used;
             }
@@ -112,7 +112,7 @@ namespace astia::proc {
         _kernel_stack_sample_count = 0;
         _kernel_stack_scan_offset  = _kernel_stack_size;
         _kernel_stack_top =
-            static_cast<u64>(reinterpret_cast<usize>(_kernel_stack)) + _kernel_stack_size;
+            static_cast<u64>(reinterpret_cast<usz>(_kernel_stack)) + _kernel_stack_size;
 
         return true;
     }
@@ -223,7 +223,7 @@ namespace astia::proc {
 
         if (_owner != nullptr) {
             const bool owner_reaped = _owner->thread_exited(
-                this, static_cast<i32>(reinterpret_cast<usize>(_result)));
+                this, static_cast<i32>(reinterpret_cast<usz>(_result)));
 
             // A detached thread with nobody to join it has no owner for
             // its destruction: the process's owning reference would
@@ -326,15 +326,38 @@ namespace astia::proc {
         _async_wait_handle = continuation;
     }
 
-    bool thread::arm_wait_unless_cancelled(std::coroutine_handle<> continuation) {
-        arch::interrupt_spinlock_guard guard(_wait_lock);
+    bool thread::arm_park_unless_cancelled(std::coroutine_handle<> continuation) {
+        arch::interrupt_spinlock_guard wait_guard(_wait_lock);
 
         if (cancellation_pending())
             return false;
 
         _async_wait_handle = continuation;
 
+        // Re-check under the park lock: a cancellation that lands after the
+        // first check either sees this thread parked (and wakes it) or is seen
+        // here, in which case the continuation is withdrawn and no park
+        // happens.
+        arch::interrupt_spinlock_guard park_guard(_resume_lock);
+
+        if (cancellation_pending()) {
+            _async_wait_handle = {};
+
+            return false;
+        }
+
+        state(thread_state::blocked);
+
         return true;
+    }
+
+    bool thread::request_cancellation() {
+        arch::interrupt_spinlock_guard guard(_resume_lock);
+
+        astia::atomic_ref<u8>(_cancellation_pending)
+            .store(1, astia::memory_order::release);
+
+        return state() == thread_state::blocked;
     }
 
     bool thread::wake_wait() {
@@ -358,7 +381,7 @@ namespace astia::proc {
     bool thread::park_unless_woken() {
         arch::interrupt_spinlock_guard guard(_resume_lock);
 
-        if (_pending_resume_count != 0)
+        if (_pending_resume_count != 0 || cancellation_pending())
             return false;
 
         state(thread_state::blocked);

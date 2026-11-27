@@ -383,8 +383,20 @@ long __astia_fio_fchown(int fd, unsigned int uid, unsigned int gid) {
     return rc < 0 ? -HOST_ERRNO : rc;
 }
 
-long __astia_fio_utime(const char* path) {
-    long rc = syscall(SYS_utimensat, -100, path, 0, 0);
+long __astia_fio_utimensat(int dirfd, const char* path,
+                           const struct astia_timespec times[2], int flags) {
+    struct host_timespec        value[2];
+    const struct host_timespec* requested = 0;
+
+    if (times != 0) {
+        value[0].tv_sec  = (long) times[0].tv_sec;
+        value[0].tv_nsec = (long) times[0].tv_nsec;
+        value[1].tv_sec  = (long) times[1].tv_sec;
+        value[1].tv_nsec = (long) times[1].tv_nsec;
+        requested        = value;
+    }
+
+    long rc = syscall(SYS_utimensat, dirfd, path, requested, flags);
 
     return rc < 0 ? -HOST_ERRNO : 0;
 }
@@ -465,11 +477,6 @@ struct host_dirent64 {
     char           d_name[];
 };
 
-static unsigned char host_dirent_type(unsigned char type) {
-    /* DT_BLK is 6 on the host; the ABI reports file_type::block, 3. */
-    return type == 6 ? 3 : type;
-}
-
 long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
     unsigned char buffer[4096];
 
@@ -521,7 +528,8 @@ long __astia_fio_readdir(int fd, uint64_t index, astia_dirent* out) {
 
             out->name[length] = '\0';
             out->namelen      = length;
-            out->type         = host_dirent_type(entry->d_type);
+            out->type         = entry->d_type;
+            out->ino          = entry->d_ino;
 
             return 1;
         }

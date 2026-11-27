@@ -164,12 +164,15 @@ typedef struct astia_cq_ring {
  *   SEND/RECV     sock        -                  buffer             byte count    -
  *   SENDTO        sock        sockaddr*         buffer             byte count    -
  *   RECVFROM      sock        sockaddr*         buffer             byte count    -
+ *   UTIMENSAT     dirfd       times[2]*§        pathname           -             flags
  *
  *   * FIXED_BUF: address ignored, aux selects an astia_reg_buf slot.
  *   † default relative; SLEEP_ABSOLUTE makes offset a monotonic absolute
  *     deadline in nanoseconds.
  *   ‡ STATX: address NULL -> fd is the stat target (fstat); address a
  *     pathname -> fd is the dirfd.
+ *   § UTIMENSAT: offset points at astia_timespec[2]; NULL means both times
+ *     are UTIME_NOW.  flags accepts AT_SYMLINK_NOFOLLOW.
  *
  * cqe.result payloads: READ/WRITE/SEND/RECV -> bytes; OPENAT/ACCEPT -> fd;
  * SPAWN/WAIT -> pid; POLL_ADD -> revents; otherwise 0 or -errno.
@@ -208,6 +211,9 @@ typedef struct astia_stat {
     uint32_t nlink;
     uint32_t uid;
     uint32_t gid;
+    /* Wall-clock seconds/nanoseconds.  A filesystem that records no
+       timestamp reports zero; the kernel never substitutes a synthetic
+       epoch. */
     uint64_t atime_sec;
     uint64_t atime_nsec;
     uint64_t mtime_sec;
@@ -221,6 +227,7 @@ typedef struct astia_dirent {
     uint32_t type;
     uint32_t namelen;
     char     name[256];
+    uint64_t ino; /* filesystem inode; 0 when the mount exposes none */
 } astia_dirent;
 
 typedef struct astia_spawn {
@@ -258,6 +265,7 @@ typedef struct astia_reg_buf {
 } astia_reg_buf;
 
 ASTIA_STATIC_ASSERT(sizeof(astia_timespec) == 16, "timespec ABI");
+ASTIA_STATIC_ASSERT(sizeof(astia_dirent) == 272, "dirent ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_iovec) == 16, "iovec ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_stat) == 128, "stat ABI");
 ASTIA_STATIC_ASSERT(sizeof(astia_spawn) == 40, "spawn ABI");
@@ -310,7 +318,7 @@ enum {
     OP_IOCTL = 23,
     OP_PIPE  = 24,
     OP_CHMOD = 25,
-    /* Update pathname mtime to kernel CLOCK_REALTIME; address is pathname. */
+    /* Set pathname atime/mtime from offset's astia_timespec[2] (NULL: now). */
     OP_UTIMENSAT      = 26,
     OP_SYMLINKAT      = 27,
     OP_READLINKAT     = 28,
@@ -530,6 +538,16 @@ enum {
 #ifndef AT_FDCWD
 enum { AT_FDCWD = -100 };
 #endif
+
+#ifndef AT_SYMLINK_NOFOLLOW
+enum { AT_SYMLINK_NOFOLLOW = 0x100 };
+#endif
+
+/* OP_UTIMENSAT times[] selectors, matching the libc UTIME_* values. */
+enum {
+    ASTIA_UTIME_NOW  = (1 << 30) - 1,
+    ASTIA_UTIME_OMIT = (1 << 30) - 2,
+};
 
 /* file offset meaning "append" (uint64 value, hence a macro) */
 #define OFF_APPEND ((uint64_t) 0xFFFFFFFFFFFFFFFFull)

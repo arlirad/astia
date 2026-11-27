@@ -205,21 +205,6 @@ namespace astia::arch::aarch64::gicv3 {
         return "unknown";
     }
 
-    const char* describe(registration_error value) {
-        switch (value) {
-        case registration_error::none:
-            return "none";
-        case registration_error::invalid_intid:
-            return "invalid-intid";
-        case registration_error::null_handler:
-            return "null-handler";
-        case registration_error::already_registered:
-            return "already-registered";
-        }
-
-        return "unknown";
-    }
-
     error initialize(const boot_config& config, init_result& result) {
         if (!valid_region(config.distributor) || !valid_region(config.redistributor) ||
             config.distributor.size < minimum_distributor_size ||
@@ -362,25 +347,19 @@ namespace astia::arch::aarch64::gicv3 {
         isb();
     }
 
-    irq_result acknowledge_and_complete() {
-        const u32 iar   = static_cast<u32>(read_icc_iar1_el1());
-        const u32 intid = iar & intid_mask;
+    irq::dispatch_result acknowledge_and_complete() {
+        const u32 iar = static_cast<u32>(read_icc_iar1_el1());
 
-        const irq_action action = classify_intid(intid);
+        const irq::dispatch_result result = irq::dispatch(iar);
 
-        const bool is_timer = intid == timer::ppi_id;
-
-        if (action == irq_action::handled) {
-            const local_irq_registration local = local_irq_table[intid];
-
-            local.handler(local.context);
+        if (result.action == irq::dispatch_action::handled) {
             write_icc_eoir1_el1(iar);
-            write_icc_dir_el1(intid);
+            write_icc_dir_el1(result.intid);
             isb();
             dsb_sy();
             isb();
         }
 
-        return irq_result{action, intid, iar, is_timer};
+        return result;
     }
 } // namespace astia::arch::aarch64::gicv3

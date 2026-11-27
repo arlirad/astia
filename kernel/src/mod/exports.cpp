@@ -2,10 +2,10 @@
 
 namespace astia::mod {
     namespace {
-        constexpr u32   table_magic   = 0x41535453;
-        constexpr u16   table_version = 1;
-        constexpr usize header_size   = 20;
-        constexpr usize entry_size    = 16;
+        constexpr u32 table_magic   = 0x41535453;
+        constexpr u16 table_version = 1;
+        constexpr usz header_size   = 20;
+        constexpr usz entry_size    = 16;
 
         extern "C" const u8 __kernel_symbol_table_start[] __attribute__((weak));
         extern "C" const u8 __kernel_symbol_table_end[] __attribute__((weak));
@@ -22,15 +22,15 @@ namespace astia::mod {
         u64 read_u64(const u8* p) {
             u64 value = 0;
 
-            for (usize i = 0; i < 8; ++i) {
+            for (usz i = 0; i < 8; ++i) {
                 value |= static_cast<u64>(p[i]) << (i * 8);
             }
 
             return value;
         }
 
-        bool name_eq(const u8* table_name, const char* name, usize limit) {
-            usize i = 0;
+        bool name_eq(const u8* table_name, const char* name, usz limit) {
+            usz i = 0;
 
             while (i < limit && table_name[i] != 0 && name[i] != 0) {
                 if (table_name[i] != static_cast<u8>(name[i]))
@@ -52,7 +52,7 @@ namespace astia::mod {
 
         const u8* table = start;
 
-        const usize size = static_cast<usize>(end - table);
+        const usz size = static_cast<usz>(end - table);
 
         if (size < header_size || read_u32(table) != table_magic ||
             read_u16(table + 4) != table_version || read_u16(table + 6) != entry_size)
@@ -69,10 +69,10 @@ namespace astia::mod {
 
         const u8* strings = table + strings_offset;
 
-        const usize strings_size = total_size - strings_offset;
+        const usz strings_size = total_size - strings_offset;
 
         for (u32 i = 0; i < count; ++i) {
-            const u8* entry = table + header_size + static_cast<usize>(i) * entry_size;
+            const u8* entry = table + header_size + static_cast<usz>(i) * entry_size;
 
             const u32 name_offset = read_u32(entry + 8);
             if (name_offset >= strings_size)

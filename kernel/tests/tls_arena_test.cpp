@@ -14,7 +14,7 @@ namespace {
         return true;
     }
 
-    astia::usize init_world() {
+    astia::usz init_world() {
         astia_test::map_arena();
 
         static bool ready = false;
@@ -36,7 +36,7 @@ namespace {
         return astia::mm::kernel_frames().available_frames();
     }
 
-    constexpr astia::usize reserve_pages =
+    constexpr astia::usz reserve_pages =
         astia::proc::user_dso_tls_reserve / phys_region::frame_size;
 } // namespace
 
@@ -60,7 +60,7 @@ ASTIA_TEST(tls_arena_reserve_costs_no_frames_until_touched) {
     ASTIA_CHECK(region->pages() == layout.total_pages);
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 1);
 
-    for (astia::usize page = 0; page < layout.reserve_pages; ++page) {
+    for (astia::usz page = 0; page < layout.reserve_pages; ++page) {
         ASTIA_CHECK(region->page_base(page) == astia::mm::frame_allocator::invalid_frame);
         ASTIA_CHECK(region->page_direct(page) == nullptr);
     }
@@ -73,7 +73,7 @@ ASTIA_TEST(tls_arena_reserve_costs_no_frames_until_touched) {
     if (payload == nullptr)
         return;
 
-    for (astia::usize i = 0; i < 64; ++i) {
+    for (astia::usz i = 0; i < 64; ++i) {
         ASTIA_CHECK(payload[i] == 0);
     }
 
@@ -103,7 +103,7 @@ ASTIA_TEST(tls_arena_payload_copy_spans_lazy_pages) {
 
     astia::u8 source[phys_region::frame_size + 8];
 
-    for (astia::usize i = 0; i < sizeof(source); ++i) {
+    for (astia::usz i = 0; i < sizeof(source); ++i) {
         source[i] = static_cast<astia::u8>(i);
     }
 
@@ -128,11 +128,11 @@ ASTIA_TEST(tls_arena_payload_copy_spans_lazy_pages) {
     if (second == nullptr)
         return;
 
-    for (astia::usize i = 0; i < 8; ++i) {
+    for (astia::usz i = 0; i < 8; ++i) {
         ASTIA_CHECK(first[phys_region::frame_size - 8 + i] == source[i]);
     }
 
-    for (astia::usize i = 0; i < phys_region::frame_size; ++i) {
+    for (astia::usz i = 0; i < phys_region::frame_size; ++i) {
         ASTIA_CHECK(second[i] == source[8 + i]);
     }
 

@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <thread>
 
 extern unsigned char fixture_dyn_blob[];
 extern unsigned int  fixture_dyn_blob_len;
@@ -30,13 +31,25 @@ namespace {
     using astia::mod::module_info;
     using astia::mod::module_load_options;
 
+    template <typename T>
+    T run_task_sync(astia::core::task<T> task) {
+        task.resume();
+
+        while (!task.done()) {
+            std::this_thread::yield();
+            task.resume();
+        }
+
+        return *task.value();
+    }
+
     void set_root(bool root) {
         (void) astia::proc::current_process()->seteuid(root ? 0u : 1u);
     }
 
     module_load_options named(const char* name) {
         module_load_options options{};
-        astia::usize        i = 0;
+        astia::usz          i = 0;
 
         while (i + 1 < sizeof options.name && name[i] != '\0') {
             options.name[i] = name[i];
@@ -81,19 +94,19 @@ namespace {
         set_root(true);
 
         while (true) {
-            module_info        infos[astia::mod::max_modules]{};
-            astia::usize       total   = 0;
-            const astia::usize visible = astia::mod::snapshot(
+            module_info      infos[astia::mod::max_modules]{};
+            astia::usz       total   = 0;
+            const astia::usz visible = astia::mod::snapshot(
                 astia::span<module_info>(infos, astia::mod::max_modules), &total);
             if (visible == 0)
                 return;
 
             bool progressed = false;
 
-            for (astia::usize i = 0; i < visible; ++i) {
+            for (astia::usz i = 0; i < visible; ++i) {
                 const module_id id = infos[i].id;
 
-                for (astia::usize d = 0; d < infos[i].dependency_count; ++d) {
+                for (astia::usz d = 0; d < infos[i].dependency_count; ++d) {
                     module_id dependency{};
 
                     if (astia::mod::dependency_at(id, 0, dependency) == module_error::ok)
@@ -101,7 +114,7 @@ namespace {
                 }
 
                 if (infos[i].running)
-                    (void) astia::mod::exit(id);
+                    (void) run_task_sync(astia::mod::exit(id));
 
                 if (infos[i].resident)
                     (void) astia::mod::clear_resident_for_test(id);
@@ -300,7 +313,7 @@ ASTIA_TEST(module_syscall_modopen_copies_out_stable_id_and_rejects_malformed) {
 
     astia::mod::set_open_path_error(module_error::load_failed);
 
-    const astia::usize before = astia::mod::count();
+    const astia::usz before = astia::mod::count();
 
     ASTIA_CHECK(call(astia::sys::syscall_id::modopen, reinterpret_cast<astia::u64>(path),
                      0, reinterpret_cast<astia::u64>(&id)) == -ENOEXEC);
@@ -389,10 +402,7 @@ ASTIA_TEST(module_syscall_modstat_exposes_state_dependencies_and_residency) {
     ASTIA_CHECK(stat.dependent_count == 1);
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_UNLOADABLE) == 0);
 
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(provider, result) == module_error::ok);
-    ASTIA_CHECK(result == 17);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(provider)) == module_error::ok);
     ASTIA_CHECK(call_modstat(provider, &stat) == 0);
     ASTIA_CHECK(stat.state == ASTIA_MODULE_STATE_RUNNING);
     ASTIA_CHECK((stat.flags & ASTIA_MODULE_FLAG_RUNNING) != 0);
@@ -417,10 +427,7 @@ ASTIA_TEST(module_syscall_modclose_rejects_running_resident_and_waits_drain) {
     module_id running{};
 
     ASTIA_CHECK(load_test_module(running, named("running")) == module_error::ok);
-
-    int result = 0;
-
-    ASTIA_CHECK(astia::mod::run(running, result) == module_error::ok);
+    ASTIA_CHECK(run_task_sync(astia::mod::run(running)) == module_error::ok);
     ASTIA_CHECK(call_with_id(astia::sys::syscall_id::modclose, running) == -EBUSY);
 
     module_load_options resident = named("resident-close");

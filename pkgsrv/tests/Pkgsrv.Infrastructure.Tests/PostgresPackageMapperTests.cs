@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Pkgsrv.Domain.Errors;
 using Pkgsrv.Domain.Events;
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.TestSupport;
 
@@ -23,6 +24,9 @@ public sealed class PostgresPackageMapperTests
         Assert.Equal(package.Manifest.Version.Patch, record.VersionPatch);
         Assert.Equal(package.Manifest.Version.PreRelease, record.VersionPreRelease);
         Assert.Equal(package.Manifest.Version.BuildMetadata, record.VersionBuildMetadata);
+        Assert.Equal(
+            PackageVersionOrder.CreatePreReleaseSortKey(package.Manifest.Version.PreRelease),
+            record.VersionPreReleaseSortKey);
         Assert.Equal(package.Manifest.Source.RepositoryUri.ToString(), record.SourceUrl);
         Assert.Equal(package.Manifest.Source.CommitSha, record.SourceCommit);
         Assert.Equal(package.Manifest.Toolchain.Name, record.ToolchainName);
@@ -120,6 +124,16 @@ public sealed class PostgresPackageMapperTests
     {
         var record = PostgresPackageMapper.FromDomain(TestPackages.CreatePackage());
         record.PendingEventsJson = """[{"type":"Unsupported","name":"widget","version":"1.2.3","occurredAt":"2026-01-02T03:04:05+00:00"}]""";
+
+        Assert.Throws<InvalidOperationException>(
+            () => PostgresPackageMapper.ToDomain(record));
+    }
+
+    [Fact]
+    public void ToDomain_RejectsMismatchedVersionOrderingKey()
+    {
+        var record = PostgresPackageMapper.FromDomain(TestPackages.CreatePackage());
+        record.VersionPreReleaseSortKey = "mismatched";
 
         Assert.Throws<InvalidOperationException>(
             () => PostgresPackageMapper.ToDomain(record));

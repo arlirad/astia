@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 /*
  * astia libc — printf-family formatting.
@@ -35,6 +36,7 @@ struct sink {
 #define FLOAT_BODY_LIMIT 1000
 #define FLOAT_BODY_SIZE 1002
 #define FLOAT_EXP_RESERVE 7
+#define WIDE_CHAR_BUF_SIZE 8
 
 static void sink_putc(struct sink* s, char c) {
     if (s->buf != NULL && s->len + 1 < s->cap)
@@ -78,6 +80,115 @@ static void sink_text(struct sink* s, const char* text, size_t length, int width
         sink_pad(s, ' ', pad);
 }
 
+static int wide_char_encode(wchar_t wc, mbstate_t* state, char* out, size_t* length) {
+    size_t n = wcrtomb(out, wc, state);
+
+    if (n == (size_t) -1)
+        return -1;
+
+    *length = n;
+
+    return 0;
+}
+
+static size_t wide_text_length(const wchar_t* text, size_t precision, int precision_set,
+                               int* error) {
+    mbstate_t state;
+
+    size_t total = 0;
+
+    memset(&state, 0, sizeof state);
+
+    while (*text != L'\0') {
+        char   encoded[WIDE_CHAR_BUF_SIZE];
+        size_t n;
+
+        if (precision_set && total >= precision)
+            break;
+
+        if (wide_char_encode(*text, &state, encoded, &n) != 0) {
+            *error = 1;
+
+            return 0;
+        }
+
+        if (precision_set && n > precision - total)
+            break;
+
+        total += n;
+
+        text++;
+    }
+
+    return total;
+}
+
+static int sink_wide_char(struct sink* s, wint_t wc, int width, int left) {
+    char encoded[WIDE_CHAR_BUF_SIZE];
+
+    mbstate_t state;
+
+    size_t n;
+    size_t pad;
+    size_t i;
+
+    memset(&state, 0, sizeof state);
+
+    if (wide_char_encode((wchar_t) wc, &state, encoded, &n) != 0)
+        return -1;
+
+    pad = (width > 0 && (size_t) width > n) ? (size_t) width - n : 0;
+
+    if (!left)
+        sink_pad(s, ' ', pad);
+
+    for (i = 0; i < n; i++) {
+        sink_putc(s, encoded[i]);
+    }
+
+    if (left)
+        sink_pad(s, ' ', pad);
+
+    return 0;
+}
+
+static int sink_wide_text(struct sink* s, const wchar_t* text, size_t length, int width,
+                          int left) {
+    mbstate_t state;
+
+    size_t pad;
+    size_t emitted = 0;
+
+    memset(&state, 0, sizeof state);
+
+    pad = (width > 0 && (size_t) width > length) ? (size_t) width - length : 0;
+
+    if (!left)
+        sink_pad(s, ' ', pad);
+
+    while (*text != L'\0' && emitted < length) {
+        char   encoded[WIDE_CHAR_BUF_SIZE];
+        size_t n;
+        size_t i;
+
+        if (wide_char_encode(*text, &state, encoded, &n) != 0 || n > length - emitted)
+            return -1;
+
+        for (i = 0; i < n; i++) {
+            sink_putc(s, encoded[i]);
+        }
+
+        emitted += n;
+
+        text++;
+    }
+
+    if (left)
+        sink_pad(s, ' ', pad);
+
+    return 0;
+}
+
 /* Reverse-ordered digits of v; returns how many. */
 static size_t uconv(char* tmp, unsigned long long v, unsigned base, int upper) {
     const char* digits = upper ? "0123456789ABCDEF" : "0123456789abcdef";
@@ -90,6 +201,11 @@ static size_t uconv(char* tmp, unsigned long long v, unsigned base, int upper) {
     } while (v != 0);
 
     return n;
+}
+
+static int int_zero_precision_drops_digits(unsigned long long mag, size_t prec,
+                                           int prec_set, char spec) {
+    return prec_set && prec == 0 && mag == 0 && spec != 'p';
 }
 
 static void emit_reversed(struct sink* s, const char* tmp, size_t n) {
@@ -566,6 +682,8 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
     struct sink s;
     const char* p = fmt;
 
+    int failed = 0;
+
     s.buf = str;
     s.cap = size;
     s.len = 0;
@@ -798,7 +916,9 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
                     base = 16;
             }
 
-            ndig = uconv(tmp, mag, base, spec == 'X');
+            ndig = int_zero_precision_drops_digits(mag, prec, prec_set, spec)
+                       ? 0
+                       : uconv(tmp, mag, base, spec == 'X');
 
             if (spec == 'p') {
                 prefix = "0x";
@@ -812,7 +932,7 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
                 prefix = "0X";
                 plen   = 2;
             }
-            else if (alt && spec == 'o' && tmp[ndig - 1] != '0') {
+            else if (alt && spec == 'o' && (ndig == 0 || tmp[ndig - 1] != '0')) {
                 prefix = "0";
                 plen   = 1;
             }
@@ -886,23 +1006,51 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
             }
         }
         else if (spec == 'c') {
-            char   c   = (char) va_arg(ap, int);
-            size_t pad = (width > 1) ? (size_t) width - 1 : 0;
+            if (len_mod == 3) {
+                if (sink_wide_char(&s, va_arg(ap, wint_t), width, left) != 0) {
+                    failed = 1;
 
-            if (!left)
-                sink_pad(&s, ' ', pad);
+                    break;
+                }
+            }
+            else {
+                char   c   = (char) va_arg(ap, int);
+                size_t pad = (width > 1) ? (size_t) width - 1 : 0;
 
-            sink_putc(&s, c);
+                if (!left)
+                    sink_pad(&s, ' ', pad);
 
-            if (left)
-                sink_pad(&s, ' ', pad);
+                sink_putc(&s, c);
+
+                if (left)
+                    sink_pad(&s, ' ', pad);
+            }
         }
         else if (spec == 's') {
-            const char* strarg = va_arg(ap, const char*);
-            if (strarg == NULL)
-                strarg = "(null)";
+            if (len_mod == 3) {
+                const wchar_t* wstrarg = va_arg(ap, const wchar_t*);
 
-            sink_text(&s, strarg, strlen(strarg), width, prec, prec_set, left);
+                int    error = 0;
+                size_t length;
+
+                if (wstrarg == NULL)
+                    wstrarg = L"(null)";
+
+                length = wide_text_length(wstrarg, prec, prec_set, &error);
+
+                if (error || sink_wide_text(&s, wstrarg, length, width, left) != 0) {
+                    failed = 1;
+
+                    break;
+                }
+            }
+            else {
+                const char* strarg = va_arg(ap, const char*);
+                if (strarg == NULL)
+                    strarg = "(null)";
+
+                sink_text(&s, strarg, strlen(strarg), width, prec, prec_set, left);
+            }
         }
         else if (spec == 'm') {
             const char* message = strerror(errno);
@@ -960,7 +1108,7 @@ int vsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
 
     sink_finish(&s);
 
-    return (int) s.len;
+    return failed ? -1 : (int) s.len;
 }
 
 int snprintf(char* str, size_t size, const char* format, ...) {

@@ -87,18 +87,18 @@ ASTIA_TEST(initrd_open_returns_empty_when_file_allocation_fails) {
 }
 
 ASTIA_TEST(initrd_accepts_paths_at_path_max) {
-    constexpr astia::usize name_length = astia::fs::path_max - 2;
+    constexpr astia::usz name_length = astia::fs::path_max - 2;
 
     char name[name_length + 1]{};
     char absolute[astia::fs::path_max]{};
 
-    for (astia::usize i = 0; i < name_length; ++i) {
+    for (astia::usz i = 0; i < name_length; ++i) {
         name[i] = static_cast<char>('a' + i % 26);
     }
 
     absolute[0] = '/';
 
-    for (astia::usize i = 0; i < name_length; ++i) {
+    for (astia::usz i = 0; i < name_length; ++i) {
         absolute[i + 1] = name[i];
     }
 
@@ -116,9 +116,13 @@ ASTIA_TEST(initrd_accepts_paths_at_path_max) {
 
     astia::fs::file_type listed_type = astia::fs::directory_unknown;
 
-    ASTIA_CHECK(mount.read_directory("/", 0, listed, sizeof listed, &listed_type) == 1);
+    astia::u64 listed_inode = 1;
+
+    ASTIA_CHECK(mount.read_directory("/", 0, listed, sizeof listed, &listed_type,
+                                     &listed_inode) == 1);
     ASTIA_CHECK(listed_type == astia::fs::file_type::regular);
     ASTIA_CHECK(std::strcmp(listed, name) == 0);
+    ASTIA_CHECK(listed_inode == 0);
 }
 
 ASTIA_TEST(initrd_mount_is_read_only) {

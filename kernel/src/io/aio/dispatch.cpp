@@ -15,11 +15,12 @@
 #include "../../ipc/unix_socket.hpp"
 #include "../../proc/mapping.hpp"
 #include "../../proc/proc.hpp"
+#include "../../proc/search_permission.hpp"
 #include "memory.hpp"
 #include "registry.hpp"
 #include "runner.hpp"
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::io::aio::dispatch {
     using namespace ring;
@@ -41,25 +42,74 @@ namespace astia::io::aio::dispatch {
                 io_device_ready_context(static_cast<io_device*>(context));
         }
 
-        long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
-                        char* out, usize capacity, bool follow_final) {
+        long search_check(proc::process* current, const char* path, bool include_final) {
             if (current == nullptr)
                 return -ESRCH;
+
+            char root[fs::path_max]{};
+
+            const i64 root_rc = current->copy_root(root, sizeof root);
+
+            if (root_rc < 0)
+                return static_cast<long>(root_rc);
+
+            const proc::process_search_permission search(*current);
+
+            return fs::check_search(root, path, &search, include_final);
+        }
+
+        long resolve_at(proc::process* current, i32 raw_dirfd, const char* path,
+                        char* out, usz capacity, bool follow_final) {
+            if (current == nullptr)
+                return -ESRCH;
+
+            long rc;
 
             // The legacy path-only libc wrappers encode no directory fd as
             // -1; treat it like AT_FDCWD just as the explicit *at wrappers
             // do for AT_FDCWD.
-            if (raw_dirfd == AT_FDCWD || raw_dirfd == -1)
-                return current->resolve_path_at(fd_t{AT_FDCWD}, path,
-                                                span<char>(out, capacity), follow_final);
+            if (raw_dirfd == AT_FDCWD || raw_dirfd == -1) {
+                rc = current->resolve_path_at(fd_t{AT_FDCWD}, path,
+                                              span<char>(out, capacity), follow_final);
+            }
+            else {
+                auto dirfd = mapper<fd_t>::from(raw_dirfd);
 
-            auto dirfd = mapper<fd_t>::from(raw_dirfd);
+                if (!dirfd.has_value)
+                    return -EBADF;
 
-            if (!dirfd.has_value)
-                return -EBADF;
+                rc = current->resolve_path_at(dirfd.value, path,
+                                              span<char>(out, capacity), follow_final);
+            }
 
-            return current->resolve_path_at(dirfd.value, path, span<char>(out, capacity),
-                                            follow_final);
+            if (rc < 0)
+                return rc;
+
+            return search_check(current, out, false);
+        }
+
+        long resolve_path_for(proc::process* current, const char* path, char* out,
+                              usz capacity, bool follow_final) {
+            if (current == nullptr)
+                return -ESRCH;
+
+            const i64 resolve_rc =
+                current->resolve_path(path, span<char>(out, capacity), follow_final);
+            if (resolve_rc < 0)
+                return static_cast<long>(resolve_rc);
+
+            return search_check(current, out, false);
+        }
+
+        bool credential_allows(proc::process* current, const fs::file_mode& mode,
+                               const char* path, fs::permission_bits want) {
+            // Root bypasses directory search and access checks, matching the
+            // process_search_permission policy: no execute bit is required.
+            if (current->euid() == 0)
+                return true;
+
+            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
+                                       want);
         }
 
         bool parent_allows(proc::process* current, const char* path,
@@ -67,12 +117,15 @@ namespace astia::io::aio::dispatch {
             if (current == nullptr || path == nullptr)
                 return false;
 
-            char parent[256]{};
+            char parent[fs::path_max]{};
             u32  n = 0;
 
             while (path[n]) {
                 ++n;
             }
+
+            if (n >= fs::path_max)
+                return false;
 
             while (n > 1 && path[n - 1] != '/') {
                 --n;
@@ -89,8 +142,7 @@ namespace astia::io::aio::dispatch {
             if (!mode.is_directory())
                 return false;
 
-            return current->can_access(mode, fs::node_uid(parent), fs::node_gid(parent),
-                                       want);
+            return credential_allows(current, mode, parent, want);
         }
 
         bool parent_writable(proc::process* current, const char* path) {
@@ -102,7 +154,53 @@ namespace astia::io::aio::dispatch {
             return parent_allows(current, path, fs::permission_bits::execute);
         }
 
-        constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
+        bool node_allows(proc::process* current, const char* path,
+                         fs::permission_bits want) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            // A missing node has no credentials to check; leave ENOENT to the
+            // layer that owns the operation.
+            if (!mode.exists())
+                return true;
+
+            return credential_allows(current, mode, path, want);
+        }
+
+        bool directory_listable(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            // Missing and non-directory targets are reported by the VFS so the
+            // handler does not turn ENOENT or ENOTDIR into EACCES.
+            if (!mode.exists() || !mode.is_directory())
+                return true;
+
+            return node_allows(current, path, fs::permission_bits::read) &&
+                   node_allows(current, path, fs::permission_bits::execute);
+        }
+
+        bool owner_or_writable(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            const fs::file_mode mode = fs::node_mode(path);
+
+            if (!mode.exists())
+                return true;
+
+            if (current->euid() == static_cast<u32>(fs::node_uid(path)))
+                return true;
+
+            return current->can_access(mode, fs::node_uid(path), fs::node_gid(path),
+                                       fs::permission_bits::write);
+        }
+
+        constexpr usz max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
 
         u64 poll_now_ns() {
             const u64 hz = arch::timer_hz();
@@ -242,8 +340,8 @@ namespace astia::io::aio::dispatch {
         /// would wipe the device_state the parked device left behind.
         io_outcome pump(parked_op& op, long& result) {
             while (true) {
-                const usize ask = static_cast<usize>(op.operation->request().length());
-                long        n   = 0;
+                const usz ask = static_cast<usz>(op.operation->request().length());
+                long      n   = 0;
 
                 if (op.operation->request().cancellation_requested() ||
                     !op.operation->request().begin_device()) {
@@ -302,7 +400,7 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
 
-                const usize consumed = op.entries.advance(static_cast<usize>(n));
+                const usz consumed = op.entries.advance(static_cast<usz>(n));
 
                 op.moved += consumed;
 
@@ -800,7 +898,7 @@ namespace astia::io::aio::dispatch {
                  (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
                  handle->mode().is_regular()) ||
                 (direction == ::astia::io::direction::input &&
-                 access == ASTIA_AIO_O_WRONLY))
+                 !fs::open_file_readable(handle->flags())))
                 return context.complete(-EBADF);
 
             // READ/WRITE name one range, READV/WRITEV up to max_segments of
@@ -825,7 +923,7 @@ namespace astia::io::aio::dispatch {
 
                 if (s.length != 0 &&
                     !memory::copy_in(
-                        raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
+                        raw, span<u8>::bytes(s.address, static_cast<usz>(s.length) *
                                                             sizeof(astia_iovec))))
                     return context.complete(-EFAULT);
 
@@ -835,7 +933,7 @@ namespace astia::io::aio::dispatch {
                 // a raw pointer out of user memory.
                 for (u64 i = 0; i < s.length; ++i) {
                     ranges[i] = span<u8>::bytes(reinterpret_cast<u64>(raw[i].base),
-                                                static_cast<usize>(raw[i].len));
+                                                static_cast<usz>(raw[i].len));
                 }
 
                 count = static_cast<u32>(s.length);
@@ -846,7 +944,7 @@ namespace astia::io::aio::dispatch {
             // flight of the operation (see submit_request), so another
             // thread of the process unmapping one cannot pull a buffer out
             // from under the device.
-            usize total = 0;
+            usz total = 0;
 
             for (u32 i = 0; i < count; ++i) {
                 const bool kernel_buffer =
@@ -890,7 +988,7 @@ namespace astia::io::aio::dispatch {
                  (handle->flags() & fs::pipe_write_endpoint_flag) == 0 &&
                  handle->mode().is_regular()) ||
                 (direction == ::astia::io::direction::input &&
-                 access == ASTIA_AIO_O_WRONLY))
+                 !fs::open_file_readable(handle->flags())))
                 return error_t::ebadf;
 
             span<u8> ranges[mm::iovec::max_segments];
@@ -909,19 +1007,19 @@ namespace astia::io::aio::dispatch {
 
                 if (s.length != 0 &&
                     !memory::copy_in(
-                        raw, span<u8>::bytes(s.address, static_cast<usize>(s.length) *
+                        raw, span<u8>::bytes(s.address, static_cast<usz>(s.length) *
                                                             sizeof(astia_iovec))))
                     return error_t::efault;
 
                 for (u64 i = 0; i < s.length; ++i) {
                     ranges[i] = span<u8>::bytes(reinterpret_cast<u64>(raw[i].base),
-                                                static_cast<usize>(raw[i].len));
+                                                static_cast<usz>(raw[i].len));
                 }
 
                 count = static_cast<u32>(s.length);
             }
 
-            usize total = 0;
+            usz total = 0;
 
             for (u32 i = 0; i < count; ++i) {
                 const bool kernel_buffer =
@@ -953,7 +1051,7 @@ namespace astia::io::aio::dispatch {
             while (!out.entries.done()) {
                 void* window = out.entries.window();
 
-                usize chunk = out.entries.chunk();
+                usz chunk = out.entries.chunk();
 
                 if (window == nullptr || chunk == 0)
                     break;
@@ -982,8 +1080,13 @@ namespace astia::io::aio::dispatch {
     }
 
     long resolve_at(proc::process* current, i32 raw_dirfd, const char* path, char* out,
-                    usize capacity, bool follow_final) {
+                    usz capacity, bool follow_final) {
         return detail::resolve_at(current, raw_dirfd, path, out, capacity, follow_final);
+    }
+
+    long resolve_path_for(proc::process* current, const char* path, char* out,
+                          usz capacity, bool follow_final) {
+        return detail::resolve_path_for(current, path, out, capacity, follow_final);
     }
 
     bool parent_writable(proc::process* current, const char* path) {
@@ -992,6 +1095,14 @@ namespace astia::io::aio::dispatch {
 
     bool parent_searchable(proc::process* current, const char* path) {
         return detail::parent_searchable(current, path);
+    }
+
+    bool directory_listable(proc::process* current, const char* path) {
+        return detail::directory_listable(current, path);
+    }
+
+    bool owner_or_writable(proc::process* current, const char* path) {
+        return detail::owner_or_writable(current, path);
     }
 
     bool submit_socket_request(ring::ring_slot& slot, astia_rings* ring,

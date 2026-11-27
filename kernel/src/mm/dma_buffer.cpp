@@ -29,7 +29,7 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usize pages, bool zero) {
+    bool dma_buffer::allocate(usz pages, bool zero) {
         release();
 
         if (pages == 0)
@@ -83,7 +83,7 @@ namespace astia::mm {
         _address       = other._address;
         other._address = address;
 
-        const usize pages = _pages;
+        const usz pages = _pages;
 
         _pages       = other._pages;
         other._pages = pages;

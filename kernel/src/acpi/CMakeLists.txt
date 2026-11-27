@@ -10,7 +10,11 @@ endif ()
 
 add_library(acpi STATIC
         tables.cpp
-        aml.cpp
+        aml/core.cpp
+        aml/decode.cpp
+        aml/eval.cpp
+        aml/namespace.cpp
+        aml/parse.cpp
         power.cpp
         init.cpp
 )

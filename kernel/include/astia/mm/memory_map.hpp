@@ -26,7 +26,7 @@ namespace astia::mm {
     /// most 128 e820 entries, which we mirror here.
     class memory_map {
         public:
-        static constexpr usize max_regions = 128;
+        static constexpr usz max_regions = 128;
 
         void add(u64 base, u64 size, memory_type type) {
             if (_count >= max_regions)
@@ -35,7 +35,7 @@ namespace astia::mm {
             _regions[_count++] = {base, size, type};
         }
 
-        usize count() const {
+        usz count() const {
             return _count;
         }
 
@@ -47,12 +47,12 @@ namespace astia::mm {
             return _regions + _count;
         }
 
-        const memory_region& operator[](usize index) const {
+        const memory_region& operator[](usz index) const {
             return _regions[index];
         }
 
         private:
         memory_region _regions[max_regions]{};
-        usize         _count = 0;
+        usz           _count = 0;
     };
 } // namespace astia::mm

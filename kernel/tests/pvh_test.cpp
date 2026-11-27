@@ -50,7 +50,7 @@ ASTIA_TEST(pvh_parses_memmap) {
     ASTIA_CHECK(astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
     ASTIA_CHECK(out.memory.count() == 2);
     ASTIA_CHECK(out.memory[0].base == 0x100000);
     ASTIA_CHECK(out.memory[0].size == 0x400000);
@@ -87,7 +87,7 @@ ASTIA_TEST(pvh_parses_handoff_fields) {
     ASTIA_CHECK(astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
 
     ASTIA_CHECK(out.cmdline != nullptr);
     ASTIA_CHECK(out.cmdline[0] == 'q');
@@ -127,7 +127,7 @@ ASTIA_TEST(pvh_ramdisk_alone_leaves_no_modules) {
     ASTIA_CHECK(astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
     ASTIA_CHECK(out.initrd.paddr == 0x4000000);
     ASTIA_CHECK(out.initrd.size == 0x1000);
     ASTIA_CHECK(out.module_count == 0);
@@ -150,7 +150,7 @@ ASTIA_TEST(pvh_absent_fields_stay_null) {
     ASTIA_CHECK(astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
     ASTIA_CHECK(out.cmdline == nullptr);
     ASTIA_CHECK(out.rsdp == 0);
     ASTIA_CHECK(out.initrd.paddr == 0);
@@ -168,7 +168,7 @@ ASTIA_TEST(pvh_rejects_bad_magic) {
     ASTIA_CHECK(!astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
 }
 
 ASTIA_TEST(pvh_rejects_missing_memmap) {
@@ -183,7 +183,7 @@ ASTIA_TEST(pvh_rejects_missing_memmap) {
     ASTIA_CHECK(!astia::boot::virt::parse_start_info(
         astia::span<const astia::u8>(reinterpret_cast<const astia::u8*>(&info),
                                      sizeof(info)),
-        astia::span<const astia::u8>::bytes(0, static_cast<astia::usize>(-1)), out));
+        astia::span<const astia::u8>::bytes(0, static_cast<astia::usz>(-1)), out));
 }
 
 ASTIA_TEST(pvh_rejects_tables_outside_trusted_memory) {

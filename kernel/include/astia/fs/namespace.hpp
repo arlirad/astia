@@ -28,14 +28,18 @@ namespace astia::fs {
     /// True when the path resolves to a read-only mount.
     bool read_only_path(const char* path);
 
+    /* `inode` receives the filesystem identity of the returned entry, or 0
+       when the mount has no persistent inode identity (an initrd archive or a
+       UNIX pathname record).  The pointer may be null when the caller only
+       needs the name and type. */
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        file_type* type);
+                        file_type* type, u64* inode);
     /* Enumerate the directory an open descriptor was bound to.  The entry
        index is a property of the stream, not the directory, so it is the
        caller's to keep; the pathname resolved here is the one the handle
        captured at open time, never a caller-supplied path. */
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type);
+                        u32 capacity, file_type* type, u64* inode);
     long make_directory(const char* path, file_mode mode);
     long remove_path(const char* path, bool directory);
     /// Atomically rename within one mounted filesystem.  Different mounts
@@ -44,6 +48,19 @@ namespace astia::fs {
     long      link_path(const char* old_path, const char* new_path);
     file_type node_type(const char* path);
     file_mode node_mode(const char* path);
+    /// Device identity of the mount backing `path`.  A live mount always
+    /// reports a nonzero value; 0 means the path names no mount.
+    u32 node_device(const char* path);
+    /// Device identity of the mount an open descriptor was bound to when
+    /// it was opened.  A descriptor bound straight to a file object has no
+    /// mount and reports the device of its path, or 0 without one.
+    u32 node_device(const open_file& handle);
+    /// Inode number of `path` inside its filesystem.  Filesystems that
+    /// cannot supply one (implicit initrd directories, devfs entries)
+    /// get a stable synthetic value derived from the mount and the
+    /// canonical path, so distinct names never share an inode.  The top
+    /// bit is set, keeping a synthetic value clear of real inode numbers.
+    u64 node_inode(const char* path);
     /// True when the path still names the directory identified by the
     /// retained mount/inode pair.  A renamed, unlinked, or recycled name
     /// no longer matches, so callers can reject it instead of silently
@@ -51,13 +68,16 @@ namespace astia::fs {
     bool  directory_matches(const char* path, mount* owner, u64 inode);
     uid_t node_uid(const char* path);
     gid_t node_gid(const char* path);
-    long  chmod_path(const char* path, file_permissions permissions);
-    long  chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
-    long  touch_path(const char* path, u64 sec, u64 nsec);
-    long  make_symlink(const char* target, const char* path);
-    long  read_symlink(const char* path, char* buffer, u32 capacity);
-    long  resolve_path(const char* path, char* buffer, u32 capacity,
-                       bool follow_final = true);
+    /// Timestamps the mount records for this node, all zero when it records
+    /// none.
+    file_timestamps node_timestamps(const char* path);
+    long            chmod_path(const char* path, file_permissions permissions);
+    long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final);
+    long make_symlink(const char* target, const char* path);
+    long read_symlink(const char* path, char* buffer, u32 capacity);
+    long resolve_path(const char* path, char* buffer, u32 capacity,
+                      bool follow_final = true);
     long resolve_path_from(const char* root, const char* path, char* buffer, u32 capacity,
                            bool follow_final = true);
     mount*    retain_mount_for_unix_path(const char* canonical);

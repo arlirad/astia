@@ -78,11 +78,14 @@ namespace astia::fs {
         virtual gid_t     gid() const;
         virtual long      chmod(file_permissions permissions);
         virtual long      chown(uid_t owner, gid_t group);
-        virtual u64       mtime_sec() const;
-        virtual u64       mtime_nsec() const;
-        virtual long      touch(u64 sec, u64 nsec);
-        virtual void      duplicate(u32 flags);
-        virtual void      close(u32 flags);
+        /// Recorded timestamps, or an all-zero value when this backend does
+        /// not track them.
+        virtual file_timestamps timestamps() const;
+        virtual u64             mtime_sec() const;
+        virtual u64             mtime_nsec() const;
+        virtual long            touch(const file_timestamps& times);
+        virtual void            duplicate(u32 flags);
+        virtual void            close(u32 flags);
         /// Kernel-internal typed hook for protocol-specific file operations.
         /// This is deliberately separate from the generic file contracts.
         virtual const unix_socket_operations* unix_socket_capability() const;

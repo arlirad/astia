@@ -8,8 +8,8 @@
  */
 #include <astia/api/errno.h>
 #include <astia/api/signal_stack.h>
+#include <astia/api/syscalls.h>
 
-#include <sys/futex.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/random.h>
@@ -38,6 +38,9 @@
 
 extern long __astia_process_futex(unsigned int* address, unsigned int operation,
                                   unsigned int value, const int64_t* timeout);
+
+int futex_wait(uint32_t* address, uint32_t expected);
+int futex_wake(uint32_t* address, uint32_t count);
 
 #ifndef O_NOCTTY
 #define O_NOCTTY 0
@@ -75,6 +78,29 @@ static long direct_chdir(const char* path) {
     return result;
 #else
     (void) path;
+
+    return -ENOSYS;
+#endif
+}
+
+static long direct_dlmap(int fd, unsigned int flags, void* info) {
+#if defined(__x86_64__)
+    long          result;
+    register long r10 asm("r10") = 0;
+    register long r8 asm("r8")   = 0;
+    register long r9 asm("r9")   = 0;
+
+    asm volatile("syscall"
+                 : "=a"(result)
+                 : "a"(71L), "D"((long) fd), "S"((long) flags), "d"((long) info),
+                   "r"(r10), "r"(r8), "r"(r9)
+                 : "rcx", "r11", "memory");
+
+    return result;
+#else
+    (void) fd;
+    (void) flags;
+    (void) info;
 
     return -ENOSYS;
 #endif
@@ -763,6 +789,57 @@ static void* libc_signal_mask_worker(void* opaque) {
     return (void*) (unsigned long) (libc_signal_mask_result == 0 ? 0x7890 : 0x7891);
 }
 
+static volatile int libc_thread_helper_started;
+
+static void* libc_thread_helper_worker(void* opaque) {
+    (void) opaque;
+
+    libc_thread_helper_started = 1;
+
+    for (;;) {
+        asm volatile("" ::: "memory");
+    }
+}
+
+static void libc_term_thread_check(void) {
+    pthread_t worker;
+
+    libc_thread_helper_started = 0;
+
+    if (pthread_create(&worker, NULL, libc_thread_helper_worker, NULL) != 0)
+        _Exit(250);
+
+    while (!libc_thread_helper_started) {
+        asm volatile("" ::: "memory");
+    }
+
+    if (raise(SIGTERM) != 0)
+        _Exit(251);
+
+    _Exit(252);
+}
+
+static void libc_fault_thread_check(void) {
+    pthread_t      worker;
+    unsigned char* page =
+        mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    if (page == MAP_FAILED || mprotect(page, 4096, PROT_NONE) != 0)
+        _Exit(253);
+
+    libc_thread_helper_started = 0;
+
+    if (pthread_create(&worker, NULL, libc_thread_helper_worker, NULL) != 0)
+        _Exit(254);
+
+    while (!libc_thread_helper_started) {
+        asm volatile("" ::: "memory");
+    }
+
+    (void) *(volatile unsigned char*) page;
+    _Exit(255);
+}
+
 static void* libc_cancel_join_target(void* opaque) {
     (void) opaque;
 
@@ -800,6 +877,104 @@ static void* libc_cancel_sigsuspend_worker(void* opaque) {
     (void) sigsuspend(&mask);
 
     return (void*) (unsigned long) 0x1357;
+}
+
+static volatile int   libc_exit_waitpid_started;
+static volatile pid_t libc_exit_live_child;
+
+static void* libc_exit_waitpid_worker(void* opaque) {
+    (void) opaque;
+
+    int status = 0;
+
+    libc_exit_waitpid_started = 1;
+
+    (void) waitpid((pid_t) libc_exit_live_child, &status, 0);
+
+    return NULL;
+}
+
+static int libc_exit_parked_waiters(void) {
+    int pipe_fds[2];
+
+    pthread_t waitpid_worker;
+    pthread_t signal_worker;
+
+    if (pipe(pipe_fds) != 0)
+        return 1;
+
+    const pid_t live_child = fork();
+    if (live_child < 0)
+        return 2;
+
+    if (live_child == 0) {
+        char byte;
+
+        close(pipe_fds[1]);
+        (void) read(pipe_fds[0], &byte, 1);
+        _Exit(0);
+    }
+
+    close(pipe_fds[0]);
+
+    libc_exit_live_child           = live_child;
+    libc_exit_waitpid_started      = 0;
+    libc_cancel_sigsuspend_started = 0;
+
+    if (pthread_create(&waitpid_worker, NULL, libc_exit_waitpid_worker, NULL) != 0)
+        return 3;
+
+    if (pthread_create(&signal_worker, NULL, libc_cancel_sigsuspend_worker, NULL) != 0)
+        return 4;
+
+    while (!libc_exit_waitpid_started || !libc_cancel_sigsuspend_started) {
+        sched_yield();
+    }
+
+    for (int i = 0; i < 16; ++i) {
+        sched_yield();
+    }
+
+    return 0;
+}
+
+static volatile int libc_cancel_sigwait_started;
+
+static void* libc_cancel_sigwait_worker(void* opaque) {
+    (void) opaque;
+
+    sigset_t mask;
+
+    int signal_number = 0;
+
+    if (sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0)
+        return (void*) (unsigned long) 0x135a;
+
+    libc_cancel_sigwait_started = 1;
+
+    return (void*) (unsigned long) (sigwait(&mask, &signal_number) == EINTR ? 0x1358
+                                                                            : 0x135b);
+}
+
+static volatile int libc_cancel_sigtimedwait_started;
+
+static void* libc_cancel_sigtimedwait_worker(void* opaque) {
+    (void) opaque;
+
+    sigset_t        mask;
+    struct timespec timeout = {3600, 0};
+
+    int signal_number;
+
+    if (sigemptyset(&mask) != 0 || sigaddset(&mask, SIGUSR1) != 0)
+        return (void*) (unsigned long) 0x135c;
+
+    libc_cancel_sigtimedwait_started = 1;
+    errno                            = 0;
+    signal_number                    = sigtimedwait(&mask, NULL, &timeout);
+
+    return (void*) (unsigned long) (signal_number < 0 && errno == EINTR ? 0x1359
+                                                                        : 0x135d);
 }
 
 static void* libc_cancel_sem_worker(void* opaque) {
@@ -1316,7 +1491,47 @@ static void sigpipe_handler(int signal_number) {
     ++sigpipe_hits;
 }
 
+/* Run one staged payload in a child.  0 means it exited 0, 1 means this boot's
+   initrd does not carry the fixture, -1 means it ran and failed. */
+static int run_staged_fixture(const char* path) {
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) path, NULL};
+
+        execv(path, child_argv);
+        printf("astia: fixture exec failed path=%s errno=%d\n", path, errno);
+        _Exit(144);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child)
+        return -1;
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
+        return 1;
+
+    return status == 0 ? 0 : -1;
+}
+
 int main(int argc, char** argv) {
+    if (argc > 1 && strcmp(argv[1], "--term-thread-check") == 0) {
+        if (argc != 2)
+            _Exit(1);
+
+        libc_term_thread_check();
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--fault-thread-check") == 0) {
+        if (argc != 2)
+            _Exit(1);
+
+        libc_fault_thread_check();
+    }
+
     if (argc > 1 && strcmp(argv[1], "--exec-altstack-check") == 0) {
         stack_t current;
 
@@ -1366,6 +1581,17 @@ int main(int argc, char** argv) {
             _Exit(143);
 
         _Exit(0);
+    }
+
+    if (argc > 1 && strcmp(argv[1], "--setpgid-exec-child") == 0) {
+        char marker = 'x';
+
+        if (write(3, &marker, 1) != 1)
+            _Exit(260);
+
+        for (;;) {
+            sleep(1);
+        }
     }
 
     if (argc > 1 && strcmp(argv[1], "--chroot-check") == 0) {
@@ -1724,6 +1950,78 @@ int main(int argc, char** argv) {
         if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child ||
             !WIFSIGNALED(status) || WTERMSIG(status) != SIGKILL)
             return 131;
+    }
+
+    {
+        int ready[2];
+
+        if (pipe(ready) != 0)
+            return 232;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 233;
+
+        if (child == 0) {
+            char byte = 'R';
+
+            close(ready[0]);
+
+            if (write(ready[1], &byte, 1) != 1)
+                _Exit(240);
+
+            for (;;) {
+                asm volatile("" ::: "memory");
+            }
+        }
+
+        close(ready[1]);
+
+        char byte   = 0;
+        int  status = 0;
+
+        struct timespec settle = {0, 50000000};
+
+        if (read(ready[0], &byte, 1) != 1 || byte != 'R')
+            return 234;
+
+        close(ready[0]);
+
+        (void) nanosleep(&settle, NULL);
+
+        if (kill(child, SIGTERM) != 0 || waitpid(child, &status, 0) != child ||
+            !WIFSIGNALED(status) || WTERMSIG(status) != SIGTERM)
+            return 235;
+    }
+
+    {
+        char* helper_argv[] = {(char*) "/bin/init_libc", (char*) "--term-thread-check",
+                               NULL};
+
+        const pid_t child = spawnve(helper_argv[0], helper_argv, NULL);
+        if (child < 0)
+            return 236;
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGTERM)
+            return 237;
+    }
+
+    {
+        char* helper_argv[] = {(char*) "/bin/init_libc", (char*) "--fault-thread-check",
+                               NULL};
+
+        const pid_t child = spawnve(helper_argv[0], helper_argv, NULL);
+        if (child < 0)
+            return 243;
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || !WIFSIGNALED(status) ||
+            WTERMSIG(status) != SIGSEGV)
+            return 244;
     }
 
     {
@@ -3496,6 +3794,53 @@ int main(int argc, char** argv) {
             return 168;
     }
 
+    /* Cancelling a sigwait waiter must resume it instead of leaving it
+       parked with the request pending. */
+    {
+        pthread_t worker;
+        void*     result = NULL;
+
+        libc_cancel_sigwait_started = 0;
+
+        if (pthread_create(&worker, NULL, libc_cancel_sigwait_worker, NULL) != 0)
+            return 231;
+
+        while (!libc_cancel_sigwait_started) {
+            sched_yield();
+        }
+
+        for (int i = 0; i < 4; ++i) {
+            sched_yield();
+        }
+
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x1358)
+            return 232;
+    }
+
+    /* The timed variant shares the park path but registers a deadline. */
+    {
+        pthread_t worker;
+        void*     result = NULL;
+
+        libc_cancel_sigtimedwait_started = 0;
+
+        if (pthread_create(&worker, NULL, libc_cancel_sigtimedwait_worker, NULL) != 0)
+            return 233;
+
+        while (!libc_cancel_sigtimedwait_started) {
+            sched_yield();
+        }
+
+        for (int i = 0; i < 4; ++i) {
+            sched_yield();
+        }
+
+        if (pthread_cancel(worker) != 0 || pthread_join(worker, &result) != 0 ||
+            result != (void*) (unsigned long) 0x1359)
+            return 234;
+    }
+
     {
         pthread_t worker;
         void*     result = NULL;
@@ -4510,87 +4855,379 @@ int main(int argc, char** argv) {
             return 86;
     }
 
+    /* PT_GNU_RELRO.  The control build writes only ordinary .data and must
+       exit 0, proving a plain-data fault cannot masquerade as a RELRO pass.
+       The fault build then writes .data.rel.ro, which must raise SIGSEGV once
+       the interpreter has made the RELRO pages read-only. */
+    {
+        const int control = run_staged_fixture("/bin/interp_relro_ok");
+        if (control < 0)
+            return 245;
+
+        if (control == 0) {
+            const pid_t child = fork();
+            if (child < 0)
+                return 245;
+
+            if (child == 0) {
+                char* child_argv[] = {(char*) "/bin/interp_relro", NULL};
+
+                execv("/bin/interp_relro", child_argv);
+                _Exit(241); /* fixture not staged in this initrd */
+            }
+
+            int status = 0;
+
+            if (waitpid(child, &status, 0) != child)
+                return 245;
+
+            if (WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV)
+                printf("astia: relro ok\n");
+            else
+                return 245; /* the RELRO write did not fault */
+        }
+    }
+
     /* 52: PT_INTERP bootstrap.  The kernel must enter /lib/ld.stub.so,
        which stamps argc and jumps to the payload's AT_ENTRY; the payload
        exits 0 only if it saw the stamp and a non-zero AT_BASE. */
     {
+        const int fixture = run_staged_fixture("/bin/interp_main");
+        if (fixture < 0)
+            return 88;
+
+        if (fixture == 0)
+            printf("astia: interp ok\n");
+    }
+
+    /* GNU IFUNC: ifunc_value's resolver calls into libfixture_base, so it can
+       only run once every image is relocated; the slot must hold the result,
+       and the DSO's own R_X86_64_IRELATIVE slot must too. */
+    {
         const pid_t child = fork();
         if (child < 0)
-            return 87;
+            return 99;
 
         if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_main", NULL};
+            char* child_argv[] = {(char*) "/bin/interp_ifunc", NULL};
 
-            execv("/bin/interp_main", child_argv);
-            printf("astia: interp exec failed errno=%d\n", errno);
-            _Exit(143); /* fixture not staged in this initrd */
+            execv("/bin/interp_ifunc", child_argv);
+            _Exit(240);
         }
 
         int status = 0;
 
         if (waitpid(child, &status, 0) != child)
-            return 88;
+            return 99;
 
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 143)
-            ; /* daemond/native initrds do not carry the fixture */
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
+            ; /* not staged in this initrd */
         else if (status != 0)
-            return 88;
+            return 99;
         else
-            printf("astia: interp ok\n");
+            printf("astia: ifunc ok\n");
     }
 
     /* 53: ld.astia.so resolves DT_NEEDED (libfixture.so) through dlmap and
        applies the payload's PLT relocation for fixture_answer. */
     {
-        const pid_t child = fork();
-        if (child < 0)
+        const int fixture = run_staged_fixture("/bin/interp_link");
+        if (fixture < 0)
             return 89;
 
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_link", NULL};
+        if (fixture == 0)
+            printf("astia: ld ok\n");
+    }
 
-            execv("/bin/interp_link", child_argv);
-            _Exit(144);
+    /* Global-dynamic TLS: the DSO's __tls_get_addr calls resolve against the
+       interpreter's per-thread DTV, and a new thread gets its own blocks. */
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 99;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "/bin/interp_dyntls", NULL};
+
+            execv("/bin/interp_dyntls", child_argv);
+            _Exit(240); /* fixture not staged in this initrd */
         }
 
         int status = 0;
 
         if (waitpid(child, &status, 0) != child)
-            return 89;
+            return 99;
 
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 240)
             ; /* not staged in this initrd */
         else if (status != 0)
-            return 89;
+            return 99;
         else
-            printf("astia: ld ok\n");
+            printf("astia: dyntls ok\n");
     }
 
     /* Same payload with PT_PHDR turned into PT_NULL: the interpreter must
        recover the load bias from auxv instead of guessing zero. */
     {
-        const pid_t child = fork();
-        if (child < 0)
+        const int fixture = run_staged_fixture("/bin/interp_nophdr");
+        if (fixture < 0)
             return 89;
 
-        if (child == 0) {
-            char* child_argv[] = {(char*) "/bin/interp_nophdr", NULL};
+        if (fixture == 0)
+            printf("astia: ld nophdr ok\n");
+    }
 
-            execv("/bin/interp_nophdr", child_argv);
-            _Exit(144);
+    /* GNU-hash-only images: the payload and libfixture_gnu.so have no
+       DT_HASH, so the symbol counts come from .gnu.hash; the payload's
+       undefined import additionally needs the .dynsym/.dynstr span.
+       libfixture_semihash.so carries both tables and must not be counted
+       from the GNU hash. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_gnu");
+        if (fixture < 0)
+            return 210;
+
+        if (fixture == 0)
+            printf("astia: gnu-hash ok\n");
+    }
+
+    /* R_X86_64_TPOFF32: one slot names the defining library's own TLS block
+       and one names an import owned by another image. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_tpoff32");
+        if (fixture < 0)
+            return 211;
+
+        if (fixture == 0)
+            printf("astia: tpoff32 ok\n");
+    }
+
+    /* A dynamic R_X86_64_RELATIVE whose slot lives in a read-only PT_LOAD:
+       the kernel applies it at load, the interpreter must not write it. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_relative_ro");
+        if (fixture < 0)
+            return 212;
+
+        if (fixture == 0)
+            printf("astia: relative ro ok\n");
+    }
+
+    /* execve() of the same dynamic image is repeatable: every run builds a
+       fresh address space, so stale loader or mapping state shows up on the
+       second run rather than the first. */
+    {
+        int fixture = 0;
+
+        for (int round = 0; round < 2 && fixture == 0; ++round) {
+            fixture = run_staged_fixture("/bin/interp_link");
         }
 
-        int status = 0;
+        if (fixture < 0)
+            return 213;
 
-        if (waitpid(child, &status, 0) != child)
-            return 89;
+        if (fixture == 0)
+            printf("astia: exec repeat ok\n");
+    }
 
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 144)
-            ; /* not staged in this initrd */
-        else if (status != 0)
-            return 89;
-        else
-            printf("astia: ld nophdr ok\n");
+    /* 56: dlmap enforces the descriptor access mode.  A write-only
+       descriptor must fail with the documented EACCES instead of
+       reading the image through a bypassed access check. */
+    {
+        const char* source = "/lib/ld.astia.so";
+        const char* target = "/tmp/dlmap-write-only.so";
+
+        char    copy[4096];
+        ssize_t got = 0;
+        int     in  = open(source, O_RDONLY);
+        int     out = -1;
+
+        (void) unlink(target);
+
+        if (in < 0)
+            return 221;
+
+        out = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+        if (out < 0) {
+            close(in);
+
+            return 222;
+        }
+
+        while ((got = read(in, copy, sizeof copy)) > 0) {
+            ssize_t written = 0;
+
+            while (written < got) {
+                const ssize_t step = write(out, copy + written, (size_t) (got - written));
+                if (step <= 0) {
+                    close(out);
+                    close(in);
+                    (void) unlink(target);
+
+                    return 223;
+                }
+
+                written += step;
+            }
+        }
+
+        if (got < 0 || close(in) != 0 || close(out) != 0) {
+            (void) unlink(target);
+
+            return 224;
+        }
+
+        const int fd = open(target, O_WRONLY);
+        if (fd < 0) {
+            (void) unlink(target);
+
+            return 225;
+        }
+
+        unsigned char info[56];
+        int           untouched = 1;
+
+        memset(info, 0xA5, sizeof info);
+
+        const long mapped = direct_dlmap(fd, 0, info);
+
+        for (size_t i = 0; i < sizeof info; ++i) {
+            if (info[i] != 0xA5)
+                untouched = 0;
+        }
+
+        close(fd);
+
+        if (mapped != -EACCES || !untouched) {
+            (void) unlink(target);
+
+            return 226;
+        }
+
+        if (unlink(target) != 0)
+            return 227;
+
+        printf("astia: dlmap access ok\n");
+    }
+
+    /* 58: a full binding table reports ENOSPC instead of wedging on the
+       registry lock.  Each copy of the fixture is a distinct image, so the
+       loop drives the process past its eight bindings and then retries the
+       rejected image after one handle is released. */
+    {
+        const char* source = "/lib/libfixture.so";
+
+        char paths[9][32];
+        int  files[9];
+
+        uint64_t bases[9];
+
+        char buffer[4096];
+
+        struct stat image;
+
+        int in = open(source, O_RDONLY);
+
+        if (in >= 0) {
+            if (fstat(in, &image) != 0 || image.st_size <= 0)
+                return 234;
+
+            for (int i = 0; i < 9; ++i) {
+                snprintf(paths[i], sizeof paths[i], "/tmp/dl-bind-%d", i);
+                (void) unlink(paths[i]);
+
+                int out = open(paths[i], O_WRONLY | O_CREAT | O_TRUNC, 0600);
+                if (out < 0)
+                    return 234;
+
+                if (lseek(in, 0, SEEK_SET) < 0)
+                    return 234;
+
+                off_t copied = 0;
+
+                while (copied < image.st_size) {
+                    size_t want = (size_t) (image.st_size - copied);
+
+                    if (want > sizeof buffer)
+                        want = sizeof buffer;
+
+                    ssize_t got = read(in, buffer, want);
+                    if (got <= 0)
+                        return 234;
+
+                    ssize_t written = 0;
+
+                    while (written < got) {
+                        ssize_t step =
+                            write(out, buffer + written, (size_t) (got - written));
+                        if (step <= 0)
+                            return 234;
+
+                        written += step;
+                    }
+
+                    copied += got;
+                }
+
+                if (close(out) != 0)
+                    return 234;
+
+                files[i] = open(paths[i], O_RDONLY);
+
+                if (files[i] < 0)
+                    return 234;
+
+                bases[i] = 0;
+            }
+
+            close(in);
+
+            int  mapped = 0;
+            int  failed = -1;
+            long result = 0;
+
+            for (int i = 0; i < 9; ++i) {
+                astia_dl_info info;
+
+                result = astia_dlmap(files[i], 0, &info);
+                if (result <= 0) {
+                    failed = i;
+
+                    break;
+                }
+
+                bases[i] = (uint64_t) result;
+
+                ++mapped;
+            }
+
+            if (failed < 0 || result != -ENOSPC || mapped == 0 || mapped > 8)
+                return 235;
+
+            if (astia_dlunmap(bases[0]) != 0)
+                return 236;
+
+            astia_dl_info retry;
+
+            result = astia_dlmap(files[failed], 0, &retry);
+            if (result <= 0)
+                return 237;
+
+            for (int i = 1; i < 9; ++i) {
+                if (i != failed && bases[i] != 0 && astia_dlunmap(bases[i]) != 0)
+                    return 238;
+            }
+
+            if (astia_dlunmap((uint64_t) result) != 0)
+                return 239;
+
+            for (int i = 0; i < 9; ++i) {
+                close(files[i]);
+                (void) unlink(paths[i]);
+            }
+
+            printf("astia: dl binding enospc ok\n");
+        }
     }
 
     /* 54: the initrd namespace is immutable: create and mutation calls
@@ -4905,6 +5542,121 @@ int main(int argc, char** argv) {
         printf("astia: random ok\n");
     }
 
+    /* 59: POSIX keeps a parent out of a child's process group once that
+       child has exec'd.  The child signals from its new image so the
+       parent cannot race the setpgid() ahead of the exec transition. */
+    {
+        const pid_t parent_group = getpgrp();
+
+        struct pollfd ready = {0};
+
+        int sync_pipe[2];
+        int status = 0;
+
+        if (pipe(sync_pipe) != 0)
+            return 261;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 262;
+
+        if (child == 0) {
+            char marker = 'x';
+
+            close(sync_pipe[0]);
+
+            if (sync_pipe[1] != 3) {
+                if (dup2(sync_pipe[1], 3) != 3)
+                    _Exit(263);
+
+                close(sync_pipe[1]);
+            }
+
+            execl(argv[0], argv[0], "--setpgid-exec-child", NULL);
+            _Exit(264);
+        }
+
+        close(sync_pipe[1]);
+
+        char marker = 0;
+
+        ready.fd     = sync_pipe[0];
+        ready.events = POLLIN;
+
+        if (poll(&ready, 1, 5000) != 1 || read(sync_pipe[0], &marker, 1) != 1) {
+            kill(child, SIGKILL);
+            (void) waitpid(child, NULL, 0);
+
+            return 265;
+        }
+
+        close(sync_pipe[0]);
+
+        errno = 0;
+
+        if (setpgid(child, parent_group) != -1 || errno != EACCES) {
+            kill(child, SIGKILL);
+            (void) waitpid(child, NULL, 0);
+
+            return 266;
+        }
+
+        if (kill(child, SIGKILL) != 0 || waitpid(child, &status, 0) != child)
+            return 267;
+
+        printf("astia: setpgid exec ok\n");
+    }
+
+    /* 54: open(O_CREAT) and mkdir honor the process umask. */
+    {
+        static const char file[] = "/tmp/umask_create_file";
+        static const char dir[]  = "/tmp/umask_create_dir";
+
+        struct stat metadata;
+
+        unsigned int old_mask;
+        int          fd;
+
+        (void) unlink(file);
+        (void) rmdir(dir);
+
+        old_mask = umask(0077);
+
+        fd = open(file, O_CREAT | O_WRONLY | O_TRUNC, 0666);
+        if (fd < 0)
+            return 193;
+
+        if (fstat(fd, &metadata) != 0 || (metadata.st_mode & 0777) != 0600)
+            return 194;
+
+        if (close(fd) != 0)
+            return 195;
+
+        if (mkdir(dir, 0777) != 0)
+            return 196;
+
+        if (stat(dir, &metadata) != 0 || (metadata.st_mode & 0777) != 0700)
+            return 197;
+
+        if (umask(old_mask) != 0077)
+            return 198;
+
+        if (unlink(file) != 0 || rmdir(dir) != 0)
+            return 199;
+    }
+
+    /* 56: dlopen/dlsym/dlclose through the interpreter's handle API.  The
+       payload proves constructors, duplicate handles, the default scope,
+       NODELETE and real unload against a fresh image. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_dlopen");
+        if (fixture < 0)
+            return 207;
+
+        if (fixture == 0)
+            printf("astia: dlopen ok\n");
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */
@@ -4980,5 +5732,13 @@ int main(int argc, char** argv) {
     printf("astia: libc ok pid=%d argc=%d argv0=%s\n", pid, argc,
            argc > 0 ? argv[0] : "-");
 
-    return 0;
+    /* 52: process exit must terminate threads parked in waitpid and a
+       signal wait, otherwise the process never becomes a zombie. */
+    if (libc_exit_parked_waiters() != 0)
+        return 230;
+
+    printf("astia: exit parked waiters start\n");
+    fflush(NULL);
+
+    exit(0);
 }

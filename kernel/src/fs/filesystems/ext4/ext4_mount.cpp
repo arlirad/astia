@@ -80,6 +80,7 @@ namespace astia::fs::filesystems {
             char*      name;
             u32        capacity;
             file_type* type;
+            u64*       inode;
             long       result = 0;
         };
 
@@ -102,15 +103,18 @@ namespace astia::fs::filesystems {
             *context.type  = convert_type(entry.type);
             context.result = 1;
 
+            if (context.inode != nullptr)
+                *context.inode = entry.inode;
+
             return false;
         }
     }
 
-    bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usize length) {
+    bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usz length) {
         return static_cast<ext4_mount*>(context)->source_read(offset, buffer, length);
     }
 
-    bool ext4_mount::source_read(u64 offset, void* buffer, usize length) const {
+    bool ext4_mount::source_read(u64 offset, void* buffer, usz length) const {
         if (!_source || (buffer == nullptr && length != 0))
             return false;
 
@@ -124,17 +128,17 @@ namespace astia::fs::filesystems {
         auto* output = static_cast<u8*>(buffer);
 
         while (length != 0) {
-            const u64   sector = offset - offset % source_sector_size;
-            const u32   within = static_cast<u32>(offset - sector);
-            const usize amount = length < source_sector_size - within
-                                     ? length
-                                     : source_sector_size - within;
-            u8          block[4096]{};
+            const u64 sector = offset - offset % source_sector_size;
+            const u32 within = static_cast<u32>(offset - sector);
+            const usz amount = length < source_sector_size - within
+                                   ? length
+                                   : source_sector_size - within;
+            u8        block[4096]{};
 
             if (_source->read(block, source_sector_size, sector) != source_sector_size)
                 return false;
 
-            for (usize i = 0; i < amount; ++i) {
+            for (usz i = 0; i < amount; ++i) {
                 output[i] = block[within + i];
             }
 
@@ -250,7 +254,7 @@ namespace astia::fs::filesystems {
     }
 
     long ext4_mount::read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    file_type* type) {
+                                    file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -262,7 +266,7 @@ namespace astia::fs::filesystems {
         if (node.type() != ext4::node_type::directory)
             return -ENOTDIR;
 
-        directory_context context{index, 0, name, capacity, type};
+        directory_context context{index, 0, name, capacity, type, inode};
 
         if (!_reader.read_directory(node, enumerate_entry, &context))
             return -EIO;
@@ -290,7 +294,7 @@ namespace astia::fs::filesystems {
                 buffer[i] = static_cast<char>(node.block[i]);
             }
         }
-        else if (!_reader.read_file(node, 0, buffer, static_cast<usize>(node.size))) {
+        else if (!_reader.read_file(node, 0, buffer, static_cast<usz>(node.size))) {
             return -EIO;
         }
 

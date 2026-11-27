@@ -25,19 +25,18 @@ namespace astia::proc::syscalls {
             if (length == 0)
                 return 0;
 
-            const auto destination = buffer.validate(static_cast<usize>(length));
+            const auto destination = buffer.validate(static_cast<usz>(length));
             if (!destination)
                 return -EFAULT;
 
             // Stage through kernel memory: the pool must not write through a
             // caller-owned address, even one that just validated.
-            constexpr usize chunk_size = 128;
-            u8              chunk[chunk_size];
-            u64             done = 0;
+            constexpr usz chunk_size = 128;
+            u8            chunk[chunk_size];
+            u64           done = 0;
 
             while (done < length) {
-                const usize count =
-                    length - done < chunk_size ? length - done : chunk_size;
+                const usz count = length - done < chunk_size ? length - done : chunk_size;
 
                 if (!crypto::random_bytes(chunk, count))
                     return done == 0 ? -EAGAIN : static_cast<i64>(done);

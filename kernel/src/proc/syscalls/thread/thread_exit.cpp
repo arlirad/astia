@@ -24,7 +24,7 @@ namespace astia::proc::syscalls {
             if (self == nullptr)
                 return -ESRCH;
 
-            self->exit(reinterpret_cast<void*>(static_cast<usize>(result)));
+            self->exit(reinterpret_cast<void*>(static_cast<usz>(result)));
             __builtin_unreachable();
         }
     };

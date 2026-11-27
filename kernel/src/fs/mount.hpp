@@ -4,11 +4,31 @@
 #include <astia/fs.hpp>
 
 namespace astia::fs {
+    namespace detail {
+        /// Mount identity for st_dev.  Registry slots are recycled by
+        /// unmount, so the slot index cannot name a mount across time; a
+        /// monotonic counter identifies the instance for its whole life.
+        inline u32 allocate_mount_device() {
+            static u32 next = 1;
+
+            return astia::atomic_ref<u32>(next).fetch_add(1u,
+                                                          astia::memory_order::relaxed);
+        }
+    } // namespace detail
+
     /// A mounted filesystem instance.  The filesystem type is the
     /// factory; this object carries the mounted state and path lookup.
     class mount {
         public:
+        mount() : _device(detail::allocate_mount_device()) {}
+
         virtual ~mount() = default;
+
+        /// Identity the mount reports as st_dev: nonzero and unique among
+        /// live mounts, and shared by every object the mount backs.
+        u32 device() const {
+            return _device;
+        }
 
         /// True for an immutable mount: create/write namespace operations
         /// must fail with -EROFS instead of silently looking absent.
@@ -20,20 +40,21 @@ namespace astia::fs {
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    file_type* type);
+                                    file_type* type, u64* inode);
         virtual long mkdir(const char* path, file_mode mode);
         virtual long unlink(const char* path, bool directory);
         virtual long rename(const char* old_path, const char* new_path);
         virtual long link(const char* old_path, const char* new_path);
-        virtual file_type node_type(const char* path) const;
-        virtual file_mode node_mode(const char* path) const;
-        virtual u64       node_inode(const char* path) const;
-        virtual uid_t     node_uid(const char* path) const;
-        virtual gid_t     node_gid(const char* path) const;
-        virtual long      chmod(const char* path, file_permissions permissions);
-        virtual long      chown(const char* path, uid_t uid, gid_t gid);
-        virtual long      symlink(const char* target, const char* path);
-        virtual long      readlink(const char* path, char* buffer, u32 capacity) const;
+        virtual file_type       node_type(const char* path) const;
+        virtual file_mode       node_mode(const char* path) const;
+        virtual u64             node_inode(const char* path) const;
+        virtual uid_t           node_uid(const char* path) const;
+        virtual gid_t           node_gid(const char* path) const;
+        virtual file_timestamps node_timestamps(const char* path) const;
+        virtual long            chmod(const char* path, file_permissions permissions);
+        virtual long            chown(const char* path, uid_t uid, gid_t gid);
+        virtual long            symlink(const char* target, const char* path);
+        virtual long readlink(const char* path, char* buffer, u32 capacity) const;
 
         void retain_open() {
             astia::atomic_ref<u32>(_open_count)
@@ -56,6 +77,7 @@ namespace astia::fs {
         }
 
         private:
+        const u32   _device;
         mutable u32 _open_count = 0;
     };
 } // namespace astia::fs

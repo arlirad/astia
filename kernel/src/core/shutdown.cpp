@@ -7,7 +7,7 @@ namespace astia::shutdown {
     namespace {
         using logs = astia::log::context<"shutdown">;
 
-        constexpr usize max_handlers = 32;
+        constexpr usz max_handlers = 32;
 
         struct registration {
             const char* name    = nullptr;
@@ -17,7 +17,7 @@ namespace astia::shutdown {
         };
 
         registration          registrations[max_handlers]{};
-        usize                 registration_count = 0;
+        usz                   registration_count = 0;
         astia::atomic<u8>     state{0}; // 0 idle, 1 running, 2 complete
         astia::core::spinlock registration_lock;
 
@@ -51,7 +51,7 @@ namespace astia::shutdown {
             return false;
 
         if (level == tier::final) {
-            for (usize i = 0; i < registration_count; ++i) {
+            for (usz i = 0; i < registration_count; ++i) {
                 if (registrations[i].level == tier::final)
                     return false;
             }
@@ -67,10 +67,10 @@ namespace astia::shutdown {
         return true;
     }
 
-    bool initiate() {
+    bool initiate(handler final_override, void* final_context) {
         registration snapshot[max_handlers]{};
 
-        usize count = 0;
+        usz count = 0;
 
         {
             astia::core::spinlock_guard guard(registration_lock);
@@ -85,7 +85,7 @@ namespace astia::shutdown {
 
             count = registration_count;
 
-            for (usize i = 0; i < count; ++i) {
+            for (usz i = 0; i < count; ++i) {
                 snapshot[i] = registrations[i];
             }
         }
@@ -97,7 +97,21 @@ namespace astia::shutdown {
         for (u8 level = 0; level < static_cast<u8>(tier::count); ++level) {
             const tier current = static_cast<tier>(level);
 
-            for (usize i = 0; i < count; ++i) {
+            if (current == tier::final && final_override != nullptr) {
+                logs::info("tier=final handler=override");
+
+                final_ran = true;
+
+                if (!final_override(final_context)) {
+                    logs::error("tier=final handler=override failed");
+
+                    all_ok = false;
+                }
+
+                continue;
+            }
+
+            for (usz i = 0; i < count; ++i) {
                 const registration& entry = snapshot[i];
 
                 if (entry.level != current)

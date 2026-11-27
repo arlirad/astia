@@ -109,15 +109,15 @@ ASTIA_TEST(tmpfs_readdir_lists_children_under_a_long_directory_path) {
 
     astia::fs::file_type type = astia::fs::directory_unknown;
 
-    ASTIA_CHECK(mount.read_directory(parent, 0, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(mount.read_directory(parent, 0, name, sizeof name, &type, nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "a") == 0);
     ASTIA_CHECK(type == astia::fs::directory_dir);
 
-    ASTIA_CHECK(mount.read_directory(parent, 1, name, sizeof name, &type) == 1);
+    ASTIA_CHECK(mount.read_directory(parent, 1, name, sizeof name, &type, nullptr) == 1);
     ASTIA_CHECK(std::strcmp(name, "b") == 0);
     ASTIA_CHECK(type == astia::fs::directory_dir);
 
-    ASTIA_CHECK(mount.read_directory(parent, 2, name, sizeof name, &type) == 0);
+    ASTIA_CHECK(mount.read_directory(parent, 2, name, sizeof name, &type, nullptr) == 0);
 }
 
 ASTIA_TEST(tmpfs_readdir_bounds_names_by_component_capacity) {
@@ -132,7 +132,7 @@ ASTIA_TEST(tmpfs_readdir_bounds_names_by_component_capacity) {
 
     astia::fs::file_type type = astia::fs::directory_unknown;
 
-    ASTIA_CHECK(mount.read_directory("/d", 0, exact, sizeof exact, &type) == 1);
+    ASTIA_CHECK(mount.read_directory("/d", 0, exact, sizeof exact, &type, nullptr) == 1);
     ASTIA_CHECK(std::strcmp(exact, "abcdefgh") == 0);
     ASTIA_CHECK(type == astia::fs::directory_dir);
 
@@ -140,9 +140,64 @@ ASTIA_TEST(tmpfs_readdir_bounds_names_by_component_capacity) {
 
     std::memset(guarded, 0x7f, sizeof guarded);
 
-    ASTIA_CHECK(mount.read_directory("/d", 0, guarded, 8, &type) == -ENAMETOOLONG);
+    ASTIA_CHECK(mount.read_directory("/d", 0, guarded, 8, &type, nullptr) ==
+                -ENAMETOOLONG);
 
     for (astia::u32 i = 0; i < sizeof guarded; ++i) {
         ASTIA_CHECK(static_cast<unsigned char>(guarded[i]) == 0x7f);
     }
+}
+
+ASTIA_TEST(tmpfs_readdir_reports_stable_inode_identity) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs_mount mount;
+
+    ASTIA_CHECK(mount.mkdir("/identity", directory_mode()) == 0);
+
+    auto file = mount.open("/identity/file", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
+
+    ASTIA_CHECK(file);
+
+    ASTIA_CHECK(mount.link("/identity/file", "/identity/link") == 0);
+    ASTIA_CHECK(mount.mkdir("/identity/nested", directory_mode()) == 0);
+
+    char name[256]{};
+
+    astia::fs::file_type type = astia::fs::directory_unknown;
+
+    astia::u64 inode = 0;
+
+    ASTIA_CHECK(mount.read_directory("/identity", 0, name, sizeof name, &type, &inode) ==
+                1);
+    ASTIA_CHECK(std::strcmp(name, "file") == 0);
+    ASTIA_CHECK(type == astia::fs::directory_reg);
+    ASTIA_CHECK(inode != 0);
+    ASTIA_CHECK(inode == mount.node_inode("/identity/file"));
+
+    astia::u64 file_inode = inode;
+
+    ASTIA_CHECK(mount.read_directory("/identity", 1, name, sizeof name, &type, &inode) ==
+                1);
+    ASTIA_CHECK(std::strcmp(name, "link") == 0);
+    ASTIA_CHECK(type == astia::fs::directory_reg);
+    ASTIA_CHECK(inode == file_inode);
+    ASTIA_CHECK(mount.node_inode("/identity/link") == file_inode);
+
+    ASTIA_CHECK(mount.read_directory("/identity", 2, name, sizeof name, &type, &inode) ==
+                1);
+    ASTIA_CHECK(std::strcmp(name, "nested") == 0);
+    ASTIA_CHECK(type == astia::fs::directory_dir);
+    ASTIA_CHECK(inode != 0);
+    ASTIA_CHECK(inode == mount.node_inode("/identity/nested"));
+
+    astia::u64 nested_inode = inode;
+
+    ASTIA_CHECK(mount.read_directory("/identity", 0, name, sizeof name, &type, &inode) ==
+                1);
+    ASTIA_CHECK(inode == file_inode);
+    ASTIA_CHECK(nested_inode != file_inode);
+
+    ASTIA_CHECK(mount.read_directory("/identity", 3, name, sizeof name, &type, &inode) ==
+                0);
 }

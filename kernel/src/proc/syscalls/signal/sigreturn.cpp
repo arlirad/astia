@@ -16,11 +16,11 @@ namespace astia::proc::syscalls {
     struct sigreturn : sys::syscall_handler<sigreturn, sys::syscall_id::sigreturn,
                                             sys::syscall_mode::sync> {
         static i64 invoke(sys::syscall_trap trap, sys::user_ptr<u8> context) {
-            constexpr usize capacity = arch::max_signal_context_bytes;
+            constexpr usz capacity = arch::max_signal_context_bytes;
 
             alignas(16) u8 storage[capacity]{};
 
-            const usize bytes = arch::signal_context_bytes();
+            const usz bytes = arch::signal_context_bytes();
 
             if (bytes == 0 || bytes > capacity || context.null())
                 return -EFAULT;
@@ -36,9 +36,9 @@ namespace astia::proc::syscalls {
             if (state.faults) {
                 if (auto* self = current_thread()) {
                     if (auto* owner = self->owner())
-                        owner->signal_termination(signal_number::segv);
+                        owner->terminate_for_signal(signal_number::segv, self);
 
-                    self->exit(reinterpret_cast<void*>(static_cast<usize>(
+                    self->exit(reinterpret_cast<void*>(static_cast<usz>(
                         wait_signal_exit_status(static_cast<u8>(signal_number::segv)))));
                     __builtin_unreachable();
                 }

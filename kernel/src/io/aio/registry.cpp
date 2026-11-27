@@ -15,8 +15,8 @@ namespace astia::io::aio::registry {
         return __start_astia_aio_handlers;
     }
 
-    usize size() {
-        return static_cast<usize>(__stop_astia_aio_handlers - __start_astia_aio_handlers);
+    usz size() {
+        return static_cast<usz>(__stop_astia_aio_handlers - __start_astia_aio_handlers);
     }
 
     namespace {
@@ -30,7 +30,7 @@ namespace astia::io::aio::registry {
             if (size() != opcode_count)
                 return false;
 
-            for (usize i = 0; i < size(); ++i) {
+            for (usz i = 0; i < size(); ++i) {
                 const operation_descriptor& entry = entries()[i];
 
                 if (!valid_opcode(entry.operation) || entry.invoke == nullptr)
@@ -86,7 +86,7 @@ namespace astia::io::aio::registry {
 } // namespace astia::io::aio::registry
 
 namespace astia::io::aio {
-    bool validate_descriptors(const operation_descriptor* entries, usize count) {
+    bool validate_descriptors(const operation_descriptor* entries, usz count) {
         return validate_manifest(entries, count);
     }
 } // namespace astia::io::aio

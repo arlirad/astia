@@ -261,8 +261,7 @@ namespace astia::dev {
         return result;
     }
 
-    core::task<i64> device_file::ioctl(u64 request, void* argp, usize size,
-                                       core::cltoken) {
+    core::task<i64> device_file::ioctl(u64 request, void* argp, usz size, core::cltoken) {
         device* value = begin_operation();
         if (value == nullptr)
             co_return -ENODEV;

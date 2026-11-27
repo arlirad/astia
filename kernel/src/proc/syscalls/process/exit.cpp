@@ -21,7 +21,7 @@ namespace astia::proc::syscalls {
             if (thread->owner() != nullptr)
                 thread->owner()->request_exit(thread, static_cast<i32>(status));
 
-            thread->exit(reinterpret_cast<void*>(static_cast<usize>(status)));
+            thread->exit(reinterpret_cast<void*>(static_cast<usz>(status)));
             __builtin_unreachable();
         }
     };

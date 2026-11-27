@@ -8,8 +8,8 @@ namespace astia::boot {
             return value == ' ' || value == '\t' || value == '\n' || value == '\r';
         }
 
-        bool equal_token(const char* first, usize length, const char* expected) {
-            usize index = 0;
+        bool equal_token(const char* first, usz length, const char* expected) {
+            usz index = 0;
 
             while (index < length && expected[index] != '\0' &&
                    first[index] == expected[index]) {
@@ -19,17 +19,17 @@ namespace astia::boot {
             return index == length && expected[index] == '\0';
         }
 
-        bool valid_path(const char* path, usize length) {
+        bool valid_path(const char* path, usz length) {
             if (length == 0 || path[0] != '/')
                 return false;
 
-            usize component_start = 1;
+            usz component_start = 1;
 
-            for (usize index = 1; index <= length; ++index) {
+            for (usz index = 1; index <= length; ++index) {
                 if (index != length && path[index] != '/')
                     continue;
 
-                const usize component_length = index - component_start;
+                const usz component_length = index - component_start;
 
                 if (component_length == 0 && index != length)
                     return false;
@@ -49,9 +49,9 @@ namespace astia::boot {
     init_selection select_init(const char* command_line) {
         init_selection result{};
 
-        usize default_length = sizeof(default_init) - 1;
+        usz default_length = sizeof(default_init) - 1;
 
-        for (usize index = 0; index < default_length; ++index) {
+        for (usz index = 0; index < default_length; ++index) {
             result.path[index] = default_init[index];
         }
 
@@ -76,7 +76,7 @@ namespace astia::boot {
                 ++cursor;
             }
 
-            const usize token_length = static_cast<usize>(cursor - token);
+            const usz token_length = static_cast<usz>(cursor - token);
 
             if (equal_token(token, token_length, "--init")) {
                 if (selected) {
@@ -99,7 +99,7 @@ namespace astia::boot {
 
                 const char* path = cursor;
 
-                usize path_length = 0;
+                usz path_length = 0;
 
                 while (*cursor != '\0' && !whitespace(*cursor) &&
                        path_length < init_path_capacity) {
@@ -119,7 +119,7 @@ namespace astia::boot {
                     return result;
                 }
 
-                for (usize index = 0; index < path_length; ++index) {
+                for (usz index = 0; index < path_length; ++index) {
                     result.path[index] = path[index];
                 }
 

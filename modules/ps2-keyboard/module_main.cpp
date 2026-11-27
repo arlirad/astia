@@ -1,3 +1,6 @@
+#include <astia/core/task.hpp>
+#include <astia/dev/capabilities.hpp>
+#include <astia/dev/tty_input.hpp>
 #include <astia/log.hpp>
 #include <astia/module.hpp>
 
@@ -12,13 +15,20 @@ namespace {
     using astia::ps2::ps2_keyboard;
 
     bool ttv0_put(void*, astia::u8 byte) {
-        return astia::module::tty_input_write(byte);
+        return astia::dev::tty_input_write(byte);
     }
 
     constexpr input_sink ttv0_sink{nullptr, ttv0_put};
 
     constinit ps2_controller controller{};
     constinit ps2_keyboard   keyboard{controller, ttv0_sink};
+
+    // The module owns the device identity: line 1 and the 8042 port pair.
+    constinit astia::dev::irq_route route{1};
+
+    // The module owns the device identity: it requests the 8042 port range and
+    // keeps the granted window for the image's lifetime.
+    constinit astia::dev::io_port_window input_ports;
 
     const char* error_text(ps2_error error) {
         switch (error) {
@@ -39,10 +49,6 @@ namespace {
         return "unknown";
     }
 
-    int error_code(ps2_error error) {
-        return -32 - static_cast<int>(error);
-    }
-
     void irq_entry() {
         keyboard.irq();
     }
@@ -52,80 +58,82 @@ namespace {
         (void) controller.disable_keyboard();
     }
 
-    int fail(ps2_error error) {
+    astia::error_t fail(ps2_error error) {
         shutdown();
         logs::info("unavailable");
         logs::info("%s", error_text(error));
 
-        return error_code(error);
+        return astia::error_t::eio;
     }
 } // namespace
 
-int module_main() {
+astia::core::task<void> module_main() {
     logs::info("resident module loaded");
 
-    const astia::dev::ps2_port_window& ports = astia::module::ps2_platform_ports();
+    input_ports = astia::dev::claim_io_window(ps2_controller::data_port,
+                                              ps2_controller::command_port);
 
-    if (!ports.valid()) {
+    if (!input_ports.valid()) {
         logs::info("unavailable");
+        logs::info("window denied");
 
-        return -19;
+        co_return astia::error_t::einval;
     }
 
-    controller.attach(ports);
+    controller.attach(input_ports);
 
     ps2_error result = controller.initialize();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     result = keyboard.initialize();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     result = controller.drain();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     // PIC IRQ1 is still masked; enable the controller source before any
     // route can point at this image.
     result = controller.enable_interrupt();
 
     if (result != ps2_error::none)
-        return fail(result);
+        co_return fail(result);
 
     // The kernel owns the module reference behind this route and marks the
     // caller resident itself; there is no module-side lifetime object.
-    if (!astia::module::ps2_claim_irq(irq_entry)) {
+    if (!route.claim(irq_entry)) {
         shutdown();
         logs::info("unavailable");
         logs::info("irq claim failed");
 
-        return -16;
+        co_return astia::error_t::ebusy;
     }
 
     if (!astia::module::make_resident()) {
-        (void) astia::module::ps2_release_irq();
+        (void) route.release();
         shutdown();
         logs::info("unavailable");
         logs::info("resident transition failed");
 
-        return -21;
+        co_return astia::error_t::eperm;
     }
 
     logs::info("ready irq=1");
 
     // Unmask last: the lease, route, and controller source are all in place.
-    if (!astia::module::ps2_unmask_irq()) {
-        (void) astia::module::ps2_release_irq();
+    if (!route.unmask()) {
+        (void) route.release();
         shutdown();
         logs::info("unavailable");
         logs::info("irq unmask failed");
 
-        return -5;
+        co_return astia::error_t::eio;
     }
 
-    return 0;
+    co_return astia::error_t::enone;
 }

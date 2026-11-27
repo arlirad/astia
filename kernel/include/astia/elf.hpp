@@ -31,12 +31,14 @@ namespace astia::elf::loader {
     inline constexpr u8 elf_magic[] = {0x7f, 'E', 'L', 'F'};
 
     /// Number of bytes in the ELF identification array.
-    inline constexpr usize elf_ident_size = 16;
+    inline constexpr usz elf_ident_size = 16;
 
-    /// Fixed caps used by the loader's stack-backed metadata tables.
-    inline constexpr usize max_sections           = 640;
-    inline constexpr usize max_program_headers    = 64;
-    inline constexpr usize max_init_array_entries = 64;
+    /// Fixed caps used by the loader's stack-backed metadata tables. Real
+    /// modules built as C++20 coroutines carry many COMDAT function sections;
+    /// a task-shaped entry can take a hardware driver past 320 headers.
+    inline constexpr usz max_sections           = 640;
+    inline constexpr usz max_program_headers    = 64;
+    inline constexpr usz max_init_array_entries = 64;
 
     /// Why an ET_REL image is not loadable into the kernel direct map.
     enum class relocatable_problem : u8 {
@@ -71,7 +73,7 @@ namespace astia::elf::loader {
     /// preserve `hint`'s congruence class modulo `align`; this lets ET_DYN
     /// retain PT_LOAD load-bias congruence without requiring the hint itself
     /// to be aligned to `align`. Returns null on failure.
-    using map_fn = void* (*) (void* ctx, u64 hint, usize size, usize align, bool fixed);
+    using map_fn = void* (*) (void* ctx, u64 hint, usz size, usz align, bool fixed);
 
     /// Resolve an undefined global symbol by name to its runtime address.
     /// Returns 0 if the name is unknown. (Integer, not pointer, so neither side
@@ -80,12 +82,12 @@ namespace astia::elf::loader {
     using resolve_fn = u64 (*)(void* ctx, const char* name);
 
     using copy_fn       = bool (*)(void* ctx, u64 address, span<const u8> source);
-    using unmap_fn      = void (*)(void* ctx, void* address, usize size);
+    using unmap_fn      = void (*)(void* ctx, void* address, usz size);
     using async_read_fn = core::task<i64> (*)(void* ctx, span<u8> destination,
                                               u64 offset);
     /// Read file bytes into the final mapped image backing at `destination`.
     /// Completion must not be reported while the destination is still in use.
-    using async_read_to_fn = core::task<i64> (*)(void* ctx, u64 destination, usize length,
+    using async_read_to_fn = core::task<i64> (*)(void* ctx, u64 destination, usz length,
                                                  u64 offset);
 
     /// Caller-supplied environment: where memory comes from and how symbols
@@ -127,23 +129,23 @@ namespace astia::elf::loader {
 
     /// Upper bound on PT_LOAD segments we track. A typical binary has 4; the
     /// fixed cap keeps the list off the heap, mirroring memory_map / init.
-    inline constexpr usize max_segments = 8;
+    inline constexpr usz max_segments = 8;
 
     /// A successfully loaded image, common to both loaders.
     struct image {
         void* entry = nullptr; ///< Entry point (module_main for ET_REL, e_entry + bias
                                ///< for executables).
         void* base = nullptr;  ///< Base of the loaded allocation (lowest mapped address).
-        usize size = 0;        ///< Total bytes spanned by the image.
+        usz   size = 0;        ///< Total bytes spanned by the image.
         kind  loaded = kind::none; ///< Which loader produced this.
         u64   load_bias =
             0; ///< Relocation bias (0 for ET_REL and ET_EXEC; chosen for ET_DYN).
-        usize   nsegs              = 0; ///< PT_LOAD segment count (executables only).
+        usz     nsegs              = 0; ///< PT_LOAD segment count (executables only).
         segment segs[max_segments] = {};
         init_fn init_array[max_init_array_entries] = {};
-        usize   init_count                         = 0;
+        usz     init_count                         = 0;
         init_fn fini_array[max_init_array_entries] = {};
-        usize   fini_count                         = 0;
+        usz     fini_count                         = 0;
 
         // Program header table as it is visible to the running image.
         u64 phdr_vaddr = 0;
@@ -168,7 +170,7 @@ namespace astia::elf::loader {
     /// little-endian x86-64 identity. Returns kind::none for anything else.
     kind kind_of(span<const u8> bytes);
 
-    inline kind kind_of(const void* bytes, usize len) {
+    inline kind kind_of(const void* bytes, usz len) {
         return kind_of(span<const u8>(static_cast<const u8*>(bytes), len));
     }
 
@@ -180,7 +182,7 @@ namespace astia::elf::loader {
     /// ownership to the caller.
     bool load_relocatable(span<const u8> bytes, const env& e, image& out);
 
-    inline bool load_relocatable(const void* bytes, usize len, const env& e, image& out) {
+    inline bool load_relocatable(const void* bytes, usz len, const env& e, image& out) {
         return load_relocatable(span<const u8>(static_cast<const u8*>(bytes), len), e,
                                 out);
     }
@@ -194,7 +196,7 @@ namespace astia::elf::loader {
     /// caller.
     bool load_executable(span<const u8> bytes, const env& e, image& out);
 
-    inline bool load_executable(const void* bytes, usize len, const env& e, image& out) {
+    inline bool load_executable(const void* bytes, usz len, const env& e, image& out) {
         return load_executable(span<const u8>(static_cast<const u8*>(bytes), len), e,
                                out);
     }
@@ -203,13 +205,13 @@ namespace astia::elf::loader {
     /// then fetches PT_LOAD file ranges through the async environment.
     /// The callback context must remain valid until the returned task is done.
     /// The callback table itself is copied into the coroutine frame.
-    core::task<image> load_executable_stream(async_env e, usize file_size);
+    core::task<image> load_executable_stream(async_env e, usz file_size);
 
     /// Dispatch to the right loader based on kind_of(). Returns false for
     /// anything that is not a supported ELF image.
     bool load(span<const u8> bytes, const env& e, image& out);
 
-    inline bool load(const void* bytes, usize len, const env& e, image& out) {
+    inline bool load(const void* bytes, usz len, const env& e, image& out) {
         return load(span<const u8>(static_cast<const u8*>(bytes), len), e, out);
     }
 } // namespace astia::elf::loader

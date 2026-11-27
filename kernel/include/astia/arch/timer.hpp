@@ -9,7 +9,9 @@
 namespace astia::arch {
     /// Ticks counted from the timer interrupt since init_interrupts();
     /// 0 until the first tick. Grows monotonically for the life of the
-    /// kernel — the time source for idle loops and timeouts.
+    /// kernel — the time source for idle loops and timeouts. A port with a
+    /// periodic tick service may account whole missed periods so wall time
+    /// keeps advancing when a handler is delayed.
     u64 timer_ticks();
 
     /// Frequency of timer_ticks() in hertz — the period one tick covers,
@@ -20,8 +22,9 @@ namespace astia::arch {
 
     /// Which timer source drives timer_ticks(): the per-CPU LAPIC timer
     /// (SMP-scalable — one LAPIC per core) when bring-up calibrated it,
-    /// the boot PIT otherwise. Diagnostics today; per-CPU once SMP lands.
-    enum class timer_source : u8 { pit, lapic };
+    /// the boot PIT otherwise, or the AArch64 EL1 physical timer's periodic
+    /// PPI tick service. Diagnostics today; per-CPU once SMP lands.
+    enum class timer_source : u8 { pit, lapic, generic };
 
     timer_source current_timer_source();
 

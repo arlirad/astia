@@ -628,7 +628,9 @@ namespace astia::test {
             static_assert(static_cast<u32>(sys::syscall_id::modclose) == 76);
             static_assert(static_cast<u32>(sys::syscall_id::getrandom) == 77);
             static_assert(static_cast<u32>(sys::syscall_id::chroot) == 78);
+            static_assert(static_cast<u32>(sys::syscall_id::power) == 79);
             static_assert(SYS_CHROOT == 78);
+            static_assert(SYS_POWER == 79);
             static_assert(SYS_FCHDIR == 69);
             static_assert(SYS_UNAME == 70);
             static_assert(SYS_DLMAP == 71);
@@ -645,7 +647,7 @@ namespace astia::test {
                                                        0, 0, image));
             };
             auto equal = [](const char* field, const char* value) {
-                for (usize i = 0;; ++i) {
+                for (usz i = 0;; ++i) {
                     if (field[i] != value[i])
                         return false;
 
@@ -653,8 +655,8 @@ namespace astia::test {
                         return true;
                 }
             };
-            auto padded = [](const char* field, usize size) {
-                usize i = 0;
+            auto padded = [](const char* field, usz size) {
+                usz i = 0;
 
                 while (i < size && field[i] != '\0') {
                     ++i;
@@ -673,7 +675,7 @@ namespace astia::test {
 
             astia_utsname name;
 
-            for (usize i = 0; i < sizeof name; ++i) {
+            for (usz i = 0; i < sizeof name; ++i) {
                 reinterpret_cast<u8*>(&name)[i] = 0xA5;
             }
 
@@ -699,9 +701,9 @@ namespace astia::test {
 
             arch::syscall_return unassigned{};
 
-            if (sys::dispatch(static_cast<sys::syscall_id>(79), 0, 0, 0, 0, 0, 0,
+            if (sys::dispatch(static_cast<sys::syscall_id>(81), 0, 0, 0, 0, 0, 0,
                               unassigned) != -ENOSYS) {
-                logs::error("syscall id 79 is not unassigned");
+                logs::error("syscall id 81 is not unassigned");
 
                 return false;
             }
@@ -1764,7 +1766,8 @@ namespace astia::test {
                 return false;
             }
 
-            auto statx = [&](const char* path, i32 fd, astia_stat* out) -> long {
+            auto statx = [&](const char* path, i32 fd, astia_stat* out,
+                             u32 op_flags = 0) -> long {
                 astia_sqe* s = astia_sqe_slot(ring);
                 if (s == nullptr) {
                     return -EBUSY;
@@ -1775,6 +1778,7 @@ namespace astia::test {
                 s->address   = path == nullptr ? 0 : reinterpret_cast<u64>(path);
                 s->offset    = reinterpret_cast<u64>(out);
                 s->length    = static_cast<u32>(sizeof(astia_stat));
+                s->op_flags  = op_flags;
                 s->user_data = statx_tag;
                 astia_sq_publish(ring, 1);
                 if (sys::io_submit(ring, 1) < 0) {
@@ -1793,6 +1797,70 @@ namespace astia::test {
 
             if (statx(probe_path, -1, &st) != 0 || st.size != 4096 || st.blocks != 8) {
                 logs::error("statx fail (path form)");
+
+                return false;
+            }
+
+            // Device and inode identity come from the backing mount and
+            // filesystem, never a constant: two directories on one mount
+            // differ, a symlink reports its own inode, and two mounts
+            // report different devices.  The probe node has no inode of
+            // its own, so it also covers the synthetic per-name fallback.
+            static const char first_dir[]  = "/tmp/statx_dir_a";
+            static const char second_dir[] = "/tmp/statx_dir_b";
+            static const char link_path[]  = "/tmp/statx_link";
+
+            const fs::file_mode directory_mode(fs::directory_dir,
+                                               fs::file_permissions(0755));
+
+            if (fs::make_directory(first_dir, directory_mode) != 0 ||
+                fs::make_directory(second_dir, directory_mode) != 0 ||
+                fs::make_symlink("/tmp", link_path) != 0) {
+                logs::error("statx fail (identity fixtures)");
+
+                return false;
+            }
+
+            astia_stat first{}, second{}, link{}, dev_root{};
+
+            if (statx(first_dir, -1, &first) != 0 ||
+                statx(second_dir, -1, &second) != 0 ||
+                statx(link_path, -1, &link, STATX_NOFOLLOW) != 0 ||
+                statx("/dev", -1, &dev_root) != 0) {
+                logs::error("statx fail (identity stat)");
+
+                return false;
+            }
+
+            if (first.dev == 0 || first.dev != second.dev ||
+                first.dev != fs::node_device(first_dir) || first.ino == 0 ||
+                first.ino != fs::node_inode(first_dir) || second.ino == 0 ||
+                second.ino != fs::node_inode(second_dir) || first.ino == second.ino) {
+                logs::error("statx fail (directory identity)");
+
+                return false;
+            }
+
+            if (link.dev != first.dev || link.ino == 0 || link.ino == first.ino ||
+                link.ino == second.ino || link.ino != fs::node_inode(link_path)) {
+                logs::error("statx fail (symlink identity)");
+
+                return false;
+            }
+
+            if (dev_root.dev == 0 || dev_root.dev == first.dev || dev_root.ino == 0 ||
+                st.dev == 0 || st.ino == 0) {
+                logs::error("statx fail (mount identity)");
+
+                return false;
+            }
+
+            auto timed =
+                fs::open("/tmp/statx_times_probe", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+            if (!timed || statx("/tmp/statx_times_probe", -1, &st) != 0 ||
+                st.atime_sec == 0 || st.mtime_sec == 0 || st.ctime_sec == 0) {
+                logs::error("statx fail (timestamps)");
 
                 return false;
             }
@@ -2043,7 +2111,7 @@ namespace astia::test {
         // creating the arena must cost only the payload's frames, and the
         // whole reserve must invalidate without allocating.
         bool tls_arena_checks() {
-            const usize before = mm::kernel_frames().available_frames();
+            const usz before = mm::kernel_frames().available_frames();
 
             proc::tls_arena layout{};
 
@@ -2060,10 +2128,10 @@ namespace astia::test {
                 return false;
             }
 
-            const usize allocated    = before - mm::kernel_frames().available_frames();
-            bool        reserve_lazy = true;
+            const usz allocated    = before - mm::kernel_frames().available_frames();
+            bool      reserve_lazy = true;
 
-            for (usize page = 0; page < layout.reserve_pages; ++page) {
+            for (usz page = 0; page < layout.reserve_pages; ++page) {
                 reserve_lazy = reserve_lazy && region->page_base(page) ==
                                                    mm::frame_allocator::invalid_frame;
             }

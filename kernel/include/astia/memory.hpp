@@ -9,10 +9,10 @@
 // a default-initialised array), so a freestanding kernel has to provide them
 // or the final link fails.
 extern "C" {
-void* memset(void* dst, int value, astia::usize count);
-void* memcpy(void* dst, const void* src, astia::usize count);
-void* memmove(void* dst, const void* src, astia::usize count);
-int   memcmp(const void* lhs, const void* rhs, astia::usize count);
+void* memset(void* dst, int value, astia::usz count);
+void* memcpy(void* dst, const void* src, astia::usz count);
+void* memmove(void* dst, const void* src, astia::usz count);
+int   memcmp(const void* lhs, const void* rhs, astia::usz count);
 }
 
 namespace astia {
@@ -33,7 +33,7 @@ namespace astia {
     }
 
     /// Zero `count` bytes starting at `dst`.
-    inline void fill_zero(void* dst, usize count) {
+    inline void fill_zero(void* dst, usz count) {
         memset(dst, 0, count);
     }
 } // namespace astia

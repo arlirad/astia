@@ -61,7 +61,7 @@ namespace astia::proc::syscalls {
                 co_return -ESRCH;
 
             auto result = co_await owner_ref->exec_user_file_async(
-                static_cast<mm::shptr<fs::open_file>&&>(file), static_cast<usize>(size),
+                static_cast<mm::shptr<fs::open_file>&&>(file), static_cast<usz>(size),
                 staging.argv(), staging.envp());
             if (!result)
                 co_return -errno_value(result.error);

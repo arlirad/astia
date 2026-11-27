@@ -18,7 +18,7 @@
 #include "signal_permission.hpp"
 #include "terminal_name.hpp"
 
-void* operator new[](astia::usize size, void* where) noexcept;
+void* operator new[](astia::usz size, void* where) noexcept;
 
 namespace astia::proc {
     namespace {
@@ -176,17 +176,42 @@ namespace astia::proc {
     void terminate_current_if_killed() {
         auto* self = current_thread();
 
-        if (self == nullptr || !self->kill_pending() || self->owner() == nullptr)
+        if (self == nullptr || self->owner() == nullptr)
             return;
 
-        auto*               owner  = self->owner();
-        const signal_number signal = owner->termination_signal() == signal_number{}
-                                         ? signal_number::kill
-                                         : owner->termination_signal();
+        auto* owner = self->owner();
 
-        owner->signal_termination(signal);
+        if (self->kill_pending()) {
+            const signal_number signal = owner->termination_signal() == signal_number{}
+                                             ? signal_number::kill
+                                             : owner->termination_signal();
+
+            owner->signal_termination(signal);
+            self->exit(reinterpret_cast<void*>(
+                static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
+            __builtin_unreachable();
+        }
+
+        if (owner->process_exit_requested() && self->exit_requested()) {
+            self->exit(reinterpret_cast<void*>(
+                static_cast<usz>(owner->requested_exit_status())));
+            __builtin_unreachable();
+        }
+
+        signal_number signal =
+            self->signals().pending_fatal_default_for(self->signals().blocked());
+
+        if (!valid_signal(signal))
+            signal =
+                owner->signals().pending_fatal_default_for(self->signals().blocked());
+
+        if (!valid_signal(signal))
+            return;
+
+        owner->terminate_for_signal(signal, self);
         self->exit(reinterpret_cast<void*>(
-            static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+            static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
+        __builtin_unreachable();
     }
 
     tid_t allocate_tid() {
@@ -234,7 +259,7 @@ namespace astia::proc {
     }
 
     core::task<mm::shptr<process>> spawnve(process* parent, mm::shptr<fs::open_file> file,
-                                           usize length, char* const argv[],
+                                           usz length, char* const argv[],
                                            char* const envp[]) {
         if (parent == nullptr || !file || length == 0)
             co_return error_t::einval;
@@ -547,6 +572,11 @@ namespace astia::proc {
         if (target->session() != caller->session())
             return -EPERM;
 
+        // POSIX keeps the parent out of a child's process-group state once
+        // that child has exec'd: the new image may manage its own job control.
+        if (target != caller && target->execed())
+            return -EACCES;
+
         // POSIX rejects setpgid() for a session leader, including a
         // redundant request for its current process group.
         if (is_process_group_leader(target) && target->session() == target->pid())
@@ -715,13 +745,12 @@ namespace astia::proc {
             }
 
             bool await_suspend(std::coroutine_handle<> continuation) {
-                if (!self.arm_wait_unless_cancelled(continuation)) {
+                if (!self.arm_park_unless_cancelled(continuation)) {
                     arch::cpu::interrupts();
 
                     return false;
                 }
 
-                self.state(thread_state::blocked);
                 arch::cpu::interrupts();
 
                 return true;

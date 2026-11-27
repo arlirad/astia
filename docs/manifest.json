@@ -948,6 +948,30 @@
         "source": "kernel/src/proc/syscalls/process/chroot.cpp",
         "synopsisKind": "public",
         "synopsis": "long astia_chroot(const char* path);"
+      },
+      {
+        "id": 79,
+        "name": "power",
+        "slug": "syscall-79-power",
+        "title": "power(2)",
+        "subsystem": "proc",
+        "category": "core",
+        "sourcePath": "docs/2/proc/core/power.md",
+        "source": "kernel/src/proc/syscalls/power.cpp",
+        "synopsisKind": "public",
+        "synopsis": "long astia_power(uint32_t operation);"
+      },
+      {
+        "id": 80,
+        "name": "thread_count",
+        "slug": "syscall-80-thread-count",
+        "title": "thread_count(2)",
+        "subsystem": "abi",
+        "category": "abi",
+        "sourcePath": "docs/2/abi/thread_count.md",
+        "source": "kernel/include/astia/api/syscalls.h",
+        "synopsisKind": "public",
+        "synopsis": "long astia_thread_count(void);"
       }
     ]
   },

@@ -1,0 +1,23 @@
+#pragma once
+
+#include <astia/fs.hpp>
+
+#include "process.hpp"
+
+namespace astia::proc {
+    class process_search_permission final : public fs::search_permission {
+        public:
+        explicit process_search_permission(const process& owner) : _owner(owner) {}
+
+        bool allows(const char* directory) const override {
+            if (directory == nullptr)
+                return false;
+
+            return _owner.can_search(fs::node_mode(directory), fs::node_uid(directory),
+                                     fs::node_gid(directory));
+        }
+
+        private:
+        const process& _owner;
+    };
+} // namespace astia::proc

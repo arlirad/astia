@@ -27,8 +27,8 @@ namespace astia::proc {
             bool                                shared  = false;
             mm::shptr<mm::phys_region_identity> identity;
             mm::phys_region*                    backing  = nullptr;
-            usize                               page     = 0;
-            usize                               offset   = 0;
+            usz                                 page     = 0;
+            usz                                 offset   = 0;
             u64                                 deadline = 0;
             i64*                                result   = nullptr;
             mm::shptr<process>                  owner_ref;
@@ -63,8 +63,8 @@ namespace astia::proc {
         }
 
         futex_bucket&
-        bucket_for_shared(const mm::shptr<mm::phys_region_identity>& identity, usize page,
-                          usize offset) {
+        bucket_for_shared(const mm::shptr<mm::phys_region_identity>& identity, usz page,
+                          usz offset) {
             const u64 value = reinterpret_cast<u64>(identity.get()) +
                               static_cast<u64>(page) * 1315423911ull + offset;
 
@@ -72,8 +72,8 @@ namespace astia::proc {
         }
 
         bool shared_match(const futex_waiter&                        waiter,
-                          const mm::shptr<mm::phys_region_identity>& identity, usize page,
-                          usize offset) {
+                          const mm::shptr<mm::phys_region_identity>& identity, usz page,
+                          usz offset) {
             return waiter.shared && waiter.identity.get() == identity.get() &&
                    waiter.page == page && waiter.offset == offset;
         }

@@ -4,8 +4,9 @@
 #include "tables.hpp"
 
 namespace astia::acpi::detail {
-    constexpr u8 gas_system_memory = 0;
-    constexpr u8 gas_system_io     = 1;
+    constexpr u8 gas_system_memory     = 0;
+    constexpr u8 gas_system_io         = 1;
+    constexpr u8 gas_pci_configuration = 2;
 
     struct generic_address {
         u8  space       = 0;
@@ -28,6 +29,12 @@ namespace astia::acpi::detail {
         bool        extended = false;
     };
 
+    struct reset_plan {
+        generic_address gas{};
+        u8              value = 0;
+        bool            valid = false;
+    };
+
     enum class power_error : u8 {
         none,
         no_fadt,
@@ -37,6 +44,7 @@ namespace astia::acpi::detail {
         invalid_sleep_type,
         invalid_pm1a,
         invalid_pm1b,
+        invalid_reset,
         unsupported_address_space,
         unsupported_access_size,
         write_failed,
@@ -50,8 +58,18 @@ namespace astia::acpi::detail {
         bool (*write_memory)(void* context, u64 physical, u16 value) = nullptr;
     };
 
+    struct reset_io {
+        void* context                                               = nullptr;
+        bool (*write_io)(void* context, u16 port, u8 value)         = nullptr;
+        bool (*write_memory)(void* context, u64 physical, u8 value) = nullptr;
+    };
+
     bool build_s5_plan(const table_set& tables, interpreter& aml, s5_plan& out,
                        power_error& error);
 
     bool execute_s5(const s5_plan& plan, const pm_io& io, power_error& error);
+
+    bool build_reset_plan(const table_set& tables, reset_plan& out, power_error& error);
+
+    bool execute_reset(const reset_plan& plan, const reset_io& io, power_error& error);
 } // namespace astia::acpi::detail

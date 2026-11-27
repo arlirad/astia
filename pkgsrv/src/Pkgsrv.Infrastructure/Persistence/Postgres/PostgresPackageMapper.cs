@@ -1,4 +1,5 @@
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Packages;
 
 namespace Pkgsrv.Infrastructure.Persistence.Postgres;
 
@@ -25,6 +26,8 @@ public static class PostgresPackageMapper
         record.VersionPatch = package.Manifest.Version.Patch;
         record.VersionPreRelease = package.Manifest.Version.PreRelease;
         record.VersionBuildMetadata = package.Manifest.Version.BuildMetadata;
+        record.VersionPreReleaseSortKey =
+            PackageVersionOrder.CreatePreReleaseSortKey(package.Manifest.Version.PreRelease);
         record.SourceUrl = package.Manifest.Source.RepositoryUri.ToString();
         record.SourceCommit = package.Manifest.Source.CommitSha;
         record.ToolchainName = package.Manifest.Toolchain.Name;
@@ -58,6 +61,15 @@ public static class PostgresPackageMapper
         {
             throw new InvalidOperationException(
                 "Persisted package version columns do not match the version string.");
+        }
+
+        if (!string.Equals(
+                record.VersionPreReleaseSortKey,
+                PackageVersionOrder.CreatePreReleaseSortKey(version.PreRelease),
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Persisted package version ordering key does not match the version string.");
         }
 
         return PackageManifest.Create(

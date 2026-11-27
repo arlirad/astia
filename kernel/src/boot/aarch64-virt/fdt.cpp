@@ -8,14 +8,14 @@ namespace astia::boot::aarch64::fdt {
         constexpr u32 max_cell_count   = 4;
         constexpr u32 max_decode_cells = 2;
 
-        constexpr usize max_aliases                = 16;
-        constexpr usize alias_name_size            = 32;
-        constexpr usize max_memory_ranges_per_node = 4;
-        constexpr usize max_register_pairs         = 2;
-        constexpr usize max_console_nodes          = 8;
-        constexpr usize console_path_size          = virt::console_path_capacity;
-        constexpr u32   gic_interrupt_cells        = 3;
-        constexpr u32   gic_redistributor_regions  = 1;
+        constexpr usz max_aliases                = 16;
+        constexpr usz alias_name_size            = 32;
+        constexpr usz max_memory_ranges_per_node = 4;
+        constexpr usz max_register_pairs         = 2;
+        constexpr usz max_console_nodes          = 8;
+        constexpr usz console_path_size          = virt::console_path_capacity;
+        constexpr u32 gic_interrupt_cells        = 3;
+        constexpr u32 gic_redistributor_regions  = 1;
 
         constexpr u32 token_begin_node = 0x00000001;
         constexpr u32 token_end_node   = 0x00000002;
@@ -129,7 +129,7 @@ namespace astia::boot::aarch64::fdt {
         }
 
         [[nodiscard]] bool read_string(const u8* bytes, u32 length, char* destination,
-                                       usize capacity) {
+                                       usz capacity) {
             u32 index = 0;
 
             while (index < length && bytes[index] != '\0') {
@@ -856,7 +856,7 @@ namespace astia::boot::aarch64::fdt {
                 info_.console.size   = 0;
                 info_.console.source = virt::console_source::platform_default;
 
-                for (usize index = 0; index < virt::console_path_capacity; ++index) {
+                for (usz index = 0; index < virt::console_path_capacity; ++index) {
                     info_.console.path[index] = '\0';
                 }
 
@@ -885,7 +885,7 @@ namespace astia::boot::aarch64::fdt {
                 if (target[0] != '/') {
                     resolved = nullptr;
 
-                    for (usize index = 0; index < alias_count_; ++index) {
+                    for (usz index = 0; index < alias_count_; ++index) {
                         if (equal_text(aliases_[index].name, target)) {
                             resolved = aliases_[index].target;
 
@@ -897,7 +897,7 @@ namespace astia::boot::aarch64::fdt {
                         return;
                 }
 
-                for (usize index = 0; index < console_count_; ++index) {
+                for (usz index = 0; index < console_count_; ++index) {
                     const console_candidate& candidate = consoles_[index];
 
                     if (!equal_text(candidate.path, resolved))
@@ -932,9 +932,9 @@ namespace astia::boot::aarch64::fdt {
             u32               path_length_ = 0;
             char              path_[console_path_size]{};
             alias_entry       aliases_[max_aliases]{};
-            usize             alias_count_ = 0;
+            usz               alias_count_ = 0;
             console_candidate consoles_[max_console_nodes]{};
-            usize             console_count_ = 0;
+            usz               console_count_ = 0;
             char              stdout_path_[console_path_size]{};
             bool              has_stdout_        = false;
             bool              root_seen_         = false;

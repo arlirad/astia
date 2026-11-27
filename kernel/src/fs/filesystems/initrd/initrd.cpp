@@ -33,11 +33,11 @@ namespace astia::fs::filesystems {
                     return -EFAULT;
                 if (offset >= _data.size())
                     return 0;
-                const usize available = _data.size() - static_cast<usize>(offset);
-                const usize count     = available < length ? available : length;
+                const usz   available = _data.size() - static_cast<usz>(offset);
+                const usz   count     = available < length ? available : length;
                 const auto* source    = _data.data() + offset;
                 auto*       target    = static_cast<u8*>(buffer);
-                for (usize i = 0; i < count; ++i)
+                for (usz i = 0; i < count; ++i)
                     target[i] = source[i];
                 return static_cast<long>(count);
             }
@@ -315,7 +315,7 @@ namespace astia::fs::filesystems {
     }
 
     long initrd_mount::read_directory(const char* path, u64 index, char* name,
-                                      u32 capacity, file_type* type) {
+                                      u32 capacity, file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -355,6 +355,9 @@ namespace astia::fs::filesystems {
 
             name[candidate.length] = '\0';
             *type                  = candidate.type;
+
+            if (inode != nullptr)
+                *inode = 0;
 
             return 1;
         }

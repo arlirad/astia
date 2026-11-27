@@ -1,3 +1,5 @@
+#include <astia/core/resume_queue.hpp>
+#include <astia/core/task.hpp>
 #include <astia/elf.hpp>
 
 #include "test.hpp"
@@ -38,6 +40,8 @@ extern unsigned char module_priority_fini_trailing_dot_blob[];
 extern unsigned int  module_priority_fini_trailing_dot_blob_len;
 extern unsigned char module_lifecycle_reloc32_blob[];
 extern unsigned int  module_lifecycle_reloc32_blob_len;
+extern unsigned char module_sync_entry_blob[];
+extern unsigned int  module_sync_entry_blob_len;
 
 // --- Executable fixtures (see tests/fixture_exec.c) ---
 extern unsigned char fixture_dyn_blob[];
@@ -66,8 +70,15 @@ namespace kernel_fixture {
 }
 
 namespace {
-    ASTIA_NO_SANITIZE_FUNCTION int invoke_module_entry(void* entry) {
-        return reinterpret_cast<int (*)()>(entry)();
+    ASTIA_NO_SANITIZE_FUNCTION astia::error_t invoke_module_entry(void* entry) {
+        using entry_fn = astia::core::task<void> (*)();
+        auto task      = reinterpret_cast<entry_fn>(entry)();
+
+        while (!task.done()) {
+            task.resume();
+        }
+
+        return task.error();
     }
 
     ASTIA_NO_SANITIZE_FUNCTION void
@@ -103,7 +114,7 @@ namespace {
         size_t         unmapped;
     };
 
-    void* reloc_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
+    void* reloc_map(void* ctx, astia::u64, astia::usz size, astia::usz align,
                     bool fixed) {
         if (fixed) {
             return nullptr; // relocatable images are never fixed-address
@@ -128,7 +139,7 @@ namespace {
         return p;
     }
 
-    void reloc_unmap(void* ctx, void*, astia::usize) {
+    void reloc_unmap(void* ctx, void*, astia::usz) {
         ++static_cast<reloc_arena*>(ctx)->unmapped;
     }
 
@@ -148,6 +159,15 @@ namespace {
             target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::add);
         else if (std::strcmp(name, "_ZN14kernel_fixture4biasEv") == 0)
             target = reinterpret_cast<std::uintptr_t>(&kernel_fixture::bias);
+        else if (std::strcmp(name, "_Znwm") == 0)
+            target = reinterpret_cast<std::uintptr_t>(
+                static_cast<void* (*) (astia::usz)>(&::operator new));
+        else if (std::strcmp(name, "_ZdlPv") == 0)
+            target = reinterpret_cast<std::uintptr_t>(
+                static_cast<void (*)(void*)>(&::operator delete));
+        else if (std::strcmp(name, "_ZN5astia4core13cancel_resumeENSt7__n486116"
+                                   "coroutine_handleIvEEy") == 0)
+            target = reinterpret_cast<std::uintptr_t>(&astia::core::cancel_resume);
 
         if (target == 0)
             return 0;
@@ -187,8 +207,7 @@ namespace {
         size_t unmapped = 0;
     };
 
-    void* exec_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize,
-                   bool fixed) {
+    void* exec_map(void* ctx, astia::u64 hint, astia::usz size, astia::usz, bool fixed) {
         auto* a = static_cast<exec_arena*>(ctx);
 
         int flags = MAP_PRIVATE | MAP_ANONYMOUS | (fixed ? MAP_FIXED_NOREPLACE : 0);
@@ -206,7 +225,7 @@ namespace {
         return p;
     }
 
-    void exec_unmap(void* ctx, void* address, astia::usize size) {
+    void exec_unmap(void* ctx, void* address, astia::usz size) {
         auto* a = static_cast<exec_arena*>(ctx);
 
         munmap(address, size);
@@ -217,8 +236,8 @@ namespace {
         ++a->unmapped;
     }
 
-    void* congruent_exec_map(void* ctx, astia::u64 hint, astia::usize size,
-                             astia::usize align, bool fixed) {
+    void* congruent_exec_map(void* ctx, astia::u64 hint, astia::usz size,
+                             astia::usz align, bool fixed) {
         auto* arena = static_cast<exec_arena*>(ctx);
 
         if (fixed) {
@@ -267,10 +286,10 @@ namespace {
 
     // Map a fixed-capacity copy of a fixture we can corrupt per test.
     struct blob_copy {
-        unsigned char data[16384];
-        astia::usize  len;
+        unsigned char data[65536];
+        astia::usz    len;
 
-        blob_copy(const unsigned char* src, astia::usize n) : data{}, len(n) {
+        blob_copy(const unsigned char* src, astia::usz n) : data{}, len(n) {
             if (len > sizeof(data))
                 len = sizeof(data);
 
@@ -494,8 +513,7 @@ namespace {
         return false;
     }
 
-    void* misfixed_map(void* ctx, astia::u64, astia::usize size, astia::usize align,
-                       bool) {
+    void* misfixed_map(void* ctx, astia::u64, astia::usz size, astia::usz align, bool) {
         return exec_map(ctx, 0, size, align, false);
     }
 
@@ -516,8 +534,8 @@ namespace {
         bool                 paused                 = false;
     };
 
-    void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usize size,
-                               astia::usize align, bool fixed) {
+    void* congruent_stream_map(void* ctx, astia::u64 hint, astia::usz size,
+                               astia::usz align, bool fixed) {
         auto* context = static_cast<stream_exec_context*>(ctx);
 
         return congruent_exec_map(&context->arena, hint, size, align, fixed);
@@ -591,15 +609,15 @@ namespace {
         return blob;
     }
 
-    void* stream_map(void* ctx, astia::u64 hint, astia::usize size, astia::usize align,
+    void* stream_map(void* ctx, astia::u64 hint, astia::usz size, astia::usz align,
                      bool fixed) {
         auto* context = static_cast<stream_exec_context*>(ctx);
 
         return exec_map(&context->arena, hint, size, align, fixed);
     }
 
-    void* pausing_stream_map(void* ctx, astia::u64 hint, astia::usize size,
-                             astia::usize align, bool fixed) {
+    void* pausing_stream_map(void* ctx, astia::u64 hint, astia::usz size,
+                             astia::usz align, bool fixed) {
         auto* context = static_cast<stream_exec_context*>(ctx);
         void* result  = stream_map(ctx, hint, size, align, fixed);
         if (result != nullptr)
@@ -608,7 +626,7 @@ namespace {
         return result;
     }
 
-    void stream_unmap(void* ctx, void* address, astia::usize size) {
+    void stream_unmap(void* ctx, void* address, astia::usz size) {
         auto* context = static_cast<stream_exec_context*>(ctx);
 
         exec_unmap(&context->arena, address, size);
@@ -641,7 +659,7 @@ namespace {
         if (destination.size() > context->max_read)
             context->max_read = destination.size();
 
-        for (astia::usize i = 0; i < destination.size(); ++i) {
+        for (astia::usz i = 0; i < destination.size(); ++i) {
             destination[i] = context->source[offset + i];
         }
 
@@ -649,7 +667,7 @@ namespace {
     }
 
     astia::core::task<astia::i64> stream_read_to(void* ctx, astia::u64 address,
-                                                 astia::usize length, astia::u64 offset) {
+                                                 astia::usz length, astia::u64 offset) {
         auto* context = static_cast<stream_exec_context*>(ctx);
 
         if (offset > context->source_size || length > context->source_size - offset)
@@ -767,11 +785,8 @@ ASTIA_TEST(elf_loads_and_runs_relocatable_object) {
     ASTIA_CHECK(a.unmapped == 0);
 
     if (img.entry != nullptr) {
-        // counter starts at 40 (.data), module_main does counter += 2 then
-        // returns kernel_add(counter, 0) == 42.
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 42);
-        ASTIA_CHECK(invoke_module_entry(img.entry) ==
-                    44); // module-local state persists across calls
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
     }
 
     munmap(mem, cap);
@@ -813,7 +828,7 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     }
 
     if (img.entry != nullptr)
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 49);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
 
     for (size_t i = img.fini_count; i != 0; --i) {
         if (img.fini_array[i - 1] != nullptr)
@@ -823,7 +838,7 @@ ASTIA_TEST(elf_loads_cpp_module_against_multiple_mangled_symbols) {
     ASTIA_CHECK(img.fini_count != 0);
 
     if (img.entry != nullptr)
-        ASTIA_CHECK(invoke_module_entry(img.entry) == 141);
+        ASTIA_CHECK(invoke_module_entry(img.entry) == astia::error_t::enone);
 
     munmap(mem, cap);
 }
@@ -1127,6 +1142,12 @@ ASTIA_TEST(elf_relocatable_rejects_duplicate_entry_definitions) {
 
         ASTIA_CHECK(copied);
     }
+
+    ASTIA_CHECK(!load_relocatable_fixture(buf));
+}
+
+ASTIA_TEST(elf_relocatable_rejects_synchronous_entry_abi) {
+    blob_copy buf(module_sync_entry_blob, module_sync_entry_blob_len);
 
     ASTIA_CHECK(!load_relocatable_fixture(buf));
 }
@@ -1450,13 +1471,13 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
     // PT_LOAD rather than handing out the file offset.
     {
         const auto* bytes  = static_cast<const unsigned char*>(fixture_dyn_blob);
-        auto        read16 = [&](astia::usize off) {
+        auto        read16 = [&](astia::usz off) {
             return static_cast<astia::u16>(bytes[off] | (bytes[off + 1] << 8));
         };
-        auto read64 = [&](astia::usize off) {
+        auto read64 = [&](astia::usz off) {
             astia::u64 value = 0;
 
-            for (astia::usize byte = 0; byte < 8; ++byte) {
+            for (astia::usz byte = 0; byte < 8; ++byte) {
                 value |= static_cast<astia::u64>(bytes[off + byte]) << (byte * 8);
             }
 
@@ -1468,7 +1489,7 @@ ASTIA_TEST(elf_loads_and_runs_pie_executable) {
         ASTIA_CHECK(img.phdr_vaddr == img.load_bias + read64(32));
     }
 
-    for (astia::usize i = 0; i < img.nsegs; ++i) {
+    for (astia::usz i = 0; i < img.nsegs; ++i) {
         auto want = reinterpret_cast<void*>(img.segs[i].vaddr + img.load_bias);
 
         ASTIA_CHECK(img.segs[i].loc == want);
@@ -1503,7 +1524,7 @@ ASTIA_TEST(elf_loads_and_runs_fixed_executable) {
     ASTIA_CHECK(img.nsegs >= 1);
     ASTIA_CHECK(img.entry != nullptr);
 
-    for (astia::usize i = 0; i < img.nsegs; ++i) {
+    for (astia::usz i = 0; i < img.nsegs; ++i) {
         auto want = reinterpret_cast<void*>(img.segs[i].vaddr + img.load_bias);
 
         ASTIA_CHECK(img.segs[i].loc == want);

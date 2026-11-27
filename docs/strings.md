@@ -1,12 +1,12 @@
 # Strings
 
 `astia` has exactly two string types, both declared in
-`kernel/include/astia/strings.hpp` and both reached through the `astia`
-namespace root:
+`kernel/include/astia/strings.hpp`. `string_view` sits directly in
+`namespace astia`; the owning type sits in `namespace astia::strings`:
 
 | Type | Ownership | Representation |
 | --- | --- | --- |
-| `astia::string_view` | non-owning | `{const char* data, usize size}` |
+| `astia::string_view` | non-owning | `{const char* data, usz size}` |
 | `astia::strings::string` | owning, heap-backed | `char*` block, `size`, `capacity` |
 
 The owning type sits in `namespace astia::strings`; `string_view` and the
@@ -52,7 +52,7 @@ is reported through `optional`/`bool`.
 | `try_from(const char*)` | copies a NUL-terminated string; `nullptr` is `error_t::einval` |
 | `clone()` | explicit deep copy; same failure values |
 | `assign(view)` | replaces the contents; false for an invalid view or OOM, previous contents survive |
-| `append(view)` | appends a suffix; false for an invalid view or OOM, previous contents survive |
+| `append(view)` | appends a suffix; false for an invalid view or OOM, previous contents survive; the suffix may be a view of the receiver |
 | `clear()` | drops the contents and keeps the allocation |
 | `view()` | non-owning view; an empty string yields `{nullptr, 0}` |
 | `c_str()` | always non-null; `""` when empty |

@@ -240,6 +240,25 @@ namespace astia {
             return false;
         }
 
+        signal_number pending_fatal_default_for(signal_mask blocked) const {
+            signal_lock_guard guard(_lock);
+            const signal_mask available = _pending & ~blocked;
+
+            for (u8 value = 1; value < signal_count; ++value) {
+                if ((available & (signal_mask{1} << value)) == 0 ||
+                    _dispositions[value].action != signal_action::default_action)
+                    continue;
+
+                const auto signal = static_cast<signal_number>(value);
+                const auto action = default_action(signal);
+
+                if (action == signal_default::terminate || action == signal_default::core)
+                    return signal;
+            }
+
+            return static_cast<signal_number>(0);
+        }
+
         private:
         signal_disposition     _dispositions[signal_count]{};
         signal_info            _infos[signal_count]{};

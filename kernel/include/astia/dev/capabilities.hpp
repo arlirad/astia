@@ -3,6 +3,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/common.hpp>
 #include <astia/optional.hpp>
+#include <astia/span.hpp>
 
 namespace astia::dev {
     struct pio_reader {
@@ -200,6 +201,79 @@ namespace astia::dev {
         u16            _base = 0;
     };
 
+    /// A restricted PIO window: byte accesses are accepted only for the
+    /// granted absolute port range. The platform hands out one narrow window;
+    /// the raw bus stays kernel-private.
+    class io_port_window final {
+        public:
+        constexpr io_port_window() = default;
+
+        constexpr io_port_window(const pio_bus& bus, u16 first, u16 last)
+            : _bus(&bus), _first(first), _last(last) {}
+
+        constexpr bool valid() const {
+            return _bus != nullptr && _bus->valid() && _first <= _last;
+        }
+
+        constexpr u16 first() const {
+            return _first;
+        }
+
+        constexpr u16 last() const {
+            return _last;
+        }
+
+        bool read8(u16 port, u8& value) const {
+            if (!valid() || port < _first || port > _last)
+                return false;
+
+            const optional<u8> result = _bus->read8(port);
+            if (!result)
+                return false;
+
+            value = result.value;
+
+            return true;
+        }
+
+        bool write8(u16 port, u8 value) const {
+            return valid() && port >= _first && port <= _last &&
+                   _bus->write8(port, value);
+        }
+
+        private:
+        const pio_bus* _bus   = nullptr;
+        u16            _first = 0;
+        u16            _last  = 0;
+    };
+
+    /// One range the platform policy is willing to grant as a PIO window.
+    struct io_window_grant {
+        u16 first = 0;
+        u16 last  = 0;
+    };
+
+    /// True when [first, last] is non-empty and fully inside one granted range.
+    constexpr bool io_window_is_granted(u16 first, u16 last,
+                                        span<const io_window_grant> grants) {
+        if (first > last)
+            return false;
+
+        for (usz i = 0; i < grants.size(); ++i) {
+            const io_window_grant& grant = grants.data()[i];
+
+            if (first >= grant.first && last <= grant.last)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// Request a granted byte-PIO window. The platform grants only ranges in
+    /// its resource policy; any other request yields an invalid window. The
+    /// returned window refuses every access outside [first, last].
+    io_port_window claim_io_window(u16 first, u16 last);
+
     using irq_handler = void (*)();
 
     struct irq_claimable {
@@ -285,5 +359,28 @@ namespace astia::dev {
         bool unmask() const {
             return unmaskable.unmask();
         }
+    };
+
+    /// A legacy PIC line claimed on behalf of the calling module. Unlike
+    /// irq_line (the kernel's own unguarded line: uart16550, kernel-owned
+    /// handler), a route holds a module reference for the claim and for every
+    /// guarded dispatch, so the image cannot be closed underneath the handler.
+    /// One route exists per line.
+    class irq_route final {
+        public:
+        irq_route() = default;
+
+        explicit constexpr irq_route(u8 line) : _line(line) {}
+
+        bool claim(arch::irq_handler handler);
+        bool unmask();
+        bool release();
+
+        constexpr u8 line() const {
+            return _line;
+        }
+
+        private:
+        u8 _line = 0;
     };
 } // namespace astia::dev

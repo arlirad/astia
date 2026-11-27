@@ -1,3 +1,4 @@
+#include <astia/core/task.hpp>
 extern "C" void lifecycle_record(int);
 
 __attribute__((constructor(101))) void lifecycle_constructor_one() {
@@ -16,8 +17,8 @@ __attribute__((destructor(102))) void lifecycle_finalizer_two() {
     lifecycle_record(202);
 }
 
-int module_main() {
+astia::core::task<void> module_main() {
     lifecycle_record(103);
 
-    return 37;
+    co_return astia::error_t::enone;
 }

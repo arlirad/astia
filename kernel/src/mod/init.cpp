@@ -22,7 +22,7 @@
 namespace astia::mod {
     namespace {
         using astia::u64;
-        using astia::usize;
+        using astia::usz;
 
         /// This module's log source, and the initrd walk inside it.
         using logs        = astia::log::context<"mod">;
@@ -64,10 +64,20 @@ namespace astia::mod {
                 return;
             }
 
-            int rc = 0;
+            const auto run_error = run_boot(id);
 
-            if (run(id, rc) != module_error::ok)
-                rc = -1;
+            int rc = run_error == module_error::ok ? 0 : -1;
+
+            if (run_error != module_error::ok) {
+                if (name != nullptr)
+                    logs::error("%s failed to run (%s)", name,
+                                run_error == module_error::would_block
+                                    ? "suspended before scheduler"
+                                    : "entry rejected");
+                else
+                    logs::error("module %llu failed to run",
+                                static_cast<unsigned long long>(i));
+            }
 
             if (name != nullptr)
                 logs::info("%s rc=%d", name, rc);
@@ -94,6 +104,10 @@ namespace astia::mod {
         if (!ctx.info)
             return false;
 
+        // Module code registers drivers through the kernel registry; resolve
+        // those registrations to the module that is running.
+        hw::set_owner_resolver(&active_driver_owner);
+
         // This step runs before the fs mount, so it loads and publishes the
         // normalized archive first; fs/initrd_init.cpp later reuses it for
         // the root mount instead of decoding or opening the image again.
@@ -102,7 +116,7 @@ namespace astia::mod {
         if (ramdisk.paddr != 0 && ramdisk.size != 0) {
             const void* data = mm::kernel_frames().to_virt(ramdisk.paddr);
 
-            if (!initrd::load_boot_archive(data, static_cast<usize>(ramdisk.size))) {
+            if (!initrd::load_boot_archive(data, static_cast<usz>(ramdisk.size))) {
                 initrd_logs::error(
                     "%s container failed: %s",
                     initrd::container_name(initrd::boot_archive_container()),
@@ -122,7 +136,7 @@ namespace astia::mod {
 
         // Every other module the loader reported is a bare ELF image, or
         // something we do not understand.
-        for (usize i = 0; i < ctx.info->module_count; ++i) {
+        for (usz i = 0; i < ctx.info->module_count; ++i) {
             const boot::module_info& m = ctx.info->modules[i];
 
             if (m.paddr == 0 || m.size == 0)
@@ -133,9 +147,9 @@ namespace astia::mod {
             // address space is active.
             const void*          data = mm::kernel_frames().to_virt(m.paddr);
             const span<const u8> image(static_cast<const u8*>(data),
-                                       static_cast<usize>(m.size));
+                                       static_cast<usz>(m.size));
 
-            if (elf::loader::kind_of(image) != elf::loader::kind::none) {
+            if (elf::loader::kind_of(image) == elf::loader::kind::relocatable) {
                 load_and_run(image, nullptr, i);
                 continue;
             }

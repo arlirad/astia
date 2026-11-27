@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
 using Pkgsrv.TestSupport;
 
@@ -18,12 +19,15 @@ public sealed class PostgresPackageMigrationIntegrationTests
 
         var applied = (await context.Database.GetAppliedMigrationsAsync(CancellationToken.None))
             .ToArray();
-        Assert.Equal(3, applied.Length);
+        Assert.Equal(6, applied.Length);
         Assert.EndsWith("_InitialCreate", applied[0], StringComparison.Ordinal);
         Assert.EndsWith("_AddVersionOrderColumns", applied[1], StringComparison.Ordinal);
         Assert.EndsWith("_AddPublicationTimestamp", applied[2], StringComparison.Ordinal);
+        Assert.EndsWith("_AddPackageOutbox", applied[3], StringComparison.Ordinal);
+        Assert.EndsWith("_AddSemVerPrecedenceKey", applied[4], StringComparison.Ordinal);
+        Assert.EndsWith("_BackfillPendingPackageEvents", applied[5], StringComparison.Ordinal);
         Assert.Equal(
-            3L,
+            6L,
             await context.Database
                 .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM \"__EFMigrationsHistory\"")
                 .SingleAsync(CancellationToken.None));
@@ -37,6 +41,9 @@ public sealed class PostgresPackageMigrationIntegrationTests
             .SingleAsync(candidate => candidate.Name == package.Key.Name.Value, CancellationToken.None);
 
         Assert.Equal(package.Manifest.Version.ToString(), record.Version);
+        Assert.Equal(
+            PackageVersionOrder.CreatePreReleaseSortKey(package.Manifest.Version.PreRelease),
+            record.VersionPreReleaseSortKey);
         Assert.Equal(package.BuildPolicy.Timeout.Ticks, record.TimeoutTicks);
     }
 
@@ -54,9 +61,9 @@ public sealed class PostgresPackageMigrationIntegrationTests
 
         var applied = (await context.Database.GetAppliedMigrationsAsync(CancellationToken.None))
             .ToArray();
-        Assert.Equal(3, applied.Length);
+        Assert.Equal(6, applied.Length);
         Assert.Equal(
-            3L,
+            6L,
             await context.Database
                 .SqlQueryRaw<long>("SELECT COUNT(*) AS \"Value\" FROM \"__EFMigrationsHistory\"")
                 .SingleAsync(CancellationToken.None));
@@ -71,6 +78,9 @@ public sealed class PostgresPackageMigrationIntegrationTests
         Assert.Equal(3, record.VersionPatch);
         Assert.Equal("rc.1", record.VersionPreRelease);
         Assert.Equal("build.7", record.VersionBuildMetadata);
+        Assert.Equal(
+            PackageVersionOrder.CreatePreReleaseSortKey("rc.1"),
+            record.VersionPreReleaseSortKey);
         Assert.Equal(300L * 10_000_000, record.TimeoutTicks);
         Assert.Equal("[]", record.PendingEventsJson);
         Assert.Null(record.PublishedAt);

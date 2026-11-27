@@ -10,16 +10,16 @@ namespace astia::boot::virt {
         constexpr u32 tag_acpi_old    = 14;
         constexpr u32 tag_acpi_new    = 15;
 
-        constexpr usize align8(usize n) {
-            return n > static_cast<usize>(-1) - 7u ? 0 : (n + 7u) & ~usize(7u);
+        constexpr usz align8(usz n) {
+            return n > static_cast<usz>(-1) - 7u ? 0 : (n + 7u) & ~usz(7u);
         }
 
-        bool range_ok(usize offset, usize length, usize total) {
+        bool range_ok(usz offset, usz length, usz total) {
             return offset <= total && length <= total - offset;
         }
 
-        const char* terminated_string(const u8* p, usize length) {
-            for (usize i = 0; i < length; ++i) {
+        const char* terminated_string(const u8* p, usz length) {
+            for (usz i = 0; i < length; ++i) {
                 if (p[i] == 0)
                     return reinterpret_cast<const char*>(p);
             }
@@ -43,8 +43,8 @@ namespace astia::boot::virt {
 
         const auto* bytes = mbi.data();
 
-        const u32   total32 = load<u32>(bytes);
-        const usize total   = total32;
+        const u32 total32 = load<u32>(bytes);
+        const usz total   = total32;
 
         if (total < 16 || (total & 7u) != 0 || total > mbi.size())
             return false;
@@ -56,7 +56,7 @@ namespace astia::boot::virt {
 
         const u8* preferred_rsdp = nullptr;
 
-        for (usize offset = 8; offset < total;) {
+        for (usz offset = 8; offset < total;) {
             if (!range_ok(offset, 8, total))
                 return false;
 
@@ -66,7 +66,7 @@ namespace astia::boot::virt {
             if (size < 8 || !range_ok(offset, size, total))
                 return false;
 
-            const usize step = align8(size);
+            const usz step = align8(size);
 
             if (step < size || step == 0 || !range_ok(offset, step, total))
                 return false;
@@ -120,9 +120,9 @@ namespace astia::boot::virt {
                     (size - 16) % entry_size != 0)
                     return false;
 
-                const usize count = (size - 16) / entry_size;
+                const usz count = (size - 16) / entry_size;
 
-                for (usize i = 0; i < count; ++i) {
+                for (usz i = 0; i < count; ++i) {
                     const u8* entry = bytes + offset + 16 + i * entry_size;
 
                     const u64 base       = load<u64>(entry);

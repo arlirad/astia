@@ -57,8 +57,8 @@ namespace astia::proc::syscalls {
             if (rc < 0)
                 co_return rc;
 
-            const auto permissions = fs::file_permissions(
-                static_cast<u16>(mode & fs::file_permissions_mask & ~owner->umask()));
+            const auto permissions = fs::apply_umask(
+                fs::file_permissions(static_cast<u16>(mode)), owner->umask());
             mm::shptr<fs::open_file> handle;
 
             rc = fs::open_shared_memory(

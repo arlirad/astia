@@ -40,7 +40,7 @@ namespace {
             co_return astia::error_t::einval;
 
         auto result = co_await astia::proc::spawnve(
-            parent, file, static_cast<astia::usize>(size), argv, envp);
+            parent, file, static_cast<astia::usz>(size), argv, envp);
         if (!result)
             co_return result.error;
 

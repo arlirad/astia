@@ -7,14 +7,14 @@
 namespace {
     using astia::crypto::csprng;
 
-    void fill(astia::crypto::csprng& generator, astia::u8* output, astia::usize length) {
+    void fill(astia::crypto::csprng& generator, astia::u8* output, astia::usz length) {
         ASTIA_CHECK(generator.fill(output, length));
     }
 
     void seed(astia::crypto::csprng& generator, astia::u8 value) {
         astia::u8 material[40];
 
-        for (astia::usize i = 0; i < sizeof material; ++i) {
+        for (astia::usz i = 0; i < sizeof material; ++i) {
             material[i] = static_cast<astia::u8>(value + i * 7u);
         }
 

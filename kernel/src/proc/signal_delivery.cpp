@@ -30,15 +30,15 @@ namespace astia::proc {
             if (owner == nullptr || self == nullptr)
                 return;
 
-            constexpr usize capacity = arch::max_signal_context_bytes;
+            constexpr usz capacity = arch::max_signal_context_bytes;
 
             alignas(16) u8 storage[capacity]{};
 
-            const usize saved_bytes = arch::signal_context_bytes();
+            const usz saved_bytes = arch::signal_context_bytes();
 
             if (owner->process_exit_requested() && self->exit_requested()) {
                 self->exit(reinterpret_cast<void*>(
-                    static_cast<usize>(owner->requested_exit_status())));
+                    static_cast<usz>(owner->requested_exit_status())));
                 __builtin_unreachable();
             }
 
@@ -60,8 +60,8 @@ namespace astia::proc {
                 suspended ? self->signal_restore_mask() : self->signals().blocked();
 
             if (disposition.action == signal_action::handler) {
-                const usize bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
-                const u64   stack = image.stack_pointer();
+                const usz bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
+                const u64 stack = image.stack_pointer();
 
                 if (stack < bytes || disposition.restorer == 0)
                     goto fatal_signal;
@@ -132,9 +132,9 @@ namespace astia::proc {
 
             if (default_action(signal) == signal_default::terminate ||
                 default_action(signal) == signal_default::core) {
-                owner->signal_termination(signal);
-                self->exit(reinterpret_cast<void*>(static_cast<usize>(
-                    wait_signal_exit_status(static_cast<u8>(signal)))));
+                owner->terminate_for_signal(signal, self);
+                self->exit(reinterpret_cast<void*>(
+                    static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
                 __builtin_unreachable();
             }
 
@@ -168,9 +168,9 @@ namespace astia::proc {
 
             return;
         fatal_signal:
-            owner->signal_termination(signal);
+            owner->terminate_for_signal(signal, self);
             self->exit(reinterpret_cast<void*>(
-                static_cast<usize>(wait_signal_exit_status(static_cast<u8>(signal)))));
+                static_cast<usz>(wait_signal_exit_status(static_cast<u8>(signal)))));
             __builtin_unreachable();
         }
 
@@ -214,7 +214,7 @@ namespace astia::proc {
 
             constexpr auto signal       = signal_number::segv;
             const auto     fatal_signal = [&]() -> bool {
-                owner->signal_termination(signal);
+                owner->terminate_for_signal(signal, self);
                 self->request_kill();
                 return true;
             };
@@ -223,16 +223,16 @@ namespace astia::proc {
             if (disposition.action != signal_action::handler)
                 return fatal_signal();
 
-            constexpr usize capacity    = arch::max_signal_context_bytes;
-            const usize     saved_bytes = arch::signal_context_bytes();
+            constexpr usz capacity    = arch::max_signal_context_bytes;
+            const usz     saved_bytes = arch::signal_context_bytes();
 
             if (saved_bytes == 0 || saved_bytes > capacity)
                 return fatal_signal();
 
             alignas(16) u8 storage[capacity]{};
 
-            const usize bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
-            const u64   stack = arch::interrupt_stack_pointer(raw_frame);
+            const usz bytes = saved_bytes + sizeof(astia_siginfo_t) + 8;
+            const u64 stack = arch::interrupt_stack_pointer(raw_frame);
 
             if (stack < bytes || disposition.restorer == 0)
                 return fatal_signal();

@@ -21,17 +21,20 @@ namespace astia::io::aio::operations {
 
             long resolve_rc =
                 resolve_at(current, sqe.fd, path, resolved, sizeof resolved, true);
-
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
-            auto requested = mapper<fs::file_mode>::from(
+            if (!parent_writable(current, resolved))
+                co_return -EACCES;
+
+            const auto requested = mapper<fs::file_mode>::from(
                 sqe.aux == 0 ? fs::default_directory_permissions.raw() : sqe.aux);
 
             if (!requested.has_value)
                 co_return -EINVAL;
 
-            const long rc = fs::make_directory(resolved, requested.value);
+            const long rc = fs::make_directory(
+                resolved, fs::apply_umask(requested.value, current->umask()));
             if (rc >= 0)
                 (void) fs::chown_path(resolved, uid_t{current->uid()},
                                       gid_t{current->gid()});

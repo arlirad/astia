@@ -13,8 +13,8 @@ namespace astia::hw {
         mmio_mapping(mmio_mapping&& other) noexcept;
         mmio_mapping& operator=(mmio_mapping&& other) noexcept;
 
-        static optional<mmio_mapping> map(u64 physical, usize length);
-        static optional<mmio_mapping> map_pci(u64 physical, usize length,
+        static optional<mmio_mapping> map(u64 physical, usz length);
+        static optional<mmio_mapping> map_pci(u64 physical, usz length,
                                               bool prefetchable);
 
         bool valid() const {
@@ -29,7 +29,7 @@ namespace astia::hw {
             return physical_;
         }
 
-        usize length() const {
+        usz length() const {
             return length_;
         }
 
@@ -46,9 +46,9 @@ namespace astia::hw {
         u64          physical_     = 0;
         u64          mapped_base_  = 0;
         u64          virtual_base_ = 0;
-        usize        offset_       = 0;
-        usize        mapped_bytes_ = 0;
-        usize        length_       = 0;
+        usz          offset_       = 0;
+        usz          mapped_bytes_ = 0;
+        usz          length_       = 0;
         mapping_kind kind_         = mapping_kind::none;
     };
 } // namespace astia::hw

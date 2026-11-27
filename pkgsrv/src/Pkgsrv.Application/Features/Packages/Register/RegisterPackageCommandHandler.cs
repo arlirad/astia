@@ -21,6 +21,7 @@ public sealed class RegisterPackageCommandHandler
     private readonly IDomainEventPublisher _eventPublisher;
     private readonly ISystemClock _clock;
     private readonly IPackageCacheInvalidationNotifier? _cacheNotifier;
+    private readonly IPackageEventOutbox? _eventOutbox;
 
     public RegisterPackageCommandHandler(
         IPackageRepository repository,
@@ -28,7 +29,8 @@ public sealed class RegisterPackageCommandHandler
         IIrvaAuthorization authorization,
         IDomainEventPublisher eventPublisher,
         ISystemClock clock,
-        IPackageCacheInvalidationNotifier? cacheNotifier = null)
+        IPackageCacheInvalidationNotifier? cacheNotifier = null,
+        IPackageEventOutbox? eventOutbox = null)
     {
         _repository = repository;
         _sourceAllowlist = sourceAllowlist;
@@ -36,6 +38,7 @@ public sealed class RegisterPackageCommandHandler
         _eventPublisher = eventPublisher;
         _clock = clock;
         _cacheNotifier = cacheNotifier;
+        _eventOutbox = eventOutbox;
     }
 
     public async ValueTask<RegisterPackageResult> Handle(
@@ -83,8 +86,18 @@ public sealed class RegisterPackageCommandHandler
             TimeSpan.FromSeconds(request.TimeoutSeconds));
 
         var package = Package.Register(manifest, buildPolicy, _clock.UtcNow);
+        var domainEvents = package.PeekDomainEvents();
 
-        if (!await _repository.TryAddAsync(package, cancellationToken).ConfigureAwait(false))
+        if (_eventOutbox is not null)
+        {
+            if (!await _eventOutbox
+                    .TryAddWithEventsAsync(package, domainEvents, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                throw new PackageConflictException(package.Key.ToString());
+            }
+        }
+        else if (!await _repository.TryAddAsync(package, cancellationToken).ConfigureAwait(false))
         {
             throw new PackageConflictException(package.Key.ToString());
         }
@@ -98,15 +111,17 @@ public sealed class RegisterPackageCommandHandler
                 .ConfigureAwait(false);
         }
 
-        var domainEvents = package.PeekDomainEvents();
-        await _eventPublisher.PublishAsync(
-            domainEvents,
-            cancellationToken).ConfigureAwait(false);
-        await _repository.AcknowledgeDomainEventsAsync(
-            package.Key,
-            domainEvents,
-            cancellationToken).ConfigureAwait(false);
-        package.AcknowledgeDomainEvents(domainEvents);
+        if (_eventOutbox is null)
+        {
+            await _eventPublisher.PublishAsync(
+                domainEvents,
+                cancellationToken).ConfigureAwait(false);
+            await _repository.AcknowledgeDomainEventsAsync(
+                package.Key,
+                domainEvents,
+                cancellationToken).ConfigureAwait(false);
+            package.AcknowledgeDomainEvents(domainEvents);
+        }
 
         return new RegisterPackageResult(PackageDetailsDto.From(package));
     }

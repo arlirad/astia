@@ -13,12 +13,14 @@
 #include "path_service.hpp"
 #include "unix_pathname.hpp"
 
-void* operator new(astia::usize size, void* where) noexcept;
+void* operator new(astia::usz size, void* where) noexcept;
 
 namespace astia::fs {
     namespace {
         inline constexpr u32 max_types  = 16;
         inline constexpr u32 max_mounts = 16;
+
+        bool (*realtime_source)(u64& sec, u64& nsec) = nullptr;
 
         struct type_entry {
             const filesystem* type              = nullptr;
@@ -201,7 +203,7 @@ namespace astia::fs {
             core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
                 mount_snapshot);
 
-            for (usize i = 0; i < snapshot.size(); ++i) {
+            for (usz i = 0; i < snapshot.size(); ++i) {
                 const auto& candidate = snapshot[i];
 
                 if (!candidate.used || !path_matches(candidate.target, path))
@@ -227,7 +229,7 @@ namespace astia::fs {
                 core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
                     mount_snapshot);
 
-                for (usize i = 0; i < snapshot.size(); ++i) {
+                for (usz i = 0; i < snapshot.size(); ++i) {
                     const auto& candidate = snapshot[i];
 
                     if (!candidate.used || !path_matches(candidate.target, path))
@@ -350,6 +352,22 @@ namespace astia::fs {
             return *relative == '\0' ? "/" : relative;
         }
 
+        /// Stable identity for filesystems that cannot describe a node.
+        /// FNV-1a over the mount and canonical path keeps two names apart;
+        /// the top bit keeps the result clear of real inode numbers.
+        u64 synthetic_inode(u32 device, const char* canonical) {
+            constexpr u64 offset_basis = 0xcbf29ce484222325ull;
+            constexpr u64 prime        = 0x100000001b3ull;
+
+            u64 hash = (offset_basis ^ device) * prime;
+
+            for (const char* cursor = canonical; *cursor != '\0'; ++cursor) {
+                hash = (hash ^ static_cast<u8>(*cursor)) * prime;
+            }
+
+            return hash | (u64{1} << 63);
+        }
+
         filesystems::devfs devfs_type;
         filesystems::tmpfs tmpfs_type_instance;
         alignas(filesystems::devfs_mount) u8
@@ -378,7 +396,7 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
-    long mount::read_directory(const char*, u64, char*, u32, file_type*) {
+    long mount::read_directory(const char*, u64, char*, u32, file_type*, u64*) {
         return -ENOSYS;
     }
 
@@ -396,6 +414,14 @@ namespace astia::fs {
 
     long mount::link(const char*, const char*) {
         return -ENOSYS;
+    }
+
+    void set_realtime_source(bool (*source)(u64& sec, u64& nsec)) {
+        realtime_source = source;
+    }
+
+    bool realtime_now(u64& sec, u64& nsec) {
+        return realtime_source != nullptr && realtime_source(sec, nsec);
     }
 
     file_type mount::node_type(const char*) const {
@@ -418,6 +444,10 @@ namespace astia::fs {
         return {};
     }
 
+    file_timestamps mount::node_timestamps(const char*) const {
+        return {};
+    }
+
     uid_t file::uid() const {
         return {};
     }
@@ -432,6 +462,10 @@ namespace astia::fs {
 
     long file::chown(uid_t, gid_t) {
         return -ENOSYS;
+    }
+
+    file_timestamps file::timestamps() const {
+        return {};
     }
 
     u64 file::inode() const {
@@ -913,7 +947,7 @@ namespace astia::fs {
     }
 
     long read_directory(const char* path, u64 index, char* name, u32 capacity,
-                        file_type* type) {
+                        file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -929,7 +963,8 @@ namespace astia::fs {
 
         const char* relative = relative_path(*operation.entry(), resolved);
 
-        rc = operation.instance()->read_directory(relative, index, name, capacity, type);
+        rc = operation.instance()->read_directory(relative, index, name, capacity, type,
+                                                  inode);
 
         if (rc > 0 || rc == -ENAMETOOLONG)
             return rc;
@@ -938,7 +973,7 @@ namespace astia::fs {
 
         while (true) {
             rc = operation.instance()->read_directory(relative, base, name, capacity,
-                                                      type);
+                                                      type, nullptr);
             if (rc > 0) {
                 ++base;
                 continue;
@@ -951,11 +986,11 @@ namespace astia::fs {
         }
 
         return read_unix_directory(resolved, operation.instance(), index - base,
-                                   astia::span<char>(name, capacity), type);
+                                   astia::span<char>(name, capacity), type, inode);
     }
 
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type) {
+                        u32 capacity, file_type* type, u64* inode) {
         if (!directory)
             return -EBADF;
 
@@ -967,7 +1002,7 @@ namespace astia::fs {
         if (!directory->mode().is_directory())
             return -ENOTDIR;
 
-        return read_directory(path, index, name, capacity, type);
+        return read_directory(path, index, name, capacity, type, inode);
     }
 
     long make_directory(const char* path, file_mode mode) {
@@ -1169,9 +1204,52 @@ namespace astia::fs {
 
         file_mode unix_mode = unix_node_mode(path, operation.instance());
 
-        return unix_mode.exists() ? unix_mode
-                                  : operation.instance()->node_mode(
-                                        relative_path(*operation.entry(), path));
+        if (unix_mode.exists())
+            return unix_mode;
+
+        mount_entry* entry = operation.entry();
+
+        file_mode mode = operation.instance()->node_mode(relative_path(*entry, path));
+
+        if (mode.exists())
+            return mode;
+
+        // Mirror node_type(): a mount point is a directory in the namespace
+        // even when the mounted filesystem cannot describe its own root.
+        return string_equal(entry->target, path)
+                   ? file_mode(file_type::directory, mount_point_directory_permissions)
+                   : mode;
+    }
+
+    u32 node_device(const char* path) {
+        if (path == nullptr || path[0] != '/')
+            return 0;
+
+        mount_operation operation(path);
+
+        return operation ? operation.instance()->device() : 0u;
+    }
+
+    u32 node_device(const open_file& handle) {
+        if (const auto* owner = handle.mount_owner())
+            return owner->device();
+
+        return node_device(handle.path());
+    }
+
+    u64 node_inode(const char* path) {
+        if (path == nullptr || path[0] != '/')
+            return 0;
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return 0;
+
+        const u64 inode =
+            operation.instance()->node_inode(relative_path(*operation.entry(), path));
+
+        return inode != 0 ? inode : synthetic_inode(operation.instance()->device(), path);
     }
 
     bool directory_matches(const char* path, mount* owner, u64 inode) {
@@ -1213,6 +1291,16 @@ namespace astia::fs {
                    ? unix_node_gid(path, operation.instance())
                    : operation.instance()->node_gid(
                          relative_path(*operation.entry(), path));
+    }
+
+    file_timestamps node_timestamps(const char* path) {
+        mount_operation operation(path);
+
+        if (!operation)
+            return {};
+
+        return operation.instance()->node_timestamps(
+            relative_path(*operation.entry(), path));
     }
 
     long chmod_path(const char* path, file_permissions permissions) {
@@ -1262,7 +1350,7 @@ namespace astia::fs {
                                            uid, gid);
     }
 
-    long touch_path(const char* path, u64 sec, u64 nsec) {
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
 
@@ -1276,10 +1364,14 @@ namespace astia::fs {
 
         auto handle =
             operation.instance()->open(relative_path(*operation.entry(), path), 0);
-        if (!handle)
-            return -ENOENT;
+        if (!handle) {
+            if (!follow_final && node_type(path) == directory_lnk)
+                return 0;
 
-        return handle->parent()->touch(sec, nsec);
+            return -ENOENT;
+        }
+
+        return handle->parent()->touch(times);
     }
 
     // The remaining file/open-file implementation stays in this TU.
@@ -1325,7 +1417,7 @@ namespace astia::fs {
         return 0;
     }
 
-    long file::touch(u64, u64) {
+    long file::touch(const file_timestamps&) {
         return -EROFS;
     }
 
@@ -1558,7 +1650,7 @@ namespace astia::fs {
         return ready & events;
     }
 
-    long open_file::ioctl(u64 request, void* argp, usize size) {
+    long open_file::ioctl(u64 request, void* argp, usz size) {
         if (request == TIOCGNAME) {
             if (argp == nullptr || size != sizeof(struct astia_tty_name))
                 return -EINVAL;
@@ -1571,19 +1663,19 @@ namespace astia::fs {
 
             auto* name = static_cast<struct astia_tty_name*>(argp);
 
-            usize i = 0;
+            usz i = 0;
 
             if (device != nullptr && device[0] != '\0') {
                 static constexpr char prefix[] = "/dev/";
 
-                for (usize j = 0; prefix[j] != '\0'; ++j) {
+                for (usz j = 0; prefix[j] != '\0'; ++j) {
                     if (i + 1 >= sizeof(name->path))
                         return -ENAMETOOLONG;
 
                     name->path[i++] = prefix[j];
                 }
 
-                for (usize j = 0; device[j] != '\0'; ++j) {
+                for (usz j = 0; device[j] != '\0'; ++j) {
                     if (i + 1 >= sizeof(name->path))
                         return -ENAMETOOLONG;
 
@@ -1690,6 +1782,10 @@ namespace astia::fs {
 
         _path[i]  = '\0';
         _has_path = true;
+    }
+
+    file_timestamps open_file::timestamps() const {
+        return !_parent ? file_timestamps{} : _parent->timestamps();
     }
 
     u64 open_file::mtime_sec() const {

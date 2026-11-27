@@ -1,4 +1,5 @@
 set(ASTIA_PUBLIC_HEADERS
+        astia/api/syscalls.h
         astia/acpi.hpp
         astia/arch/io.hpp
         astia/shutdown.hpp
@@ -27,6 +28,7 @@ set(ASTIA_PUBLIC_HEADERS
         astia/dev/mmio.hpp
         astia/dev/pci.hpp
         astia/dev/regs.hpp
+        astia/dev/tty_input.hpp
         astia/dev/uart_platform.hpp
         astia/fs.hpp
         astia/hw/driver.hpp

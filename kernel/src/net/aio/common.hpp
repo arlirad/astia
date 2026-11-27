@@ -18,7 +18,7 @@ namespace astia::io::aio::operations {
     using ::astia::io::aio::dispatch::parent_writable;
     using ::astia::io::aio::dispatch::submit_socket_request;
 
-    inline constexpr usize max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
+    inline constexpr usz max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
 
     inline bool socket_node_writable(proc::process* current, const char* path) {
         if (!current || !path)
@@ -34,7 +34,7 @@ namespace astia::io::aio::operations {
     }
 
     inline long decode_unix_path(const astia_sockaddr& address, char* path,
-                                 usize capacity) {
+                                 usz capacity) {
         if (address.family != AF_UNIX || address.len < 3 ||
             address.len > sizeof(address.data) + 2)
             return -EINVAL;

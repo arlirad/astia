@@ -29,13 +29,17 @@ struct stat {
 #define S_IFREG 0100000
 #define S_IFDIR 0040000
 #define S_IFCHR 0020000
+#define S_IFBLK 0060000
 #define S_IFIFO 0010000
 #define S_IFLNK 0120000
+#define S_IFSOCK 0140000
 #define S_ISREG(mode) (((mode) & S_IFMT) == S_IFREG)
 #define S_ISDIR(mode) (((mode) & S_IFMT) == S_IFDIR)
 #define S_ISCHR(mode) (((mode) & S_IFMT) == S_IFCHR)
+#define S_ISBLK(mode) (((mode) & S_IFMT) == S_IFBLK)
 #define S_ISFIFO(mode) (((mode) & S_IFMT) == S_IFIFO)
 #define S_ISLNK(mode) (((mode) & S_IFMT) == S_IFLNK)
+#define S_ISSOCK(mode) (((mode) & S_IFMT) == S_IFSOCK)
 #define S_IRUSR 0400
 #define S_IWUSR 0200
 #define S_IXUSR 0100
@@ -51,6 +55,8 @@ struct stat {
 #define S_IXUGO 0111
 #define AT_SYMLINK_NOFOLLOW 0x100
 #define AT_REMOVEDIR 0x200
+#define UTIME_NOW ((1L << 30) - 1L)
+#define UTIME_OMIT ((1L << 30) - 2L)
 
 int stat(const char* path, struct stat* result);
 int lstat(const char* path, struct stat* result);

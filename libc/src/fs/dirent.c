@@ -68,7 +68,7 @@ struct dirent* readdir(DIR* handle) {
 
     ++directory->index;
 
-    directory->entry.d_ino    = directory->index;
+    directory->entry.d_ino    = (unsigned long) result.ino;
     directory->entry.d_type   = (unsigned char) result.type;
     directory->entry.d_reclen = (unsigned short) (result.namelen + 1);
 

@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 
 #include <errno.h>
+#include <fcntl.h>
 
 static int fail(long rc) {
     errno = (int) -rc;
@@ -152,23 +153,44 @@ int fchown(int fd, uid_t owner, gid_t group) {
 }
 
 int utimensat(int dirfd, const char* path, const struct timespec times[2], int flags) {
-    (void) times;
+    if (path == NULL) {
+        errno = EFAULT;
 
-    if (dirfd != -100 || flags != 0 || path == NULL) {
+        return -1;
+    }
+
+    if ((flags & ~AT_SYMLINK_NOFOLLOW) != 0) {
         errno = EINVAL;
 
         return -1;
     }
 
-    long rc = __astia_fio_utime(path);
+    struct astia_timespec        value[2];
+    const struct astia_timespec* requested = NULL;
+
+    if (times != NULL) {
+        value[0].tv_sec  = (int64_t) times[0].tv_sec;
+        value[0].tv_nsec = (int64_t) times[0].tv_nsec;
+        value[1].tv_sec  = (int64_t) times[1].tv_sec;
+        value[1].tv_nsec = (int64_t) times[1].tv_nsec;
+        requested        = value;
+    }
+
+    long rc = __astia_fio_utimensat(dirfd, path, requested, flags);
 
     return rc < 0 ? fail(rc) : 0;
 }
 
 int utime(const char* path, const struct utimbuf* value) {
-    (void) value;
+    if (value == NULL)
+        return utimensat(AT_FDCWD, path, NULL, 0);
 
-    return utimensat(-100, path, NULL, 0);
+    struct timespec times[2] = {
+        {value->actime, 0},
+        {value->modtime, 0},
+    };
+
+    return utimensat(AT_FDCWD, path, times, 0);
 }
 
 int mkdir(const char* path, mode_t mode) {

@@ -4,18 +4,21 @@
 
 // Bounded EL1 physical timer and fixed-capacity deadline contract for the
 // QEMU virt boot stage: PPI 30, Non-secure Group 1, priority 0xa0,
-// level-sensitive, positive TVAL intervals below INT32_MAX.  The boot proof
-// re-arms a bounded periodic tick and dispatches an eight-entry deadline queue
-// inside the registered handler before EOIR/DIR so the level source is
-// deasserted; no scheduler, unbounded timer queue, or generic abstraction
-// exists.
+// level-sensitive, positive TVAL intervals below INT32_MAX.  The PPI drives a
+// 100 Hz periodic tick service that counts delivered and missed periods from
+// CNTPCT and dispatches an eight-entry deadline queue inside the registered
+// PPI 30 route before EOIR/DIR so the level source is deasserted.
+// notify_timer_tick() publishes the arch timer hook and is the bounded
+// scheduler tick source; no unbounded timer queue, timer wheel, or generic
+// timer abstraction exists.
 namespace astia::arch::aarch64::timer {
     inline constexpr u32 ppi_id               = 30;
     inline constexpr u32 ctl_enable           = 1u << 0;
     inline constexpr u32 ctl_imask            = 1u << 1;
     inline constexpr u32 ctl_istatus          = 1u << 2;
     inline constexpr u32 ctl_disabled_masked  = ctl_imask;
-    inline constexpr u32 one_shot_interval_ms = 10;
+    inline constexpr u32 tick_interval_ms     = 10;
+    inline constexpr u32 tick_hz              = 1000 / tick_interval_ms;
     inline constexpr u32 tval_max_positive    = 0x7fffffffu;
     inline constexpr u32 periodic_tick_budget = 5;
     inline constexpr u32 deadline_capacity    = 8;
@@ -40,7 +43,7 @@ namespace astia::arch::aarch64::timer {
 
     const char* describe(error value);
 
-    [[nodiscard]] constexpr bool one_shot_ticks(u32 frequency_hz, u32 interval_ms,
+    [[nodiscard]] constexpr bool interval_ticks(u32 frequency_hz, u32 interval_ms,
                                                 u32& ticks) {
         if (frequency_hz == 0 || interval_ms == 0)
             return false;
@@ -68,6 +71,80 @@ namespace astia::arch::aarch64::timer {
 
     [[nodiscard]] constexpr bool valid_interval(u32 ticks) {
         return ticks != 0 && ticks <= tval_max_positive;
+    }
+
+    [[nodiscard]] constexpr u64 saturating_add(u64 value, u64 increment) {
+        return value > ~u64{0} - increment ? ~u64{0} : value + increment;
+    }
+
+    struct tick_progress {
+        u64 delivered = 0;
+        u64 missed    = 0;
+    };
+
+    // Monotonic timekeeping counters for the PPI tick service.  Delivered
+    // ticks count handled PPI interrupts; missed ticks count whole periods
+    // that elapsed between two handled interrupts.  tick_count includes both,
+    // so arch::timer_ticks()/arch::timer_hz() keep wall time aligned with
+    // CNTPCT when a handler is delayed.  All arithmetic saturates.
+    struct timekeeping_state {
+        u64  delivered_ticks = 0;
+        u64  missed_ticks    = 0;
+        u64  tick_count      = 0;
+        u64  last_tick_ms    = 0;
+        bool active          = false;
+    };
+
+    inline timekeeping_state timekeeping{};
+
+    inline void reset_timekeeping(u64 start_ms) {
+        timekeeping              = timekeeping_state{};
+        timekeeping.last_tick_ms = start_ms;
+    }
+
+    inline void begin_timekeeping(u64 start_ms) {
+        timekeeping.last_tick_ms = start_ms;
+        timekeeping.active       = true;
+    }
+
+    [[nodiscard]] inline tick_progress account_tick(u64 now_ms) {
+        u64 delta = 0;
+
+        if (now_ms >= timekeeping.last_tick_ms)
+            delta = (now_ms - timekeeping.last_tick_ms) / tick_interval_ms;
+
+        const u64 missed = delta == 0 ? 0 : delta - 1;
+
+        timekeeping.delivered_ticks = saturating_add(timekeeping.delivered_ticks, 1);
+        timekeeping.missed_ticks    = saturating_add(timekeeping.missed_ticks, missed);
+        timekeeping.tick_count =
+            saturating_add(timekeeping.tick_count, saturating_add(1, missed));
+
+        if (delta != 0) {
+            constexpr u64 max_periods = ~u64{0} / tick_interval_ms;
+            const u64     periods     = delta > max_periods ? max_periods : delta;
+
+            timekeeping.last_tick_ms =
+                saturating_add(timekeeping.last_tick_ms, periods * tick_interval_ms);
+        }
+
+        return tick_progress{1, missed};
+    }
+
+    [[nodiscard]] inline u64 tick_count() {
+        return timekeeping.tick_count;
+    }
+
+    [[nodiscard]] inline u64 delivered_ticks() {
+        return timekeeping.delivered_ticks;
+    }
+
+    [[nodiscard]] inline u64 missed_ticks() {
+        return timekeeping.missed_ticks;
+    }
+
+    [[nodiscard]] inline bool periodic_active() {
+        return timekeeping.active;
     }
 
     using deadline_handler = void (*)(void* context);
@@ -263,13 +340,15 @@ namespace astia::arch::aarch64::timer {
 
     u64 now_ms();
 
-    struct arm_result {
+    struct periodic_result {
         u32 frequency_hz = 0;
         u32 ticks        = 0;
         u32 control      = 0;
+        u64 start_ms     = 0;
     };
 
-    error arm_one_shot(arm_result& result);
+    error start_periodic(periodic_result& result);
+    void  stop_periodic();
     error arm_interval(u32 ticks, u32& control);
     void  disable_and_clear();
     u32   read_control();

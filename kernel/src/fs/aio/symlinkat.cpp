@@ -26,6 +26,9 @@ namespace astia::io::aio::operations {
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
+            if (!parent_writable(current, resolved))
+                co_return -EACCES;
+
             long link_rc = fs::make_symlink(target, resolved);
             if (link_rc >= 0)
                 (void) fs::chown_path(resolved, uid_t{current->uid()},

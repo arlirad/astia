@@ -1,9 +1,11 @@
+#include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 static int fails;
 
@@ -177,6 +179,41 @@ static void test_width_and_flags(void) {
     CHECK_FMT("7", 1, "%.*d", -1, 7); /* negative precision = none */
 }
 
+static void test_zero_precision(void) {
+    CHECK_FMT("", 0, "%.0d", 0);
+    CHECK_FMT("", 0, "%.0i", 0);
+    CHECK_FMT("", 0, "%.0u", 0);
+    CHECK_FMT("", 0, "%.0x", 0);
+    CHECK_FMT("", 0, "%.0X", 0);
+    CHECK_FMT("", 0, "%.0o", 0);
+    CHECK_FMT("0", 1, "%#.0o", 0);
+    CHECK_FMT("", 0, "%#.0x", 0);
+    CHECK_FMT("", 0, "%#.0X", 0);
+
+    CHECK_FMT("5", 1, "%.0d", 5);
+    CHECK_FMT("-5", 2, "%.0d", -5);
+    CHECK_FMT("5", 1, "%.0i", 5);
+    CHECK_FMT("5", 1, "%.0u", 5);
+    CHECK_FMT("ff", 2, "%.0x", 255);
+    CHECK_FMT("FF", 2, "%.0X", 255);
+    CHECK_FMT("10", 2, "%.0o", 8);
+    CHECK_FMT("010", 3, "%#.0o", 8);
+
+    CHECK_FMT("+", 1, "%+.0d", 0);
+    CHECK_FMT(" ", 1, "% .0d", 0);
+    CHECK_FMT("     ", 5, "%5.0d", 0);
+    CHECK_FMT("     ", 5, "%-5.0d", 0);
+    CHECK_FMT("  0", 3, "%#3.0o", 0);
+    CHECK_FMT("7", 1, "%.*d", 0, 7);
+    CHECK_FMT("", 0, "%.*d", 0, 0);
+
+    {
+        const char* f_prec_zero_pad = "%05.0d";
+
+        CHECK_FMT("     ", 5, f_prec_zero_pad, 0);
+    }
+}
+
 static void test_chars_and_strings(void) {
     CHECK_FMT("A", 1, "%c", 'A');
     CHECK_FMT("   A", 4, "%4c", 'A');
@@ -199,6 +236,60 @@ static void test_chars_and_strings(void) {
 static void test_pointers(void) {
     CHECK_FMT("0x1234", 6, "%p", (void*) 0x1234); /* astia form, always 0x */
     CHECK_FMT("0x0", 3, "%p", (void*) 0);
+}
+
+static void test_wide_chars_and_strings(void) {
+    char buf[256];
+    int  r;
+
+    CHECK_FMT("A", 1, "%lc", (wint_t) L'A');
+    CHECK_FMT("   A", 4, "%4lc", (wint_t) L'A');
+    CHECK_FMT("A   ", 4, "%-4lc", (wint_t) L'A');
+    CHECK_FMT("xAy", 3, "x%lcy", (wint_t) L'A');
+
+    CHECK_FMT("abc", 3, "%ls", L"abc");
+    CHECK_FMT("  abc", 5, "%5ls", L"abc");
+    CHECK_FMT("abc  ", 5, "%-5ls", L"abc");
+    CHECK_FMT("xabcy", 5, "x%lsy", L"abc");
+    CHECK_FMT("ab", 2, "%.2ls", L"abcdef");
+    CHECK_FMT("", 0, "%.0ls", L"abcdef");
+    CHECK_FMT("abcdef", 6, "%.20ls", L"abcdef");
+    CHECK_FMT("   ab", 5, "%5.2ls", L"abcdef");
+    CHECK_FMT("ab   ", 5, "%-5.2ls", L"abcdef");
+    CHECK_FMT("   ", 3, "%3.0ls", L"abcdef");
+
+    {
+        const wchar_t* wide_nil = NULL;
+
+        CHECK_FMT("(null)", 6, "%ls", wide_nil);
+    }
+
+    {
+        char            small[4];
+        volatile size_t cap_4 = 4;
+
+        r = snprintf(small, cap_4, "%ls", L"abcdef");
+
+        CHECK(r == 6 && strcmp(small, "abc") == 0);
+    }
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%lc", (wint_t) 0xe9);
+
+    CHECK(r == -1 && errno == EILSEQ && buf[0] == '\0');
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%ls", L"caf\u00e9");
+
+    CHECK(r == -1 && errno == EILSEQ && buf[0] == '\0');
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%.0ls", L"\u00e9");
+
+    CHECK(r == 0 && errno == 0 && buf[0] == '\0');
 }
 
 static void test_percent_n(void) {
@@ -342,8 +433,10 @@ int main(void) {
     test_ints();
     test_radices();
     test_width_and_flags();
+    test_zero_precision();
     test_chars_and_strings();
     test_pointers();
+    test_wide_chars_and_strings();
     test_unsupported();
     test_float_precision();
     test_truncation();

@@ -22,7 +22,7 @@ namespace {
         astia::u32               cleanups        = 0;
         astia::u32               discards        = 0;
         astia::u64               last_address    = 0;
-        astia::usize             last_pages      = 0;
+        astia::usz               last_pages      = 0;
     };
 
     void init_frames() {
@@ -40,10 +40,10 @@ namespace {
         }
     }
 
-    void unmap(void* context, astia::u64 address, astia::usize pages) {
+    void unmap(void* context, astia::u64 address, astia::usz pages) {
         auto& value = *static_cast<state*>(context);
 
-        for (astia::usize i = 0; i < pages; ++i) {
+        for (astia::usz i = 0; i < pages; ++i) {
             ASTIA_CHECK(value.space.unmap(address + i * astia::mm::page_size));
         }
 
@@ -55,7 +55,7 @@ namespace {
     void release_frames(void* context, astia::u64 frames, astia::u64 pages) {
         auto& value = *static_cast<state*>(context);
 
-        for (astia::usize i = 0; i < value.last_pages; ++i) {
+        for (astia::usz i = 0; i < value.last_pages; ++i) {
             ASTIA_CHECK(
                 value.space.translate(value.last_address + i * astia::mm::page_size) ==
                 astia::mm::address_space::invalid);
@@ -68,7 +68,7 @@ namespace {
     void release_region(void* context) {
         auto& value = *static_cast<state*>(context);
 
-        for (astia::usize i = 0; i < value.last_pages; ++i) {
+        for (astia::usz i = 0; i < value.last_pages; ++i) {
             ASTIA_CHECK(
                 value.space.translate(value.last_address + i * astia::mm::page_size) ==
                 astia::mm::address_space::invalid);

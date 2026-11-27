@@ -44,19 +44,25 @@ namespace astia::io::aio::test_support {
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
-        constexpr usize      node_override_capacity = 8;
-        constexpr usize      node_override_path_max = 128;
+        constexpr usz        node_override_capacity = 8;
+        constexpr usz        node_override_path_max = 512;
 
         struct node_override_entry {
             char      path[node_override_path_max]{};
             file_mode mode{};
             uid_t     uid{};
             gid_t     gid{};
-            bool      mode_set  = false;
-            bool      owner_set = false;
+            u32       device{};
+            u64       inode{};
+            bool      mode_set     = false;
+            bool      owner_set    = false;
+            bool      identity_set = false;
         };
 
         node_override_entry node_overrides[node_override_capacity];
+
+        touch_record touch_value;
+        bool         touch_value_valid = false;
 
         bool same_path(const char* left, const char* right) {
             while (*left != '\0' && *left == *right) {
@@ -68,7 +74,7 @@ namespace astia::io::aio::test_support {
         }
 
         void copy_path(char* destination, const char* source) {
-            usize length = 0;
+            usz length = 0;
 
             while (length + 1 < node_override_path_max && source[length] != '\0') {
                 destination[length] = source[length];
@@ -105,9 +111,10 @@ namespace astia::io::aio::test_support {
             return entry;
         }
 
-        u64 timer_hz_value    = 1000;
-        u64 timer_ticks_value = 0;
-        u64 generation_value  = 0;
+        u64 timer_hz_value        = 1000;
+        u64 timer_ticks_value     = 0;
+        u64 generation_value      = 0;
+        u64 directory_entry_inode = 0;
 
         bool inside_range(span<u8> range) {
             return memory_allowed && (!range.null() || range.empty());
@@ -154,9 +161,8 @@ namespace astia::io::aio::test_support {
                 source.null())
                 return false;
 
-            const usize limit =
-                source.empty() ? destination.length() - 1 : source.length();
-            usize length = 0;
+            const usz limit = source.empty() ? destination.length() - 1 : source.length();
+            usz       length = 0;
 
             while (length < limit && length + 1 < destination.length()) {
                 const char value = static_cast<char>(source[length]);
@@ -248,6 +254,8 @@ namespace astia::io::aio::test_support {
             entry = {};
         }
 
+        touch_value       = {};
+        touch_value_valid = false;
         open_file_value   = {};
         pipe_read_value   = {};
         pipe_write_value  = {};
@@ -255,11 +263,17 @@ namespace astia::io::aio::test_support {
         socketpair_first  = {};
         socketpair_second = {};
         node_mode         = file_mode(file_type::regular, fs::default_file_permissions);
-        memory_allowed    = true;
+
+        set_node_mode("/tmp",
+                      file_mode(file_type::directory, fs::file_permissions(0755)));
+        set_node_owner("/tmp", uid_t{0}, gid_t{0});
+
+        memory_allowed         = true;
         last_chown_path_record = {};
         timer_hz_value         = 1000;
         timer_ticks_value      = 0;
         generation_value       = 0;
+        directory_entry_inode  = 0;
         current                = nullptr;
     }
 
@@ -299,6 +313,10 @@ namespace astia::io::aio::test_support {
 
     bool descriptor_present(i32 fd) {
         return is_valid_fd(fd) && static_cast<bool>(descriptors[fd].file);
+    }
+
+    u32 descriptor_flags(i32 fd) {
+        return is_valid_fd(fd) ? descriptors[fd].flags : 0;
     }
 
     void clear_descriptor(i32 fd) {
@@ -349,6 +367,20 @@ namespace astia::io::aio::test_support {
         entry->owner_set = true;
     }
 
+    void set_node_identity(const char* path, u32 device, u64 inode) {
+        node_override_entry* entry = ensure_override(path);
+        if (entry == nullptr)
+            return;
+
+        entry->device       = device;
+        entry->inode        = inode;
+        entry->identity_set = true;
+    }
+
+    void set_directory_entry_inode(u64 inode) {
+        detail::directory_entry_inode = inode;
+    }
+
     void set_process_credentials(uid_t uid, gid_t gid) {
         if (current == nullptr)
             return;
@@ -359,6 +391,19 @@ namespace astia::io::aio::test_support {
 
     void set_memory_allowed(bool allowed) {
         memory_allowed = allowed;
+    }
+
+    bool touch_called() {
+        return touch_value_valid;
+    }
+
+    const touch_record& last_touch() {
+        return touch_value;
+    }
+
+    void clear_touch_record() {
+        touch_value       = {};
+        touch_value_valid = false;
     }
 
     void set_timer(u64 hz, u64 ticks) {
@@ -518,7 +563,7 @@ namespace astia::core {
 } // namespace astia::core
 
 namespace astia::mm::heap {
-    optional<u8*> alloc(usize bytes) {
+    optional<u8*> alloc(usz bytes) {
         if (bytes == 0)
             return error_t::einval;
 
@@ -536,7 +581,7 @@ namespace astia::mm::heap {
 
 namespace astia::mm {
     iovec::iovec(iovec&& other) noexcept {
-        for (usize i = 0; i < other._count; ++i) {
+        for (usz i = 0; i < other._count; ++i) {
             _segments[i].base   = other._segments[i].base;
             _segments[i].offset = other._segments[i].offset;
             _segments[i].length = other._segments[i].length;
@@ -558,7 +603,7 @@ namespace astia::mm {
         if (this != &other) {
             release();
 
-            for (usize i = 0; i < other._count; ++i) {
+            for (usz i = 0; i < other._count; ++i) {
                 _segments[i].base   = other._segments[i].base;
                 _segments[i].offset = other._segments[i].offset;
                 _segments[i].length = other._segments[i].length;
@@ -587,7 +632,7 @@ namespace astia::mm {
         _remaining = 0;
     }
 
-    usize iovec::bytes() const {
+    usz iovec::bytes() const {
         return _total;
     }
 
@@ -604,26 +649,26 @@ namespace astia::mm {
         return segment.base + segment.offset + _offset;
     }
 
-    usize iovec::chunk() const {
+    usz iovec::chunk() const {
         if (_remaining == 0 || _index >= _count)
             return 0;
 
         const pinned_segment& segment = _segments[_index];
 
-        const usize left = segment.length - _offset;
+        const usz left = segment.length - _offset;
 
         return left < _remaining ? left : _remaining;
     }
 
-    usize iovec::advance(usize bytes) {
-        usize moved = 0;
+    usz iovec::advance(usz bytes) {
+        usz moved = 0;
 
         while (moved < bytes && _remaining != 0 && _index < _count) {
-            const usize take = chunk();
+            const usz take = chunk();
             if (take == 0)
                 break;
 
-            const usize step = take < bytes - moved ? take : bytes - moved;
+            const usz step = take < bytes - moved ? take : bytes - moved;
 
             _offset += step;
             _remaining -= step;
@@ -639,7 +684,7 @@ namespace astia::mm {
         return moved;
     }
 
-    bool iovec::append_kernel(void* address, usize length) {
+    bool iovec::append_kernel(void* address, usz length) {
         if (_count >= max_segments || length == 0)
             return _count < max_segments;
 
@@ -799,7 +844,7 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -808,23 +853,81 @@ namespace astia::proc {
         if (length + 1 > buffer.length())
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 
         return static_cast<i64>(length);
     }
 
-    i64 process::compose_path_at(fd_t, const char* path, span<char> buffer) const {
-        return compose_path(path, buffer);
+    i64 process::compose_path_at(fd_t dirfd, const char* path, span<char> buffer) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        if (path[0] == '/' || dirfd.value == AT_FDCWD)
+            return compose_path(path, buffer);
+
+        auto directory = descriptor(dirfd);
+        if (!directory)
+            return -EBADF;
+
+        const char* base = directory->path();
+
+        if (base == nullptr || !directory->mode().is_directory())
+            return -ENOTDIR;
+
+        usz length = 0;
+
+        while (base[length] != '\0') {
+            ++length;
+        }
+
+        usz suffix = 0;
+
+        while (path[suffix] != '\0') {
+            ++suffix;
+        }
+
+        if (length + suffix + 2 > buffer.length())
+            return -ENAMETOOLONG;
+
+        for (usz i = 0; i < length; ++i) {
+            buffer[i] = base[i];
+        }
+
+        if (length == 0 || buffer[length - 1] != '/')
+            buffer[length++] = '/';
+
+        for (usz i = 0; i <= suffix; ++i) {
+            buffer[length + i] = path[i];
+        }
+
+        return static_cast<i64>(length + suffix);
     }
 
     i64 process::resolve_path(const char* path, span<char> buffer, bool) const {
         return compose_path(path, buffer);
     }
 
-    i64 process::resolve_path_at(fd_t, const char* path, span<char> buffer, bool) const {
-        return compose_path(path, buffer);
+    i64 process::resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
+                                 bool) const {
+        if (path == nullptr || buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        if (path[0] == '/' || dirfd.value == AT_FDCWD)
+            return compose_path(path, buffer);
+
+        return compose_path_at(dirfd, path, buffer);
+    }
+
+    i64 process::copy_root(span<char> buffer) const {
+        if (buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        buffer.data()[0] = '/';
+        buffer.data()[1] = '\0';
+
+        return 2;
     }
 
     bool process::in_group(gid_t group) const {
@@ -841,7 +944,28 @@ namespace astia::proc {
 } // namespace astia::proc
 
 namespace astia::fs {
+#ifdef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
+    open_file::~open_file() {
+        if (_parent)
+            _parent->close(_flags);
+    }
+#else
     open_file::~open_file() {}
+#endif
+
+    void open_file::set_path(const char* path) {
+        if (path == nullptr)
+            return;
+
+        u32 i = 0;
+
+        for (; i + 1 < path_max && path[i] != '\0'; ++i) {
+            _path[i] = path[i];
+        }
+
+        _path[i]  = '\0';
+        _has_path = true;
+    }
 
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
@@ -896,7 +1020,7 @@ namespace astia::fs {
         return result ? static_cast<long>(result.value) : error_errno(result.error);
     }
 
-    long open_file::ioctl(u64 request, void* argument, usize size) {
+    long open_file::ioctl(u64 request, void* argument, usz size) {
         if (!_parent)
             return -EBADF;
 
@@ -911,6 +1035,10 @@ namespace astia::fs {
 
     long open_file::acquire_controlling_terminal(i32 group) {
         return _parent ? _parent->acquire_controlling_terminal(group) : -EBADF;
+    }
+
+    file_timestamps open_file::timestamps() const {
+        return _parent ? _parent->timestamps() : file_timestamps{};
     }
 
     u64 open_file::mtime_sec() const {
@@ -945,7 +1073,7 @@ namespace astia::fs {
         if (path == nullptr || buffer == nullptr)
             return -EINVAL;
 
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -954,7 +1082,7 @@ namespace astia::fs {
         if (length + 1 > capacity)
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer[i] = path[i];
         }
 
@@ -989,6 +1117,26 @@ namespace astia::fs {
         return entry != nullptr && entry->owner_set ? entry->gid : gid_t{};
     }
 
+    file_timestamps node_timestamps(const char*) {
+        return {};
+    }
+
+    u32 node_device(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->identity_set ? entry->device : 0u;
+    }
+
+    u32 node_device(const open_file& handle) {
+        return node_device(handle.path());
+    }
+
+    u64 node_inode(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->identity_set ? entry->inode : 0ull;
+    }
+
     long chmod_path(const char*, file_permissions) {
         return 0;
     }
@@ -1000,7 +1148,18 @@ namespace astia::fs {
         return 0;
     }
 
-    long touch_path(const char*, u64, u64) {
+    long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
+        auto& record = ::astia::io::aio::test_support::detail::touch_value;
+
+        record = {};
+
+        ::astia::io::aio::test_support::detail::copy_path(record.path,
+                                                          path != nullptr ? path : "");
+
+        record.times                                              = times;
+        record.follow_final                                       = follow_final;
+        ::astia::io::aio::test_support::detail::touch_value_valid = true;
+
         return 0;
     }
 
@@ -1028,7 +1187,8 @@ namespace astia::fs {
         return 0;
     }
 
-    long read_directory(const char*, u64, char* name, u32 capacity, file_type* type) {
+    long read_directory(const char*, u64, char* name, u32 capacity, file_type* type,
+                        u64* inode) {
         if (name == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -1038,15 +1198,18 @@ namespace astia::fs {
         if (type != nullptr)
             *type = ::astia::io::aio::test_support::detail::node_mode.type();
 
+        if (inode != nullptr)
+            *inode = ::astia::io::aio::test_support::detail::directory_entry_inode;
+
         return 1;
     }
 
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
-                        u32 capacity, file_type* type) {
+                        u32 capacity, file_type* type, u64* inode) {
         if (!directory)
             return -EBADF;
 
-        return read_directory(nullptr, index, name, capacity, type);
+        return read_directory(nullptr, index, name, capacity, type, inode);
     }
 
     optional<pipe_endpoints> create_pipe() {
@@ -1058,6 +1221,7 @@ namespace astia::fs {
                               ::astia::io::aio::test_support::detail::pipe_write_value};
     }
 
+#ifndef ASTIA_AIO_TEST_REAL_UNIX_SOCKETS
     long create_unix_socket(mm::shptr<open_file>& out, u32) {
         if (!::astia::io::aio::test_support::detail::socket_value)
             return -EAFNOSUPPORT;
@@ -1077,6 +1241,7 @@ namespace astia::fs {
 
         return 0;
     }
+#endif
 } // namespace astia::fs
 
 namespace astia::io::aio::ring {

@@ -84,7 +84,7 @@ namespace astia::proc {
 
         const char* visible = root_relative(_root, _cwd);
 
-        usize length = 0;
+        usz length = 0;
 
         while (visible[length] != '\0') {
             ++length;
@@ -93,7 +93,7 @@ namespace astia::proc {
         if (length + 1 > buffer.size())
             return -ERANGE;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer.data()[i] = visible[i];
         }
 
@@ -106,7 +106,7 @@ namespace astia::proc {
 
         arch::interrupt_spinlock_guard guard(_lock);
 
-        usize length = 0;
+        usz length = 0;
 
         while (_root[length] != '\0') {
             ++length;
@@ -115,7 +115,7 @@ namespace astia::proc {
         if (length + 1 > buffer.size())
             return -ERANGE;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             buffer.data()[i] = _root[i];
         }
 
@@ -161,7 +161,7 @@ namespace astia::proc {
     }
 
     i64 cwd_context::store_path_locked(const char* path) {
-        usize length = 0;
+        usz length = 0;
 
         while (path[length] != '\0') {
             ++length;
@@ -170,7 +170,7 @@ namespace astia::proc {
         if (length + 1 > sizeof(_cwd))
             return -ENAMETOOLONG;
 
-        for (usize i = 0; i <= length; ++i) {
+        for (usz i = 0; i <= length; ++i) {
             _cwd[i] = path[i];
         }
 
@@ -281,32 +281,48 @@ namespace astia::proc {
                                      buffer.data(), buffer.size(), follow_final);
     }
 
-    i64 cwd_context::change_directory(const char* path) {
+    core::task<i64> cwd_context::change_directory(const char*                  path,
+                                                  const fs::search_permission* search) {
         if (path == nullptr || path[0] == '\0')
-            return -EINVAL;
+            co_return -EINVAL;
 
         char      full[fs::path_max]{};
         const i64 resolve_rc = resolve_path(path, span<char>(full, sizeof full), true);
         if (resolve_rc < 0)
-            return resolve_rc;
+            co_return resolve_rc;
 
         const fs::file_type type = fs::node_type(full);
 
         if (type == fs::directory_unknown)
-            return -ENOENT;
+            co_return -ENOENT;
 
         if (type != fs::directory_dir)
-            return -ENOTDIR;
+            co_return -ENOTDIR;
 
-        arch::interrupt_spinlock_guard guard(_lock);
+        char root[fs::path_max]{};
 
-        const i64 store_rc = store_path_locked(full);
-        if (store_rc < 0)
-            return store_rc;
+        {
+            arch::interrupt_spinlock_guard guard(_lock);
 
-        _anchor = directory_anchor{};
+            if (!copy_path(root, _root))
+                co_return -ENAMETOOLONG;
+        }
 
-        return 0;
+        const long search_rc = fs::check_search(root, full, search, true);
+        if (search_rc < 0)
+            co_return search_rc;
+
+        {
+            arch::interrupt_spinlock_guard guard(_lock);
+
+            const i64 store_rc = store_path_locked(full);
+            if (store_rc < 0)
+                co_return store_rc;
+
+            _anchor = directory_anchor{};
+        }
+
+        co_return 0;
     }
 
     i64 cwd_context::bind_directory(const char* path, const directory_anchor& anchor) {
@@ -368,14 +384,14 @@ namespace astia::proc {
         {
             arch::interrupt_spinlock_guard guard(parent._lock);
 
-            for (usize i = 0; i < sizeof(root); ++i) {
+            for (usz i = 0; i < sizeof(root); ++i) {
                 root[i] = parent._root[i];
 
                 if (root[i] == '\0')
                     break;
             }
 
-            for (usize i = 0; i < sizeof(cwd); ++i) {
+            for (usz i = 0; i < sizeof(cwd); ++i) {
                 cwd[i] = parent._cwd[i];
 
                 if (cwd[i] == '\0')

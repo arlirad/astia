@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-CANONICAL_SYSCALL_IDS = tuple(range(79))
+CANONICAL_SYSCALL_IDS = tuple(range(81))
 SECTION7_NAMES = ("aio", "alarm", "exec", "rcu", "sigtimedwait", "spawnve", "task")
 SECTION7_SLUGS = {
     "aio": "docs-aio-7",
@@ -139,7 +139,7 @@ def canonical_syscalls(abi_header: Path) -> list[tuple[int, str]]:
     entries.sort()
     _require(
         [value for value, _ in entries] == list(CANONICAL_SYSCALL_IDS),
-        f"{abi_header}: expected canonical syscall IDs 0..78, found {entries}",
+        f"{abi_header}: expected canonical syscall IDs 0..80, found {entries}",
     )
     _require(
         len({name for _, name in entries}) == len(entries),
@@ -153,7 +153,7 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
     _require(isinstance(section, dict), "manifest.section2 must be an object")
     pages = section.get("pages")
     _require(isinstance(pages, list), "manifest.section2.pages must be a list")
-    _require(len(pages) == len(CANONICAL_SYSCALL_IDS), "manifest must contain exactly 79 syscall pages")
+    _require(len(pages) == len(CANONICAL_SYSCALL_IDS), "manifest must contain exactly 81 syscall pages")
 
     canonical = canonical_syscalls(abi_header)
     expected_names = {syscall_id: name for syscall_id, name in canonical}
@@ -261,7 +261,7 @@ def _load_section2(repo_root: Path, docs_root: Path, manifest: dict[str, Any], a
     records.sort(key=lambda record: record["id"])
     _require(
         [record["id"] for record in records] == list(CANONICAL_SYSCALL_IDS),
-        "section2 pages must be ordered 0..78",
+        "section2 pages must be ordered 0..80",
     )
     return tuple(records)
 

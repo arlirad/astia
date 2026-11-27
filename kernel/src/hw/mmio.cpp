@@ -57,7 +57,7 @@ namespace astia::hw {
         return *this;
     }
 
-    optional<mmio_mapping> mmio_mapping::map(u64 physical, usize length) {
+    optional<mmio_mapping> mmio_mapping::map(u64 physical, usz length) {
         if (length == 0 || physical == mm::frame_allocator::invalid_frame ||
             physical > ~u64{0} - static_cast<u64>(length))
             return error_t::einval;
@@ -71,7 +71,7 @@ namespace astia::hw {
 
         const u64 mapped_bytes = align_up(span, static_cast<u64>(mm::page_size));
 
-        if (mapped_bytes > static_cast<u64>(~usize{0}))
+        if (mapped_bytes > static_cast<u64>(~usz{0}))
             return error_t::erange;
 
         auto* page_map = arch::kernel_page_map();
@@ -94,7 +94,7 @@ namespace astia::hw {
             result.physical_     = physical;
             result.mapped_base_  = base;
             result.virtual_base_ = arch::kernel_base + base;
-            result.offset_       = static_cast<usize>(offset);
+            result.offset_       = static_cast<usz>(offset);
             result.length_       = length;
             result.kind_         = mapping_kind::borrowed;
 
@@ -137,15 +137,15 @@ namespace astia::hw {
         result.physical_     = physical;
         result.mapped_base_  = base;
         result.virtual_base_ = virtual_base;
-        result.offset_       = static_cast<usize>(offset);
-        result.mapped_bytes_ = static_cast<usize>(mapped_bytes);
+        result.offset_       = static_cast<usz>(offset);
+        result.mapped_bytes_ = static_cast<usz>(mapped_bytes);
         result.length_       = length;
         result.kind_         = mapping_kind::generic;
 
         return static_cast<mmio_mapping&&>(result);
     }
 
-    optional<mmio_mapping> mmio_mapping::map_pci(u64 physical, usize length,
+    optional<mmio_mapping> mmio_mapping::map_pci(u64 physical, usz length,
                                                  bool prefetchable) {
         if (length == 0 || physical == mm::frame_allocator::invalid_frame ||
             physical > ~u64{0} - static_cast<u64>(length))
@@ -160,7 +160,7 @@ namespace astia::hw {
 
         const u64 mapped_bytes = align_up(span, static_cast<u64>(mm::page_size));
 
-        if (mapped_bytes > static_cast<u64>(~usize{0}))
+        if (mapped_bytes > static_cast<u64>(~usz{0}))
             return error_t::erange;
 
         const u64 expected = arch::kernel_base + physical;
@@ -185,8 +185,8 @@ namespace astia::hw {
         result.physical_     = physical;
         result.mapped_base_  = base;
         result.virtual_base_ = virtual_address - offset;
-        result.offset_       = static_cast<usize>(offset);
-        result.mapped_bytes_ = static_cast<usize>(mapped_bytes);
+        result.offset_       = static_cast<usz>(offset);
+        result.mapped_bytes_ = static_cast<usz>(mapped_bytes);
         result.length_       = length;
         result.kind_         = mapping_kind::pci;
 
@@ -206,7 +206,7 @@ namespace astia::hw {
             arch::interrupt_spinlock_guard guard(mmio_lock);
 
             if (page_map != nullptr) {
-                for (usize page = 0; page < mapped_bytes_; page += mm::page_size) {
+                for (usz page = 0; page < mapped_bytes_; page += mm::page_size) {
                     (void) page_map->unmap(virtual_base_ + page);
                 }
             }
@@ -227,6 +227,6 @@ namespace astia::hw {
         if (io)
             return error_t::einval;
 
-        return mmio_mapping::map_pci(address, static_cast<usize>(size), prefetchable);
+        return mmio_mapping::map_pci(address, static_cast<usz>(size), prefetchable);
     }
 } // namespace astia::hw

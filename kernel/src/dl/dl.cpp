@@ -163,12 +163,12 @@ namespace astia::dl {
             core::cltoken            token;
             u64                      base   = 0;
             u64                      frames = mm::frame_allocator::invalid_frame;
-            usize                    pages  = 0;
+            usz                      pages  = 0;
             u64                      mapped = 0;
-            usize                    span   = 0;
+            usz                      span   = 0;
         };
 
-        void* map_span(void* opaque, u64 hint, usize size, usize align, bool fixed) {
+        void* map_span(void* opaque, u64 hint, usz size, usz align, bool fixed) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (context.frames != mm::frame_allocator::invalid_frame || size == 0 ||
@@ -184,7 +184,7 @@ namespace astia::dl {
                 return nullptr;
 
             context.frames = frames;
-            context.pages  = static_cast<usize>(pages);
+            context.pages  = static_cast<usz>(pages);
             context.mapped = context.base + hint;
             context.span   = size;
 
@@ -207,7 +207,7 @@ namespace astia::dl {
             return true;
         }
 
-        void unmap_span(void* opaque, void*, usize) {
+        void unmap_span(void* opaque, void*, usz) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (context.frames != mm::frame_allocator::invalid_frame) {
@@ -228,8 +228,7 @@ namespace astia::dl {
             co_return result.value;
         }
 
-        core::task<i64> read_to_span(void* opaque, u64 address, usize length,
-                                     u64 offset) {
+        core::task<i64> read_to_span(void* opaque, u64 address, usz length, u64 offset) {
             auto& context = *static_cast<load_context*>(opaque);
 
             if (address < context.mapped || address - context.mapped > context.span ||
@@ -354,7 +353,7 @@ namespace astia::dl {
             for (; mapped < value->segment_count; ++mapped) {
                 auto& item = value->segments[mapped];
 
-                const auto pages = static_cast<usize>(item.bytes / page_bytes);
+                const auto pages = static_cast<usz>(item.bytes / page_bytes);
 
                 if (!value->region->share_range(item.region_page, pages))
                     break;
@@ -437,6 +436,9 @@ namespace astia::dl {
         if (!file)
             co_return error_t::ebadf;
 
+        if (!fs::open_file_readable(file->flags()))
+            co_return error_t::eacces;
+
         const long size = file->size();
         if (size <= 0)
             co_return error_t::einval;
@@ -446,6 +448,11 @@ namespace astia::dl {
 
         mm::shptr<image> value;
 
+        info    existing{};
+        error_t pending = error_t::enone;
+
+        bool found = false;
+
         bool created = false;
         u64  base    = 0;
 
@@ -454,43 +461,57 @@ namespace astia::dl {
 
             if (auto* row = find_row(&target)) {
                 for (u32 i = 0; i < row->count; ++i) {
-                    if (row->items[i].img->ident_mount == mount &&
-                        row->items[i].img->ident_inode == inode &&
-                        row->items[i].img->ident_size == static_cast<u64>(size)) {
-                        ++row->items[i].handles;
+                    auto& item = row->items[i];
 
-                        co_return info{
-                            row->items[i].img->base,  row->items[i].img->span,
-                            row->items[i].img->entry, row->items[i].img->phdr,
-                            row->items[i].img->phnum, row->items[i].img->phent};
-                    }
+                    if (item.img->ident_mount != mount ||
+                        item.img->ident_inode != inode ||
+                        item.img->ident_size != static_cast<u64>(size))
+                        continue;
+
+                    ++item.handles;
+
+                    existing = info{item.img->base, item.img->span,  item.img->entry,
+                                    item.img->phdr, item.img->phnum, item.img->phent};
+                    found    = true;
+
+                    break;
                 }
             }
 
-            value = find_image(mount, inode, static_cast<u64>(size));
-            if (value) {
-                if (value->loading)
-                    co_return error_t::eagain;
-
-                ++value->map_count;
-            }
-            else {
-                if (g_loading || g_image_count == max_images)
-                    co_return error_t::eagain;
-
-                g_loading = true;
-                base      = g_next_base;
-                created   = true;
+            if (!found) {
+                value = find_image(mount, inode, static_cast<u64>(size));
+                if (value) {
+                    if (value->loading)
+                        pending = error_t::eagain;
+                    else
+                        ++value->map_count;
+                }
+                else if (g_loading || g_image_count == max_images) {
+                    pending = error_t::eagain;
+                }
+                else {
+                    g_loading = true;
+                    base      = g_next_base;
+                    created   = true;
+                }
             }
         }
+
+        if (found)
+            co_return existing;
+
+        if (pending != error_t::enone)
+            co_return pending;
 
         if (created) {
             auto loaded = co_await load_image(file, mount, inode, static_cast<u64>(size),
                                               target.io_token(), base, defer_symbols);
             if (!loaded) {
-                core::spinlock_guard guard(g_lock);
+                {
+                    core::spinlock_guard guard(g_lock);
 
-                g_loading = false;
+                    g_loading = false;
+                }
 
                 co_return loaded.error;
             }
@@ -533,28 +554,34 @@ namespace astia::dl {
             co_return error_t::enomem;
         }
 
+        bool bound = false;
+
         {
             core::spinlock_guard guard(g_lock);
-            row*                 owner = find_row(&target);
+
+            row* owner = find_row(&target);
             if (owner == nullptr)
                 owner = make_row(&target);
 
-            if (owner == nullptr || owner->count == max_bindings) {
-                for (u32 i = 0; i < value->segment_count; ++i) {
-                    (void) target.unmap(value->base + value->segments[i].vaddr,
-                                        value->segments[i].bytes);
-                }
+            if (owner != nullptr && owner->count < max_bindings) {
+                auto& item = owner->items[owner->count++];
 
-                drop_ref(value.get());
+                item.img     = value;
+                item.base    = value->base;
+                item.handles = 1;
+                bound        = true;
+            }
+        }
 
-                co_return error_t::enospc;
+        if (!bound) {
+            for (u32 i = 0; i < value->segment_count; ++i) {
+                (void) target.unmap(value->base + value->segments[i].vaddr,
+                                    value->segments[i].bytes);
             }
 
-            auto& item = owner->items[owner->count++];
+            drop_ref(value.get());
 
-            item.img     = value;
-            item.base    = value->base;
-            item.handles = 1;
+            co_return error_t::enospc;
         }
 
         co_return info{value->base, value->span,  value->entry,

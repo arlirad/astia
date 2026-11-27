@@ -110,6 +110,20 @@ int gettimeofday(struct timeval* value, struct timezone* timezone) {
     return 0;
 }
 
+int settimeofday(const struct timeval* value, const struct timezone* timezone) {
+    (void) timezone;
+
+    if (value == NULL || value->tv_usec < 0 || value->tv_usec >= 1000000L) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    errno = ENOSYS;
+
+    return -1;
+}
+
 int nanosleep(const struct timespec* requested, struct timespec* remaining) {
     int64_t remaining_sec  = 0;
     int64_t remaining_nsec = 0;
@@ -342,6 +356,41 @@ static int64_t century_of(int64_t year) {
     return year >= 0 ? year / 100 : -((99 - year) / 100);
 }
 
+static int alternative_format_allowed(char modifier, char conversion) {
+    if (modifier == 'E') {
+        switch (conversion) {
+        case 'C':
+        case 'c':
+        case 'X':
+        case 'x':
+        case 'Y':
+        case 'y':
+            return 1;
+        default:
+            return 0;
+        }
+    }
+
+    switch (conversion) {
+    case 'H':
+    case 'I':
+    case 'M':
+    case 'S':
+    case 'U':
+    case 'V':
+    case 'W':
+    case 'd':
+    case 'e':
+    case 'm':
+    case 'u':
+    case 'w':
+    case 'y':
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 size_t strftime(char* dst, size_t cap, const char* format, const struct tm* value) {
     int64_t year;
     int64_t iso_wday;
@@ -396,6 +445,15 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
 
         if (format[i] == '\0')
             break;
+
+        if (format[i] == 'E' || format[i] == 'O') {
+            char modifier = format[i];
+
+            i++;
+
+            if (!alternative_format_allowed(modifier, format[i]))
+                return 0;
+        }
 
         switch (format[i]) {
         case 'a':

@@ -20,7 +20,7 @@ namespace {
     };
 
     template <typename T>
-    void put(astia::u8* bytes, astia::usize offset, T value) {
+    void put(astia::u8* bytes, astia::usz offset, T value) {
         __builtin_memcpy(bytes + offset, &value, sizeof(value));
     }
 }
@@ -53,7 +53,7 @@ ASTIA_TEST(multiboot2_parses_requested_boot_data) {
 
     *reinterpret_cast<astia::u32*>(raw) = sizeof(raw);
 
-    astia::usize o = 8;
+    astia::usz o = 8;
 
     const char cmd[] = "root=/dev/ram0";
 

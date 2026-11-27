@@ -1,6 +1,7 @@
 #include <astia/atomic.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/core/name.hpp>
+#include <astia/core/task.hpp>
 #include <astia/dev/blk/blkdev.hpp>
 #include <astia/dev/device_file.hpp>
 #include <astia/dev/driver.hpp>
@@ -1286,15 +1287,15 @@ namespace {
     virtio_driver driver;
 }
 
-int module_main() {
+astia::core::task<void> module_main() {
     astia::hw::driver_handle handle{};
 
-    return astia::hw::drivers().register_driver(
-               driver, handle, astia::hw::kernel_owner,
-               astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
-                   astia::hw::driver_resource_device_file |
-                   astia::hw::driver_resource_async) == 0
-               ? 0
-               : -22;
+    co_return astia::hw::drivers().register_driver(
+        driver, handle, astia::hw::kernel_owner,
+        astia::hw::driver_resource_mmio | astia::hw::driver_resource_dma |
+            astia::hw::driver_resource_device_file | astia::hw::driver_resource_async) ==
+            0
+        ? astia::error_t::enone
+        : astia::error_t::eio;
 }
 #endif

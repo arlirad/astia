@@ -262,6 +262,7 @@ file(GLOB_RECURSE _astia_dev_initrd_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/user/nano/*"
     "${CMAKE_SOURCE_DIR}/user/gnulib/*"
     "${CMAKE_SOURCE_DIR}/coreutils/src/*"
+    "${CMAKE_SOURCE_DIR}/sysutils/src/*"
     "${CMAKE_SOURCE_DIR}/libc/*"
     "${CMAKE_SOURCE_DIR}/toolchain/nano-astia/*")
 list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
@@ -297,6 +298,7 @@ add_custom_command(
         "${CMAKE_SOURCE_DIR}/kernel/tests/init_libc.c"
         "${CMAKE_BINARY_DIR}/kernel/tests/fixtures/boot_initrd.cpio"
         "${CMAKE_SOURCE_DIR}/coreutils/build.sh"
+        "${CMAKE_SOURCE_DIR}/sysutils/build.sh"
         ${_astia_dev_initrd_sources}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL
@@ -396,6 +398,8 @@ if(ASTIA_BUILD_TESTS)
             usb_module
             rtl8139_module
             ps2_keyboard_module
+            ip_module
+            eth_module
             astia_ps2_keyboard_iso)
         if(TARGET ${_astia_qemu_target})
             add_dependencies(astia_qemu_test_artifacts ${_astia_qemu_target})
@@ -569,6 +573,21 @@ if(ASTIA_BUILD_TESTS)
                 COREUTILS_TEST_BUILD=${CMAKE_BINARY_DIR}/coreutils-test
                 ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
     set_tests_properties(astia_coreutils_qemu PROPERTIES
+            DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu)
+
+    astia_register_script_test(astia_sysutils_qemu
+            "sysutils;qemu;deterministic"
+            ${CMAKE_CURRENT_SOURCE_DIR}/sysutils/tests/run.sh
+            TIMEOUT 180
+            ENV
+                QEMU=${_astia_qemu}
+                ASTIA_KERNEL=${_astia_kernel_runtime}
+                ASTIA_INITRD=${_astia_boot_initrd}
+                ASTIA_SYSROOT=${_astia_sysroot}
+                ASTIA_CRT0=${_astia_crt0}
+                SYSUTILS_TEST_BUILD=${CMAKE_BINARY_DIR}/sysutils-test
+                ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR})
+    set_tests_properties(astia_sysutils_qemu PROPERTIES
             DEPENDS astia_libc_cross RESOURCE_LOCK astia-qemu)
 
     astia_register_script_test(astia_nvme_msix
@@ -774,6 +793,7 @@ if(ASTIA_BUILD_TESTS)
 
     set(_astia_shared_qemu_tests
             astia_coreutils_qemu
+            astia_sysutils_qemu
             astia_nvme_msix
             astia_nvme_polling
             astia_virtio_blk_read_write

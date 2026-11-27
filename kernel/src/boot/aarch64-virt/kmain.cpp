@@ -1,4 +1,5 @@
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/timer.hpp>
 #include <astia/boot/aarch64/fdt.hpp>
 #include <astia/boot/aarch64/virt.hpp>
 
@@ -29,12 +30,13 @@ namespace {
 
     namespace policy = astia::arch::aarch64::page_map_policy;
     namespace gicv3  = astia::arch::aarch64::gicv3;
+    namespace irq    = astia::arch::aarch64::irq;
     namespace timer  = astia::arch::aarch64::timer;
 
     struct local_irq_state {
         volatile astia::u32 self_sgi_count       = 0;
         volatile astia::u32 timer_count          = 0;
-        astia::u32          timer_ticks          = 0;
+        astia::u32          timer_interval_ticks = 0;
         volatile bool       timer_rearm_failed   = false;
         volatile astia::u32 deadline_a           = 0;
         volatile astia::u32 deadline_b           = 0;
@@ -100,10 +102,13 @@ namespace {
     void handle_timer(void* context) {
         auto*            state   = static_cast<local_irq_state*>(context);
         const astia::u32 handled = state->timer_count;
+        const astia::u64 now     = timer::now_ms();
 
         state->timer_count = handled + 1;
-        state->deadline_fired =
-            state->deadline_fired + timer::dispatch_due(timer::now_ms());
+
+        (void) timer::account_tick(now);
+
+        state->deadline_fired = state->deadline_fired + timer::dispatch_due(now);
 
         astia::arch::aarch64::notify_timer_tick();
 
@@ -111,14 +116,15 @@ namespace {
             timer::tick_action::rearm) {
             astia::u32 control = 0;
 
-            if (timer::arm_interval(state->timer_ticks, control) != timer::error::none) {
-                timer::disable_and_clear();
+            if (timer::arm_interval(state->timer_interval_ticks, control) !=
+                timer::error::none) {
+                timer::stop_periodic();
 
                 state->timer_rearm_failed = true;
             }
         }
         else {
-            timer::disable_and_clear();
+            timer::stop_periodic();
         }
     }
 
@@ -253,7 +259,7 @@ namespace {
 
     void print_memory(const pl011_uart& console, const astia::mm::memory_map& regions,
                       const char* label) {
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             console.write(label);
@@ -377,7 +383,7 @@ namespace {
         if (!add_checked(base, size, end))
             return false;
 
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             if (region.type != astia::mm::memory_type::usable)
@@ -397,7 +403,7 @@ namespace {
 
     [[nodiscard]] bool gic_conflicts_with_ram(const astia::mm::memory_map& regions,
                                               astia::u64 base, astia::u64 size) {
-        for (astia::usize index = 0; index < regions.count(); ++index) {
+        for (astia::usz index = 0; index < regions.count(); ++index) {
             const astia::mm::memory_region& region = regions[index];
 
             if (region.type != astia::mm::memory_type::usable)
@@ -545,7 +551,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     if (!map.valid())
         fail(console, "page-table arena allocation failed");
 
-    for (astia::usize index = 0; index < info.memory.count(); ++index) {
+    for (astia::usz index = 0; index < info.memory.count(); ++index) {
         const astia::mm::memory_region& region = info.memory[index];
 
         if (region.type != astia::mm::memory_type::usable)
@@ -693,18 +699,18 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "gic: self-sgi=", gicv3::self_sgi_id, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: GIC READY");
 
-    local_irq_state                 local_irqs{};
-    const gicv3::registration_error self_sgi_registration =
-        gicv3::register_local_irq(gicv3::self_sgi_id, handle_self_sgi, &local_irqs);
-    const gicv3::registration_error timer_registration =
-        gicv3::register_local_irq(timer::ppi_id, handle_timer, &local_irqs);
+    local_irq_state        local_irqs{};
+    const irq::route_error self_sgi_registration =
+        irq::register_route(gicv3::self_sgi_id, handle_self_sgi, &local_irqs);
+    const irq::route_error timer_registration =
+        irq::register_route(timer::ppi_id, handle_timer, &local_irqs);
 
-    if (self_sgi_registration != gicv3::registration_error::none ||
-        timer_registration != gicv3::registration_error::none) {
+    if (self_sgi_registration != irq::route_error::none ||
+        timer_registration != irq::route_error::none) {
         console.write("gic: local-sgi-registration=");
-        console.write_line(gicv3::describe(self_sgi_registration));
+        console.write_line(irq::describe(self_sgi_registration));
         console.write("gic: local-timer-registration=");
-        console.write_line(gicv3::describe(timer_registration));
+        console.write_line(irq::describe(timer_registration));
         fail(console, "local IRQ registration failed");
     }
 
@@ -764,9 +770,11 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "deadline: canceled=", 1, 8);
 
     write_line_field(console, "timer: ppi=", timer::ppi_id, 8);
+    write_line_field(console, "timer: hz=", astia::arch::timer_hz(), 8);
+    write_line_field(console, "timer: interval-ms=", timer::tick_interval_ms, 8);
 
-    timer::arm_result  armed{};
-    const timer::error timer_error = timer::arm_one_shot(armed);
+    timer::periodic_result armed{};
+    const timer::error     timer_error = timer::start_periodic(armed);
 
     if (timer_error != timer::error::none) {
         console.write("timer: error=");
@@ -784,7 +792,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_bit(console, " istatus=", armed.control, 2);
     console.write_line("");
 
-    local_irqs.timer_ticks = armed.ticks;
+    local_irqs.timer_interval_ticks = armed.ticks;
 
     write_line_field(console, "timer: tick-budget=", timer::periodic_tick_budget, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER ARMED");
@@ -812,6 +820,9 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER TICK OK");
+
+    write_line_field(console, "timer: delivered=", timer::delivered_ticks(), 8);
+    write_line_field(console, "timer: missed=", timer::missed_ticks(), 8);
 
     if (local_irqs.deadline_a != 1 || local_irqs.deadline_b != 1 ||
         local_irqs.deadline_c != 0 || local_irqs.deadline_fired != 2 ||
@@ -846,8 +857,8 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     local_irqs.timer_count        = 0;
     local_irqs.timer_rearm_failed = false;
 
-    timer::arm_result  scheduler_armed{};
-    const timer::error scheduler_timer_error = timer::arm_one_shot(scheduler_armed);
+    timer::periodic_result scheduler_armed{};
+    const timer::error     scheduler_timer_error = timer::start_periodic(scheduler_armed);
 
     if (scheduler_timer_error != timer::error::none) {
         console.write("sched: timer-error=");
@@ -855,7 +866,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "scheduler timer arm failed");
     }
 
-    local_irqs.timer_ticks = scheduler_armed.ticks;
+    local_irqs.timer_interval_ticks = scheduler_armed.ticks;
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED");
 
@@ -886,6 +897,9 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED");
 
+    write_line_field(console, "timer: delivered=", timer::delivered_ticks(), 8);
+    write_line_field(console, "timer: missed=", timer::missed_ticks(), 8);
+
     if (timer::pending_deadlines() != 0)
         fail(console, "scheduler sleep deadline was not consumed");
 
@@ -915,6 +929,21 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "scheduler sleep/wake proof failed");
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER OK");
+
+    const irq::evidence& routed = irq::stats();
+
+    write_field(console, "irq: routed=", routed.dispatches, 8);
+    write_field(console, " handled=", routed.handled, 8);
+    write_field(console, " spurious=", routed.spurious, 8);
+    write_field(console, " fatal=", routed.fatal, 8);
+    write_field(console, " handoffs=", routed.handoffs, 8);
+    console.write_line("");
+
+    if (routed.dispatches != 11 || routed.handled != 11 || routed.spurious != 0 ||
+        routed.fatal != 0 || routed.handoffs != 5)
+        fail(console, "generic IRQ routing proof failed");
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ ROUTING OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
 

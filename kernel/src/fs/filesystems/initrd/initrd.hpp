@@ -14,7 +14,7 @@ namespace astia::fs::filesystems {
         bool attach(const initrd::archive& archive);
         bool add(const char* path, astia::span<const u8> data);
 
-        bool add(const char* path, const void* data, usize size) {
+        bool add(const char* path, const void* data, usz size) {
             return add(path, astia::span<const u8>(static_cast<const u8*>(data), size));
         }
 
@@ -33,7 +33,7 @@ namespace astia::fs::filesystems {
         file_type node_type(const char* path) const override;
         file_mode node_mode(const char* path) const override;
         long      read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                 file_type* type) override;
+                                 file_type* type, u64* inode) override;
 
         private:
         struct entry {

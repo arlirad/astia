@@ -26,15 +26,17 @@ namespace astia::acpi {
         detail::table_set   tables{};
         detail::interpreter interpreter{};
         detail::s5_plan     s5{};
+        detail::reset_plan  reset{};
         u64                 validated_rsdp = 0;
         bool                s5_ready       = false;
+        bool                reset_ready    = false;
 
         struct kernel_reader {
             u64 identity_limit = 0;
             u64 direct_limit   = 0;
         };
 
-        bool read_physical(void* context, u64 address, u8* destination, usize length) {
+        bool read_physical(void* context, u64 address, u8* destination, usz length) {
             const auto* reader = static_cast<const kernel_reader*>(context);
 
             if (reader == nullptr || destination == nullptr || address > ~u64{0} - length)
@@ -61,7 +63,7 @@ namespace astia::acpi {
             return false;
         }
 
-        void* heap_allocate(void*, usize bytes) {
+        void* heap_allocate(void*, usz bytes) {
             auto allocation = astia::mm::heap::alloc(bytes);
 
             return allocation ? static_cast<void*>(allocation.value) : nullptr;
@@ -94,7 +96,7 @@ namespace astia::acpi {
             const u64 page   = physical - offset;
 
             auto mapping =
-                astia::hw::mmio_mapping::map(page, static_cast<usize>(offset) + 2);
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 2);
 
             if (!mapping)
                 return false;
@@ -102,6 +104,29 @@ namespace astia::acpi {
             auto* base = static_cast<volatile u8*>(mapping.value.base());
 
             *reinterpret_cast<volatile u16*>(base + offset) = value;
+
+            return true;
+        }
+
+        bool write_io8(void*, u16 port, u8 value) {
+            astia::arch::pio::write8(port, value);
+
+            return true;
+        }
+
+        bool write_memory8(void*, u64 physical, u8 value) {
+            const u64 offset = physical & mm::page_mask;
+            const u64 page   = physical - offset;
+
+            auto mapping =
+                astia::hw::mmio_mapping::map(page, static_cast<usz>(offset) + 1);
+
+            if (!mapping)
+                return false;
+
+            auto* base = static_cast<volatile u8*>(mapping.value.base());
+
+            *(base + offset) = value;
 
             return true;
         }
@@ -118,6 +143,21 @@ namespace astia::acpi {
             logs::info("S5 requested");
 
             return true;
+        }
+
+        bool platform_reset(void*) {
+            detail::power_error error = detail::power_error::none;
+
+            if (!detail::execute_reset(reset, {nullptr, write_io8, write_memory8},
+                                       error)) {
+                logs::error("reset write failed (%s)", detail::power_error_text(error));
+
+                return false;
+            }
+
+            logs::error("reset write returned without resetting");
+
+            return false;
         }
 
         bool step_acpi(init::context& ctx) {
@@ -157,7 +197,7 @@ namespace astia::acpi {
 
             validated_rsdp = rsdp_address;
 
-            for (usize i = 0; i < tables.inventory_count; ++i) {
+            for (usz i = 0; i < tables.inventory_count; ++i) {
                 const detail::inventory_entry& entry = tables.inventory[i];
 
                 logs::info("table %c%c%c%c length=%u revision=%u",
@@ -166,6 +206,20 @@ namespace astia::acpi {
                            static_cast<char>((entry.signature >> 16) & 0xFF),
                            static_cast<char>((entry.signature >> 24) & 0xFF),
                            entry.length, static_cast<u32>(entry.revision));
+            }
+
+            detail::power_error reset_error = detail::power_error::none;
+
+            if (detail::build_reset_plan(tables, reset, reset_error)) {
+                reset_ready = true;
+
+                logs::info("reset ready value=%u address=%llx",
+                           static_cast<u32>(reset.value),
+                           static_cast<unsigned long long>(reset.gas.address));
+            }
+            else {
+                logs::info("reset unavailable (%s)",
+                           detail::power_error_text(reset_error));
             }
 
             if (!interpreter.build(tables)) {
@@ -210,6 +264,17 @@ namespace astia::acpi {
 
     bool shutdown() {
         return astia::shutdown::initiate();
+    }
+
+    bool reboot_supported() {
+        return reset_ready;
+    }
+
+    bool reboot() {
+        if (!reset_ready)
+            return false;
+
+        return astia::shutdown::initiate(platform_reset, nullptr);
     }
 } // namespace astia::acpi
 

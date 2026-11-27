@@ -25,13 +25,13 @@ namespace astia::io::aio::ring {
     inline constexpr u32 slot_count = resource_limits::queue::aio_ring_slots;
     inline constexpr u32 parked_slot_count =
         resource_limits::queue::aio_parked_operations;
-    inline constexpr u32   kernel_ring_slot_count = slot_count;
-    inline constexpr u32   parked_operation_slots = parked_slot_count;
-    inline constexpr usize mapping_bytes =
+    inline constexpr u32 kernel_ring_slot_count = slot_count;
+    inline constexpr u32 parked_operation_slots = parked_slot_count;
+    inline constexpr usz mapping_bytes =
         sizeof(astia_rings) + sizeof(astia_sq_ring) + sizeof(astia_cq_ring) +
         sizeof(astia_sqe) * kernel_ring_max_entries +
         sizeof(astia_cqe) * (2 * kernel_ring_max_entries);
-    inline constexpr usize mapping_pages =
+    inline constexpr usz mapping_pages =
         align_up(mapping_bytes, mm::page_size) / mm::page_size;
     inline constexpr u32 user_mapping_pages = static_cast<u32>(mapping_pages);
 
@@ -102,7 +102,7 @@ namespace astia::io::aio::ring {
         core::cltoken             token{};
         mm::shptr<core::clsource> token_source;
         u64                       generation = 0;
-        usize                     moved      = 0;
+        usz                       moved      = 0;
 
         void clear() {
             if (operation != nullptr)

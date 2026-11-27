@@ -209,6 +209,9 @@ mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
 
+ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+    SYSUTILS_BUILD="$work/sysutils" "$root/sysutils/build.sh"
+
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then
         nano_build=${ASTIA_NANO_BUILD:-$root/build/user/nano}
@@ -280,6 +283,7 @@ cp "$zsh_build/output/zsh" "$work/root/bin/zsh"
 cp "$work/line-reader" "$work/root/bin/line-reader"
 cp "$work/pty-test" "$work/root/bin/pty-test"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
+cp "$work/sysutils/bin/"* "$work/root/bin/"
 if [ -n "$nano_binary" ]; then
     cp "$nano_binary" "$work/root/bin/nano"
 fi

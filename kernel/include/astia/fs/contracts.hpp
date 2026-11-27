@@ -10,7 +10,7 @@ namespace astia::fs {
     /// One kernel-visible buffer in an async vector operation.
     struct buffer {
         void* data   = nullptr;
-        usize length = 0;
+        usz   length = 0;
     };
 
     /// Optional data-direction contracts.  A file that can be read derives
@@ -40,7 +40,7 @@ namespace astia::fs {
     class ioctlable {
         public:
         virtual ~ioctlable()                               = default;
-        virtual core::task<i64> ioctl(u64 request, void* argp, usize size,
+        virtual core::task<i64> ioctl(u64 request, void* argp, usz size,
                                       core::cltoken token) = 0;
     };
 

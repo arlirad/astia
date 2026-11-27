@@ -3,6 +3,7 @@
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>
 #include <astia/elf.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/span.hpp>
 
 #include "exports.hpp"
@@ -10,10 +11,10 @@
 
 // Kernel module registry.
 //
-// A module is a relocatable x86-64 ELF object that exports a `module_main`
-// entry point. The kernel loads it into frame-allocator memory, resolves its
-// undefined symbols against the linked kernel symbol table,
-// applies relocations, and calls `module_main`.
+// A module is a relocatable x86-64 ELF object that exports a task-shaped
+// `core::task<void> module_main()` entry point. The kernel loads it into
+// frame-allocator memory, resolves its undefined symbols against the linked
+// kernel symbol table, applies relocations, and awaits `module_main`.
 //
 // This layer owns the policy (where memory comes from, what a symbol means);
 // the ELF mechanics live in <astia/elf.hpp>.
@@ -36,16 +37,22 @@
 // and performs the final unmap in the waiting task. A `close()` waiter is
 // resumed through the resume queue, never from the releasing stack.
 //
-// `load_image`, `run`, `exit`, and the legacy pointer functions are synchronous
-// adapters for boot and host tests. They never wait; a syscall path must use
-// `open`/`close`.
+// `load_image` remains a synchronous transactional loader for boot and host
+// tests. `run` and `exit` are task-shaped: they own one execution slot, pin an
+// active reference for the entry continuation, and never hold a registry or
+// callback lock across a suspension. A syscall path must use `open`/`close`.
+// `run_boot` is the boot-only synchronous driver: it resumes `run` once and
+// rejects a module whose entrypoint suspends before the scheduler exists,
+// rolling the execution state back safely.
 //
 // Locking
 // -------
 // Registry metadata is protected by one core::spinlock taken through
 // arch::interrupt_spinlock_guard. The lock is never held across ELF load or
 // relocation, finalizers, entrypoints, exit handlers, dependency callbacks, or
-// address-space unmap work.
+// address-space unmap work. Callback-context ownership is tracked per thread;
+// a task-shaped callback that suspends must resume on the thread that started
+// it (task migration is not tracked while a callback context is installed).
 //
 // Unload safety
 // -------------
@@ -117,16 +124,16 @@ namespace astia::mod {
 
     /// Upper bound on simultaneously loaded modules. Fixed capacity keeps the
     /// registry off the heap.
-    inline constexpr usize max_modules = 16;
+    inline constexpr usz max_modules = 16;
 
     /// Upper bound on a module's dependency edges.
-    inline constexpr usize max_module_dependencies = 8;
+    inline constexpr usz max_module_dependencies = 8;
 
     /// Upper bound on a module's diagnostic name.
-    inline constexpr usize max_module_name = 64;
+    inline constexpr usz max_module_name = 64;
 
     /// Upper bound on a userspace module image accepted by open_path().
-    inline constexpr usize max_module_image_bytes = 1u << 20;
+    inline constexpr usz max_module_image_bytes = 1u << 20;
 
     /// Options for a transactional load.
     struct module_load_options {
@@ -148,28 +155,28 @@ namespace astia::mod {
             bool  removed       = false;
         };
 
-        static constexpr usize max_exit_handlers = 64;
+        static constexpr usz max_exit_handlers = 64;
 
-        module_id id{};                       ///< Stable registry handle.
-        char      name[max_module_name] = {}; ///< Module name (for diagnostics).
-        void*     base = nullptr;             ///< Load address of the image allocation.
-        usize     size = 0;                   ///< Bytes allocated for the image.
-        int (*entry)() = nullptr;             ///< Resolved module_main().
+        module_id id{};                        ///< Stable registry handle.
+        char      name[max_module_name] = {};  ///< Module name (for diagnostics).
+        void*     base              = nullptr; ///< Load address of the image allocation.
+        usz       size              = 0;       ///< Bytes allocated for the image.
+        core::task<void> (*entry)() = nullptr; ///< Resolved module_main().
         bool                  running     = false; ///< True once entry() has been called.
         bool                  initialized = false;
         elf::loader::init_fn  init_array[elf::loader::max_init_array_entries] = {};
-        usize                 init_count                                      = 0;
+        usz                   init_count                                      = 0;
         elf::loader::init_fn  fini_array[elf::loader::max_init_array_entries] = {};
-        usize                 fini_count                                      = 0;
+        usz                   fini_count                                      = 0;
         void*                 loader_context                                  = nullptr;
         elf::loader::unmap_fn loader_unmap                                    = nullptr;
         exit_handler          exit_handlers[max_exit_handlers]                = {};
-        usize                 exit_count                                      = 0;
+        usz                   exit_count                                      = 0;
         void*                 dso_identity                                    = nullptr;
 
         u32       active_refs                           = 0;
         u32       dependent_count                       = 0;
-        usize     dependency_count                      = 0;
+        usz       dependency_count                      = 0;
         module_id dependencies[max_module_dependencies] = {};
         bool      resident                              = false;
         bool      quiescing                             = false;
@@ -182,9 +189,9 @@ namespace astia::mod {
         module_id    id{};
         char         name[max_module_name] = {};
         module_state state                 = module_state::free;
-        usize        image_size            = 0;
+        usz          image_size            = 0;
         u32          active_refs           = 0;
-        usize        dependency_count      = 0;
+        usz          dependency_count      = 0;
         u32          dependent_count       = 0;
         bool         running               = false;
         bool         initialized           = false;
@@ -259,17 +266,29 @@ namespace astia::mod {
     module_error load_image(span<const u8> image, const elf::loader::env& env,
                             const module_load_options& options, module_id& out);
 
-    /// Synchronous entrypoint runner. Existing entrypoint semantics are
-    /// unchanged: init arrays run in order, then `module_main`. Execution and
-    /// finalization are serialised through a single execution-context gate so
-    /// the atexit/CXA callback owner cannot be overwritten by a concurrent
-    /// run/exit; a concurrent attempt returns `busy`.
-    module_error run(module_id id, int& result);
+    /// Task-shaped entrypoint runner. Init arrays run in order as plain
+    /// synchronous function pointers, then `module_main` is awaited.
+    /// Execution and finalization are serialised through a single
+    /// execution-context gate so the atexit/CXA callback owner cannot be
+    /// overwritten by a concurrent run/exit; a concurrent attempt returns
+    /// `busy`. The entry continuation holds an active reference from dispatch
+    /// through completion and releases it exactly once.
+    ///
+    /// Init/fini/exit-handler hooks must not suspend: they are synchronous
+    /// function pointers invoked inside this task, not tasks themselves.
+    core::task<module_error> run(module_id id);
+
+    /// Boot-only synchronous driver around `run`. Boot runs before the
+    /// scheduler exists, so it can only accept an entrypoint that completes
+    /// without a real suspension. A suspended entrypoint is rejected with
+    /// `would_block`; destroying the run task rolls running/entry state and
+    /// the active reference back to `loaded`.
+    module_error run_boot(module_id id);
 
     /// Run finalizers and exit handlers, leaving the module loaded (and, for a
     /// resident module, permanently non-unloadable). Shares the execution gate
-    /// with `run`.
-    module_error exit(module_id id);
+    /// with `run` and accounts one active reference for the invocation.
+    core::task<module_error> exit(module_id id);
 
     /// Strict synchronous unload. Rejects running/resident modules, active
     /// references, and dependents. Never waits; use `close` on a syscall path.
@@ -291,16 +310,16 @@ namespace astia::mod {
     /// Returns the number of entries written (truncated to `out.size()`).
     /// When `total` is non-null it receives the published count visible to
     /// the same snapshot, even when `out` is smaller or empty.
-    usize snapshot(span<module_info> out, usize* total = nullptr);
+    usz snapshot(span<module_info> out, usz* total = nullptr);
 
     /// One-lock snapshot of a module plus its bounded dependency ids.
     /// `dependency_total` receives the stored edge count regardless of the
     /// output span size.  Returns `busy` for an unpublished slot.
     module_error snapshot_module(module_id id, module_info& out,
-                                 span<module_id> dependencies, usize& dependency_total);
+                                 span<module_id> dependencies, usz& dependency_total);
 
     /// Bounded dependency enumeration for a module.
-    module_error dependency_at(module_id id, usize index, module_id& out);
+    module_error dependency_at(module_id id, usz index, module_id& out);
 
     /// Add/remove a lifetime dependency edge. A dependent blocks its provider's
     /// unload; cycles and self-edges are rejected.
@@ -329,6 +348,15 @@ namespace astia::mod {
     /// kernel-owned route claims and residency.
     module_id active_module_id();
 
+    /// Driver-registry owner token for a module.  Slot 0 is reserved for the
+    /// kernel, so a module's token is its slot plus one; generations only
+    /// distinguish stale handles and are irrelevant while the module is live.
+    hw::owner_id driver_owner(module_id id);
+
+    /// Owner token for the module whose entrypoint or callback owns this
+    /// thread, or the kernel when no module is active.
+    hw::owner_id active_driver_owner();
+
     /// True when the module is loaded, not running, and has no active refs.
     bool quiesced(module_id id);
 
@@ -340,36 +368,16 @@ namespace astia::mod {
     /// Host-test-only teardown of a resident fixture. Not part of the kernel
     /// contract and never compiled into a production build.
     module_error clear_resident_for_test(module_id id);
+
+    /// Host-test-only read-only view of registry internals. The pointer is a
+    /// registry address and is invalid once the slot is unloaded.
+    const loaded_module* inspect_for_test(module_id id);
 #endif
-
-    // --- Legacy synchronous adapters -------------------------------------
-    //
-    // These predate the stable-id API and remain for boot and the existing
-    // host lifecycle fixtures. Returned pointers are registry addresses,
-    // invalid after unload; syscall code must not receive them.
-
-    const loaded_module* load_module(span<const u8> image);
-    const loaded_module* load_module(span<const u8> image, const elf::loader::env& env);
-
-    inline const loaded_module* load_module(const void* image, usize size) {
-        return load_module(span<const u8>(static_cast<const u8*>(image), size));
-    }
-
-    bool unload_module(const loaded_module* mod);
-
-    bool exit_module(const loaded_module* mod);
 
     int  register_exit_handler(void (*handler)(void));
     int  register_exit_handler(void (*handler)(void*), void* argument, void* dso);
     void finalize_exit_handlers(void* dso);
 
-    /// Call a loaded module's entry point. Returns the module's return code, or
-    /// -1 if `mod` is null or not in the loaded state.
-    int run_module(const loaded_module* mod);
-
     /// Number of published (loaded, running, or exiting) modules.
-    usize count();
-
-    /// The i-th published module in slot order, or null if out of range.
-    const loaded_module* at(usize i);
+    usz count();
 } // namespace astia::mod

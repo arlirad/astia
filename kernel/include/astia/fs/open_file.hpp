@@ -98,7 +98,7 @@ namespace astia::fs {
             _flags = (_flags & ~open_file_status_mask) | (flags & open_file_status_mask);
         }
 
-        long ioctl(u64 request, void* argp, usize size);
+        long ioctl(u64 request, void* argp, usz size);
         long acquire_controlling_terminal(i32 group);
         long size() const;
 
@@ -144,6 +144,8 @@ namespace astia::fs {
         mm::shptr<file> parent() const {
             return _parent;
         }
+
+        file_timestamps timestamps() const;
 
         u64 mtime_sec() const;
         u64 mtime_nsec() const;

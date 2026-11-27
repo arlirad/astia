@@ -1,34 +1,50 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
-#include <astia/dev/input_platform.hpp>
 #include <astia/dev/uart_platform.hpp>
 
-#include "../../dev/ps2_irq.hpp"
 #include "io.hpp"
 #include "pic.hpp"
 #include "smp.hpp"
 
 namespace {
-    constinit astia::dev::pio_bus ps2_pio{nullptr,
-                                          astia::arch::x86_64::pio_read8,
-                                          astia::arch::x86_64::pio_read16,
-                                          astia::arch::x86_64::pio_read32,
-                                          astia::arch::x86_64::pio_write8,
-                                          astia::arch::x86_64::pio_write16,
-                                          astia::arch::x86_64::pio_write32};
+    constinit astia::dev::pio_bus input_pio{nullptr,
+                                            astia::arch::x86_64::pio_read8,
+                                            astia::arch::x86_64::pio_read16,
+                                            astia::arch::x86_64::pio_read32,
+                                            astia::arch::x86_64::pio_write8,
+                                            astia::arch::x86_64::pio_write16,
+                                            astia::arch::x86_64::pio_write32};
 }
 
 namespace astia::dev {
-    constinit pio_bus               uart16550_platform_pio{nullptr,
+    constinit pio_bus uart16550_platform_pio{nullptr,
                                              arch::x86_64::pio_read8,
                                              arch::x86_64::pio_read16,
                                              arch::x86_64::pio_read32,
                                              arch::x86_64::pio_write8,
                                              arch::x86_64::pio_write16,
                                              arch::x86_64::pio_write32};
-    constinit const ps2_port_window ps2_platform_ports{ps2_pio};
-}
+
+    // Platform resource policy: the legacy byte-PIO ranges this platform is
+    // willing to grant to a module. They describe what may be delegated, not
+    // which device uses them.
+    constexpr io_window_grant granted_io_windows[] = {
+        {0x60, 0x64},
+    };
+
+    io_port_window claim_io_window(u16 first, u16 last) {
+        constexpr usz grant_count =
+            sizeof(granted_io_windows) / sizeof(granted_io_windows[0]);
+
+        if (!io_window_is_granted(
+                first, last,
+                span<const io_window_grant>(granted_io_windows, grant_count)))
+            return {};
+
+        return io_port_window{input_pio, first, last};
+    }
+} // namespace astia::dev
 
 namespace astia::arch::platform {
     void debug_exit(u32 status) {
@@ -52,53 +68,12 @@ namespace astia::arch::x86_64 {
 
         return true;
     }
-
-    bool ps2_irq_claim(void*, dev::irq_handler handler) {
-        return register_irq_handler(1, handler);
-    }
-
-    bool ps2_irq_claim_guarded(void*, dev::irq_handler handler,
-                               arch::irq_callback_enter enter,
-                               arch::irq_callback_leave leave, void* context) {
-        return register_irq_handler(1, handler, enter, leave, context);
-    }
-
-    bool ps2_irq_unmask(void*) {
-        pic::unmask(1);
-
-        return true;
-    }
 }
 
 namespace astia::dev {
     constinit irq_line uart16550_platform_irq{nullptr, arch::x86_64::uart_irq_claim,
                                               arch::x86_64::uart_irq_unmask};
 }
-
-namespace {
-    constinit astia::dev::irq_line ps2_irq{nullptr, astia::arch::x86_64::ps2_irq_claim,
-                                           astia::arch::x86_64::ps2_irq_unmask,
-                                           astia::arch::x86_64::ps2_irq_claim_guarded};
-}
-
-namespace astia::dev::ps2 {
-    bool claim_guarded(arch::irq_handler handler, arch::irq_callback_enter enter,
-                       arch::irq_callback_leave leave, void* context) {
-        return ps2_irq.claim_guarded(handler, enter, leave, context);
-    }
-
-    bool mask() {
-        return arch::mask_irq_handler(1);
-    }
-
-    bool unregister() {
-        return arch::unregister_irq_handler(1);
-    }
-
-    bool unmask() {
-        return ps2_irq.unmask();
-    }
-} // namespace astia::dev::ps2
 
 namespace astia::arch::x86_64 {
     dev::pio_bus&  device_pio = dev::uart16550_platform_pio;

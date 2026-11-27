@@ -23,7 +23,6 @@ namespace astia::io::aio::operations {
 
             long resolve_rc = resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd, path,
                                          resolved, sizeof resolved, true);
-
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
@@ -86,13 +85,14 @@ namespace astia::io::aio::operations {
                 co_return -ENOENT;
 
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
-                auto requested = mapper<fs::file_permissions>::from(
+                const auto requested = mapper<fs::file_permissions>::from(
                     sqe.aux == 0 ? fs::default_file_permissions.raw() : sqe.aux);
 
                 if (!requested.has_value)
                     co_return -EINVAL;
 
-                (void) fs::chmod_path(resolved, requested.value);
+                (void) fs::chmod_path(resolved,
+                                      fs::apply_umask(requested.value, current->umask()));
                 (void) fs::chown_path(resolved, uid_t{current->uid()},
                                       gid_t{current->gid()});
             }
@@ -101,16 +101,12 @@ namespace astia::io::aio::operations {
             if (current == nullptr)
                 co_return -ESRCH;
 
-            for (i32 i = 0; i < static_cast<i32>(proc::max_process_fds); ++i) {
-                if (!current->descriptor(fd_t{i}) &&
-                    current->set_descriptor(fd_t{i}, handle,
-                                            (sqe.op_flags & ASTIA_AIO_O_CLOEXEC) != 0
-                                                ? static_cast<u32>(ASTIA_FD_CLOEXEC)
-                                                : 0u))
-                    co_return i;
-            }
+            const auto installed = current->allocate_descriptor(
+                handle, (sqe.op_flags & ASTIA_AIO_O_CLOEXEC) != 0
+                            ? static_cast<u32>(ASTIA_FD_CLOEXEC)
+                            : 0u);
 
-            co_return -EMFILE;
+            co_return installed ? installed.value.value : -EMFILE;
         }
     };
 

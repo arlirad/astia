@@ -88,7 +88,7 @@ namespace aio_test {
             co_return sync_result;
         }
 
-        core::task<i64> ioctl(u64, void*, usize, core::cltoken) override {
+        core::task<i64> ioctl(u64, void*, usz, core::cltoken) override {
             co_return ioctl_result;
         }
 
@@ -112,18 +112,23 @@ namespace aio_test {
             return 0;
         }
 
-        fs::file_type type_           = fs::file_type::regular;
-        long          submit_result   = 0;
-        long          size_value      = 0;
-        long          truncate_result = 0;
-        long          sync_result     = 0;
-        long          ioctl_result    = -ENOTTY;
-        u32           poll_events     = 0;
-        uid_t         uid_value{};
-        gid_t         gid_value{};
-        bool          chown_called = false;
-        uid_t         chown_uid{};
-        gid_t         chown_gid{};
+        fs::file_timestamps timestamps() const override {
+            return recorded_timestamps;
+        }
+
+        fs::file_timestamps recorded_timestamps{};
+        fs::file_type       type_           = fs::file_type::regular;
+        long                submit_result   = 0;
+        long                size_value      = 0;
+        long                truncate_result = 0;
+        long                sync_result     = 0;
+        long                ioctl_result    = -ENOTTY;
+        u32                 poll_events     = 0;
+        uid_t               uid_value{};
+        gid_t               gid_value{};
+        bool                chown_called = false;
+        uid_t               chown_uid{};
+        gid_t               chown_gid{};
     };
 
     inline mm::shptr<fs::open_file> make_open_file(fake_file* file, u32 flags = 0) {

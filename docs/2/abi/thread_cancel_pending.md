@@ -8,11 +8,14 @@ long astia_thread_cancel_pending(void);
 
 ## DESCRIPTION
 
-Cancels the calling thread's pending syscall continuation, if one exists.
+Reports whether cancellation has been requested for the calling thread. The
+call tests the persistent cancellation flag set by thread_cancel(2); it does
+not modify the flag or perform cancellation itself.
 
 ## RETURN VALUE
 
-Returns zero or a negative errno.
+Returns one when cancellation is pending, zero when it is not, or a negative
+errno.
 
 ## ERRORS
 
@@ -20,4 +23,6 @@ Returns zero or a negative errno.
 
 ## NOTES
 
-Cancellation completion is one-shot; a later completion cannot replace it.
+The flag is not consumed by this call, so repeated calls report the same
+request. Cancellation points use this predicate to decide whether to unwind
+the thread.

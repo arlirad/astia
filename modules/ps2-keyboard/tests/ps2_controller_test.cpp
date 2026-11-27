@@ -4,21 +4,21 @@
 
 #include <vector>
 
-using astia::dev::ps2_port_window;
+using astia::dev::io_port_window;
 using astia::ps2::ps2_controller;
 using astia::ps2::ps2_error;
 
 namespace {
     bool operation_at(const std::vector<astia::test::ps2_operation>& operations,
-                      astia::usize index, bool command, astia::u8 value) {
+                      astia::usz index, bool command, astia::u8 value) {
         return index < operations.size() && operations[index].command == command &&
                operations[index].value == value;
     }
 
-    ps2_port_window window_for(astia::test::fake_8042& fake, astia::dev::pio_bus& bus) {
+    io_port_window window_for(astia::test::fake_8042& fake, astia::dev::pio_bus& bus) {
         bus = astia::test::fake_ps2_bus(fake);
 
-        return ps2_port_window{bus};
+        return io_port_window{bus, 0x60, 0x64};
     }
 } // namespace
 
@@ -28,7 +28,7 @@ ASTIA_TEST(ps2_controller_initializes_in_order_and_preserves_config) {
     fake.config = 0x65;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
@@ -67,7 +67,7 @@ ASTIA_TEST(ps2_controller_preserves_enabled_aux_port) {
     fake.config = 0x45;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
@@ -84,15 +84,15 @@ ASTIA_TEST(ps2_controller_reapplies_disabled_config_after_self_test) {
     fake.self_test_reset_config  = 0x45;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
     ASTIA_CHECK(controller.config() == 0x24);
 
-    astia::usize self_test = fake.operations.size();
+    astia::usz self_test = fake.operations.size();
 
-    for (astia::usize i = 0; i < fake.operations.size(); ++i) {
+    for (astia::usz i = 0; i < fake.operations.size(); ++i) {
         if (fake.operations[i].command && fake.operations[i].value == 0xAA) {
             self_test = i;
 
@@ -113,7 +113,7 @@ ASTIA_TEST(ps2_controller_rejects_self_test_failure) {
     fake.self_test_reply = 0xFC;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::self_test);
@@ -126,7 +126,7 @@ ASTIA_TEST(ps2_controller_rejects_port_test_failure) {
     fake.port_test_reply = 0x01;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::port_test);
@@ -139,7 +139,7 @@ ASTIA_TEST(ps2_controller_keeps_both_ports_disabled_through_self_test) {
     fake.config = 0x65;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
@@ -149,7 +149,7 @@ ASTIA_TEST(ps2_controller_keeps_both_ports_disabled_through_self_test) {
 
     astia::u32 config_writes = 0;
 
-    for (astia::usize i = 0; i + 1 < fake.operations.size(); ++i) {
+    for (astia::usz i = 0; i + 1 < fake.operations.size(); ++i) {
         if (!fake.operations[i].command || fake.operations[i].value != 0x60)
             continue;
 
@@ -175,7 +175,7 @@ ASTIA_TEST(ps2_controller_ignores_scan_bytes_during_controller_replies) {
     fake.interleave_scan_on_controller_reply = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 256);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::none);
@@ -195,7 +195,7 @@ ASTIA_TEST(ps2_controller_scan_interleave_preserves_self_test_failure) {
     fake.interleave_scan_on_controller_reply = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 256);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::self_test);
@@ -207,7 +207,7 @@ ASTIA_TEST(ps2_controller_enable_scanning_requires_ack) {
     fake.no_ack = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 32);
 
     ASTIA_CHECK(controller.enable_scanning() == ps2_error::timeout);
@@ -221,7 +221,7 @@ ASTIA_TEST(ps2_controller_retries_resend) {
     fake.resend_count = 2;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.keyboard_command(0xF4) == ps2_error::none);
@@ -237,7 +237,7 @@ ASTIA_TEST(ps2_controller_resend_budget_is_bounded) {
     fake.resend_count = 4;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.keyboard_command(0xF4) == ps2_error::protocol);
@@ -247,7 +247,7 @@ ASTIA_TEST(ps2_controller_resend_budget_is_bounded) {
 ASTIA_TEST(ps2_controller_reset_requires_ack_then_bat) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus{};
-    ps2_port_window        window = window_for(fake, bus);
+    io_port_window         window = window_for(fake, bus);
     ps2_controller         controller(window, 64);
 
     ASTIA_CHECK(controller.reset_keyboard() == ps2_error::none);
@@ -261,7 +261,7 @@ ASTIA_TEST(ps2_controller_reset_accepts_bat_before_ack) {
     fake.reset_bat_first = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.reset_keyboard() == ps2_error::none);
@@ -274,7 +274,7 @@ ASTIA_TEST(ps2_controller_reset_bat_error_fails) {
     fake.reset_bat = 0xFC;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.reset_keyboard() == ps2_error::self_test);
@@ -287,7 +287,7 @@ ASTIA_TEST(ps2_controller_reset_without_ack_times_out) {
     fake.reset_bat       = 0xAA;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 16);
 
     ASTIA_CHECK(controller.reset_keyboard() == ps2_error::timeout);
@@ -299,7 +299,7 @@ ASTIA_TEST(ps2_controller_ignores_scan_codes_before_ack) {
     fake.queue_scan_before_ack = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 64);
 
     ASTIA_CHECK(controller.keyboard_command(0xF4) == ps2_error::none);
@@ -313,7 +313,7 @@ ASTIA_TEST(ps2_controller_input_wait_is_bounded) {
     fake.input_full_forever = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 32);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::timeout);
@@ -326,7 +326,7 @@ ASTIA_TEST(ps2_controller_output_wait_is_bounded) {
     fake.output_empty_forever = true;
 
     astia::dev::pio_bus bus{};
-    ps2_port_window     window = window_for(fake, bus);
+    io_port_window      window = window_for(fake, bus);
     ps2_controller      controller(window, 32);
 
     ASTIA_CHECK(controller.initialize() == ps2_error::timeout);
@@ -336,7 +336,7 @@ ASTIA_TEST(ps2_controller_output_wait_is_bounded) {
 ASTIA_TEST(ps2_controller_read_scan_code_is_nonblocking_and_filtered) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus{};
-    ps2_port_window        window = window_for(fake, bus);
+    io_port_window         window = window_for(fake, bus);
     ps2_controller         controller(window, 64);
 
     astia::u8 byte = 0;
@@ -356,7 +356,7 @@ ASTIA_TEST(ps2_controller_read_scan_code_is_nonblocking_and_filtered) {
 ASTIA_TEST(ps2_controller_inject_output_uses_0xd2_then_data) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus{};
-    ps2_port_window        window = window_for(fake, bus);
+    io_port_window         window = window_for(fake, bus);
     ps2_controller         controller(window, 64);
 
     ASTIA_CHECK(controller.inject_output(0x4B) == ps2_error::none);
@@ -366,30 +366,31 @@ ASTIA_TEST(ps2_controller_inject_output_uses_0xd2_then_data) {
     ASTIA_CHECK(fake.output.size() == 1 && fake.output.front() == 0x4B);
 }
 
-ASTIA_TEST(ps2_port_window_rejects_every_other_port) {
+ASTIA_TEST(io_port_window_rejects_ports_outside_granted_range) {
     astia::test::fake_8042 fake;
     astia::dev::pio_bus    bus{};
-    ps2_port_window        window = window_for(fake, bus);
+    io_port_window         window = window_for(fake, bus);
 
     astia::u8 value = 0;
 
     ASTIA_CHECK(window.valid());
     ASTIA_CHECK(window.read8(0x60, value));
     ASTIA_CHECK(window.read8(0x64, value));
-    ASTIA_CHECK(!window.read8(0x61, value));
+    ASTIA_CHECK(!window.read8(0x5F, value));
+    ASTIA_CHECK(!window.read8(0x65, value));
     ASTIA_CHECK(!window.read8(0x00, value));
     ASTIA_CHECK(!window.read8(0xFFFF, value));
     ASTIA_CHECK(window.write8(0x60, 0x11));
     ASTIA_CHECK(window.write8(0x64, 0x12));
-    ASTIA_CHECK(!window.write8(0x61, 0x13));
+    ASTIA_CHECK(!window.write8(0x5F, 0x13));
     ASTIA_CHECK(!window.write8(0x65, 0x14));
     ASTIA_CHECK(fake.foreign_reads == 0);
     ASTIA_CHECK(fake.foreign_writes == 0);
 }
 
-ASTIA_TEST(ps2_port_window_without_bus_is_inert) {
-    ps2_port_window window;
-    astia::u8       value = 0;
+ASTIA_TEST(io_port_window_without_bus_is_inert) {
+    io_port_window window;
+    astia::u8      value = 0;
 
     ASTIA_CHECK(!window.valid());
     ASTIA_CHECK(!window.read8(0x60, value));

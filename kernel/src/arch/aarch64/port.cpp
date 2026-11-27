@@ -1,8 +1,9 @@
 // AArch64 architecture port for the boot-CPU scheduler stage.
 //
 // This file implements the context, CPU, interrupt-state, and timer-hook
-// contract the stage scheduler uses.  The stage still owns GIC/timer setup;
-// this port supplies the real switch and the state the scheduler polls.
+// contract the stage scheduler uses.  The stage owns GIC/timer setup and the
+// boot-CPU IRQ router; this port supplies the real switch and the state the
+// scheduler polls.
 #include "port.hpp"
 
 #include <astia/arch/cpu.hpp>
@@ -12,6 +13,7 @@
 #include <astia/arch/timer.hpp>
 
 #include "context.hpp"
+#include "timer.hpp"
 
 namespace astia::arch {
     const char* machine_name() {
@@ -35,16 +37,7 @@ namespace astia::arch {
         volatile bool        reschedule_pending = false;
         volatile bool        should_yield       = false;
         [[maybe_unused]] u64 kernel_stack_top   = 0;
-        u64                  timer_tick_count   = 0;
         timer_hook           tick_hook          = nullptr;
-
-        [[nodiscard]] u64 read_counter_frequency() {
-            u64 value = 0;
-
-            __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(value));
-
-            return value;
-        }
     } // namespace
 
     bool init_scheduler() {
@@ -206,22 +199,23 @@ namespace astia::arch {
         return 0;
     }
 
-    // The stage owns GICv3 and PPI 30 setup; the generic IDT/IRQ graph is not
-    // part of this target yet.
+    // The stage owns GICv3, PPI 30, and the boot-CPU local IRQ router; the
+    // full generic interrupt graph (SPIs, vectors, module guards) is not part
+    // of this target yet.
     bool init_interrupts() {
         return false;
     }
 
     u64 timer_ticks() {
-        return timer_tick_count;
+        return astia::arch::aarch64::timer::tick_count();
     }
 
     u32 timer_hz() {
-        return static_cast<u32>(read_counter_frequency());
+        return astia::arch::aarch64::timer::tick_hz;
     }
 
     timer_source current_timer_source() {
-        return timer_source::pit;
+        return timer_source::generic;
     }
 
     u64 breakpoint_hits() {
@@ -240,8 +234,6 @@ namespace astia::arch {
 
 namespace astia::arch::aarch64 {
     void notify_timer_tick() {
-        ++timer_tick_count;
-
         if (tick_hook != nullptr)
             tick_hook();
     }

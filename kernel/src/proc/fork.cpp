@@ -7,7 +7,7 @@
 
 namespace astia::proc {
     namespace {
-        bool valid_inherited_stack_metadata(const thread* value, u64& base, usize& size) {
+        bool valid_inherited_stack_metadata(const thread* value, u64& base, usz& size) {
             if (value == nullptr || !value->user_stack_metadata_supported())
                 return false;
 
@@ -35,8 +35,8 @@ namespace astia::proc {
         if (parent_thread == nullptr)
             co_return -ESRCH;
 
-        u64   stack_base = 0;
-        usize stack_size = 0;
+        u64 stack_base = 0;
+        usz stack_size = 0;
 
         if (!valid_inherited_stack_metadata(parent_thread, stack_base, stack_size)) {
             stack_base = 0;

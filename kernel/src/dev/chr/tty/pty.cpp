@@ -229,7 +229,7 @@ namespace astia::dev {
         return result & (events | POLLERR | POLLHUP);
     }
 
-    long pty::master_ioctl(u64 request, void* argp, usize size) {
+    long pty::master_ioctl(u64 request, void* argp, usz size) {
         if (request == TIOCGPTN || request == TIOCSPTLCK || request == TIOCGPTLCK) {
             if (argp == nullptr || size != sizeof(i32))
                 return -EINVAL;
@@ -312,7 +312,7 @@ namespace astia::dev {
         return result & (events | POLLERR | POLLHUP);
     }
 
-    long pty::ioctl(u64 request, void* argp, usize size) {
+    long pty::ioctl(u64 request, void* argp, usz size) {
         if (request == TIOCGWINSZ) {
             if (argp == nullptr || size != sizeof(struct winsize))
                 return -EINVAL;

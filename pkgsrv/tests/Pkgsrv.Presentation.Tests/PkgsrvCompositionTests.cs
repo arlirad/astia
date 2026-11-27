@@ -3,11 +3,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Pkgsrv.Application.Interfaces.Builds;
+using Pkgsrv.Application.Interfaces.Events;
 using Pkgsrv.Application.Interfaces.Persistence;
 using Pkgsrv.Application.Interfaces.Security;
 using Pkgsrv.Application.Features.Packages.List;
 using Pkgsrv.Domain.Packages;
+using Pkgsrv.Infrastructure.Events.Outbox;
 using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
@@ -101,6 +104,9 @@ public sealed class PkgsrvCompositionTests
             provider.GetRequiredService<IPackageRepository>());
         Assert.IsType<InMemoryStorageReadinessProbe>(
             provider.GetRequiredService<IStorageReadinessProbe>());
+        Assert.Null(provider.GetService<IPackageEventOutbox>());
+        Assert.Null(provider.GetService<IPackageOutboxStore>());
+        Assert.Null(provider.GetService<IOutboxEventPublisher>());
     }
 
     [Fact]
@@ -116,6 +122,7 @@ public sealed class PkgsrvCompositionTests
             .Build();
         var databaseOptions = PkgsrvDatabaseOptions.FromConfiguration(configuration);
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddPkgsrv([], databaseOptions);
 
         using var provider = services.BuildServiceProvider();
@@ -127,6 +134,16 @@ public sealed class PkgsrvCompositionTests
         Assert.NotNull(provider.GetRequiredService<IPackageSchemaMigrator>());
         Assert.IsType<PostgresStorageReadinessProbe>(
             provider.GetRequiredService<IStorageReadinessProbe>());
+        Assert.Same(
+            provider.GetRequiredService<PostgresPackageRepository>(),
+            provider.GetRequiredService<IPackageEventOutbox>());
+        Assert.IsType<PostgresPackageOutboxStore>(
+            provider.GetRequiredService<IPackageOutboxStore>());
+        Assert.IsType<DomainEventOutboxPublisher>(
+            provider.GetRequiredService<IOutboxEventPublisher>());
+        Assert.Contains(
+            services,
+            descriptor => descriptor.ImplementationType == typeof(PackageOutboxDispatcher));
     }
 
     [Fact]

@@ -18,10 +18,10 @@ namespace astia::proc::syscalls {
 
             u32 values[max_supplementary_groups]{};
 
-            const auto source = in.validate(static_cast<usize>(n));
+            const auto source = in.validate(static_cast<usz>(n));
 
             if (n != 0 && (!source || !sys::copy_in(values, source.value.bytes(
-                                                                static_cast<usize>(n)))))
+                                                                static_cast<usz>(n)))))
                 return -EFAULT;
 
             return p->setgroups(static_cast<i32>(n), values);

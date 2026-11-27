@@ -5,6 +5,8 @@
 // Hardware-layer implementation.
 namespace astia::hw {
     namespace {
+        owner_resolver owner_hook = nullptr;
+
         i64 validate_registration(driver& value, u32 resources) {
             if (value.name() == nullptr || value.name()[0] == '\0')
                 return -EINVAL;
@@ -19,6 +21,14 @@ namespace astia::hw {
             return value ? value.value : error_errno(value.error);
         }
     } // namespace
+
+    void set_owner_resolver(owner_resolver resolver) {
+        owner_hook = resolver;
+    }
+
+    owner_id current_owner() {
+        return owner_hook != nullptr ? owner_hook() : kernel_owner;
+    }
 
     u32 driver_registry::take_driver_slot() {
         for (u32 i = 0; i < max_drivers; ++i) {
@@ -89,6 +99,9 @@ namespace astia::hw {
             if (_drivers[i].used && _drivers[i].value == &value)
                 return -EEXIST;
         }
+
+        if (owner == kernel_owner)
+            owner = current_owner();
 
         const u32 slot = take_driver_slot();
         if (slot == max_drivers)
