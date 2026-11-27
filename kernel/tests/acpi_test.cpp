@@ -821,6 +821,62 @@ namespace {
         __builtin_memcpy(target.data.bytes + dsdt_offset + 36, name_s5_package,
                          sizeof(name_s5_package));
     }
+
+    void make_reset_fadt(table_image& target, u8 space, u64 address, u8 value,
+                         bool supported = true) {
+        make_fadt(target, true);
+
+        u8* fadt = target.data.bytes + fadt_offset;
+
+        store_u32(fadt + 112, supported ? 1u << 10 : 0);
+
+        fadt[116] = space;
+        fadt[117] = 8;
+        fadt[118] = 0;
+        fadt[119] = 1;
+
+        store_u64(fadt + 120, address);
+
+        fadt[128] = value;
+
+        checksum_table(fadt, 244);
+
+        target.tables.fadt = {
+            astia::span<const u8>(fadt, 244),
+            image_base + fadt_offset,
+        };
+    }
+
+    struct reset_log {
+        u16   io_port        = 0;
+        u8    io_value       = 0;
+        usize io_count       = 0;
+        u64   memory_address = 0;
+        u8    memory_value   = 0;
+        usize memory_count   = 0;
+    };
+
+    bool record_io8(void* context, u16 port, u8 value) {
+        auto* log = static_cast<reset_log*>(context);
+
+        log->io_port  = port;
+        log->io_value = value;
+
+        ++log->io_count;
+
+        return true;
+    }
+
+    bool record_memory8(void* context, u64 address, u8 value) {
+        auto* log = static_cast<reset_log*>(context);
+
+        log->memory_address = address;
+        log->memory_value   = value;
+
+        ++log->memory_count;
+
+        return true;
+    }
 } // namespace
 
 ASTIA_TEST(acpi_power_legacy_pm1a_plan_writes_s5) {
@@ -923,6 +979,130 @@ ASTIA_TEST(acpi_power_malformed_gas_rejects) {
     ASTIA_CHECK(error == astia::acpi::detail::power_error::invalid_pm1a);
 }
 
+ASTIA_TEST(acpi_power_reset_register_supports_io_and_memory) {
+    table_image target;
+
+    make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e);
+
+    astia::acpi::detail::reset_plan  plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(plan.valid && plan.value == 0x0e);
+
+    reset_log log{};
+
+    ASTIA_CHECK(astia::acpi::detail::execute_reset(
+        plan, {&log, record_io8, record_memory8}, error));
+    ASTIA_CHECK(log.io_count == 1 && log.io_port == 0x64 && log.io_value == 0x0e);
+
+    make_reset_fadt(target, astia::acpi::detail::gas_system_memory, 0x2000, 0x0f);
+
+    ASTIA_CHECK(astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(astia::acpi::detail::execute_reset(
+        plan, {&log, record_io8, record_memory8}, error));
+    ASTIA_CHECK(log.memory_count == 1 && log.memory_address == 0x2000 &&
+                log.memory_value == 0x0f);
+}
+
+ASTIA_TEST(acpi_power_reset_register_pci_config_is_spec_valid_but_unsupported) {
+    table_image target;
+
+    const u64 config = (7ull << 32) | (2ull << 16) | 0x23;
+
+    make_reset_fadt(target, astia::acpi::detail::gas_pci_configuration, config, 0x0d);
+
+    astia::acpi::detail::reset_plan  plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::unsupported_address_space);
+    ASTIA_CHECK(!plan.valid);
+
+    reset_log log{};
+
+    ASTIA_CHECK(!astia::acpi::detail::execute_reset(
+        plan, {&log, record_io8, record_memory8}, error));
+    ASTIA_CHECK(log.io_count == 0 && log.memory_count == 0);
+}
+
+ASTIA_TEST(acpi_power_reset_register_requires_supported_flag_and_valid_fields) {
+    table_image target;
+
+    make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e, false);
+
+    astia::acpi::detail::reset_plan  plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::invalid_reset);
+
+    make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e);
+
+    target.data.bytes[fadt_offset + 117] = 16;
+
+    checksum_table(target.data.bytes + fadt_offset, 244);
+
+    ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::unsupported_access_size);
+
+    make_reset_fadt(target, astia::acpi::detail::gas_pci_configuration,
+                    (1ull << 48) | (2ull << 32) | 0x23, 0x0d);
+
+    ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(error == astia::acpi::detail::power_error::invalid_reset);
+}
+
+ASTIA_TEST(acpi_power_reset_register_pci_address_boundaries) {
+    table_image target;
+
+    astia::acpi::detail::reset_plan  plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    const auto check_config = [&](u64                              address,
+                                  astia::acpi::detail::power_error expected) {
+        make_reset_fadt(target, astia::acpi::detail::gas_pci_configuration, address,
+                        0x0d);
+
+        ASTIA_CHECK(!astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+        ASTIA_CHECK(error == expected);
+        ASTIA_CHECK(!plan.valid);
+    };
+
+    check_config((31ull << 32) | (7ull << 16) | 0xFFF,
+                 astia::acpi::detail::power_error::unsupported_address_space);
+    check_config((32ull << 32) | (0ull << 16) | 0,
+                 astia::acpi::detail::power_error::invalid_reset);
+    check_config((0ull << 32) | (8ull << 16) | 0,
+                 astia::acpi::detail::power_error::invalid_reset);
+    check_config((0ull << 32) | (0ull << 16) | 0x1000,
+                 astia::acpi::detail::power_error::invalid_reset);
+    check_config(1ull << 48, astia::acpi::detail::power_error::invalid_reset);
+
+    // A conventional ECAM bus-1 address is not a valid GAS PCI address: the
+    // GAS encoding has no bus field and requires segment group 0, bus 0.
+    check_config(1ull << 20, astia::acpi::detail::power_error::invalid_reset);
+}
+
+ASTIA_TEST(acpi_power_reset_plan_is_independent_of_aml) {
+    table_image target;
+
+    make_reset_fadt(target, astia::acpi::detail::gas_system_io, 0x64, 0x0e);
+
+    target.tables.dsdt = {
+        astia::span<const u8>(truncated_aml, sizeof(truncated_aml)),
+        image_base + dsdt_offset,
+    };
+
+    ASTIA_CHECK(!target.interpreter.build(target.tables));
+
+    astia::acpi::detail::reset_plan  plan{};
+    astia::acpi::detail::power_error error = astia::acpi::detail::power_error::none;
+
+    ASTIA_CHECK(astia::acpi::detail::build_reset_plan(target.tables, plan, error));
+    ASTIA_CHECK(plan.valid && plan.gas.space == astia::acpi::detail::gas_system_io);
+}
+
 ASTIA_TEST(acpi_power_invalid_sleep_type_rejects) {
     table_image target;
 
@@ -1007,6 +1187,24 @@ namespace {
 
         return true;
     }
+
+    bool record_handler_7(void*) {
+        shutdown_calls[shutdown_count++] = 7;
+
+        return true;
+    }
+
+    bool record_handler_8(void*) {
+        shutdown_calls[shutdown_count++] = 8;
+
+        return true;
+    }
+
+    bool record_handler_9(void*) {
+        shutdown_calls[shutdown_count++] = 9;
+
+        return false;
+    }
 } // namespace
 
 ASTIA_TEST(acpi_shutdown_tiers_are_ordered_and_failures_continue) {
@@ -1053,4 +1251,47 @@ ASTIA_TEST(acpi_shutdown_requires_platform_handler) {
 
     ASTIA_CHECK(!astia::shutdown::initiate());
     ASTIA_CHECK(shutdown_count == 1);
+}
+
+ASTIA_TEST(acpi_shutdown_final_override_runs_after_tiers_and_skips_registered_final) {
+    astia::shutdown::detail::reset_for_test();
+    reset_shutdown_log();
+
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::final,
+                                                  "registered-final", record_handler_8));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::platform,
+                                                  "platform", record_handler_5));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::prepare,
+                                                  "prepare", record_handler_1));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::flush, "flush",
+                                                  record_handler_3));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::quiesce,
+                                                  "quiesce", record_handler_4));
+
+    ASTIA_CHECK(astia::shutdown::initiate(record_handler_7, nullptr));
+    ASTIA_CHECK(shutdown_count == 5);
+    ASTIA_CHECK(shutdown_calls[0] == 1);
+    ASTIA_CHECK(shutdown_calls[1] == 3);
+    ASTIA_CHECK(shutdown_calls[2] == 4);
+    ASTIA_CHECK(shutdown_calls[3] == 5);
+    ASTIA_CHECK(shutdown_calls[4] == 7);
+}
+
+ASTIA_TEST(acpi_shutdown_final_override_failure_stays_best_effort) {
+    astia::shutdown::detail::reset_for_test();
+    reset_shutdown_log();
+
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::final,
+                                                  "registered-final", record_handler_8));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::platform,
+                                                  "platform", record_handler_5));
+    ASTIA_CHECK(astia::shutdown::register_handler(astia::shutdown::tier::prepare,
+                                                  "prepare", record_handler_1));
+
+    ASTIA_CHECK(!astia::shutdown::initiate(record_handler_9, nullptr));
+    ASTIA_CHECK(shutdown_count == 3);
+    ASTIA_CHECK(shutdown_calls[0] == 1);
+    ASTIA_CHECK(shutdown_calls[1] == 5);
+    ASTIA_CHECK(shutdown_calls[2] == 9);
+    ASTIA_CHECK(shutdown_calls[3] == 0);
 }

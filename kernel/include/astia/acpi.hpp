@@ -15,4 +15,13 @@ namespace astia::acpi {
     /// Enter the kernel shutdown sequence. Earlier registered handlers run in
     /// tier order; ACPI S5 is the final platform handler.
     bool shutdown();
+
+    /// True when the FADT advertises a validated reset register that the
+    /// kernel can write without guessing at a legacy reset path.
+    bool reboot_supported();
+
+    /// Request a firmware reset through the validated FADT reset register.
+    /// False means no reset register was available or the write failed; a
+    /// successful reset does not return.
+    bool reboot();
 } // namespace astia::acpi

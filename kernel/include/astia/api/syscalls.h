@@ -20,7 +20,7 @@
  * Return convention: >= 0 on success, or a negative value from
  * <astia/api/errno.h>.  Public syscall numbers are architecture-independent.
  * This tree is a deliberate, repository-only breaking migration: the table is
- * contiguous 0..77 and uname moved from 82 to 70.  There is no legacy 82
+ * contiguous 0..79 and uname moved from 82 to 70.  There is no legacy 82
  * alias; new public calls append from 71.  The API_VERSION constant below
  * versions the AIO ring layout, not the syscall table, and is unchanged by
  * this migration.
@@ -70,7 +70,7 @@ extern "C" {
 enum { API_VERSION = 1 };
 
 /* ------------------------------------------------------------------ */
-/* syscall numbers — architecture-independent, contiguous 0..77.      */
+/* syscall numbers — architecture-independent, contiguous 0..79.      */
 /* ------------------------------------------------------------------ */
 
 enum {
@@ -155,6 +155,16 @@ enum {
     SYS_MODCLOSE              = 76,
     SYS_GETRANDOM             = 77,
     SYS_CHROOT                = 78,
+    SYS_POWER                 = 79,
+};
+
+/* System power operations for astia_power().  These values are part of the
+ * stable ABI; ASTIA_POWER_SUSPEND means whole-system sleep, never a process
+ * or thread sleep.  All operations require effective UID zero. */
+enum {
+    ASTIA_POWER_SHUTDOWN = 0,
+    ASTIA_POWER_REBOOT   = 1,
+    ASTIA_POWER_SUSPEND  = 2,
 };
 
 /* getrandom() accepts at most this many bytes in one call; larger requests
@@ -715,6 +725,14 @@ static inline long astia_chdir(const char* path) {
 
 static inline long astia_chroot(const char* path) {
     return astia_raw6(SYS_CHROOT, (long) path, 0, 0, 0, 0, 0);
+}
+
+/* Request a whole-system power transition.  Shutdown enters the ordered ACPI S5
+ * path; reboot runs the ordered shutdown tiers and uses a validated FADT reset
+ * register as the final action; suspend is reserved but always reports
+ * -ENOTSUP. */
+static inline long astia_power(uint32_t operation) {
+    return astia_raw6(SYS_POWER, (long) operation, 0, 0, 0, 0, 0);
 }
 
 static inline long astia_fchdir(int fd) {

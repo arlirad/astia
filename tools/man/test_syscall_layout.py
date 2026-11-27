@@ -82,8 +82,8 @@ def check_production_layout(repository: Path) -> None:
         assert "sys::syscall_context" not in handler
         assert f"syscall_mode::{mode}" in handler
         assert "co_return sys::invoke_sync" not in handler
-    assert len(handler_files) == 79
-    assert sorted(seen_ids) == list(range(79))
+    assert len(handler_files) == 80
+    assert sorted(seen_ids) == list(range(80))
     assert not (source / "net" / "syscalls").exists()
     assert all("syscalls" in path.parts for path in handler_files)
     assert not any("aio" in path.parts or "operation" in path.name for path in handler_files)
@@ -128,8 +128,9 @@ def check_public_abi(repository: Path) -> None:
         name: int(number)
         for name, number in re.findall(r"\bSYS_([A-Z0-9_]+)\s*=\s*(\d+)\s*,", abi)
     }
-    assert len(entries) == 79
-    assert sorted(entries.values()) == list(range(79))
+    assert len(entries) == 80
+    assert sorted(entries.values()) == list(range(80))
+    assert entries["POWER"] == 79
     assert entries["FCHDIR"] == 69
     assert entries["UNAME"] == 70
     assert not {
@@ -222,7 +223,7 @@ def main() -> int:
             name.lower()
             for name in re.findall(r"\bSYS_([A-Z][A-Z0-9_]*)\b", abi)
         }
-        assert len(public_names) == 79
+        assert len(public_names) == 80
         for name in public_names:
             page = output / f"{name}.2.html"
             assert page.is_file(), name
@@ -234,8 +235,8 @@ def main() -> int:
         ).read_text()
         assert not any(path.name.startswith("aarch64") for path in output.iterdir())
         manifest = json.loads((export / "manifest.json").read_text())
-        assert manifest["count"] == 79
-        assert [page["id"] for page in manifest["pages"]] == list(range(79))
+        assert manifest["count"] == 80
+        assert [page["id"] for page in manifest["pages"]] == list(range(80))
     return 0
 
 

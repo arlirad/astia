@@ -67,7 +67,7 @@ namespace astia::shutdown {
         return true;
     }
 
-    bool initiate() {
+    bool initiate(handler final_override, void* final_context) {
         registration snapshot[max_handlers]{};
 
         usize count = 0;
@@ -96,6 +96,20 @@ namespace astia::shutdown {
 
         for (u8 level = 0; level < static_cast<u8>(tier::count); ++level) {
             const tier current = static_cast<tier>(level);
+
+            if (current == tier::final && final_override != nullptr) {
+                logs::info("tier=final handler=override");
+
+                final_ran = true;
+
+                if (!final_override(final_context)) {
+                    logs::error("tier=final handler=override failed");
+
+                    all_ok = false;
+                }
+
+                continue;
+            }
 
             for (usize i = 0; i < count; ++i) {
                 const registration& entry = snapshot[i];

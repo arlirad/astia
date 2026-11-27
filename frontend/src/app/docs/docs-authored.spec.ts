@@ -77,7 +77,7 @@ describe('Authored documentation sources', () => {
     expect(DOC_PAGES.filter((page) => page.group === 'Manual page').length).toBe(7);
 
     const syscalls = DOC_PAGES.filter((page) => page.group === 'Syscall (2)');
-    expect(syscalls.length).toBe(79);
+    expect(syscalls.length).toBe(80);
     for (const page of syscalls) {
       const name = page.title.replace(/\(2\)$/, '');
       const folder = page.subsystem === 'proc' ? `proc/${page.category}/` : `${page.subsystem}/`;

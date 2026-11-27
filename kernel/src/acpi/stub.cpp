@@ -12,4 +12,12 @@ namespace astia::acpi {
     bool shutdown() {
         return false;
     }
+
+    bool reboot_supported() {
+        return false;
+    }
+
+    bool reboot() {
+        return false;
+    }
 } // namespace astia::acpi

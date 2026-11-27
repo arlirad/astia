@@ -245,6 +245,20 @@ target_compile_options(astia_syscall_handler_prototype_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_link_options(astia_syscall_handler_prototype_test PRIVATE
         -Wl,--gc-sections)
+astia_add_host_test(astia_power_syscall_test
+        power_syscall_test.cpp
+        power_syscall_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/syscalls/power.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/dispatch.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/sys/syscall.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/resume_queue_host.cpp)
+target_compile_options(astia_power_syscall_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_compile_definitions(astia_power_syscall_test PRIVATE
+        ASTIA_MODULE_HOST_TEST=1)
+target_link_options(astia_power_syscall_test PRIVATE
+        "-Wl,-no-pie" "-Wl,--gc-sections")
 astia_add_host_test(astia_console_test
         console_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/console.cpp)
