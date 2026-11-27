@@ -59,9 +59,9 @@ run_case() {
     fi
     cp "$image" "$case_image"
     rm -rf "$staging"
-    mkdir -p "$staging"
-    cp "$module" "$staging/nvme.o"
-    (cd "$staging" && find nvme.o -print | cpio -o -H newc > "$initrd")
+    mkdir -p "$staging/mod"
+    cp "$module" "$staging/mod/nvme.o"
+    (cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
     set +e
     timeout "$timeout_seconds" "$qemu" \

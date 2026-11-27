@@ -188,7 +188,7 @@ if ! "$cpio" -it --quiet --no-absolute-filenames <"$base_initrd" >/dev/null 2>&1
 fi
 
 rm -rf "$work"
-mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
+mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc" "$work/root/mod"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
@@ -273,7 +273,7 @@ fi
 test -x "$work/root/sbin/init"
 test -x "$work/root/bin/zsh"
 test -f "$work/root/etc/zshenv"
-(cd "$work/root" && find hello_initrd.o sbin bin etc -print |
+(cd "$work/root" && find mod sbin bin etc -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
 
 rm -rf "$work/grub"

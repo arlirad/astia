@@ -204,7 +204,7 @@ if ! "$cpio" -it --quiet --no-absolute-filenames <"$base_initrd" >/dev/null 2>&1
 fi
 
 rm -rf "$work"
-mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc"
+mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc" "$work/root/mod"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
@@ -231,6 +231,17 @@ if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
 fi
 
 (cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
+
+if [ -n "${ASTIA_DEV_INITRD_MODULES:-}" ]; then
+    mkdir -p "$work/root/mod"
+    old_ifs=$IFS
+    IFS=';'
+    for module in $ASTIA_DEV_INITRD_MODULES; do
+        [ -n "$module" ] || continue
+        cp "$module" "$work/root/mod/"
+    done
+    IFS=$old_ifs
+fi
 
 compile_flags() {
     "$clang" --target="$target" -ffreestanding -fno-pic -fno-pie \
@@ -299,7 +310,7 @@ if command -v readelf >/dev/null 2>&1; then
         exit 1
     }
 fi
-(cd "$work/root" && find hello_initrd.o sbin bin etc lib -print |
+(cd "$work/root" && find mod sbin bin etc lib -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"
 
 if [ "$build_only" = 1 ]; then

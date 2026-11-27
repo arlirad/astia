@@ -15,7 +15,7 @@ grub_mkrescue=${GRUB_MKRESCUE:-grub-mkrescue}
 work=$build/ps2-initrd
 stage=$build/ps2-grub
 rm -rf "$work" "$stage"
-mkdir -p "$work/sbin" "$work/bin" "$stage/boot/grub"
+mkdir -p "$work/sbin" "$work/bin" "$work/mod" "$stage/boot/grub"
 
 compile_flags="-std=c11 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie
     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone
@@ -31,8 +31,8 @@ $cc $compile_flags -c "$source_dir/tests/ps2_noop.c" -o "$work/noop.o"
 # shellcheck disable=SC2086
 $cc $link_flags -o "$work/bin/init_libc" "$work/noop.o"
 
-cp "$module" "$work/ps2-keyboard.o"
-(cd "$work" && find ps2-keyboard.o sbin bin -print |
+cp "$module" "$work/mod/ps2-keyboard.o"
+(cd "$work" && find mod sbin bin -print |
     "$cpio" -o --format=newc --quiet) >"$stage/boot/initrd.cpio"
 
 cp "$kernel" "$stage/boot/astiakrn"

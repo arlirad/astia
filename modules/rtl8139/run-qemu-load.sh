@@ -29,8 +29,9 @@ else
 fi
 rm -rf "$staging"
 mkdir -p "$staging"
-cp "$artifact_build/modules/rtl8139/rtl8139.o" "$staging/rtl8139.o"
-(cd "$staging" && find rtl8139.o -print | cpio -o -H newc > "$initrd")
+mkdir -p "$staging/mod"
+cp "$artifact_build/modules/rtl8139/rtl8139.o" "$staging/mod/rtl8139.o"
+(cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 set +e
 timeout "$timeout_seconds" "$qemu" \

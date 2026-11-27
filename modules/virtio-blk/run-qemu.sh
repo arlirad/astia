@@ -34,8 +34,9 @@ mkdir -p "$build"
 cp "$source_image" "$image"
 rm -rf "$staging"
 mkdir -p "$staging"
-cp "$artifact_build/modules/virtio-blk/virtio_blk.o" "$staging/virtio_blk.o"
-(cd "$staging" && find virtio_blk.o -print | cpio -o -H newc > "$initrd")
+mkdir -p "$staging/mod"
+cp "$artifact_build/modules/virtio-blk/virtio_blk.o" "$staging/mod/virtio_blk.o"
+(cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 drive_readonly=
 if test "$readonly" = 1; then
