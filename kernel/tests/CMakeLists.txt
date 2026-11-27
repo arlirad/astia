@@ -137,6 +137,8 @@ astia_add_host_test(astia_aarch64_scheduler_test aarch64_scheduler_test.cpp)
 target_include_directories(astia_aarch64_scheduler_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/aarch64-virt)
 astia_add_test_label(astia_aarch64_scheduler_test "aarch64;host;deterministic")
+astia_add_host_test(astia_run_queue_test run_queue_test.cpp)
+astia_add_test_label(astia_run_queue_test "host;deterministic")
 add_test(NAME astia_init_launch_shape
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_launch_shape.py

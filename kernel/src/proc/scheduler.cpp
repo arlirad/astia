@@ -12,6 +12,7 @@
 #include "../ipc/futex.hpp"
 #include "../sys/aio.hpp"
 #include "proc.hpp"
+#include "run_queue.hpp"
 
 namespace astia::mod {
     // Provided when the module registry is linked into the kernel. Host tests
@@ -21,16 +22,23 @@ namespace astia::mod {
 
 namespace astia::proc::scheduler {
     namespace {
+        using queue_type = run_queue<thread, run_queue_capacity>;
+
         struct cpu_state {
             core::spinlock lock;
-            thread*        queue[run_queue_capacity]{};
-            u32            queue_count = 0;
+            queue_type     queue;
             thread*        idle_thread = nullptr;
 
             enum class lifecycle : u8 { offline, online } status = lifecycle::offline;
         } cpus[max_cpu_count];
 
         bool initialized = false;
+
+        queue_type::policy queue_policy(const thread* value) {
+            return {.vruntime = value->vruntime(),
+                    .priority = value->rt_priority(),
+                    .realtime = value->sched_class() == scheduling_class::realtime};
+        }
 
         void idle_entry(void*) {
             // Entered by a switch like any other thread, and the switcher's
@@ -60,15 +68,21 @@ namespace astia::proc::scheduler {
 
             arch::interrupt_spinlock_guard guard(state.lock);
 
-            if (value->queued())
-                return true;
+            const u32 slot = value->run_slot();
 
-            if (state.queue_count == run_queue_capacity)
+            if (value->queued() && state.queue.value_at(slot) == value)
+                return state.queue.reactivate(slot, queue_policy(value));
+
+            if (state.queue.size() == run_queue_capacity)
+                return false;
+
+            const u32 inserted = state.queue.insert(value, queue_policy(value));
+
+            if (inserted == queue_type::none)
                 return false;
 
             value->queued(true);
-
-            state.queue[state.queue_count++] = value;
+            value->run_slot(inserted);
 
             return true;
         }
@@ -94,35 +108,43 @@ namespace astia::proc::scheduler {
                 auto& source = cpus[source_index];
                 auto& target = cpus[target_index];
 
-                if (source.queue_count <=
-                        target.queue_count + run_queue_rebalance_slack ||
-                    target.queue_count == run_queue_capacity)
+                if (source.queue.size() <=
+                        target.queue.size() + run_queue_rebalance_slack ||
+                    target.queue.size() == run_queue_capacity)
                     continue;
 
-                u32 position = source.queue_count;
+                u32 position = queue_type::none;
+                u64 earliest = ~u64{0};
 
-                for (u32 i = 0; i < source.queue_count; ++i) {
-                    if (source.queue[i]->state() == thread_state::runnable &&
-                        source.queue[i]->migratable()) {
-                        position = i;
+                source.queue.for_each(
+                    [&](u32 slot, thread* value, u64 sequence, bool active) {
+                        if (!active || value->state() != thread_state::runnable ||
+                            !value->migratable())
+                            return;
 
-                        break;
-                    }
-                }
+                        if (position == queue_type::none || sequence < earliest) {
+                            position = slot;
+                            earliest = sequence;
+                        }
+                    });
 
-                if (position == source.queue_count)
+                if (position == queue_type::none)
                     continue;
 
-                thread* value = source.queue[position];
+                thread* value = source.queue.value_at(position);
 
-                for (u32 i = position + 1; i < source.queue_count; ++i) {
-                    source.queue[i - 1] = source.queue[i];
+                source.queue.erase(position);
+
+                const u32 inserted = target.queue.insert(value, queue_policy(value));
+
+                if (inserted == queue_type::none) {
+                    value->run_slot(source.queue.insert(value, queue_policy(value)));
+
+                    continue;
                 }
 
-                --source.queue_count;
                 value->cpu_owner(target_index);
-
-                target.queue[target.queue_count++] = value;
+                value->run_slot(inserted);
 
                 return true;
             }
@@ -130,77 +152,23 @@ namespace astia::proc::scheduler {
             return false;
         }
 
-        void remove_from_queue(cpu_state& state, u32 position) {
-            thread* value = state.queue[position];
-
-            value->queued(false);
-
-            for (u32 i = position + 1; i < state.queue_count; ++i) {
-                state.queue[i - 1] = state.queue[i];
-            }
-
-            --state.queue_count;
-        }
-
         thread* select_next(u32 index) {
             auto& state = cpus[index];
 
             arch::interrupt_spinlock_guard guard(state.lock);
 
-            if (state.queue_count == 0)
+            auto eligible = [](thread* value) {
+                return value->state() == thread_state::runnable &&
+                       value->owner()->state() != process_state::stopped;
+            };
+
+            thread* value = state.queue.pick(eligible);
+
+            if (value == nullptr)
                 return nullptr;
 
-            // Realtime policy: strict priority, FIFO among equal priority.
-            i32 realtime_index    = -1;
-            u8  realtime_priority = 0;
-
-            for (u32 i = 0; i < state.queue_count; ++i) {
-                thread* value = state.queue[i];
-
-                if (value->state() != thread_state::runnable ||
-                    value->owner()->state() == process_state::stopped ||
-                    value->sched_class() != scheduling_class::realtime)
-                    continue;
-
-                if (realtime_index < 0 || value->rt_priority() > realtime_priority) {
-                    realtime_index    = static_cast<i32>(i);
-                    realtime_priority = value->rt_priority();
-                }
-            }
-
-            if (realtime_index >= 0) {
-                thread* value = state.queue[realtime_index];
-
-                remove_from_queue(state, static_cast<u32>(realtime_index));
-
-                return value;
-            }
-
-            // Normal policy: lowest virtual runtime first.  nice affects
-            // the charge applied on each timer tick, so a lower nice value
-            // advances more slowly and receives more CPU time.
-            i32 normal_index = -1;
-            u64 lowest       = ~u64{0};
-
-            for (u32 i = 0; i < state.queue_count; ++i) {
-                thread* value = state.queue[i];
-
-                if (value->state() != thread_state::runnable ||
-                    value->owner()->state() == process_state::stopped)
-                    continue;
-
-                if (normal_index < 0 || value->vruntime() < lowest) {
-                    normal_index = static_cast<i32>(i);
-                    lowest       = value->vruntime();
-                }
-            }
-
-            if (normal_index < 0)
-                return nullptr;
-
-            thread* value = state.queue[normal_index];
-
-            remove_from_queue(state, static_cast<u32>(normal_index));
+            value->queued(false);
+            value->run_slot(queue_type::none);
 
             return value;
         }
@@ -367,38 +335,27 @@ namespace astia::proc::scheduler {
         arch::interrupt_spinlock_guard first_guard(cpus[first_index].lock);
         arch::interrupt_spinlock_guard second_guard(cpus[second_index].lock);
 
-        {
-            u32 position = source.queue_count;
+        const u32 slot = value->run_slot();
 
-            for (u32 i = 0; i < source.queue_count; ++i) {
-                if (source.queue[i] == value) {
-                    position = i;
+        if (source.queue.value_at(slot) != value)
+            return false;
 
-                    break;
-                }
-            }
+        if (target.queue.size() == run_queue_capacity)
+            return false;
 
-            if (position == source.queue_count)
-                return false;
+        source.queue.erase(slot);
 
-            remove_from_queue(source, position);
-        }
+        const u32 inserted = target.queue.insert(value, queue_policy(value));
 
-        if (target.queue_count == run_queue_capacity) {
-            // Both queues are held in index order, so restoring the source
-            // cannot deadlock with a reverse migration on another CPU.
-            value->cpu_owner(source_index);
-            value->queued(true);
-
-            source.queue[source.queue_count++] = value;
+        if (inserted == queue_type::none) {
+            value->run_slot(source.queue.insert(value, queue_policy(value)));
 
             return false;
         }
 
         value->cpu_owner(cpu_index);
         value->queued(true);
-
-        target.queue[target.queue_count++] = value;
+        value->run_slot(inserted);
 
         arch::cpu::request_reschedule();
 
@@ -433,15 +390,10 @@ namespace astia::proc::scheduler {
 
         arch::interrupt_spinlock_guard guard(state.lock);
 
-        for (u32 i = 0; i < state.queue_count; ++i) {
-            thread* value = state.queue[i];
-
-            if (value->state() == thread_state::runnable &&
-                value->owner()->state() != process_state::stopped)
-                return true;
-        }
-
-        return false;
+        return state.queue.any([](thread* value) {
+            return value->state() == thread_state::runnable &&
+                   value->owner()->state() != process_state::stopped;
+        });
     }
 
     void tick() {
