@@ -8,6 +8,7 @@
 #include <astia/memory.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/mm/memory_map.hpp>
 
 #include "gdt.hpp"
 #include "pci_mmio_owner.hpp"
@@ -38,19 +39,6 @@ namespace astia::arch {
 
         u64 direct_physical(const void* address) {
             return reinterpret_cast<u64>(address) - kernel_base;
-        }
-
-        /// Top of usable RAM as reported by the loader.
-        u64 usable_top(const mm::memory_map& map) {
-            u64 top = 0;
-
-            for (const auto& region : map) {
-                if (region.type == mm::memory_type::usable &&
-                    region.base + region.size > top)
-                    top = region.base + region.size;
-            }
-
-            return top;
         }
     } // namespace
 
@@ -85,8 +73,14 @@ namespace astia::arch::x86_64 {
 
         // Direct physical map: kernel_base + p -> p, up to the top of usable
         // RAM (in 2 MiB pages; reserved gaps inside the window are mapped
-        // but only ever touched on demand).
-        const u64 top = align_up(usable_top(ctx.info->memory), two_m);
+        // but only ever touched on demand). Reserved firmware above usable
+        // RAM is read through the ACPI reader's on-demand mapping instead.
+        u64 usable_top = 0;
+
+        if (!mm::usable_top(ctx.info->memory, usable_top))
+            return false;
+
+        const u64 top = align_up(usable_top, two_m);
 
         for (u64 p = 0; p < top; p += two_m) {
             if (!map.map_2m(kernel_base + p, p, rw))

@@ -22,6 +22,23 @@ namespace astia::mm {
         memory_type type = memory_type::reserved;
     };
 
+    /// End address of a region. False when `base + size` wraps.
+    inline bool region_end(const memory_region& region, u64& end) {
+        if (region.base > ~u64{0} - region.size)
+            return false;
+
+        end = region.base + region.size;
+
+        return true;
+    }
+
+    /// True when the region is part of the direct-map contract: every
+    /// firmware-described range except explicitly unusable or disabled
+    /// address space. ACPI tables may live in any of these ranges.
+    inline bool direct_map_type(memory_type type) {
+        return type != memory_type::unusable && type != memory_type::disabled;
+    }
+
     /// A fixed-capacity physical memory map. The PVH option ROM stores at
     /// most 128 e820 entries, which we mirror here.
     class memory_map {
@@ -55,4 +72,46 @@ namespace astia::mm {
         memory_region _regions[max_regions]{};
         usz           _count = 0;
     };
+
+    /// Highest end address of a usable region. False when any usable region
+    /// wraps past the end of the address space.
+    inline bool usable_top(const memory_map& map, u64& top) {
+        top = 0;
+
+        for (const auto& region : map) {
+            if (region.type != memory_type::usable)
+                continue;
+
+            u64 end = 0;
+
+            if (!region_end(region, end))
+                return false;
+
+            if (end > top)
+                top = end;
+        }
+
+        return true;
+    }
+
+    /// Highest end address of a directly mappable region. False when any such
+    /// region wraps past the end of the address space.
+    inline bool direct_map_top(const memory_map& map, u64& top) {
+        top = 0;
+
+        for (const auto& region : map) {
+            if (!direct_map_type(region.type))
+                continue;
+
+            u64 end = 0;
+
+            if (!region_end(region, end))
+                return false;
+
+            if (end > top)
+                top = end;
+        }
+
+        return true;
+    }
 } // namespace astia::mm

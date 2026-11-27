@@ -11,9 +11,8 @@
 
 #include "aml.hpp"
 #include "io.hpp"
-#include "limits.hpp"
+#include "physical.hpp"
 #include "power.hpp"
-#include "reader.hpp"
 #include "tables.hpp"
 
 extern "C" bool astia_acpi_test_override(const char*, astia::acpi::detail::memory_reader&,
@@ -146,18 +145,14 @@ namespace astia::acpi {
             if (ctx.info == nullptr)
                 return true;
 
-            u64 direct_limit = 0;
+            detail::physical_reader reader{};
 
-            if (!detail::direct_map_limit(ctx.info->memory, direct_limit)) {
+            if (!detail::kernel_physical_reader(ctx.info->memory, identity_window,
+                                                reader)) {
                 logs::error("unavailable: malformed memory map");
 
                 return true;
             }
-
-            detail::physical_reader reader{
-                identity_window,
-                direct_limit,
-            };
 
             detail::memory_reader access = detail::physical_memory_reader(reader);
 

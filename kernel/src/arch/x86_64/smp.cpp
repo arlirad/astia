@@ -9,9 +9,8 @@
 #include <astia/log.hpp>
 #include <astia/mm/heap.hpp>
 
-#include "../../acpi/limits.hpp"
 #include "../../acpi/madt.hpp"
-#include "../../acpi/reader.hpp"
+#include "../../acpi/physical.hpp"
 #include "../../proc/scheduler.hpp"
 #include "gdt.hpp"
 #include "lapic.hpp"
@@ -115,17 +114,13 @@ namespace astia::arch::x86_64::smp {
         u32 found = 0;
 
         if (have_acpi) {
-            u64 direct_limit = 0;
-
             astia::acpi::detail::madt_error madt_error =
                 astia::acpi::detail::madt_error::none;
 
-            if (astia::acpi::detail::direct_map_limit(info.memory, direct_limit)) {
-                astia::acpi::detail::physical_reader context{
-                    pci_identity_window_size,
-                    direct_limit,
-                };
+            astia::acpi::detail::physical_reader context{};
 
+            if (astia::acpi::detail::kernel_physical_reader(
+                    info.memory, pci_identity_window_size, context)) {
                 const auto access = astia::acpi::detail::physical_memory_reader(context);
 
                 if (!astia::acpi::detail::discover_madt(access, info.rsdp, apic_ids,

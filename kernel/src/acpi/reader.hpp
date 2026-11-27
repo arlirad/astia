@@ -1,14 +1,18 @@
 #pragma once
 
-#include <astia/arch/layout.hpp>
 #include <astia/common.hpp>
 
 #include "tables.hpp"
 
 namespace astia::acpi::detail {
     struct physical_reader {
-        u64 identity_limit = 0;
-        u64 direct_limit   = 0;
+        u64 identity_limit              = 0;
+        u64 mapped_limit                = 0;
+        u64 direct_limit                = 0;
+        u64 direct_base                 = 0;
+        bool (*read_mapped)(void* context, u64 address, u8* destination,
+                            usz length) = nullptr;
+        void* mapped_context            = nullptr;
     };
 
     inline bool read_physical(void* context, u64 address, u8* destination, usz length) {
@@ -25,14 +29,17 @@ namespace astia::acpi::detail {
             return true;
         }
 
-        if (end <= reader->direct_limit) {
-            __builtin_memcpy(
-                destination,
-                reinterpret_cast<const void*>(astia::arch::kernel_base + address),
-                length);
+        if (end <= reader->mapped_limit && address <= ~u64{0} - reader->direct_base) {
+            __builtin_memcpy(destination,
+                             reinterpret_cast<const void*>(reader->direct_base + address),
+                             length);
 
             return true;
         }
+
+        if (end <= reader->direct_limit && reader->read_mapped != nullptr)
+            return reader->read_mapped(reader->mapped_context, address, destination,
+                                       length);
 
         return false;
     }

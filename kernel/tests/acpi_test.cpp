@@ -7,6 +7,7 @@
 #include "acpi/limits.hpp"
 #include "acpi/madt.hpp"
 #include "acpi/power.hpp"
+#include "acpi/reader.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
 
@@ -39,13 +40,14 @@ namespace {
     using astia::u8;
     using astia::usz;
 
-    constexpr u64 image_base  = 0x100000;
-    constexpr usz image_size  = 64 * 1024;
-    constexpr usz rsdp_offset = 0x000;
-    constexpr usz root_offset = 0x040;
-    constexpr usz fadt_offset = 0x100;
-    constexpr usz dsdt_offset = 0x200;
-    constexpr usz madt_offset = 0x800;
+    constexpr u64 image_base     = 0x100000;
+    constexpr usz image_size     = 64 * 1024;
+    constexpr u64 direct_map_cap = 1ull << 39;
+    constexpr usz rsdp_offset    = 0x000;
+    constexpr usz root_offset    = 0x040;
+    constexpr usz fadt_offset    = 0x100;
+    constexpr usz dsdt_offset    = 0x200;
+    constexpr usz madt_offset    = 0x800;
 
     struct image {
         u8  bytes[image_size]{};
@@ -429,12 +431,12 @@ ASTIA_TEST(acpi_direct_map_limit_uses_aligned_usable_top) {
 
     u64 limit = 0;
 
-    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, direct_map_cap, limit));
     ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
 
     map.add(0x2000, 0x1000, astia::mm::memory_type::usable);
 
-    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, direct_map_cap, limit));
     ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
 }
 
@@ -448,7 +450,160 @@ ASTIA_TEST(acpi_direct_map_limit_rejects_wrapping_top) {
 
     ASTIA_CHECK(astia::acpi::detail::usable_top(map, top));
     ASTIA_CHECK(top == ~u64{0});
-    ASTIA_CHECK(!astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(!astia::acpi::detail::direct_map_limit(map, direct_map_cap, limit));
+}
+
+ASTIA_TEST(acpi_direct_map_limit_covers_firmware_above_usable) {
+    constexpr u64 table_address = 0x2'0000'0000ull;
+
+    for (const auto type :
+         {astia::mm::memory_type::reserved, astia::mm::memory_type::acpi_reclaimable,
+          astia::mm::memory_type::acpi_nvs}) {
+        astia::mm::memory_map map;
+
+        map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+        map.add(table_address, 0x1000, type);
+
+        u64 limit = 0;
+
+        ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, direct_map_cap, limit));
+        ASTIA_CHECK(limit > table_address);
+        ASTIA_CHECK(limit == table_address + astia::acpi::detail::direct_map_alignment);
+    }
+}
+
+ASTIA_TEST(acpi_direct_map_limit_ignores_unmappable_regions) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(0x2'0000'0000ull, 0x1000, astia::mm::memory_type::unusable);
+    map.add(0x3'0000'0000ull, 0x1000, astia::mm::memory_type::disabled);
+
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, direct_map_cap, limit));
+    ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
+}
+
+ASTIA_TEST(acpi_direct_map_limit_caps_at_arch_window) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(0x2'0000'0000ull, 0x1000, astia::mm::memory_type::acpi_reclaimable);
+
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, 0x4000'0000ull, limit));
+    ASTIA_CHECK(limit == 0x4000'0000ull);
+}
+
+struct fallback_reader {
+    const u8* bytes = nullptr;
+    usz       size  = 0;
+    u64       base  = 0;
+    u32       calls = 0;
+};
+
+bool read_fallback(void* context, u64 address, u8* destination, usz length) {
+    auto* reader = static_cast<fallback_reader*>(context);
+
+    ++reader->calls;
+
+    if (address < reader->base)
+        return false;
+
+    const u64 offset = address - reader->base;
+
+    if (offset > reader->size || length > reader->size - offset)
+        return false;
+
+    __builtin_memcpy(destination, reader->bytes + offset, length);
+
+    return true;
+}
+
+ASTIA_TEST(acpi_physical_reader_uses_mapped_window) {
+    constexpr u64 base = 0x2'0000'0000ull;
+
+    u8 source[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    astia::acpi::detail::physical_reader reader{
+        0,
+        base + sizeof(source),
+        base + sizeof(source),
+        reinterpret_cast<u64>(source) - base,
+        nullptr,
+        nullptr,
+    };
+
+    u8 data[4]{};
+
+    ASTIA_CHECK(astia::acpi::detail::read_physical(&reader, base, data, 4));
+    ASTIA_CHECK(data[0] == 1 && data[3] == 4);
+
+    ASTIA_CHECK(astia::acpi::detail::read_physical(&reader, base + 4, data, 4));
+    ASTIA_CHECK(data[0] == 5 && data[3] == 8);
+
+    ASTIA_CHECK(!astia::acpi::detail::read_physical(&reader, base + 5, data, 4));
+    ASTIA_CHECK(
+        !astia::acpi::detail::read_physical(&reader, base + sizeof(source), data, 1));
+}
+
+ASTIA_TEST(acpi_physical_reader_uses_identity_window) {
+    u8 source[4] = {9, 10, 11, 12};
+
+    const u64 address = reinterpret_cast<u64>(source);
+
+    astia::acpi::detail::physical_reader reader{
+        address + sizeof(source), 0, 0, 0, nullptr, nullptr,
+    };
+
+    u8 data[4]{};
+
+    ASTIA_CHECK(astia::acpi::detail::read_physical(&reader, address, data, 4));
+    ASTIA_CHECK(data[0] == 9 && data[3] == 12);
+    ASTIA_CHECK(!astia::acpi::detail::read_physical(&reader, address + 1, data, 4));
+}
+
+ASTIA_TEST(acpi_physical_reader_maps_tables_above_usable_ram) {
+    constexpr u64 table_address = 0x2'0000'0000ull;
+
+    u8 source[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(table_address, sizeof(source), astia::mm::memory_type::acpi_reclaimable);
+
+    u64 mapped = 0;
+    u64 window = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::mapped_limit(map, mapped));
+    ASTIA_CHECK(mapped < table_address);
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, direct_map_cap, window));
+    ASTIA_CHECK(window > table_address + sizeof(source));
+
+    fallback_reader state{source, sizeof(source), table_address, 0};
+
+    astia::acpi::detail::physical_reader reader{
+        0, mapped, window, 0, read_fallback, &state,
+    };
+
+    u8 data[4]{};
+
+    ASTIA_CHECK(astia::acpi::detail::read_physical(&reader, table_address, data, 4));
+    ASTIA_CHECK(data[0] == 1 && data[3] == 4);
+    ASTIA_CHECK(state.calls == 1);
+
+    ASTIA_CHECK(astia::acpi::detail::read_physical(&reader, table_address + 4, data, 4));
+    ASTIA_CHECK(data[0] == 5 && data[3] == 8);
+    ASTIA_CHECK(state.calls == 2);
+
+    ASTIA_CHECK(!astia::acpi::detail::read_physical(&reader, window, data, 1));
+    ASTIA_CHECK(state.calls == 2);
+
+    ASTIA_CHECK(!astia::acpi::detail::read_physical(&reader, table_address + 5, data, 4));
+    ASTIA_CHECK(state.calls == 3);
 }
 
 ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
