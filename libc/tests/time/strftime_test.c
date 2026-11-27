@@ -234,9 +234,86 @@ static void test_size_and_overflow(void) {
     CHECK(memcmp(&original, &value, sizeof value) == 0);
 }
 
+static void test_alternative_formats(void) {
+    static const char e_conversions[] = "cCxXyY";
+    static const char o_conversions[] = "deHImMSuUVwWy";
+
+    const time_t epochs[] = {1795442709, 1609459200};
+
+    struct tm value;
+
+    char   modified[4];
+    char   plain[3];
+    char   modified_buffer[160];
+    char   plain_buffer[160];
+    size_t e;
+    size_t o;
+    size_t k;
+
+    modified[0] = '%';
+    modified[3] = '\0';
+    plain[0]    = '%';
+    plain[2]    = '\0';
+
+    for (k = 0; k < sizeof epochs / sizeof epochs[0]; k++) {
+        size_t modified_length;
+        size_t plain_length;
+
+        memset(&value, 0, sizeof value);
+        CHECK(gmtime_r(&epochs[k], &value) != NULL);
+
+        for (e = 0; e < sizeof e_conversions - 1; e++) {
+            modified[1] = 'E';
+            modified[2] = e_conversions[e];
+            plain[1]    = e_conversions[e];
+
+            modified_length =
+                strftime(modified_buffer, sizeof modified_buffer, modified, &value);
+            plain_length = strftime(plain_buffer, sizeof plain_buffer, plain, &value);
+
+            CHECK(modified_length == plain_length);
+            CHECK(strcmp(modified_buffer, plain_buffer) == 0);
+        }
+
+        for (o = 0; o < sizeof o_conversions - 1; o++) {
+            modified[1] = 'O';
+            modified[2] = o_conversions[o];
+            plain[1]    = o_conversions[o];
+
+            modified_length =
+                strftime(modified_buffer, sizeof modified_buffer, modified, &value);
+            plain_length = strftime(plain_buffer, sizeof plain_buffer, plain, &value);
+
+            CHECK(modified_length == plain_length);
+            CHECK(strcmp(modified_buffer, plain_buffer) == 0);
+        }
+    }
+
+    expect_epoch("Ec", 1795442709, "%Ec", "Mon Nov 23 14:05:09 2026");
+    expect_epoch("EC", 1795442709, "%EC", "20");
+    expect_epoch("Ex", 1795442709, "%Ex", "11/23/26");
+    expect_epoch("EX", 1795442709, "%EX", "14:05:09");
+    expect_epoch("Ey", 1795442709, "%Ey", "26");
+    expect_epoch("EY", 1795442709, "%EY", "2026");
+    expect_epoch("Od", 1795442709, "%Od", "23");
+    expect_epoch("Oe", 1609459200, "%Oe", " 1");
+    expect_epoch("OH", 1795442709, "%OH", "14");
+    expect_epoch("OI", 1795442709, "%OI", "02");
+    expect_epoch("Om", 1795442709, "%Om", "11");
+    expect_epoch("OM", 1795442709, "%OM", "05");
+    expect_epoch("OS", 1795442709, "%OS", "09");
+    expect_epoch("Ou", 1795442709, "%Ou", "1");
+    expect_epoch("OU", 1795442709, "%OU", "47");
+    expect_epoch("OV", 1795442709, "%OV", "48");
+    expect_epoch("Ow", 1795442709, "%Ow", "1");
+    expect_epoch("OW", 1795442709, "%OW", "47");
+    expect_epoch("Oy", 1795442709, "%Oy", "26");
+}
+
 static void test_unsupported(void) {
     static const char* const formats[] = {
-        "%Z", "%z", "%N", "%v", "%Q", "%Ec", "%Od", "%-d", "%_d", "%0e", "%#a",
+        "%Z",  "%z",  "%N",  "%v",  "%Q",  "%E",  "%O",  "%EZ", "%Oz", "%Ea",
+        "%Oc", "%O%", "%EE", "%OO", "%E1", "%-d", "%_d", "%0e", "%#a",
     };
     struct tm value;
 
@@ -252,6 +329,14 @@ static void test_unsupported(void) {
 
     CHECK(strftime(buffer, sizeof buffer, "ok%Z", &value) == 0);
     CHECK(strftime(buffer, sizeof buffer, "ok%z", &value) == 0);
+
+    {
+        char invalid_era[] = {'o', 'k', '%', 'E', 'a', '\0'};
+        char invalid_alt[] = {'o', 'k', '%', 'O', 'z', '\0'};
+
+        CHECK(strftime(buffer, sizeof buffer, invalid_era, &value) == 0);
+        CHECK(strftime(buffer, sizeof buffer, invalid_alt, &value) == 0);
+    }
 }
 
 static void test_preserved_directives(void) {
@@ -271,6 +356,7 @@ int main(void) {
     test_epoch_seconds();
     test_epoch_seconds_boundary();
     test_size_and_overflow();
+    test_alternative_formats();
     test_unsupported();
     test_preserved_directives();
 
