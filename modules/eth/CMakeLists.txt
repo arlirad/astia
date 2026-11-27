@@ -1,7 +1,7 @@
 # Ethernet layer module scaffold.
 
-set(ASTIA_ETH_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/module_main.cpp)
-set(ASTIA_ETH_PART ${CMAKE_CURRENT_BINARY_DIR}/module_main.module.o)
+set(ASTIA_ETH_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/eth.cpp)
+set(ASTIA_ETH_PART ${CMAKE_CURRENT_BINARY_DIR}/eth.module.o)
 set(ASTIA_ETH_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/eth.o)
 
 add_custom_command(
@@ -21,7 +21,7 @@ add_custom_command(
         DEPENDS ${ASTIA_ETH_SOURCE}
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
-        COMMENT "Compiling Ethernet module module_main.cpp"
+        COMMENT "Compiling Ethernet module eth.cpp"
         VERBATIM)
 
 add_custom_command(

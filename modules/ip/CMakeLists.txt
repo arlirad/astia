@@ -1,7 +1,7 @@
 # IP stack module scaffold.
 
-set(ASTIA_IP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/module_main.cpp)
-set(ASTIA_IP_PART ${CMAKE_CURRENT_BINARY_DIR}/module_main.module.o)
+set(ASTIA_IP_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/ip.cpp)
+set(ASTIA_IP_PART ${CMAKE_CURRENT_BINARY_DIR}/ip.module.o)
 set(ASTIA_IP_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ip.o)
 
 add_custom_command(
@@ -21,7 +21,7 @@ add_custom_command(
         DEPENDS ${ASTIA_IP_SOURCE}
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
-        COMMENT "Compiling IP module module_main.cpp"
+        COMMENT "Compiling IP module ip.cpp"
         VERBATIM)
 
 add_custom_command(
