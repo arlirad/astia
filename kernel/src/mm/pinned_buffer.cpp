@@ -29,6 +29,13 @@ namespace astia::mm {
 
     bool pinned_buffer::acquire(phys_region* region, usz first, usz count,
                                 bool destination) {
+        // A pin has exactly one owner and one range.  Overwriting a live pin
+        // would drop its references without a release(), so reject the second
+        // call and leave the existing pin untouched.  release() first, or
+        // move-assign, to replace it.
+        if (valid())
+            return false;
+
         if (region == nullptr || count == 0 || first >= region->pages() ||
             count > region->pages() - first)
             return false;
