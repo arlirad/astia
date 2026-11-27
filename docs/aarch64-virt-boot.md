@@ -5,12 +5,13 @@ for `ARCH=aarch64 PLATFORM=virt BOOT=virt`. It is deliberately a **stage**, not
 a full kernel boot. The generic `kernel/src/kmain.cpp` graph requires a full
 driver model, a full generic IRQ subsystem, timers, and the scheduler, none of
 which exist for AArch64 in this milestone. The stage now owns a bounded GICv3
-boot-CPU self-SGI path, a fixed local SGI/PPI dispatch table, a bounded
+boot-CPU self-SGI path, a generic boot-CPU local IRQ router, a bounded
 five-tick EL1 physical-timer PPI 30 proof, a fixed-capacity IRQ-context
 deadline queue, and a bounded two-context scheduler whose sleeper is woken by
-that timer through the deadline queue. It does not expose an SPI/device IRQ
-subsystem, the generic process/thread graph, preemption of a running context,
-SMP, or a dynamically sized or general timer queue.
+that timer through the deadline queue and the router's IRQ-exit handoff. It
+does not expose an SPI/device IRQ subsystem, the generic process/thread graph,
+preemption of a running context, SMP, or a dynamically sized or general timer
+queue.
 
 ## Target and boundary
 
@@ -54,7 +55,7 @@ The stage does exactly this:
     `ARE_NS`/`EnableGrp1NS`, matching redistributor wake, SGI/PPI Group-1
     defaults, and the EL1 CPU interface.
 11. With IRQs still masked, register the self-SGI and timer PPI handlers in
-    the fixed 32-entry boot-CPU local dispatch table, then print the
+    the fixed 32-entry generic boot-CPU IRQ router, then print the
     registration marker.
 12. Trigger one reserved self-SGI through `ICC_SGI1R_EL1`, take the IRQ
     through the current-EL `SP_ELx` IRQ slot, acknowledge it with
@@ -73,9 +74,10 @@ The stage does exactly this:
 14. With IRQs masked, create two statically allocated kernel contexts, arm a
     second bounded five-tick timer window, unmask IRQs, and enter the
     stage scheduler. Context A sleeps on a deadline at +20 ms; context B
-    yields while A is blocked. The PPI 30 handler dispatches the deadline
-    before `EOIR`/`DIR`, moves A back to the runnable queue exactly once,
-    and the IRQ exit consumes the reschedule request and switches to A. A
+    yields while A is blocked. The PPI 30 route dispatches the deadline
+    before `EOIR`/`DIR`, moves A back to the runnable queue exactly once, and
+    the router's IRQ-exit handoff runs the scheduler, which consumes the
+    reschedule request and switches to A. A
     records that it resumed only after its deadline and retires; B observes
     A finished and retires; the boot context resumes. The stage verifies one
     sleep, one deadline wake, no wake without a deadline, two starts and
@@ -688,44 +690,64 @@ busy-waits with a bounded `YIELD` loop for the handler counter, then masks
 between the counter check and `WFI` would hang the boot CPU. The bounded loop
 turns a missing interrupt into a printed failure.
 
-### Boot-CPU local IRQ registration and dispatch
+### Boot-CPU local IRQ routing, dispatch, and handoff
 
-Before `IRQ ENABLED`, the stage registers exactly two handlers in a fixed
-32-entry local table: reserved SGI 15 and timer PPI 30. `register_local_irq`
-takes a function pointer plus an opaque context, rejects INTIDs outside 0-31,
-null handlers, and duplicate INTIDs, and performs no allocation, locking, or
-scheduler interaction. Registration is only valid on the boot CPU while
-`PSTATE.I` is set; there is no unregister or runtime mutation path.
+`kernel/src/arch/aarch64/irq.hpp` defines the generic boot-CPU local IRQ
+router. Its fixed 32-entry table is keyed by INTID, so the same contract
+serves SGIs and PPIs rather than naming SGI 15 and PPI 30. Before
+`IRQ ENABLED`, the stage registers exactly two routes: reserved SGI 15 and
+timer PPI 30. `register_route` takes a function pointer plus an opaque
+context, rejects INTIDs outside 0-31, null handlers, and duplicate ownership,
+and performs no allocation or locking. Unregistration exists for lifecycle
+ownership, but refuses with `busy` while a dispatch is in flight, so a handler
+cannot be removed between acknowledge and completion. Registration and
+unregistration are only valid on the boot CPU while `PSTATE.I` is set.
 
-`acknowledge_and_complete()` reads `ICC_IAR1_EL1` once, classifies the INTID,
-and invokes the registered handler before any completion write. It then writes
-the complete IAR value to `ICC_EOIR1_EL1` for the priority drop and the INTID
-to `ICC_DIR_EL1` for deactivation (`EOImode == 1`). A handler for a
-level-sensitive source must make that source inactive before returning,
-because the priority drop happens before deactivation and an asserted level
-would otherwise leave the interrupt active-and-pending. The timer handler
-therefore re-arms a positive interval, or disables and masks `CNTP_CTL_EL0`
-and moves the compare point on the final tick, before returning; the SGI
-handler only counts the event.
+`dispatch()` classifies the INTID and invokes the owning handler, copying the
+route first so a callback cannot observe a torn or freed slot. It returns
+`spurious`, `handled`, or `fatal`; it never writes `ICC_EOIR1_EL1` or
+`ICC_DIR_EL1`. The GIC layer calls it from `acknowledge_and_complete()` after
+reading `ICC_IAR1_EL1` once, then writes the complete IAR value to
+`ICC_EOIR1_EL1` for the priority drop and the INTID to `ICC_DIR_EL1` for
+deactivation (`EOImode == 1`). A handler for a level-sensitive source must
+make that source inactive before returning, because the priority drop happens
+before deactivation and an asserted level would otherwise leave the interrupt
+active-and-pending. The timer handler therefore re-arms a positive interval,
+or disables and masks `CNTP_CTL_EL0` and moves the compare point on the final
+tick, before returning; the SGI handler only counts the event.
+
+The scheduler handoff boundary is a single post-IRQ callback slot on the
+router. The stage scheduler registers `reschedule_from_irq` from `init()`; the
+exception exit calls `run_handoff()` only after `cpu::interrupt_exit()`, never
+from inside a handler. The router refuses to run the handoff while a dispatch
+is in flight, so routing stays architecture-owned and scheduling policy stays
+scheduler-owned. This is what lets the timer interrupt wake a sleeper and
+switch contexts on return without the GIC layer knowing about the scheduler.
 
 INTIDs 0-15 are SGIs, 16-31 are PPIs, 32-1019 are SPIs, and 1020-1023 are
 special (IHI 0069G Table 2-1, §2.2). Only a registered INTID in 0-31 is
 handled. An unregistered local INTID, every SPI, extended PPI, or special
 INTID 1020-1022 is fatal. INTID 1023 is the architectural spurious value and
-returns without EOI.
+returns without EOI. The smoke asserts 11 dispatches, 11 handled, zero
+spurious and fatal, and five IRQ-exit handoffs, proving every SGI/timer event
+took the routed path and that the scheduler handoff ran only after it
+registered.
 
 Non-goals for this foundation: SPIs and external devices, INTIDs above 31,
-secondary CPUs and per-CPU tables, dynamic unregister, interrupt priorities
-beyond the fixed boot policy, nested/preempted dispatch, scheduler wakeups,
-and any generic IRQ abstraction.
+secondary CPUs and per-CPU tables, interrupt priorities beyond the fixed boot
+policy, and nested/preempted dispatch. Dynamic unregistration is bounded to
+the boot CPU and refused during dispatch; it is not a module lifetime or
+hot-unplug facility.
 
 ### EL1 physical timer PPI 30
 
 The stage now proves one bounded, five-tick EL1 physical-timer interrupt
-sequence with the re-arm inside the registered handler, plus a fixed-capacity
-deadline table dispatched from that handler. It is not a timer subsystem or a
-scheduler tick source: there is no dynamically sized or general timer queue,
-timer wheel, scheduler interaction, generic timer abstraction, or EL0 access.
+sequence with the re-arm inside the registered route, plus a fixed-capacity
+deadline table dispatched from that route. It is the bounded boot-CPU tick
+source: the route calls `notify_timer_tick()`, which publishes the arch timer
+hook the stage scheduler uses to wake due sleepers. It is not a general timer
+subsystem: there is no dynamically sized queue, timer wheel, generic timer
+abstraction, or EL0 access.
 
 The interrupt contract is:
 
@@ -893,13 +915,14 @@ increments its wake count exactly once; `timer_tick` is a catch-up safety net
 that only wakes records whose deadline has passed and that are still
 sleeping. A wake without a deadline is rejected and counted as spurious.
 
-The timer IRQ entry calls `cpu::interrupt_enter()`, dispatches and completes
-the interrupt, then `cpu::interrupt_exit()`. The outermost exit converts the
-pending reschedule request into `should_yield`; `reschedule_from_irq()` at the
-IRQ exit consumes it and performs the context switch while the exception frame
-stays on the interrupted stack. `ERET` restores the interrupted context once
-the scheduler returns to it, so dispatch-before-`EOIR`/`DIR` ordering is
-unchanged.
+The timer IRQ entry calls `cpu::interrupt_enter()`, routes and completes the
+interrupt, then `cpu::interrupt_exit()`. The outermost exit converts the
+pending reschedule request into `should_yield`. The router's
+`run_handoff()` then invokes the scheduler callback registered by
+`scheduler::init()`, and `reschedule_from_irq()` consumes the request and
+performs the context switch while the exception frame stays on the interrupted
+stack. `ERET` restores the interrupted context once the scheduler returns to
+it, so dispatch-before-`EOIR`/`DIR` ordering is unchanged.
 
 ### Boot proof and non-goals
 
@@ -994,9 +1017,14 @@ cmake --build kernel/build-tests --target astia_aarch64_exception_frame_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_exception_frame_test$' \
   --output-on-failure
 
-# Focused GICv3 SGI/timer/IRQ policy test (host)
+# Focused GICv3 SGI/timer policy test (host)
 cmake --build kernel/build-tests --target astia_aarch64_gic_test
 ctest --test-dir kernel/build-tests -R '^astia_aarch64_gic_test$' \
+  --output-on-failure
+
+# Focused boot-CPU IRQ router test (host)
+cmake --build kernel/build-tests --target astia_aarch64_irq_test
+ctest --test-dir kernel/build-tests -R '^astia_aarch64_irq_test$' \
   --output-on-failure
 
 # Focused scheduler policy test (host)
@@ -1027,15 +1055,17 @@ proof, the `DEADLINE OK` ordering between `TIMER TICK OK` and
 returns, the scheduler's context/sleep/start/retire/wake diagnostics, the
 exactly-once `sched: A woke ... wake-count=0x00000001` line with its wake
 time at or after the deadline, `sched: spurious-wakes=0x00000000`, the
-`SCHEDULER OK` marker, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the seeded
-`FAR_EL1`, and the clean exception halt. It runs QEMU with
+`SCHEDULER OK` marker, the router's 11-routed/11-handled/5-handoff evidence,
+the `IRQ ROUTING OK` marker, the BRK64 `ESR_EL1` syndrome, `ELR_EL1`, the
+seeded `FAR_EL1`, and the clean exception halt. It runs QEMU with
 `-machine virt,secure=off,virtualization=off,gic-version=3` so the DTB
 describes GICv3 rather than QEMU's default GICv2.
 
 Kernel CI (x86_64) (`.github/workflows/kernel-ci.yml`) runs the focused host parser
 test, the production AArch64 QEMU smoke, and the existing x86 build/test
 pipeline. The full host CTest suite includes the exception frame/vector layout
-test, the GICv3 policy test, and the scheduler policy test.
+test, the GICv3 policy test, the boot-CPU IRQ router test, and the scheduler
+policy test.
 
 ## Provenance
 
@@ -1063,10 +1093,10 @@ lift must be recorded here with the exact source and rework.
   a bounded five-tick re-arm of the 10 ms interval on PPI 30 in each window;
   its fixed-capacity eight-entry deadline table now drives the stage
   scheduler's sleep/wake, but it is still not a dynamically sized or general
-  timer queue, a timer wheel, or the generic scheduler tick service. The
-  local dispatch table is a fixed boot-CPU SGI/PPI foundation, not a generic
-  IRQ subsystem: no SPI dispatch, no dynamic registration, and no per-CPU
-  tables.
+  timer queue, a timer wheel, or the generic scheduler tick service. The IRQ
+  router is a fixed boot-CPU SGI/PPI table: no SPI dispatch and no per-CPU
+  instances. Unregistration is boot-only and refused during dispatch; it is
+  not a module lifetime facility.
 - The scheduler is the bounded stage scheduler, not `proc::scheduler`: four
   static contexts, two used, a 16 KiB stack each, no heap, no process/thread
   objects, no priority policy, and no migration. Switch points are the

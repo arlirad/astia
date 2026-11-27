@@ -398,6 +398,20 @@ grep -Fxq 'sched: a-wake=0x00000001 a-deadline-met=1 b-ran-while-a-slept=1' \
     die "scheduler sleep/wake proof line is missing or unexpected"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: SCHEDULER OK' "$log" ||
     die "scheduler verification did not complete"
+grep -Fxq \
+    'irq: routed=0x0000000b handled=0x0000000b spurious=0x00000000 fatal=0x00000000 handoffs=0x00000005' \
+    "$log" ||
+    die "generic IRQ routing evidence is missing or unexpected"
+grep -Fxq 'ASTIA AARCH64 VIRT BOOT: IRQ ROUTING OK' "$log" ||
+    die "generic IRQ routing verification did not complete"
+awk '
+    /ASTIA AARCH64 VIRT BOOT: SCHEDULER OK/ { sched_ok = NR }
+    /ASTIA AARCH64 VIRT BOOT: IRQ ROUTING OK/ { routing = NR }
+    /ASTIA AARCH64 VIRT BOOT: EXCEPTION SYNC/ { brk = NR }
+    END {
+        exit !(sched_ok && routing && brk && sched_ok < routing && routing < brk)
+    }
+' "$log" || die "generic IRQ routing markers are out of order"
 awk '
     /ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED/ { armed = NR }
     /sched: A start/ { a_start = NR }
