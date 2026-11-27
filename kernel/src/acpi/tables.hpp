@@ -86,6 +86,19 @@ namespace astia::acpi::detail {
         bool aml       = false;
     };
 
+    /// Address-space kind of the root SDT selected from the RSDP.
+    enum class address_space_kind : u8 {
+        none = 0,
+        rsdt = 1,
+        xsdt = 2,
+    };
+
+    /// Kind of a validated root table, derived from its signature.
+    constexpr address_space_kind address_space_kind_for(u32 root_signature) {
+        return root_signature == xsdt_signature ? address_space_kind::xsdt
+                                                : address_space_kind::rsdt;
+    }
+
     /// Owns validated copies of every discovered SDT. Records are kept in
     /// discovery order, so find(signature, occurrence) follows the same order
     /// as RSDT/XSDT enumeration and any FADT-referenced DSDT appended later.
@@ -112,8 +125,8 @@ namespace astia::acpi::detail {
         u64             rsdp_address    = 0;
         bool            valid_rsdp      = false;
 
-        u8  root_address_space = 0;
-        u32 root_signature     = 0;
+        address_space_kind root_address_space = address_space_kind::none;
+        u32                root_signature     = 0;
 
         /// First record with `signature` at `occurrence` in discovery order.
         bool find(u32 signature, usz occurrence, table& out) const;

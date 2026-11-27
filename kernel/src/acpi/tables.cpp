@@ -347,7 +347,7 @@ namespace astia::acpi::detail {
         error              = table_error::none;
         rsdp_address       = 0;
         valid_rsdp         = false;
-        root_address_space = 0;
+        root_address_space = address_space_kind::none;
         root_signature     = 0;
 
         for (table& entry : ssdt) {
@@ -463,7 +463,7 @@ namespace astia::acpi::detail {
             return fail(table_error::too_many_tables);
 
         out.root_signature     = root_signature;
-        out.root_address_space = rsdp.rsdt != 0 ? 1 : 2;
+        out.root_address_space = address_space_kind_for(root_signature);
 
         u64 table_addresses[max_tables]{};
 
