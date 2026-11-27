@@ -9,7 +9,6 @@
 
 static int cu_power_transition(const char* name, uint32_t operation) {
     long result = astia_power(operation);
-
     if (result < 0) {
         errno = (int) -result;
 
