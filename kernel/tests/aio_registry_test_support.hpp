@@ -37,11 +37,19 @@ namespace astia::io::aio::test_support {
         bool  follow_final = true;
     };
 
+    struct symlink_record {
+        char target[fs::path_max]{};
+        char path[fs::path_max]{};
+        bool called = false;
+    };
+
     void reset_environment();
     void install_current_process();
     void clear_current_process();
 
-    const chown_record& last_chown_path();
+    const chown_record&   last_chown_path();
+    const symlink_record& last_symlink();
+    void                  set_readlink_target(const char* target);
 
     i32  install_descriptor(const mm::shptr<fs::open_file>& file, u32 flags = 0);
     bool descriptor_present(i32 fd);

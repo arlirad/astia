@@ -6,17 +6,21 @@ namespace astia::io::aio::operations {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
-            char target[256], path[256];
+            char target[fs::path_max], path[fs::path_max];
 
-            if (!memory::copy_in_string(span<char>(target, sizeof target),
-                                        memory::user_ptr<char>(sqe.address)) ||
-                !memory::copy_in_string(span<char>(path, sizeof path),
-                                        memory::user_ptr<char>(sqe.offset)))
-                co_return -EFAULT;
+            long target_rc = copy_user_string(target, sizeof target,
+                                              memory::user_ptr<char>(sqe.address));
+            if (target_rc < 0)
+                co_return static_cast<i32>(target_rc);
+
+            long path_rc =
+                copy_user_string(path, sizeof path, memory::user_ptr<char>(sqe.offset));
+            if (path_rc < 0)
+                co_return static_cast<i32>(path_rc);
 
             auto* current = proc::current_process();
 
-            char resolved[256];
+            char resolved[fs::path_max];
 
             if (!current)
                 co_return -ESRCH;

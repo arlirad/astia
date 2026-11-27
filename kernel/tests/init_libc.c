@@ -5806,6 +5806,58 @@ int main(int argc, char** argv) {
             printf("astia: dlopen ok\n");
     }
 
+    /* 57: symlink targets round-trip up to PATH_MAX - 1 bytes through the
+       async symlink/readlink handlers, and a longer target is rejected
+       instead of being silently truncated. */
+    {
+        static const char link_path[]     = "/tmp/path-max-symlink";
+        static const char too_long_path[] = "/tmp/path-max-too-long";
+
+        char target[PATH_MAX];
+        char readback[PATH_MAX];
+        char truncated[64];
+        char too_long[PATH_MAX + 1];
+
+        for (size_t i = 0; i + 1 < sizeof target; ++i) {
+            target[i] = (char) ('a' + (int) (i % 26));
+        }
+
+        target[sizeof target - 1] = '\0';
+
+        (void) unlink(link_path);
+
+        if (symlink(target, link_path) != 0)
+            return 268;
+
+        long length = readlink(link_path, readback, sizeof readback);
+
+        if (length != (long) sizeof target - 1 ||
+            memcmp(readback, target, sizeof target - 1) != 0)
+            return 269;
+
+        memset(truncated, 0x5A, sizeof truncated);
+
+        length = readlink(link_path, truncated, sizeof truncated);
+
+        if (length != (long) sizeof truncated ||
+            memcmp(truncated, target, sizeof truncated) != 0)
+            return 270;
+
+        for (size_t i = 0; i + 1 < sizeof too_long; ++i) {
+            too_long[i] = 'b';
+        }
+
+        too_long[sizeof too_long - 1] = '\0';
+
+        errno = 0;
+
+        if (symlink(too_long, too_long_path) != -1 || errno != ENAMETOOLONG)
+            return 271;
+
+        if (unlink(link_path) != 0)
+            return 272;
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */

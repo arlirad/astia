@@ -44,6 +44,9 @@ namespace astia::io::aio::test_support {
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
+        symlink_record       last_symlink_record;
+        char                 readlink_target[fs::path_max]{};
+        usz                  readlink_target_length = 0;
         constexpr usz        node_override_capacity = 8;
         constexpr usz        node_override_path_max = 512;
 
@@ -77,6 +80,18 @@ namespace astia::io::aio::test_support {
             usz length = 0;
 
             while (length + 1 < node_override_path_max && source[length] != '\0') {
+                destination[length] = source[length];
+
+                ++length;
+            }
+
+            destination[length] = '\0';
+        }
+
+        void copy_text(char* destination, usz capacity, const char* source) {
+            usz length = 0;
+
+            while (length + 1 < capacity && source[length] != '\0') {
                 destination[length] = source[length];
 
                 ++length;
@@ -254,15 +269,18 @@ namespace astia::io::aio::test_support {
             entry = {};
         }
 
-        touch_value       = {};
-        touch_value_valid = false;
-        open_file_value   = {};
-        pipe_read_value   = {};
-        pipe_write_value  = {};
-        socket_value      = {};
-        socketpair_first  = {};
-        socketpair_second = {};
-        node_mode         = file_mode(file_type::regular, fs::default_file_permissions);
+        touch_value            = {};
+        touch_value_valid      = false;
+        last_symlink_record    = {};
+        readlink_target[0]     = '\0';
+        readlink_target_length = 0;
+        open_file_value        = {};
+        pipe_read_value        = {};
+        pipe_write_value       = {};
+        socket_value           = {};
+        socketpair_first       = {};
+        socketpair_second      = {};
+        node_mode = file_mode(file_type::regular, fs::default_file_permissions);
 
         set_node_mode("/tmp",
                       file_mode(file_type::directory, fs::file_permissions(0755)));
@@ -279,6 +297,24 @@ namespace astia::io::aio::test_support {
 
     const chown_record& last_chown_path() {
         return detail::last_chown_path_record;
+    }
+
+    const symlink_record& last_symlink() {
+        return detail::last_symlink_record;
+    }
+
+    void set_readlink_target(const char* target) {
+        detail::readlink_target[0]     = '\0';
+        detail::readlink_target_length = 0;
+
+        if (target == nullptr)
+            return;
+
+        detail::copy_text(detail::readlink_target, fs::path_max, target);
+
+        while (detail::readlink_target[detail::readlink_target_length] != '\0') {
+            ++detail::readlink_target_length;
+        }
     }
 
     void install_current_process() {
@@ -1179,12 +1215,36 @@ namespace astia::fs {
         return 0;
     }
 
-    long make_symlink(const char*, const char*) {
+    long make_symlink(const char* target, const char* path) {
+        auto& record = ::astia::io::aio::test_support::detail::last_symlink_record;
+
+        record = {};
+
+        if (target != nullptr)
+            ::astia::io::aio::test_support::detail::copy_text(record.target, fs::path_max,
+                                                              target);
+
+        if (path != nullptr)
+            ::astia::io::aio::test_support::detail::copy_text(record.path, fs::path_max,
+                                                              path);
+
+        record.called = true;
+
         return 0;
     }
 
-    long read_symlink(const char*, char*, u32) {
-        return 0;
+    long read_symlink(const char*, char* buffer, u32 capacity) {
+        if (buffer == nullptr || capacity == 0)
+            return -EINVAL;
+
+        usz length = ::astia::io::aio::test_support::detail::readlink_target_length;
+        if (length > capacity)
+            length = capacity;
+
+        __builtin_memcpy(buffer, ::astia::io::aio::test_support::detail::readlink_target,
+                         length);
+
+        return static_cast<long>(length);
     }
 
     long read_directory(const char*, u64, char* name, u32 capacity, file_type* type,

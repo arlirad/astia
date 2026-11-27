@@ -147,6 +147,23 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_readlinkat(char* path, char* buffer, u32 capacity) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_READLINKAT);
+
+        sqe.address = reinterpret_cast<u64>(path);
+        sqe.offset  = reinterpret_cast<u64>(buffer);
+        sqe.length  = capacity;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_utimensat(char* path) {
         using namespace aio::test_support;
 
@@ -823,6 +840,98 @@ ASTIA_TEST(aio_filesystem_symlinkat_root_bypasses_writable_parent) {
     char path[]   = "/root/link";
 
     ASTIA_CHECK(submit_symlinkat(target, path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_symlinkat_copies_long_target) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/tmp", 0777, uid_t{0}, gid_t{0});
+
+    char target[300];
+    char path[] = "/tmp/long-target";
+
+    for (usz i = 0; i + 1 < sizeof target; ++i) {
+        target[i] = static_cast<char>('a' + i % 26);
+    }
+
+    target[sizeof target - 1] = '\0';
+
+    ASTIA_CHECK(submit_symlinkat(target, path) == 0);
+
+    const symlink_record& record = last_symlink();
+
+    ASTIA_CHECK(record.called);
+    ASTIA_CHECK(__builtin_strcmp(record.target, target) == 0);
+    ASTIA_CHECK(__builtin_strcmp(record.path, path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_symlinkat_rejects_overlong_target) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/tmp", 0777, uid_t{0}, gid_t{0});
+
+    char target[fs::path_max + 1];
+    char path[] = "/tmp/long-target";
+
+    for (usz i = 0; i + 1 < sizeof target; ++i) {
+        target[i] = 'x';
+    }
+
+    target[sizeof target - 1] = '\0';
+
+    ASTIA_CHECK(submit_symlinkat(target, path) == -ENAMETOOLONG);
+    ASTIA_CHECK(!last_symlink().called);
+}
+
+ASTIA_TEST(aio_filesystem_readlinkat_returns_long_target) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    char target[300];
+    char path[] = "/tmp/long-target";
+
+    for (usz i = 0; i + 1 < sizeof target; ++i) {
+        target[i] = static_cast<char>('a' + i % 26);
+    }
+
+    target[sizeof target - 1] = '\0';
+
+    set_readlink_target(target);
+
+    char buffer[fs::path_max];
+
+    ASTIA_CHECK(submit_readlinkat(path, buffer, sizeof buffer) == 299);
+    ASTIA_CHECK(__builtin_memcmp(buffer, target, 299) == 0);
+
+    __builtin_memset(buffer, 0x5A, sizeof buffer);
+
+    ASTIA_CHECK(submit_readlinkat(path, buffer, 64) == 64);
+    ASTIA_CHECK(__builtin_memcmp(buffer, target, 64) == 0);
+    ASTIA_CHECK(buffer[64] == 0x5A);
+}
+
+ASTIA_TEST(aio_filesystem_readlinkat_rejects_overlong_path) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    char path[fs::path_max + 1];
+    char buffer[8];
+
+    for (usz i = 0; i + 1 < sizeof path; ++i) {
+        path[i] = 'x';
+    }
+
+    path[sizeof path - 1] = '\0';
+
+    ASTIA_CHECK(submit_readlinkat(path, buffer, sizeof buffer) == -ENAMETOOLONG);
 }
 
 ASTIA_TEST(aio_filesystem_utimensat_requires_owner_or_write) {

@@ -18,4 +18,17 @@ namespace astia::io::aio::operations {
     using ::astia::io::aio::dispatch::parent_writable;
     using ::astia::io::aio::dispatch::resolve_at;
     using ::astia::io::aio::dispatch::resolve_path_for;
+
+    /// Copy a caller string into fixed kernel storage.  A missing terminator
+    /// is only ENAMETOOLONG when the bounded source range is actually mapped;
+    /// otherwise the failure is a bad pointer.
+    inline long copy_user_string(char* destination, usz capacity,
+                                 memory::user_ptr<char> source) {
+        const span<char> buffer(destination, capacity);
+
+        if (memory::copy_in_string(buffer, source))
+            return 0;
+
+        return source.validate(capacity) ? -ENAMETOOLONG : -EFAULT;
+    }
 } // namespace astia::io::aio::operations
