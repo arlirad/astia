@@ -34,6 +34,8 @@ namespace astia {
         enfile,     ///< Kernel-wide finite resource table is full.
         ecanceled,  ///< Operation was cancelled before it completed.
         epipe,      ///< Write to a pipe or socket with no reader.
+        enodev,     ///< No such device.
+        enotconn,   ///< Transport endpoint is not connected.
     };
 
     /// Convert to the negative errno form used by the VFS and syscall seam.
@@ -91,6 +93,10 @@ namespace astia {
             return -ECANCELED;
         case error_t::epipe:
             return -EPIPE;
+        case error_t::enodev:
+            return -ENODEV;
+        case error_t::enotconn:
+            return -ENOTCONN;
         }
 
         return -EIO;
@@ -151,6 +157,10 @@ namespace astia {
             return "operation cancelled";
         case error_t::epipe:
             return "broken pipe";
+        case error_t::enodev:
+            return "no such device";
+        case error_t::enotconn:
+            return "not connected";
         }
 
         return "unknown error";

@@ -7,6 +7,8 @@
 #include <astia/optional.hpp>
 #include <astia/resource_limits.hpp>
 
+#include <type_traits>
+
 #include <coroutine>
 #include <new>
 
@@ -186,7 +188,9 @@ namespace astia::core {
                 value = static_cast<T&&>(value_);
             }
 
-            void return_value(error_t error) noexcept {
+            void return_value(error_t error) noexcept
+                requires(!std::is_same_v<T, error_t>)
+            {
                 result = error;
             }
 
