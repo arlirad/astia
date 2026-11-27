@@ -633,6 +633,62 @@ ASTIA_TEST(acpi_rsdp_v2_and_xsdt_validate) {
     ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::xsdt_signature);
 }
 
+ASTIA_TEST(acpi_rsdp_v2_both_roots_selects_xsdt) {
+    table_image target;
+
+    build_standard_tables(target, true, true, name_s5_package, sizeof(name_s5_package));
+
+    const u64 fadt_address = image_base + fadt_offset;
+    const u64 rsdt_address = image_base + 0x300;
+
+    u8 rsdt_body[4]{};
+
+    store_u32(rsdt_body, static_cast<u32>(fadt_address));
+
+    add_table(target.data, 0x300, "RSDT", 1, rsdt_body, sizeof(rsdt_body));
+
+    write_rsdp(target.data.bytes + rsdp_offset, rsdt_address, image_base + root_offset,
+               true);
+
+    raw_reader context = context_for(target.data);
+
+    ASTIA_CHECK(astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
+    ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::xsdt_signature);
+    ASTIA_CHECK(target.tables.root_address_space ==
+                astia::acpi::detail::address_space_kind::xsdt);
+}
+
+ASTIA_TEST(acpi_rsdp_v2_xsdt_only_selects_xsdt) {
+    table_image target;
+
+    build_standard_tables(target, true, true, name_s5_package, sizeof(name_s5_package));
+
+    write_rsdp(target.data.bytes + rsdp_offset, 0, image_base + root_offset, true);
+
+    raw_reader context = context_for(target.data);
+
+    ASTIA_CHECK(astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
+    ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::xsdt_signature);
+    ASTIA_CHECK(target.tables.root_address_space ==
+                astia::acpi::detail::address_space_kind::xsdt);
+}
+
+ASTIA_TEST(acpi_rsdp_v1_rsdt_only_selects_rsdt) {
+    table_image target;
+
+    build_standard_tables(target, false, true, name_s5_package, sizeof(name_s5_package));
+
+    raw_reader context = context_for(target.data);
+
+    ASTIA_CHECK(astia::acpi::detail::discover(
+        reader_for(context), image_base + rsdp_offset, host_allocator, target.tables));
+    ASTIA_CHECK(target.tables.root_signature == astia::acpi::detail::rsdt_signature);
+    ASTIA_CHECK(target.tables.root_address_space ==
+                astia::acpi::detail::address_space_kind::rsdt);
+}
+
 ASTIA_TEST(acpi_rsdp_bad_checksum_rejects) {
     table_image target;
 
