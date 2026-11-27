@@ -14,6 +14,7 @@
 
 #include <astia/api/aio.h>
 
+#include <io/aio/dispatch.hpp>
 #include <io/aio/registry.hpp>
 #include <io/aio/ring.hpp>
 
@@ -1476,4 +1477,36 @@ ASTIA_TEST(aio_filesystem_errors_stay_on_production_path) {
 
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, openat));
     ASTIA_CHECK(capture.result(1) == -EFAULT);
+}
+
+ASTIA_TEST(aio_parent_permission_handles_long_paths) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    char parent[400]{};
+
+    parent[0] = '/';
+
+    for (u32 i = 1; i < 301; ++i) {
+        parent[i] = 'a';
+    }
+
+    set_directory(parent, 0755, uid_t{0}, gid_t{0});
+
+    char path[420]{};
+
+    for (u32 i = 0; i < 301; ++i) {
+        path[i] = parent[i];
+    }
+
+    const char suffix[] = "/child";
+
+    for (u32 i = 0; i < sizeof(suffix); ++i) {
+        path[301 + i] = suffix[i];
+    }
+
+    ASTIA_CHECK(aio::dispatch::parent_writable(astia::proc::current_process(), path));
+    ASTIA_CHECK(aio::dispatch::parent_searchable(astia::proc::current_process(), path));
 }

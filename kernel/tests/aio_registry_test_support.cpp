@@ -45,7 +45,7 @@ namespace astia::io::aio::test_support {
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
         constexpr usize      node_override_capacity = 8;
-        constexpr usize      node_override_path_max = 128;
+        constexpr usize      node_override_path_max = 512;
 
         struct node_override_entry {
             char      path[node_override_path_max]{};
