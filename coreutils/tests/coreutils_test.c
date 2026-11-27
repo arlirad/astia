@@ -1015,7 +1015,7 @@ static int long_line_checks(void) {
     static char cut_line[LONG_LINE_PADDING + 64];
     static char sort_first[LONG_LINE_PADDING + 16];
     static char sort_second[LONG_LINE_PADDING + 16];
-    static char head_line[LONG_LINE_PADDING + 1];
+    static char head_line[LONG_LINE_PADDING + 2];
     static char head_fixture[LONG_LINE_PADDING + 8];
 
     static char sort_expected[2 * (LONG_LINE_PADDING + 16) + 1];
