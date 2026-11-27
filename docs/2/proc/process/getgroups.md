@@ -16,7 +16,7 @@ Returns the group count, or a negative errno.
 
 ## ERRORS
 
-- `-EINVAL`: Count is negative or greater than 16.
+- `-EINVAL`: Count is negative or greater than 16, or a nonzero Count is smaller than the number of supplementary groups.
 - `-EFAULT`: Groups is not writable for the returned IDs.
 - `-ESRCH`: There is no current process.
 
