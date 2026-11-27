@@ -21,6 +21,8 @@
  * a handle searches the root and then the stored dependency-first group;
  * dlsym with RTLD_DEFAULT searches used, non-prelinked global modules in load
  * order.  RTLD_NODELETE keeps a group mapped after its last handle closes.
+ * Modes outside the supported set, and RTLD_LAZY|RTLD_NOW together, are
+ * rejected with a dlerror() message.
  *
  * The handle group is post-order (dependencies before dependents, root last);
  * initialization walks it forward and finalization walks it backward.
@@ -64,6 +66,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 
+#include "mode.h"
 #include "reloc.h"
 #include "symcount.h"
 
@@ -1903,6 +1906,12 @@ void* dlopen(const char* file, int mode) {
 
     if (file == 0) {
         set_error("dlopen: null path");
+
+        return 0;
+    }
+
+    if (ld_mode_valid(mode) != 0) {
+        set_error("dlopen: invalid mode");
 
         return 0;
     }

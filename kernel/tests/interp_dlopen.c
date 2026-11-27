@@ -138,6 +138,24 @@ __attribute__((force_align_arg_pointer, noreturn)) void _start(void) {
     if (dlerror() == NULL)
         astia_exit(69);
 
+    if (dlopen("/lib/libdlfixture.so", RTLD_NOLOAD) != NULL)
+        astia_exit(78);
+
+    if (dlerror() == NULL)
+        astia_exit(78);
+
+    if (dlopen("/lib/libdlfixture.so", RTLD_LAZY | RTLD_NOW) != NULL)
+        astia_exit(79);
+
+    if (dlerror() == NULL)
+        astia_exit(79);
+
+    if (dlopen("/lib/libdlfixture.so", 0x40000000) != NULL)
+        astia_exit(80);
+
+    if (dlerror() == NULL)
+        astia_exit(80);
+
     struct iterate_probe probe = {0};
 
     if (dl_iterate_phdr(visit, &probe) != 0 || probe.payload != 1 || probe.fixture != 1 ||
