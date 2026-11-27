@@ -170,6 +170,14 @@ int astia_dl_test_unmap_count(void) {
     return g_test_unmap_count;
 }
 
+const char* astia_dl_test_error(void) {
+    return g_error_set ? g_error : 0;
+}
+
 void astia_dl_test_set_threads(uint32_t count) {
     g_test_threads = count;
+}
+
+void astia_dl_test_set_unmap_result(int result) {
+    g_test_unmap_result = result;
 }

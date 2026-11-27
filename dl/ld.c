@@ -36,7 +36,9 @@
  * mapped, dropped from the global scope, marked pending, and marked
  * finalized; the handle stays reserved so a later dlclose of that handle
  * re-attempts only the unmap and releases the handle once every pending
- * module is gone.  Reopening a finalized retained module re-runs its
+ * module is gone.  Deferred unloads return 0; a failing astia_dlunmap keeps
+ * the same pending retry state but is reported through dlerror and -1.
+ * Reopening a finalized retained module re-runs its
  * initializers (and those of finalized retained dependencies)
  * dependency-first and clears finalized/pending.  A loader-busy guard
  * rejects re-entrant dlopen/dlclose/dlsym from an initializer, a finalizer,
@@ -2004,10 +2006,12 @@ fail:
     return 0;
 }
 
-static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address) {
+static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address,
+                               int* unmap_failed) {
     int remaining = 0;
 
-    entry->used = 0;
+    *unmap_failed = 0;
+    entry->used   = 0;
 
     for (int i = entry->ndeps - 1; i >= 0; --i) {
         const int index = entry->deps[i];
@@ -2031,6 +2035,9 @@ static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address
             module->in_global = 0;
             module->pending   = 1;
             remaining         = 1;
+            *unmap_failed     = 1;
+
+            set_error_path("dlclose: cannot unmap ", module->name);
 
             continue;
         }
@@ -2077,9 +2084,11 @@ int dlclose(void* handle) {
     const uintptr_t return_address = (uintptr_t) __builtin_return_address(0);
 
     if (entry->pending) {
+        int unmap_failed = 0;
+
         g_loader_busy = 1;
 
-        const int remaining = retry_pending_group(entry, return_address);
+        const int remaining = retry_pending_group(entry, return_address, &unmap_failed);
 
         g_loader_busy = 0;
 
@@ -2087,6 +2096,9 @@ int dlclose(void* handle) {
             entry->used = 1;
         else
             handle_release(handle_index);
+
+        if (unmap_failed)
+            return -1;
 
         return 0;
     }
@@ -2105,7 +2117,8 @@ int dlclose(void* handle) {
     entry->used   = 0;
     g_loader_busy = 1;
 
-    int deferred = 0;
+    int deferred     = 0;
+    int unmap_failed = 0;
 
     for (int i = 0; i < count; ++i) {
         ld_module* module = &g_modules[group[i]];
@@ -2189,7 +2202,9 @@ int dlclose(void* handle) {
         if (astia_dlunmap(module->base) < 0) {
             module->in_global = 0;
             module->pending   = 1;
-            deferred          = 1;
+            unmap_failed      = 1;
+
+            set_error_path("dlclose: cannot unmap ", module->name);
 
             continue;
         }
@@ -2202,13 +2217,16 @@ int dlclose(void* handle) {
 
     g_loader_busy = 0;
 
-    if (deferred) {
+    if (deferred || unmap_failed) {
         entry->used    = 1;
         entry->pending = 1;
     }
     else {
         handle_release(handle_index);
     }
+
+    if (unmap_failed)
+        return -1;
 
     return 0;
 }

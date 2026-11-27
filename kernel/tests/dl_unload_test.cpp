@@ -1,6 +1,8 @@
 #include "dl_unload_host.h"
 #include "support/test.hpp"
 
+#include <cstring>
+
 namespace {
     constexpr uint64_t module_base = 0x700000000000ULL;
     constexpr uint64_t module_span = 0x1000;
@@ -107,4 +109,70 @@ ASTIA_TEST(dl_immediate_close_releases_handle) {
     ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
 
     ASTIA_CHECK(astia_dl_test_close(handle) == -1);
+}
+
+ASTIA_TEST(dl_unmap_failure_reports_error_and_keeps_retry_token) {
+    astia_dl_test_reset();
+    astia_dl_test_set_unmap_result(-1);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 1, 0);
+    const int deps[] = {module};
+
+    void* handle = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == -1);
+    ASTIA_CHECK(astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+
+    const char* error = astia_dl_test_error();
+
+    ASTIA_CHECK(error != nullptr);
+    ASTIA_CHECK(error != nullptr && std::strstr(error, "unmap") != nullptr);
+
+    astia_dl_test_set_unmap_result(0);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(!astia_dl_test_module_used(module));
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 2);
+}
+
+ASTIA_TEST(dl_deferred_retry_reports_unmap_failure) {
+    astia_dl_test_reset();
+    astia_dl_test_set_threads(2);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 1, 0);
+    const int deps[] = {module};
+
+    void* handle = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_error() == nullptr);
+
+    astia_dl_test_set_threads(1);
+    astia_dl_test_set_unmap_result(-1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == -1);
+    ASTIA_CHECK(astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+
+    const char* error = astia_dl_test_error();
+
+    ASTIA_CHECK(error != nullptr);
+    ASTIA_CHECK(error != nullptr && std::strstr(error, "unmap") != nullptr);
+
+    astia_dl_test_set_unmap_result(0);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(!astia_dl_test_module_used(module));
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 2);
 }
