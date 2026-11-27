@@ -1,9 +1,11 @@
+#include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <wchar.h>
 
 static int fails;
 
@@ -236,6 +238,60 @@ static void test_pointers(void) {
     CHECK_FMT("0x0", 3, "%p", (void*) 0);
 }
 
+static void test_wide_chars_and_strings(void) {
+    char buf[256];
+    int  r;
+
+    CHECK_FMT("A", 1, "%lc", (wint_t) L'A');
+    CHECK_FMT("   A", 4, "%4lc", (wint_t) L'A');
+    CHECK_FMT("A   ", 4, "%-4lc", (wint_t) L'A');
+    CHECK_FMT("xAy", 3, "x%lcy", (wint_t) L'A');
+
+    CHECK_FMT("abc", 3, "%ls", L"abc");
+    CHECK_FMT("  abc", 5, "%5ls", L"abc");
+    CHECK_FMT("abc  ", 5, "%-5ls", L"abc");
+    CHECK_FMT("xabcy", 5, "x%lsy", L"abc");
+    CHECK_FMT("ab", 2, "%.2ls", L"abcdef");
+    CHECK_FMT("", 0, "%.0ls", L"abcdef");
+    CHECK_FMT("abcdef", 6, "%.20ls", L"abcdef");
+    CHECK_FMT("   ab", 5, "%5.2ls", L"abcdef");
+    CHECK_FMT("ab   ", 5, "%-5.2ls", L"abcdef");
+    CHECK_FMT("   ", 3, "%3.0ls", L"abcdef");
+
+    {
+        const wchar_t* wide_nil = NULL;
+
+        CHECK_FMT("(null)", 6, "%ls", wide_nil);
+    }
+
+    {
+        char            small[4];
+        volatile size_t cap_4 = 4;
+
+        r = snprintf(small, cap_4, "%ls", L"abcdef");
+
+        CHECK(r == 6 && strcmp(small, "abc") == 0);
+    }
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%lc", (wint_t) 0xe9);
+
+    CHECK(r == -1 && errno == EILSEQ && buf[0] == '\0');
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%ls", L"caf\u00e9");
+
+    CHECK(r == -1 && errno == EILSEQ && buf[0] == '\0');
+
+    errno = 0;
+
+    r = snprintf(buf, sizeof buf, "%.0ls", L"\u00e9");
+
+    CHECK(r == 0 && errno == 0 && buf[0] == '\0');
+}
+
 static void test_percent_n(void) {
     char      text[32];
     int       n;
@@ -380,6 +436,7 @@ int main(void) {
     test_zero_precision();
     test_chars_and_strings();
     test_pointers();
+    test_wide_chars_and_strings();
     test_unsupported();
     test_float_precision();
     test_truncation();
