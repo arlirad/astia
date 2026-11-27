@@ -397,6 +397,7 @@ if(ASTIA_BUILD_TESTS)
             rtl8139_module
             ps2_keyboard_module
             ip_module
+            eth_module
             astia_ps2_keyboard_iso)
         if(TARGET ${_astia_qemu_target})
             add_dependencies(astia_qemu_test_artifacts ${_astia_qemu_target})
