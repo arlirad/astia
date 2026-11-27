@@ -53,7 +53,9 @@ namespace astia::mm {
         /// mapping (a read from the object): the frames are then marked so
         /// a CoW split cannot move the mapping out from under the
         /// operation.  False — referencing nothing — when the range escapes
-        /// the region or a counter would overflow.
+        /// the region, a counter would overflow, or this buffer already holds
+        /// a pin; in that last case the existing pin stays valid and
+        /// unchanged, so replace it with release() or move-assignment.
         bool acquire(phys_region* region, usz first, usz count, bool destination);
 
         /// Drop the references taken by acquire().  Safe and idempotent on

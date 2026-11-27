@@ -377,6 +377,77 @@ ASTIA_TEST(pinned_buffer_rejects_ranges_outside_the_region) {
     ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
 }
 
+ASTIA_TEST(pinned_buffer_rejects_second_acquire_without_disturbing_the_pin) {
+    const auto before = init_world();
+    auto*      held   = phys_region::create(4, true);
+    auto*      other  = phys_region::create(2, true);
+
+    ASTIA_CHECK(held != nullptr);
+    ASTIA_CHECK(other != nullptr);
+
+    if (held == nullptr || other == nullptr)
+        return;
+
+    astia::mm::pinned_buffer pin;
+
+    ASTIA_CHECK(pin.acquire(held, 1, 2, true));
+    ASTIA_CHECK(held->references() == 2); // coverage + allocation reference
+
+    // A live pin cannot be overwritten: the second acquire must fail and
+    // leave the first region's references and destination marks intact.
+    ASTIA_CHECK(!pin.acquire(other, 0, 1, true));
+    ASTIA_CHECK(pin.valid());
+    ASTIA_CHECK(pin.pages() == 2);
+    ASTIA_CHECK(pin.direct(0) == held->page_direct(1));
+    ASTIA_CHECK(pin.phys(0) == held->base() + phys_region::frame_size);
+    ASTIA_CHECK(held->references() == 2);
+    ASTIA_CHECK(held->destination_pinned(1));
+    ASTIA_CHECK(held->destination_pinned(2));
+    ASTIA_CHECK(other->references() == 1);
+    ASTIA_CHECK(!other->destination_pinned(0));
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 6);
+
+    pin.release();
+    held->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before - 2);
+
+    other->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
+ASTIA_TEST(pinned_buffer_reacquires_after_release) {
+    const auto before = init_world();
+    auto*      first  = phys_region::create(2, true);
+    auto*      second = phys_region::create(2, true);
+
+    ASTIA_CHECK(first != nullptr);
+    ASTIA_CHECK(second != nullptr);
+
+    if (first == nullptr || second == nullptr)
+        return;
+
+    astia::mm::pinned_buffer pin;
+
+    ASTIA_CHECK(pin.acquire(first, 0, 1, false));
+    ASTIA_CHECK(!pin.acquire(second, 0, 1, false));
+    ASTIA_CHECK(pin.direct(0) == first->page_direct(0));
+
+    pin.release();
+    ASTIA_CHECK(!pin.valid());
+    ASTIA_CHECK(first->references() == 1);
+    ASTIA_CHECK(second->references() == 1);
+
+    ASTIA_CHECK(pin.acquire(second, 1, 1, true));
+    ASTIA_CHECK(pin.direct(0) == second->page_direct(1));
+    ASTIA_CHECK(second->references() == 2);
+    ASTIA_CHECK(second->destination_pinned(1));
+
+    pin.release();
+    first->release();
+    second->release();
+    ASTIA_CHECK(astia::mm::kernel_frames().available_frames() == before);
+}
+
 ASTIA_TEST(pinned_buffer_destination_marks_are_counted) {
     const auto before = init_world();
     auto*      region = phys_region::create(3, true);
