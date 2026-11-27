@@ -7,29 +7,12 @@
 
 typedef enum { follow_never, follow_command_line, follow_always } follow_mode;
 
-typedef struct ancestor {
-    const char*            path;
-    const struct ancestor* parent;
-} ancestor;
-
-static char* child_path(const char* parent, const char* name) {
-    size_t parent_len = __builtin_strlen(parent);
-    size_t name_len   = __builtin_strlen(name);
-    int    slash      = parent_len != 0 && parent[parent_len - 1] != '/';
-
-    char* result = malloc(parent_len + (size_t) slash + name_len + 1);
-    if (result == 0)
-        return 0;
-
-    __builtin_memcpy(result, parent, parent_len);
-
-    if (slash)
-        result[parent_len++] = '/';
-
-    __builtin_memcpy(result + parent_len, name, name_len + 1);
-
-    return result;
-}
+typedef struct {
+    DIR*   directory;
+    char*  path;
+    char*  resolved;
+    size_t depth;
+} find_frame;
 
 static int loop_error(const char* path) {
     cu_puts_fd(CU_STDERR, "find: filesystem loop detected: ");
@@ -39,25 +22,30 @@ static int loop_error(const char* path) {
     return 1;
 }
 
-static int is_ancestor(const ancestor* parent, const char* path) {
-    for (const ancestor* cursor = parent; cursor != 0; cursor = cursor->parent) {
-        if (__builtin_strcmp(cursor->path, path) == 0)
+static int is_ancestor(const cu_stack* frames, const char* resolved) {
+    const find_frame* items = (const find_frame*) frames->items;
+
+    for (size_t index = 0; index < frames->count; ++index) {
+        if (items[index].resolved != 0 &&
+            __builtin_strcmp(items[index].resolved, resolved) == 0)
             return 1;
     }
 
     return 0;
 }
 
-static int visit(const char* path, follow_mode follow, int depth,
-                 const ancestor* parent) {
-    struct stat    info;
-    DIR*           directory;
-    struct dirent* entry;
-    char*          resolved;
+static void close_find_frame(find_frame* frame) {
+    closedir(frame->directory);
+    free(frame->path);
+    free(frame->resolved);
+}
+
+static int enter_path(const char* path, follow_mode follow, size_t depth,
+                      cu_stack* frames) {
+    struct stat info;
 
     int follow_path =
         follow == follow_always || (follow == follow_command_line && depth == 0);
-    int status = 0;
 
     if ((follow_path ? stat(path, &info) : lstat(path, &info)) < 0 || cu_puts(path) < 0 ||
         cu_puts("\n") < 0)
@@ -66,60 +54,103 @@ static int visit(const char* path, follow_mode follow, int depth,
     if (!S_ISDIR(info.st_mode))
         return 0;
 
-    resolved = 0;
+    char* resolved = 0;
 
     if (follow == follow_always) {
         resolved = realpath(path, 0);
         if (resolved == 0)
             return cu_error("find", path);
 
-        if (is_ancestor(parent, resolved)) {
+        if (is_ancestor(frames, resolved)) {
             free(resolved);
 
             return loop_error(path);
         }
     }
 
-    ancestor current = {resolved, parent};
+    size_t length = __builtin_strlen(path);
 
-    directory = opendir(path);
+    char* owned = malloc(length + 1);
+    if (owned == 0) {
+        free(resolved);
+
+        return cu_error("find", "out of memory");
+    }
+
+    __builtin_memcpy(owned, path, length + 1);
+
+    DIR* directory = opendir(path);
     if (directory == 0) {
+        free(owned);
         free(resolved);
 
         return cu_error("find", path);
     }
 
-    for (;;) {
+    find_frame frame = {directory, owned, resolved, depth};
+
+    if (cu_stack_push(frames, &frame) < 0) {
+        closedir(directory);
+        free(owned);
+        free(resolved);
+
+        return cu_error("find", "out of memory");
+    }
+
+    return 0;
+}
+
+static int find_walk(const char* path, follow_mode follow) {
+    cu_stack frames;
+
+    cu_stack_init(&frames, sizeof(find_frame));
+
+    int status = enter_path(path, follow, 0, &frames);
+
+    while (frames.count != 0) {
+        find_frame* frame = (find_frame*) cu_stack_top(&frames);
+
         errno = 0;
-        entry = readdir(directory);
+
+        struct dirent* entry = readdir(frame->directory);
+
         if (entry == 0) {
             if (errno != 0)
-                status = cu_error("find", path);
+                status = cu_error("find", frame->path);
 
-            break;
+            close_find_frame(frame);
+            cu_stack_pop(&frames);
+
+            continue;
         }
-
-        char* child;
 
         if (__builtin_strcmp(entry->d_name, ".") == 0 ||
             __builtin_strcmp(entry->d_name, "..") == 0)
             continue;
 
-        child = child_path(path, entry->d_name);
+        char* child = cu_child_path(frame->path, entry->d_name);
         if (child == 0) {
             status = cu_error("find", "out of memory");
 
             break;
         }
 
-        if (visit(child, follow, depth + 1, &current) != 0)
+        size_t child_depth = frame->depth + 1;
+
+        if (enter_path(child, follow, child_depth, &frames) != 0)
             status = 1;
 
         free(child);
     }
 
-    closedir(directory);
-    free(resolved);
+    while (frames.count != 0) {
+        find_frame* frame = (find_frame*) cu_stack_top(&frames);
+
+        close_find_frame(frame);
+        cu_stack_pop(&frames);
+    }
+
+    cu_stack_destroy(&frames);
 
     return status;
 }
@@ -161,12 +192,12 @@ int main(int argc, char** argv) {
 
         ++operands;
 
-        if (visit(path, follow, 0, 0) != 0)
+        if (find_walk(path, follow) != 0)
             status = 1;
     }
 
     if (operands == 0)
-        status = visit(".", follow, 0, 0);
+        status = find_walk(".", follow);
 
     return operands == 0 && status == 0 ? 0 : status;
 }

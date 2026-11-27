@@ -8,24 +8,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char* child_path(const char* parent, const char* name) {
-    size_t parent_len = strlen(parent);
-    size_t name_len   = strlen(name);
-    int    slash      = parent_len != 0 && parent[parent_len - 1] != '/';
-
-    char* result = malloc(parent_len + (size_t) slash + name_len + 1);
-    if (result == 0)
-        return 0;
-
-    memcpy(result, parent, parent_len);
-
-    if (slash)
-        result[parent_len++] = '/';
-
-    memcpy(result + parent_len, name, name_len + 1);
-
-    return result;
-}
+typedef struct {
+    DIR*  directory;
+    char* source;
+    char* destination;
+} cp_frame;
 
 static const char* base_name(const char* path) {
     const char* end = path + strlen(path);
@@ -127,14 +114,17 @@ static int copy_fd(int input, int output, const char* name) {
     }
 }
 
-static int copy_one(const char* source, const char* destination, mode_t mode);
+static int copy_node(const char* source, const char* destination, mode_t mode,
+                     cu_stack* frames);
 
-static int copy_directory(const char* source, const char* destination, mode_t mode) {
-    DIR*           directory;
-    struct dirent* entry;
+static void close_cp_frame(cp_frame* frame) {
+    closedir(frame->directory);
+    free(frame->source);
+    free(frame->destination);
+}
 
-    int status = 0;
-
+static int copy_directory_node(const char* source, const char* destination, mode_t mode,
+                               cu_stack* frames) {
     if (destination_inside_source(source, destination))
         return cu_error("cp", "cannot copy a directory into itself");
 
@@ -146,52 +136,42 @@ static int copy_directory(const char* source, const char* destination, mode_t mo
             return cu_error("cp", destination);
     }
 
-    directory = opendir(source);
+    DIR* directory = opendir(source);
     if (directory == 0)
         return cu_error("cp", source);
 
-    for (;;) {
-        errno = 0;
-        entry = readdir(directory);
-        if (entry == 0) {
-            if (errno != 0)
-                status = cu_error("cp", source);
+    size_t source_length      = strlen(source);
+    size_t destination_length = strlen(destination);
 
-            break;
-        }
+    char* owned_source      = malloc(source_length + 1);
+    char* owned_destination = malloc(destination_length + 1);
 
-        char* from;
-        char* to;
+    if (owned_source == 0 || owned_destination == 0) {
+        closedir(directory);
+        free(owned_source);
+        free(owned_destination);
 
-        if (__builtin_strcmp(entry->d_name, ".") == 0 ||
-            __builtin_strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        from = child_path(source, entry->d_name);
-        to   = child_path(destination, entry->d_name);
-
-        if (from == 0 || to == 0) {
-            free(from);
-            free(to);
-
-            status = cu_error("cp", "out of memory");
-
-            break;
-        }
-
-        if (copy_one(from, to, 0777) != 0)
-            status = 1;
-
-        free(from);
-        free(to);
+        return cu_error("cp", "out of memory");
     }
 
-    closedir(directory);
+    memcpy(owned_source, source, source_length + 1);
+    memcpy(owned_destination, destination, destination_length + 1);
 
-    return status;
+    cp_frame frame = {directory, owned_source, owned_destination};
+
+    if (cu_stack_push(frames, &frame) < 0) {
+        closedir(directory);
+        free(owned_source);
+        free(owned_destination);
+
+        return cu_error("cp", "out of memory");
+    }
+
+    return 0;
 }
 
-static int copy_one(const char* source, const char* destination, mode_t mode) {
+static int copy_node(const char* source, const char* destination, mode_t mode,
+                     cu_stack* frames) {
     struct stat info;
 
     int input;
@@ -202,7 +182,7 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
         return cu_error("cp", source);
 
     if (S_ISDIR(info.st_mode))
-        return copy_directory(source, destination, info.st_mode);
+        return copy_directory_node(source, destination, info.st_mode, frames);
 
     input = open(source, O_RDONLY);
     if (input < 0)
@@ -226,6 +206,64 @@ static int copy_one(const char* source, const char* destination, mode_t mode) {
 
     if (cu_close(output, "cp", destination) != 0)
         status = 1;
+
+    return status;
+}
+
+static int copy_tree(const char* source, const char* destination, mode_t mode) {
+    cu_stack frames;
+
+    cu_stack_init(&frames, sizeof(cp_frame));
+
+    int status = copy_node(source, destination, mode, &frames);
+
+    while (frames.count != 0) {
+        cp_frame* frame = (cp_frame*) cu_stack_top(&frames);
+
+        errno = 0;
+
+        struct dirent* entry = readdir(frame->directory);
+
+        if (entry == 0) {
+            if (errno != 0)
+                status = cu_error("cp", frame->source);
+
+            close_cp_frame(frame);
+            cu_stack_pop(&frames);
+
+            continue;
+        }
+
+        if (__builtin_strcmp(entry->d_name, ".") == 0 ||
+            __builtin_strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char* from = cu_child_path(frame->source, entry->d_name);
+        char* to   = cu_child_path(frame->destination, entry->d_name);
+
+        if (from == 0 || to == 0) {
+            free(from);
+            free(to);
+
+            status = cu_error("cp", "out of memory");
+
+            break;
+        }
+
+        status |= copy_node(from, to, 0777, &frames);
+
+        free(from);
+        free(to);
+    }
+
+    while (frames.count != 0) {
+        cp_frame* frame = (cp_frame*) cu_stack_top(&frames);
+
+        close_cp_frame(frame);
+        cu_stack_pop(&frames);
+    }
+
+    cu_stack_destroy(&frames);
 
     return status;
 }
@@ -286,7 +324,7 @@ int main(int argc, char** argv) {
     struct stat destination_info;
 
     if (stat(destination, &destination_info) == 0 && S_ISDIR(destination_info.st_mode)) {
-        target = child_path(destination, base_name(source));
+        target = cu_child_path(destination, base_name(source));
         if (target == 0)
             return cu_error("cp", "out of memory");
 
@@ -336,7 +374,7 @@ int main(int argc, char** argv) {
         return status;
     }
 
-    int status = copy_one(source, target_path, 0666);
+    int status = copy_tree(source, target_path, 0666);
 
     free(target);
 

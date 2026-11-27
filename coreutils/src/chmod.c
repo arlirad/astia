@@ -217,26 +217,18 @@ static int parse_mode(const char* value, mode_t current, int directory, mode_t* 
     return parse_symbolic(value, current, directory, result);
 }
 
-static char* child_path(const char* parent, const char* name) {
-    size_t parent_length = strlen(parent);
-    size_t name_length   = strlen(name);
-    int    slash         = parent_length != 0 && parent[parent_length - 1] != '/';
+typedef struct {
+    DIR*  directory;
+    char* path;
+} chmod_frame;
 
-    char* result = malloc(parent_length + (size_t) slash + name_length + 1);
-    if (result == 0)
-        return 0;
-
-    memcpy(result, parent, parent_length);
-
-    if (slash)
-        result[parent_length++] = '/';
-
-    memcpy(result + parent_length, name, name_length + 1);
-
-    return result;
+static void close_chmod_frame(chmod_frame* frame) {
+    closedir(frame->directory);
+    free(frame->path);
 }
 
-static int change_one(const char* path, const char* mode_text, int recursive) {
+static int change_node(const char* path, const char* mode_text, int recursive,
+                       cu_stack* frames) {
     struct stat info;
 
     if (lstat(path, &info) < 0)
@@ -259,32 +251,68 @@ static int change_one(const char* path, const char* mode_text, int recursive) {
     if (directory == 0)
         return status | cu_error("chmod", strerror(errno));
 
-    for (;;) {
+    size_t length = strlen(path);
+
+    char* owned = malloc(length + 1);
+    if (owned == 0) {
+        closedir(directory);
+
+        return status | cu_error("chmod", "out of memory");
+    }
+
+    memcpy(owned, path, length + 1);
+
+    chmod_frame frame = {directory, owned};
+
+    if (cu_stack_push(frames, &frame) < 0) {
+        closedir(directory);
+        free(owned);
+
+        return status | cu_error("chmod", "out of memory");
+    }
+
+    return status;
+}
+
+static int change_tree(const char* path, const char* mode_text, int recursive) {
+    cu_stack frames;
+
+    cu_stack_init(&frames, sizeof(chmod_frame));
+
+    int status = change_node(path, mode_text, recursive, &frames);
+
+    while (frames.count != 0) {
+        chmod_frame* frame = (chmod_frame*) cu_stack_top(&frames);
+
         errno = 0;
 
-        struct dirent* entry = readdir(directory);
+        struct dirent* entry = readdir(frame->directory);
+
         if (entry == 0) {
             if (errno != 0)
                 status |= cu_error("chmod", strerror(errno));
 
-            break;
+            close_chmod_frame(frame);
+            cu_stack_pop(&frames);
+
+            continue;
         }
 
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
 
-        char* child = child_path(path, entry->d_name);
+        char* child = cu_child_path(frame->path, entry->d_name);
         if (child == 0) {
             status |= cu_error("chmod", "out of memory");
         }
         else {
-            status |= change_one(child, mode_text, 1);
+            status |= change_node(child, mode_text, recursive, &frames);
 
             free(child);
         }
     }
 
-    closedir(directory);
+    cu_stack_destroy(&frames);
 
     return status;
 }
@@ -328,7 +356,7 @@ int main(int argc, char** argv) {
 
         ++operands;
 
-        if (change_one(value, mode, recursive) != 0)
+        if (change_tree(value, mode, recursive) != 0)
             status = 1;
     }
 
