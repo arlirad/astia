@@ -70,6 +70,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 
+#include "aio_wait.h"
 #include "error.h"
 #include "mode.h"
 #include "reloc.h"
@@ -128,56 +129,59 @@ static int ld_streq(const char* left, const char* right) {
 static astia_rings* g_ring;
 static uint64_t     g_tag;
 
+static uint64_t ld_monotonic_ns(void) {
+    astia_timespec now;
+
+    if (astia_clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return 0;
+
+    return (uint64_t) now.tv_sec * 1000000000ull + (uint64_t) now.tv_nsec;
+}
+
+static const ld_aio_backend g_aio_backend = {
+    .sqe_slot   = astia_sqe_slot,
+    .sq_publish = astia_sq_publish,
+    .submit     = astia_io_submit,
+    .yield      = astia_yield,
+    .cq_peek    = astia_cq_peek,
+    .cq_consume = astia_cq_consume,
+    .now_ns     = ld_monotonic_ns,
+};
+
 static long aio_op(uint32_t op, int32_t fd, uint32_t flags, uint64_t offset,
                    uint64_t address, uint32_t length, uint32_t aux) {
     if (g_ring == NULL && astia_io_setup(64, 0, &g_ring) < 0)
         return -EIO;
 
-    const uint64_t tag  = ++g_tag;
-    astia_sqe*     slot = astia_sqe_slot(g_ring);
-    if (slot == NULL) {
-        (void) astia_io_submit(g_ring, 1);
+    astia_sqe sqe = {0};
 
-        slot = astia_sqe_slot(g_ring);
-    }
+    sqe.op        = op;
+    sqe.fd        = fd;
+    sqe.op_flags  = flags;
+    sqe.offset    = offset;
+    sqe.address   = address;
+    sqe.length    = length;
+    sqe.aux       = aux;
+    sqe.user_data = ++g_tag;
 
-    if (slot == NULL)
-        return -EBUSY;
+    const long rc = ld_aio_submit(&g_aio_backend, g_ring, &sqe);
 
-    *slot           = (astia_sqe){0};
-    slot->op        = op;
-    slot->fd        = fd;
-    slot->op_flags  = flags;
-    slot->offset    = offset;
-    slot->address   = address;
-    slot->length    = length;
-    slot->aux       = aux;
-    slot->user_data = tag;
-
-    astia_sq_publish(g_ring, 1);
-
-    long rc = astia_io_submit(g_ring, 1);
     if (rc < 0)
         return rc;
 
-    for (;;) {
-        astia_cqe* completion = astia_cq_peek(g_ring);
-        if (completion == NULL) {
-            (void) astia_io_submit(g_ring, 0);
-            (void) astia_yield();
-            continue;
-        }
+    int        timed_out = 0;
+    const long result    = ld_aio_wait(&g_aio_backend, g_ring, sqe.user_data,
+                                       &ld_aio_wait_bounds, &timed_out);
 
-        const long result  = completion->result;
-        const int  is_mine = completion->user_data == tag;
+    if (timed_out == 0)
+        return result;
 
-        astia_cq_consume(g_ring, 1);
+    /* The ring keeps the cancelled operation's -ECANCELED and the cancel
+       acknowledgement; the bounded drain keeps them out of the next call. */
+    (void) ld_aio_cancel(&g_aio_backend, g_ring, sqe.user_data, ++g_tag,
+                         &ld_aio_cancel_bounds);
 
-        if (is_mine)
-            return result;
-
-        /* v1 is strictly one operation in flight; drop anything else. */
-    }
+    return result;
 }
 
 static void ld_close(long fd) {
