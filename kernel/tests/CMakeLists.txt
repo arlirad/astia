@@ -172,6 +172,7 @@ astia_add_test_label(astia_dl_mode_test "dl;host;deterministic")
 astia_add_host_test(astia_dl_unload_test
         dl_unload_test.cpp
         dl_unload_host.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
         ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
 set(_dl_unload_includes
         "${ASTIA_KERNEL_SOURCE_DIR}/../dl"
