@@ -1,8 +1,10 @@
 #include <astia/acpi.hpp>
 #include <astia/log.hpp>
+#include <astia/mm/memory_map.hpp>
 #include <astia/shutdown.hpp>
 
 #include "acpi/aml.hpp"
+#include "acpi/limits.hpp"
 #include "acpi/power.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
@@ -325,6 +327,95 @@ namespace {
         write_rsdp(target.data.bytes + rsdp_offset, root_address, 0, false);
     }
 } // namespace
+
+ASTIA_TEST(acpi_checked_add_rejects_overflow) {
+    u64 result = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::checked_add(0, 0, result) && result == 0);
+    ASTIA_CHECK(astia::acpi::detail::checked_add(0x1000, 0x2000, result) &&
+                result == 0x3000);
+    ASTIA_CHECK(astia::acpi::detail::checked_add(~u64{0} - 1, 1, result) &&
+                result == ~u64{0});
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(~u64{0}, 1, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(1, ~u64{0}, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_add(~u64{0}, ~u64{0}, result));
+}
+
+ASTIA_TEST(acpi_checked_align_up_rejects_overflow) {
+    constexpr u64 two_m = 2ull << 20;
+
+    u64 result = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(0, two_m, result) && result == 0);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(1, two_m, result) &&
+                result == two_m);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(two_m, two_m, result) &&
+                result == two_m);
+    ASTIA_CHECK(astia::acpi::detail::checked_align_up(two_m + 1, two_m, result) &&
+                result == two_m * 2);
+    ASTIA_CHECK(
+        astia::acpi::detail::checked_align_up(~u64{0} - (two_m - 1), two_m, result) &&
+        result == ~u64{0} - (two_m - 1));
+    ASTIA_CHECK(
+        !astia::acpi::detail::checked_align_up(~u64{0} - (two_m - 2), two_m, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(~u64{0}, two_m, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(0, 0, result));
+    ASTIA_CHECK(!astia::acpi::detail::checked_align_up(0, 3, result));
+}
+
+ASTIA_TEST(acpi_usable_top_ignores_non_usable_regions) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(0x5000, 0x1000, astia::mm::memory_type::reserved);
+    map.add(0x2000, 0x1000, astia::mm::memory_type::usable);
+    map.add(~u64{0}, 1, astia::mm::memory_type::reserved);
+
+    u64 top = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::usable_top(map, top));
+    ASTIA_CHECK(top == 0x3000);
+}
+
+ASTIA_TEST(acpi_usable_top_rejects_overflowing_region) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+    map.add(~u64{0} - 0x10, 0x20, astia::mm::memory_type::usable);
+
+    u64 top = 0;
+
+    ASTIA_CHECK(!astia::acpi::detail::usable_top(map, top));
+}
+
+ASTIA_TEST(acpi_direct_map_limit_uses_aligned_usable_top) {
+    astia::mm::memory_map map;
+
+    map.add(0x1000, 0x1000, astia::mm::memory_type::usable);
+
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
+
+    map.add(0x2000, 0x1000, astia::mm::memory_type::usable);
+
+    ASTIA_CHECK(astia::acpi::detail::direct_map_limit(map, limit));
+    ASTIA_CHECK(limit == astia::acpi::detail::direct_map_alignment);
+}
+
+ASTIA_TEST(acpi_direct_map_limit_rejects_wrapping_top) {
+    astia::mm::memory_map map;
+
+    map.add(~u64{0} - 0xf, 0xf, astia::mm::memory_type::usable);
+
+    u64 top   = 0;
+    u64 limit = 0;
+
+    ASTIA_CHECK(astia::acpi::detail::usable_top(map, top));
+    ASTIA_CHECK(top == ~u64{0});
+    ASTIA_CHECK(!astia::acpi::detail::direct_map_limit(map, limit));
+}
 
 ASTIA_TEST(acpi_rsdp_v1_and_rsdt_validate) {
     table_image target;
