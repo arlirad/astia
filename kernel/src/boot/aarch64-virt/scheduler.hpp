@@ -8,7 +8,8 @@
 // boot CPU.  Two kernel contexts are enough for the first timer-to-scheduler
 // handoff, so every context and stack is a fixed array in .bss: the stage has
 // no heap and adding one is out of scope.  The deadline queue owns a sleep
-// request until it fires; the scheduler only records the wake.
+// request until it fires; the scheduler records the wake and registers its
+// IRQ-exit handoff with the generic boot-CPU router.
 namespace astia::boot::aarch64::virt::sched {
     using entry = void (*)(void*);
 

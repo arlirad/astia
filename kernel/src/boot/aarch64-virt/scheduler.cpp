@@ -4,6 +4,7 @@
 #include <astia/arch/timer.hpp>
 
 #include "context.hpp"
+#include "irq.hpp"
 #include "timer.hpp"
 
 namespace astia::boot::aarch64::virt::sched {
@@ -88,8 +89,15 @@ namespace astia::boot::aarch64::virt::sched {
         active       = false;
         summary      = evidence{};
 
-        if (!arch::register_timer_hook(timer_tick))
+        if (arch::aarch64::irq::set_handoff(reschedule_from_irq) !=
+            arch::aarch64::irq::handoff_error::none)
             return false;
+
+        if (!arch::register_timer_hook(timer_tick)) {
+            (void) arch::aarch64::irq::clear_handoff();
+
+            return false;
+        }
 
         initialized = true;
 

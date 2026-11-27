@@ -1,8 +1,9 @@
 // AArch64 architecture port for the boot-CPU scheduler stage.
 //
 // This file implements the context, CPU, interrupt-state, and timer-hook
-// contract the stage scheduler uses.  The stage still owns GIC/timer setup;
-// this port supplies the real switch and the state the scheduler polls.
+// contract the stage scheduler uses.  The stage owns GIC/timer setup and the
+// boot-CPU IRQ router; this port supplies the real switch and the state the
+// scheduler polls.
 #include "port.hpp"
 
 #include <astia/arch/cpu.hpp>
@@ -206,8 +207,9 @@ namespace astia::arch {
         return 0;
     }
 
-    // The stage owns GICv3 and PPI 30 setup; the generic IDT/IRQ graph is not
-    // part of this target yet.
+    // The stage owns GICv3, PPI 30, and the boot-CPU local IRQ router; the
+    // full generic interrupt graph (SPIs, vectors, module guards) is not part
+    // of this target yet.
     bool init_interrupts() {
         return false;
     }

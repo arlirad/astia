@@ -29,6 +29,7 @@ namespace {
 
     namespace policy = astia::arch::aarch64::page_map_policy;
     namespace gicv3  = astia::arch::aarch64::gicv3;
+    namespace irq    = astia::arch::aarch64::irq;
     namespace timer  = astia::arch::aarch64::timer;
 
     struct local_irq_state {
@@ -693,18 +694,18 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "gic: self-sgi=", gicv3::self_sgi_id, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: GIC READY");
 
-    local_irq_state                 local_irqs{};
-    const gicv3::registration_error self_sgi_registration =
-        gicv3::register_local_irq(gicv3::self_sgi_id, handle_self_sgi, &local_irqs);
-    const gicv3::registration_error timer_registration =
-        gicv3::register_local_irq(timer::ppi_id, handle_timer, &local_irqs);
+    local_irq_state        local_irqs{};
+    const irq::route_error self_sgi_registration =
+        irq::register_route(gicv3::self_sgi_id, handle_self_sgi, &local_irqs);
+    const irq::route_error timer_registration =
+        irq::register_route(timer::ppi_id, handle_timer, &local_irqs);
 
-    if (self_sgi_registration != gicv3::registration_error::none ||
-        timer_registration != gicv3::registration_error::none) {
+    if (self_sgi_registration != irq::route_error::none ||
+        timer_registration != irq::route_error::none) {
         console.write("gic: local-sgi-registration=");
-        console.write_line(gicv3::describe(self_sgi_registration));
+        console.write_line(irq::describe(self_sgi_registration));
         console.write("gic: local-timer-registration=");
-        console.write_line(gicv3::describe(timer_registration));
+        console.write_line(irq::describe(timer_registration));
         fail(console, "local IRQ registration failed");
     }
 
@@ -915,6 +916,21 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "scheduler sleep/wake proof failed");
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER OK");
+
+    const irq::evidence& routed = irq::stats();
+
+    write_field(console, "irq: routed=", routed.dispatches, 8);
+    write_field(console, " handled=", routed.handled, 8);
+    write_field(console, " spurious=", routed.spurious, 8);
+    write_field(console, " fatal=", routed.fatal, 8);
+    write_field(console, " handoffs=", routed.handoffs, 8);
+    console.write_line("");
+
+    if (routed.dispatches != 11 || routed.handled != 11 || routed.spurious != 0 ||
+        routed.fatal != 0 || routed.handoffs != 5)
+        fail(console, "generic IRQ routing proof failed");
+
+    console.write_line("ASTIA AARCH64 VIRT BOOT: IRQ ROUTING OK");
 
     constexpr astia::u64 brk_far_sentinel = 0x5a5a5a5a5a5a5a5aULL;
 

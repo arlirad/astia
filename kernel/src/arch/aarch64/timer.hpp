@@ -6,8 +6,9 @@
 // QEMU virt boot stage: PPI 30, Non-secure Group 1, priority 0xa0,
 // level-sensitive, positive TVAL intervals below INT32_MAX.  The boot proof
 // re-arms a bounded periodic tick and dispatches an eight-entry deadline queue
-// inside the registered handler before EOIR/DIR so the level source is
-// deasserted; no scheduler, unbounded timer queue, or generic abstraction
+// inside the registered PPI 30 route before EOIR/DIR so the level source is
+// deasserted.  notify_timer_tick() publishes the arch timer hook and is the
+// bounded scheduler tick source; no unbounded timer queue or timer wheel
 // exists.
 namespace astia::arch::aarch64::timer {
     inline constexpr u32 ppi_id               = 30;

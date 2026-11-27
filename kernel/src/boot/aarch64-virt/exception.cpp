@@ -4,10 +4,11 @@
 
 #include "board.hpp"
 #include "gic.hpp"
+#include "irq.hpp"
 #include "panic_format.hpp"
 #include "pl011.hpp"
 #include "psci.hpp"
-#include "scheduler.hpp"
+#include "timer.hpp"
 
 extern "C" char __vector_table[];
 
@@ -93,7 +94,7 @@ namespace {
 
     void finish_irq() {
         astia::arch::cpu::interrupt_exit();
-        astia::boot::aarch64::virt::sched::reschedule_from_irq();
+        (void) astia::arch::aarch64::irq::run_handoff();
     }
 } // namespace
 
@@ -111,18 +112,20 @@ extern "C" void astia_aarch64_seed_far_el1(astia::u64 value) {
 
 extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
     namespace gicv3 = astia::arch::aarch64::gicv3;
+    namespace irq   = astia::arch::aarch64::irq;
+    namespace timer = astia::arch::aarch64::timer;
 
     astia::arch::cpu::interrupt_enter();
 
-    const gicv3::irq_result result = gicv3::acknowledge_and_complete();
-    const pl011_uart        console{astia::plat::aarch64_virt::pl011_base};
+    const irq::dispatch_result result = gicv3::acknowledge_and_complete();
+    const pl011_uart           console{astia::plat::aarch64_virt::pl011_base};
 
-    if (result.action == gicv3::irq_action::handled) {
+    if (result.action == irq::dispatch_action::handled) {
         write_line_field(console, "irq: iar=", result.iar, 8);
         write_line_field(console, "irq: eoi=", result.intid, 8);
         write_line_field(console, "irq: dir=", result.intid, 8);
 
-        if (result.timer) {
+        if (result.intid == timer::ppi_id) {
             write_line_field(console, "irq: timer=", result.intid, 8);
             console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER HANDLED");
             finish_irq();
@@ -136,7 +139,7 @@ extern "C" void astia_aarch64_irq_entry(const exception_frame* frame) {
         return;
     }
 
-    if (result.action == gicv3::irq_action::spurious) {
+    if (result.action == irq::dispatch_action::spurious) {
         console.write_line("irq: spurious");
         finish_irq();
 
