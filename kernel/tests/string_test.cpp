@@ -3,6 +3,7 @@
 #include <astia/strings.hpp>
 
 #include "arena.hpp"
+#include "heap_exhaustion.hpp"
 #include "test.hpp"
 
 namespace {
@@ -189,4 +190,67 @@ ASTIA_TEST(string_clear_keeps_the_value_usable) {
 
     ASTIA_CHECK(value.value.assign({"again", 5}));
     ASTIA_CHECK(value.value.view().equals({"again", 5}));
+}
+
+ASTIA_TEST(string_try_from_reports_oom) {
+    init_heap();
+
+    astia_test::heap_exhaustion exhaustion;
+
+    ASTIA_CHECK(exhaustion.acquire());
+
+    auto value = astia::strings::string::try_from("oom");
+
+    ASTIA_CHECK(!value);
+    ASTIA_CHECK(value.error == error_t::enomem);
+}
+
+ASTIA_TEST(string_failed_mutation_preserves_contents) {
+    init_heap();
+
+    auto value = astia::strings::string::try_from("keep");
+
+    ASTIA_CHECK(value);
+
+    {
+        astia_test::heap_exhaustion exhaustion;
+
+        ASTIA_CHECK(exhaustion.acquire());
+        ASTIA_CHECK(!value.value.assign({"longer", 6}));
+        ASTIA_CHECK(value.value.view().equals({"keep", 4}));
+        ASTIA_CHECK(!value.value.append({"tail", 4}));
+        ASTIA_CHECK(value.value.view().equals({"keep", 4}));
+    }
+
+    ASTIA_CHECK(value.value.append({"!", 1}));
+    ASTIA_CHECK(value.value.view().equals({"keep!", 5}));
+}
+
+ASTIA_TEST(string_clear_keeps_capacity_without_heap) {
+    init_heap();
+
+    auto value = astia::strings::string::try_from("reusable");
+
+    ASTIA_CHECK(value);
+    value.value.clear();
+
+    {
+        astia_test::heap_exhaustion exhaustion;
+
+        ASTIA_CHECK(exhaustion.acquire());
+        ASTIA_CHECK(value.value.assign({"ok", 2}));
+    }
+
+    ASTIA_CHECK(value.value.view().equals({"ok", 2}));
+}
+
+ASTIA_TEST(string_append_self_survives_growth) {
+    init_heap();
+
+    auto value = astia::strings::string::try_from("ab");
+
+    ASTIA_CHECK(value);
+    ASTIA_CHECK(value.value.append(value.value.view()));
+    ASTIA_CHECK(value.value.view().equals({"abab", 4}));
+    ASTIA_CHECK(value.value.c_str()[4] == '\0');
 }
