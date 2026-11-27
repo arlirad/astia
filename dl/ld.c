@@ -5,7 +5,9 @@
  * interpreter.  The linker's job is the part the kernel refuses to do:
  * resolve DT_NEEDED through dlmap, look symbols up in the loaded images,
  * and apply the payload's GLOB_DAT/JUMP_SLOT/64 relocations before jumping
- * to AT_ENTRY.
+ * to AT_ENTRY.  GNU IFUNC symbols resolve in two phases: relocation queues
+ * the resolver, then, once every image is relocated and before any
+ * DT_INIT, the resolvers run and their results land in the slots.
  *
  * v1: eager binding, no lazy PLT, no symbol versioning, SysV hash only,
  * direct dependencies only.  Everything here is single-threaded startup.
@@ -313,32 +315,12 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     return 0;
 }
 
-static uint64_t lookup_symbol(const ld_module* modules, int count, const char* name) {
-    for (int module = 0; module < count; ++module) {
-        const ld_module* image = &modules[module];
-
-        for (uint32_t index = 1; index < image->symbol_count; ++index) {
-            const Elf64_Sym* symbol = &image->symtab[index];
-
-            if (symbol->st_shndx == 0)
-                continue; /* undefined */
-
-            if ((symbol->st_info >> 4) == 0)
-                continue; /* STB_LOCAL */
-
-            if (ld_streq(image->strtab + symbol->st_name, name))
-                return image->base + symbol->st_value;
-        }
-    }
-
-    return 0;
-}
-
-/// The module that defines `name`, with visibility rules matching
-/// lookup_symbol.  TLS relocations need the *defining* module's offset, not
-/// the referring one's.
-static const Elf64_Sym* find_definition(const ld_module* modules, int count,
-                                        const char* name, const ld_module** owner) {
+/// The symbol that defines `name` and the module that owns it.  Callers
+/// need the defining symbol itself for its type (IFUNC) and for its value
+/// relative to the owner's base; TLS relocations need the owner's block
+/// offset, not the referring module's.
+static const Elf64_Sym* find_symbol(const ld_module* modules, int count, const char* name,
+                                    const ld_module** owner) {
     for (int m = 0; m < count; ++m) {
         const ld_module* image = &modules[m];
 
@@ -355,6 +337,29 @@ static const Elf64_Sym* find_definition(const ld_module* modules, int count,
             }
         }
     }
+
+    return 0;
+}
+
+/* IFUNC slots are filled in a second phase, once every image is relocated:
+ * a resolver may call ordinary relocated functions, but not another IFUNC,
+ * whose slot is still queued. */
+typedef struct {
+    uint64_t* slot;
+    uint64_t  resolver;
+    int64_t   addend;
+} ld_ifunc;
+
+typedef uint64_t (*ld_ifunc_resolver)(void);
+
+static ld_ifunc g_ifuncs[LD_MAX_IFUNCS];
+static int      g_ifunc_count;
+
+static int enqueue_ifunc(uint64_t* slot, uint64_t resolver, int64_t addend) {
+    if (g_ifunc_count == LD_MAX_IFUNCS)
+        return -1;
+
+    g_ifuncs[g_ifunc_count++] = (ld_ifunc){slot, resolver, addend};
 
     return 0;
 }
@@ -381,6 +386,15 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             continue;
         }
 
+        if (type == LD_R_IRELATIVE) {
+            // The addend is the resolver's address relative to the image base;
+            // the result is written in the second phase.
+            if (enqueue_ifunc(where, module->base + (uint64_t) entry->r_addend, 0) != 0)
+                astia_exit(149);
+
+            continue;
+        }
+
         if (type == LD_R_TPOFF64 || type == LD_R_TPOFF32) {
             // *where = defining_module->tls_offset + sym->st_value + addend.
             // The offset of the variable inside its block lives in st_value,
@@ -396,8 +410,8 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
                 value = module->tls_offset + (int64_t) symbol->st_value + entry->r_addend;
             }
             else {
-                const Elf64_Sym* definition = find_definition(
-                    modules, count, module->strtab + symbol->st_name, &owner);
+                const Elf64_Sym* definition =
+                    find_symbol(modules, count, module->strtab + symbol->st_name, &owner);
                 if (definition == 0) {
                     if ((symbol->st_info >> 4) != 2)
                         return 3;
@@ -426,9 +440,10 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             return 2;
 
         const Elf64_Sym* symbol = &module->symtab[index];
-        const uint64_t   value =
-            lookup_symbol(modules, count, module->strtab + symbol->st_name);
-        if (value == 0) {
+        const ld_module* owner  = 0;
+        const Elf64_Sym* definition =
+            find_symbol(modules, count, module->strtab + symbol->st_name, &owner);
+        if (definition == 0) {
             /* STB_WEAK undefined references are allowed to resolve to zero. */
             if ((symbol->st_info >> 4) != 2)
                 return 3;
@@ -437,6 +452,19 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
 
             continue;
         }
+
+        if ((definition->st_info & 0xf) == LD_STT_GNU_IFUNC) {
+            // The definition's value is its resolver.  Queue it so the slot
+            // receives the resolver's result instead.
+            const int64_t addend = type == LD_R_ABS ? entry->r_addend : 0;
+
+            if (enqueue_ifunc(where, owner->base + definition->st_value, addend) != 0)
+                astia_exit(149);
+
+            continue;
+        }
+
+        const uint64_t value = owner->base + definition->st_value;
 
         *where = type == LD_R_ABS ? value + (uint64_t) entry->r_addend : value;
     }
@@ -497,6 +525,19 @@ static void copy_tls_templates(const ld_module* modules, int count, uint64_t tls
         for (uint64_t i = 0; i < image->tls_filesz; ++i) {
             destination[i] = source[i];
         }
+    }
+}
+
+/* Phase two of IFUNC resolution: every image is relocated, so a resolver may
+ * call ordinary relocated code.  It must not call another IFUNC, whose slot
+ * is still unpatched; that chain needs the lazy thunk from #163.  The slots
+ * must hold the resolver's result before DT_INIT runs. */
+static void resolve_ifuncs(void) {
+    for (int i = 0; i < g_ifunc_count; ++i) {
+        const ld_ifunc*   entry    = &g_ifuncs[i];
+        ld_ifunc_resolver resolver = (ld_ifunc_resolver) (uintptr_t) entry->resolver;
+
+        *entry->slot = resolver() + (uint64_t) entry->addend;
     }
 }
 
@@ -686,6 +727,8 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     }
 
     copy_tls_templates(modules, count, tls_tp);
+
+    resolve_ifuncs();
 
     const int argc = (int) sp[0];
 

@@ -19,3 +19,8 @@ int fixture_base_tls(void) {
        non-zero offset in the block. */
     return fixture_tls + fixture_tls_second - 1;
 }
+
+/* Lets an IFUNC resolver in another DSO call into a fully relocated image. */
+int fixture_base_constant(void) {
+    return 7;
+}

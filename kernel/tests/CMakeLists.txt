@@ -757,9 +757,11 @@ target_compile_options(astia_module_lifecycle_fixture_compile_db PRIVATE
 add_library(astia_dl_boot_fixture_compile_db OBJECT
         fixture_gnu.c
         fixture_semihash.c
+        fixture_ifunc.c
         interp_gnu.c
         interp_relative_ro.c
-        interp_tpoff32.c)
+        interp_tpoff32.c
+        interp_ifunc.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include)
 target_compile_options(astia_dl_boot_fixture_compile_db PRIVATE
@@ -1518,6 +1520,17 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-soname,libfixture.so -o ${_fix_dir}/libfixture.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${_fix_dir}/libfixture_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libfixture_ifunc.so -o ${_fix_dir}/libfixture_ifunc.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_ifunc.c
+                ${_fix_dir}/libfixture_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_ifunc
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c ${_fix_dir}/libfixture_ifunc.so
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
                 -fno-stack-protector -Wl,--hash-style=sysv
                 -Wl,-rpath-link,${_fix_dir}
@@ -1528,9 +1541,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/libfixture.so ${_fix_dir}/libfixture_base.so
+                ${_fix_dir}/libfixture_ifunc.so
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
-                ${_fix_dir}/interp_link ${_fix_dir}/boot_stage/bin/
+                ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
+                ${_fix_dir}/boot_stage/bin/
                 COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_nophdr
@@ -1615,7 +1630,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
-                lib/libfixture_base.so bin/interp_link bin/interp_nophdr
+                lib/libfixture_base.so lib/libfixture_ifunc.so
+                bin/interp_link bin/interp_nophdr bin/interp_ifunc
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
@@ -1637,11 +1653,13 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_gnu.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_semihash.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_tpoff32.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_gnu.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_tpoff32.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relative_ro.S
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_libc_shared_so}
@@ -1785,6 +1803,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: exec repeat ok"
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
+                "astia: ifunc ok"
                 "astia: sigpipe ok"
                 "astia: setpgid exec ok"
                 "astia: libc.so ok"

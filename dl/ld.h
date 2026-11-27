@@ -82,7 +82,11 @@ enum {
     AT_ASTIA_PAYLOAD_BASE = 0x44,
 };
 
+/* Symbol types: only the one the linker distinguishes matters. */
+#define LD_STT_GNU_IFUNC 10
+
 #define LD_MAX_MODULES 8
+#define LD_MAX_IFUNCS 64
 #define LD_PATH_MAX 64
 
 typedef struct {

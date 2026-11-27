@@ -17,7 +17,16 @@
    dependency maps once.
 4. Resolves `RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64` and `TPOFF64`/`TPOFF32`
    against the payload and its dependencies; weak undefined references
-   resolve to zero.
+   resolve to zero.  GNU IFUNC symbols (`STT_GNU_IFUNC`) resolve in two
+   phases: relocation queues the slot and the resolver's address, then every
+   resolver runs after all relocations and before any `DT_INIT`, and its
+   result lands in the slot.  `R_X86_64_IRELATIVE` (a DSO referencing its own
+   IFUNC) follows the same path.  A resolver may call ordinary functions
+   whose relocations are already applied, but it must not call another
+   IFUNC: that slot is still unpatched, so the call would land on the second
+   resolver instead of its result.  Resolving such chains needs the per-slot
+   lazy thunk mechanism tracked with lazy PLT binding (#163), and remains a
+   known residual limitation.
 5. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
 6. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
    copies the templates after relocation, and applies the TLS relocations.
@@ -38,9 +47,10 @@ program can consume that contract today.
 - at most 8 loaded modules (`LD_MAX_MODULES`) and 7 `DT_NEEDED` per payload.
 
 Known gaps are tracked in the issue tracker under the `dl` label
-(`gh issue list --label dl`): lazy PLT binding, symbol versioning, IFUNC,
+(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
 global-dynamic TLS, `dlopen`/`dlclose` scopes and unload quiescence, RELRO, and
-the eagerly allocated TLS reserve.
+the eagerly allocated TLS reserve.  At most 64 IFUNC relocations per process
+(`LD_MAX_IFUNCS`) are supported.
 
 A missing library or unresolved symbol exits with a non-zero status; the boot
 test turns that into a failure rather than a silent jump into a null pointer.
