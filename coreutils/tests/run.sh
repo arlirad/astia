@@ -42,6 +42,9 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/daemonctl_path_test.c" -o "$out/host/daemonctl_path_test"
 "$out/host/daemonctl_path_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
+    "$root/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
+"$out/host/sort_growth_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to
