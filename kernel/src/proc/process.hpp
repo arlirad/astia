@@ -157,9 +157,9 @@ namespace astia::proc {
             }());
         }
 
-        i64 change_directory(const char* path);
-        i64 change_directory(const fs::open_file& directory);
-        i64 copy_cwd(span<char> buffer) const;
+        core::task<i64> change_directory(const char* path);
+        i64             change_directory(const fs::open_file& directory);
+        i64             copy_cwd(span<char> buffer) const;
 
         i64 copy_cwd(char* buffer, usize length) const {
             return copy_cwd(span<char>(buffer, length));
