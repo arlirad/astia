@@ -11,6 +11,7 @@
 
 #include "aml.hpp"
 #include "io.hpp"
+#include "limits.hpp"
 #include "power.hpp"
 #include "tables.hpp"
 
@@ -71,18 +72,6 @@ namespace astia::acpi {
 
         void heap_release(void*, void* pointer) {
             astia::mm::heap::free(pointer);
-        }
-
-        u64 usable_top(const mm::memory_map& map) {
-            u64 top = 0;
-
-            for (const auto& region : map) {
-                if (region.type == mm::memory_type::usable &&
-                    region.base + region.size > top)
-                    top = region.base + region.size;
-            }
-
-            return top;
         }
 
         bool write_io(void*, u16 port, u16 value) {
@@ -164,9 +153,17 @@ namespace astia::acpi {
             if (ctx.info == nullptr)
                 return true;
 
+            u64 direct_limit = 0;
+
+            if (!detail::direct_map_limit(ctx.info->memory, direct_limit)) {
+                logs::error("unavailable: malformed memory map");
+
+                return true;
+            }
+
             kernel_reader reader{
                 identity_window,
-                align_up(usable_top(ctx.info->memory), 2ull << 20),
+                direct_limit,
             };
 
             detail::memory_reader access{
