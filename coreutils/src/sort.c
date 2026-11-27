@@ -1,4 +1,5 @@
 #include "common.h"
+#include "sort_growth.h"
 
 #include <fcntl.h>
 #include <stdlib.h>
@@ -49,18 +50,12 @@ static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
         memcpy(line, reader.line, reader.line_length + 1);
 
         if (*count == *capacity) {
-            size_t next = *capacity == 0 ? 16 : *capacity * 2;
-
-            char** grown = (char**) realloc(*lines, next * sizeof(char*));
-            if (grown == 0) {
+            if (cu_sort_grow_lines(lines, capacity, realloc) != 0) {
                 free(line);
                 cu_line_reader_destroy(&reader);
 
                 return cu_error("sort", "out of memory");
             }
-
-            *lines    = grown;
-            *capacity = next;
         }
 
         (*lines)[(*count)++] = line;

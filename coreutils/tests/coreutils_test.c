@@ -870,6 +870,31 @@ static int long_line_checks(void) {
            check("sort -u long lines", sort_unique, NULL, 0, sort_expected, 1);
 }
 
+#define SORT_GROWTH_LINES 300
+
+static int sort_growth_checks(void) {
+    static char input[SORT_GROWTH_LINES * 12 + 1];
+    static char expected[SORT_GROWTH_LINES * 12 + 1];
+
+    char* sort_many[] = {"sort", NULL};
+
+    size_t input_length    = 0;
+    size_t expected_length = 0;
+
+    for (int index = SORT_GROWTH_LINES - 1; index >= 0; --index) {
+        input_length += (size_t) snprintf(
+            input + input_length, sizeof input - input_length, "line-%03d\n", index);
+    }
+
+    for (int index = 0; index < SORT_GROWTH_LINES; ++index) {
+        expected_length +=
+            (size_t) snprintf(expected + expected_length,
+                              sizeof expected - expected_length, "line-%03d\n", index);
+    }
+
+    return check("sort many lines", sort_many, input, 0, expected, 1);
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -1254,6 +1279,9 @@ int main(void) {
         return 1;
 
     if (long_line_checks() != 0)
+        return 1;
+
+    if (sort_growth_checks() != 0)
         return 1;
 
     if (mv_directory_checks() != 0)
