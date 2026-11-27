@@ -24,6 +24,9 @@ namespace astia::io::aio::operations {
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
+            if (!parent_writable(current, resolved))
+                co_return -EACCES;
+
             const auto requested = mapper<fs::file_mode>::from(
                 sqe.aux == 0 ? fs::default_directory_permissions.raw() : sqe.aux);
 

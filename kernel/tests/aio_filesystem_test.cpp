@@ -98,6 +98,86 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_unlinkat(char* path, u32 flags = 0) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_UNLINKAT);
+
+        sqe.address  = reinterpret_cast<u64>(path);
+        sqe.op_flags = flags;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_mkdirat(char* path, u32 mode) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_MKDIRAT);
+
+        sqe.address = reinterpret_cast<u64>(path);
+        sqe.aux     = mode;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_symlinkat(char* target, char* path) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_SYMLINKAT);
+
+        sqe.address = reinterpret_cast<u64>(target);
+        sqe.offset  = reinterpret_cast<u64>(path);
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_utimensat(char* path) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_UTIMENSAT);
+
+        sqe.address = reinterpret_cast<u64>(path);
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_readdir_path(char* path, u64 index, astia_dirent* out) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_READDIR, static_cast<i32>(index));
+
+        sqe.address = reinterpret_cast<u64>(out);
+        sqe.offset  = reinterpret_cast<u64>(path);
+        sqe.length  = sizeof *out;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_chown_path(char* path, u32 owner, u64 group, u32 flags = 0) {
         using namespace aio::test_support;
 
@@ -279,6 +359,7 @@ ASTIA_TEST(aio_filesystem_openat_create_requires_parent_search) {
 
     reset_environment();
     install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
     set_node_mode(fs::file_mode{});
     set_directory("/private", 0600, uid_t{0}, gid_t{0});
     set_open_file(aio_test::make_open_file(new aio_test::fake_file));
@@ -286,6 +367,8 @@ ASTIA_TEST(aio_filesystem_openat_create_requires_parent_search) {
     char path[] = "/private/new";
 
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == -EACCES);
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
@@ -573,6 +656,311 @@ ASTIA_TEST(aio_filesystem_linkat_requires_writable_destination_parent) {
     ASTIA_CHECK(submit_linkat(old_path, new_path) == -EACCES);
 
     restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_requires_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+    set_file("/root/victim", 0644, uid_t{0}, gid_t{0});
+
+    char path[] = "/root/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_removedir_requires_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+    set_directory("/root/child", 0755, uid_t{0}, gid_t{0});
+
+    char path[] = "/root/child";
+
+    ASTIA_CHECK(submit_unlinkat(path, UNLINKAT_REMOVEDIR) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_allows_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/victim", 0644, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_root_bypasses_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
+    set_file("/root/victim", 0644, uid_t{0}, gid_t{0});
+
+    char path[] = "/root/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_mkdirat_requires_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+
+    char path[] = "/root/planted";
+
+    ASTIA_CHECK(submit_mkdirat(path, 0755) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_mkdirat_allows_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/new";
+
+    ASTIA_CHECK(submit_mkdirat(path, 0755) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_mkdirat_root_bypasses_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
+
+    char path[] = "/root/new";
+
+    ASTIA_CHECK(submit_mkdirat(path, 0755) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_symlinkat_requires_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/root", 0755, uid_t{0}, gid_t{0});
+
+    char target[] = "/etc/passwd";
+    char path[]   = "/root/planted";
+
+    ASTIA_CHECK(submit_symlinkat(target, path) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_symlinkat_allows_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+
+    char target[] = "/etc/passwd";
+    char path[]   = "/shared/link";
+
+    ASTIA_CHECK(submit_symlinkat(target, path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_symlinkat_root_bypasses_writable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/root", 0444, uid_t{0}, gid_t{0});
+
+    char target[] = "/etc/passwd";
+    char path[]   = "/root/link";
+
+    ASTIA_CHECK(submit_symlinkat(target, path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_requires_owner_or_write) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/victim", 0644, uid_t{0}, gid_t{0});
+
+    char path[] = "/tmp/victim";
+
+    ASTIA_CHECK(submit_utimensat(path) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_allows_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/owned", 0444, uid_t{1000}, gid_t{1000});
+
+    char path[] = "/tmp/owned";
+
+    ASTIA_CHECK(submit_utimensat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_allows_group_write) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/shared", 0020, uid_t{0}, gid_t{1000});
+
+    char path[] = "/tmp/shared";
+
+    ASTIA_CHECK(submit_utimensat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_utimensat_allows_root) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_file("/tmp/protected", 0444, uid_t{0}, gid_t{0});
+
+    char path[] = "/tmp/protected";
+
+    ASTIA_CHECK(submit_utimensat(path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_readdir_requires_read_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/unreadable", 0711, uid_t{0}, gid_t{0});
+
+    astia_dirent entry{};
+
+    char path[] = "/unreadable";
+
+    ASTIA_CHECK(submit_readdir_path(path, 0, &entry) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_readdir_requires_search_permission) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/noexec", 0744, uid_t{0}, gid_t{0});
+
+    astia_dirent entry{};
+
+    char path[] = "/noexec";
+
+    ASTIA_CHECK(submit_readdir_path(path, 0, &entry) == -EACCES);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_readdir_allows_listable_directory) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0755, uid_t{0}, gid_t{0});
+
+    astia_dirent entry{};
+
+    char path[] = "/shared";
+
+    ASTIA_CHECK(submit_readdir_path(path, 0, &entry) == 1);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_readdir_root_bypasses_permissions) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/root", 0600, uid_t{0}, gid_t{0});
+
+    astia_dirent entry{};
+
+    char path[] = "/root";
+
+    ASTIA_CHECK(submit_readdir_path(path, 0, &entry) == 1);
+}
+
+ASTIA_TEST(aio_filesystem_statx_allows_searchable_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/shared", 0755, uid_t{0}, gid_t{0});
+    set_node_mode(fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    astia_stat stat{};
+
+    char path[] = "/shared/file";
+
+    ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_statx_root_bypasses_search) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/secret", 0600, uid_t{0}, gid_t{0});
+    set_node_mode(fs::file_mode(fs::file_type::regular, fs::file_permissions(0644)));
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    astia_stat stat{};
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == 0);
 }
 
 ASTIA_TEST(aio_filesystem_close_releases_descriptor) {

@@ -41,6 +41,9 @@ namespace astia::io::aio::operations {
                 if (resolve_rc < 0)
                     co_return (i32) resolve_rc;
 
+                if (!directory_listable(current, resolved))
+                    co_return -EACCES;
+
                 index = sqe.fd < 0 ? 0 : static_cast<u64>(sqe.fd);
             }
 
