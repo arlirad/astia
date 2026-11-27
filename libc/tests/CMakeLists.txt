@@ -290,5 +290,19 @@ add_executable(libc_semaphore_test process/semaphore_test.c support/semaphore_ho
 target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)
 
+# pthread_once is the one pthread entry with no host stand-in: the shipping
+# translation unit is compiled straight into the test, so the once protocol
+# runs over a real futex and host pthreads are only the thread source.
+add_executable(libc_pthread_once_test process/pthread_once_test.c
+  support/futex_host.c support/process_host.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/process/pthread_once.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/sys/errno.c)
+target_include_directories(libc_pthread_once_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include)
+target_link_libraries(libc_pthread_once_test PRIVATE Threads::Threads)
+add_test(NAME libc_pthread_once_test COMMAND libc_pthread_once_test)
+
 astia_append_test_label("libc;host;deterministic")
 astia_append_test_label("sanitizer-unsupported-libc")
