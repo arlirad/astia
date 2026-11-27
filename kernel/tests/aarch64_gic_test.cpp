@@ -77,20 +77,21 @@ ASTIA_TEST(aarch64_timer_ppi_policy) {
     ASTIA_CHECK(timer::ctl_imask == 0x2U);
     ASTIA_CHECK(timer::ctl_istatus == 0x4U);
     ASTIA_CHECK(timer::ctl_disabled_masked == timer::ctl_imask);
-    ASTIA_CHECK(timer::one_shot_interval_ms == 10U);
+    ASTIA_CHECK(timer::tick_interval_ms == 10U);
+    ASTIA_CHECK(timer::tick_hz == 100U);
     ASTIA_CHECK(timer::tval_max_positive == 0x7fffffffU);
 
     u32 ticks = 0;
 
-    ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(timer::interval_ticks(62500000U, timer::tick_interval_ms, ticks));
     ASTIA_CHECK(ticks == 625000U);
-    ASTIA_CHECK(timer::one_shot_ticks(1U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(timer::interval_ticks(1U, timer::tick_interval_ms, ticks));
     ASTIA_CHECK(ticks == 1U);
-    ASTIA_CHECK(timer::one_shot_ticks(0xffffffffU, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(timer::interval_ticks(0xffffffffU, timer::tick_interval_ms, ticks));
     ASTIA_CHECK(ticks <= timer::tval_max_positive);
-    ASTIA_CHECK(!timer::one_shot_ticks(0U, timer::one_shot_interval_ms, ticks));
-    ASTIA_CHECK(!timer::one_shot_ticks(62500000U, 0U, ticks));
-    ASTIA_CHECK(!timer::one_shot_ticks(0xffffffffU, 0xffffffffU, ticks));
+    ASTIA_CHECK(!timer::interval_ticks(0U, timer::tick_interval_ms, ticks));
+    ASTIA_CHECK(!timer::interval_ticks(62500000U, 0U, ticks));
+    ASTIA_CHECK(!timer::interval_ticks(0xffffffffU, 0xffffffffU, ticks));
 }
 
 ASTIA_TEST(aarch64_timer_periodic_policy) {
@@ -109,7 +110,7 @@ ASTIA_TEST(aarch64_timer_periodic_policy) {
 
     u32 ticks = 0;
 
-    ASTIA_CHECK(timer::one_shot_ticks(62500000U, timer::one_shot_interval_ms, ticks));
+    ASTIA_CHECK(timer::interval_ticks(62500000U, timer::tick_interval_ms, ticks));
     ASTIA_CHECK(ticks > 0);
     ASTIA_CHECK(ticks <= timer::tval_max_positive);
 
@@ -119,6 +120,71 @@ ASTIA_TEST(aarch64_timer_periodic_policy) {
     ASTIA_CHECK(!timer::valid_interval(timer::tval_max_positive + 1));
     ASTIA_CHECK(!timer::valid_interval(0x80000000U));
     ASTIA_CHECK(!timer::valid_interval(0xffffffffU));
+}
+
+ASTIA_TEST(aarch64_timer_timekeeping_policy) {
+    ASTIA_CHECK(timer::saturating_add(1, 2) == 3U);
+    ASTIA_CHECK(timer::saturating_add(~u64{0}, 1) == ~u64{0});
+
+    timer::reset_timekeeping(1000);
+    ASTIA_CHECK(!timer::periodic_active());
+    ASTIA_CHECK(timer::tick_count() == 0U);
+    ASTIA_CHECK(timer::delivered_ticks() == 0U);
+    ASTIA_CHECK(timer::missed_ticks() == 0U);
+
+    timer::begin_timekeeping(1000);
+    ASTIA_CHECK(timer::periodic_active());
+
+    timer::tick_progress progress = timer::account_tick(1010);
+
+    ASTIA_CHECK(progress.delivered == 1U);
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::delivered_ticks() == 1U);
+    ASTIA_CHECK(timer::missed_ticks() == 0U);
+    ASTIA_CHECK(timer::tick_count() == 1U);
+
+    progress = timer::account_tick(1020);
+
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::tick_count() == 2U);
+
+    progress = timer::account_tick(1050);
+
+    ASTIA_CHECK(progress.delivered == 1U);
+    ASTIA_CHECK(progress.missed == 2U);
+    ASTIA_CHECK(timer::delivered_ticks() == 3U);
+    ASTIA_CHECK(timer::missed_ticks() == 2U);
+    ASTIA_CHECK(timer::tick_count() == 5U);
+
+    progress = timer::account_tick(1059);
+
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::tick_count() == 6U);
+
+    progress = timer::account_tick(1060);
+
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::tick_count() == 7U);
+
+    progress = timer::account_tick(1000);
+
+    ASTIA_CHECK(progress.delivered == 1U);
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::delivered_ticks() == 6U);
+    ASTIA_CHECK(timer::tick_count() == 8U);
+
+    timer::reset_timekeeping(0);
+
+    progress = timer::account_tick(~u64{0});
+
+    ASTIA_CHECK(progress.missed == ~u64{0} / timer::tick_interval_ms - 1U);
+    ASTIA_CHECK(timer::tick_count() == ~u64{0} / timer::tick_interval_ms);
+
+    progress = timer::account_tick(~u64{0});
+
+    ASTIA_CHECK(progress.missed == 0U);
+    ASTIA_CHECK(timer::delivered_ticks() == 2U);
+    ASTIA_CHECK(timer::tick_count() == ~u64{0} / timer::tick_interval_ms + 1U);
 }
 
 ASTIA_TEST(aarch64_timer_deadline_policy) {
