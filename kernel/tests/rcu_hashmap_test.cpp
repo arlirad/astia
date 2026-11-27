@@ -1,8 +1,8 @@
 #include <astia/core/rcu_grace.hpp>
 #include <astia/core/rcu_hashmap.hpp>
-#include <astia/core/rcu_vector.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/rcu/vector.hpp>
 
 #include "arena.hpp"
 #include "support/test.hpp"
@@ -608,229 +608,96 @@ ASTIA_TEST(rcu_hashmap_reclamation_defers_eligible_snapshot) {
     ASTIA_CHECK(tracked_live(0) == 0);
 }
 
-ASTIA_TEST(rcu_vector_reclamation_grace_stress) {
-    constexpr int writers = 8;
-    constexpr int readers = 8;
-    constexpr int rounds  = 5000;
+ASTIA_TEST(rcu_vector_readers_and_writers) {
+    astia::rcu::vector<int, 4> vector;
 
-    astia::core::rcu_vector<int, 8> vector;
+    {
+        astia::rcu::vector<int, 4>::writer writer{vector};
 
-    int seed[8] = {0, 1, 2, 3, 4, 5, 6, 0x55aa};
-
-    ASTIA_CHECK(vector.replace(astia::span<const int>(seed, 8)));
-
-    std::atomic<bool>        start{false};
-    std::atomic<bool>        failed{false};
-    std::atomic<int>         active_writers{writers};
-    std::vector<std::thread> workers;
-
-    for (int writer = 0; writer < writers; ++writer) {
-        workers.emplace_back([&, writer] {
-            while (!start.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
-
-            for (int round = 1; round <= rounds; ++round) {
-                int values[8] = {writer, round, writer ^ round, 0, 0, 0, 0, 0x55aa};
-
-                if (!vector.replace(astia::span<const int>(values, 8)))
-                    failed.store(true, std::memory_order_release);
-            }
-
-            active_writers.fetch_sub(1, std::memory_order_release);
-        });
+        for (int value = 0; value < 10; ++value) {
+            ASTIA_CHECK(writer.push_back(value));
+        }
     }
 
-    for (int reader = 0; reader < readers; ++reader) {
-        workers.emplace_back([&] {
-            while (!start.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
+    {
+        astia::rcu::vector<int, 4>::reader reader{vector};
 
-            for (int round = 0; round < rounds * 4; ++round) {
-                if (round >= rounds &&
-                    active_writers.load(std::memory_order_acquire) == 0)
-                    break;
+        ASTIA_CHECK(reader.size() == 10);
+        ASTIA_CHECK(reader.capacity() >= 10);
 
-                astia::core::rcu_vector<int, 8>::read_guard guard(vector);
-
-                if (guard.size() != 8 || guard[7] != 0x55aa)
-                    failed.store(true, std::memory_order_release);
-            }
-        });
+        for (astia::u32 index = 0; index < 10; ++index) {
+            ASTIA_CHECK(reader[index] == static_cast<int>(index));
+        }
     }
 
-    start.store(true, std::memory_order_release);
+    {
+        astia::rcu::vector<int, 4>::writer writer{vector};
 
-    for (auto& worker : workers) {
-        worker.join();
+        ASTIA_CHECK(writer.erase([](int value) { return value == 5; }));
     }
 
-    ASTIA_CHECK(!failed.load(std::memory_order_acquire));
+    astia::rcu::vector<int, 4>::reader reader{vector};
+
+    ASTIA_CHECK(reader.size() == 9);
+
+    for (astia::u32 index = 0; index < 9; ++index) {
+        ASTIA_CHECK(reader[index] == static_cast<int>(index < 5 ? index : index + 1));
+    }
 }
 
-// The vector path uses the same grace period. A reader enters immediately
-// before the reclaimer exchanges the retired list, the writer then retires the
-// reader's snapshot, and reclamation must defer until the guard leaves.
-ASTIA_TEST(rcu_vector_reclamation_grace_exchange_seam) {
+ASTIA_TEST(rcu_vector_last_reader_releases_snapshot) {
     reset_tracked();
 
-    astia::core::rcu_vector<tracked_int, 4> vector;
+    astia::rcu::vector<tracked_int, 2> vector;
 
     {
-        tracked_int seed[4] = {tracked_int(0), tracked_int(1), tracked_int(2),
-                               tracked_int(3)};
+        tracked_int values[2] = {tracked_int(0), tracked_int(1)};
 
-        ASTIA_CHECK(vector.replace(astia::span<const tracked_int>(seed, 4)));
-    }
+        astia::rcu::vector<tracked_int, 2>::writer writer{vector};
 
-    ASTIA_CHECK(tracked_live(0) == 1);
-
-    reset_reclaim_seam();
-
-    astia::core::rcu_test::reclaim_pre_exchange_observer = &reclaim_seam;
-
-    std::atomic<bool> reclaimer_ok{false};
-
-    std::thread reclaimer([&] {
-        reclaim_seam_thread = std::this_thread::get_id();
-
-        tracked_int values[4] = {tracked_int(10), tracked_int(11), tracked_int(12),
-                                 tracked_int(13)};
-
-        reclaimer_ok.store(vector.replace(astia::span<const tracked_int>(values, 4)),
-                           std::memory_order_release);
-    });
-
-    wait_for_reclaim_seam();
-
-    {
-        astia::core::rcu_vector<tracked_int, 4>::read_guard guard(vector);
-        ASTIA_CHECK(guard.size() == 4);
-        ASTIA_CHECK(guard[0].id == 0);
-
-        std::atomic<bool> writer_ok{false};
-
-        std::thread writer([&] {
-            tracked_int values[4] = {tracked_int(20), tracked_int(21), tracked_int(22),
-                                     tracked_int(23)};
-
-            writer_ok.store(vector.replace(astia::span<const tracked_int>(values, 4)),
-                            std::memory_order_release);
-        });
-
-        writer.join();
-
-        release_reclaim_seam();
-        reclaimer.join();
-
-        astia::core::rcu_test::reclaim_pre_exchange_observer = nullptr;
-
-        ASTIA_CHECK(writer_ok.load(std::memory_order_acquire));
-        ASTIA_CHECK(reclaimer_ok.load(std::memory_order_acquire));
-
-        ASTIA_CHECK(guard.size() == 4);
-        ASTIA_CHECK(guard[0].id == 0);
-        ASTIA_CHECK(tracked_live(0) == 1);
-    }
-
-    tracked_int values[4] = {tracked_int(30), tracked_int(31), tracked_int(32),
-                             tracked_int(33)};
-
-    ASTIA_CHECK(vector.replace(astia::span<const tracked_int>(values, 4)));
-    ASTIA_CHECK(tracked_live(0) == 0);
-}
-
-ASTIA_TEST(rcu_vector_reclamation_defers_eligible_snapshot) {
-    reset_tracked();
-
-    astia::core::rcu_vector<tracked_int, 4> vector;
-
-    {
-        tracked_int seed[4] = {tracked_int(0), tracked_int(1), tracked_int(2),
-                               tracked_int(3)};
-
-        ASTIA_CHECK(vector.replace(astia::span<const tracked_int>(seed, 4)));
+        ASTIA_CHECK(writer.assign(astia::span<const tracked_int>(values, 2)));
     }
 
     ASTIA_CHECK(tracked_live(0) == 1);
 
     {
-        astia::core::rcu_vector<tracked_int, 4>::read_guard guard(vector);
+        astia::rcu::vector<tracked_int, 2>::reader held{vector};
 
-        std::atomic<bool> writer_ok{false};
+        {
+            tracked_int values[2] = {tracked_int(2), tracked_int(3)};
 
-        std::thread writer([&] {
-            tracked_int values[4] = {tracked_int(10), tracked_int(11), tracked_int(12),
-                                     tracked_int(13)};
+            astia::rcu::vector<tracked_int, 2>::writer writer{vector};
 
-            writer_ok.store(vector.replace(astia::span<const tracked_int>(values, 4)),
-                            std::memory_order_release);
-        });
+            ASTIA_CHECK(writer.assign(astia::span<const tracked_int>(values, 2)));
+        }
 
-        writer.join();
-        ASTIA_CHECK(writer_ok.load(std::memory_order_acquire));
+        // The old snapshot is still pinned by `held`.
+        ASTIA_CHECK(tracked_live(0) == 1);
+        ASTIA_CHECK(tracked_live(2) == 1);
+    }
 
-        tracked_int values[4] = {tracked_int(20), tracked_int(21), tracked_int(22),
-                                 tracked_int(23)};
+    // The last reader dropped the old snapshot.
+    ASTIA_CHECK(tracked_live(0) == 0);
+    ASTIA_CHECK(tracked_live(2) == 1);
+}
 
-        ASTIA_CHECK(vector.replace(astia::span<const tracked_int>(values, 4)));
-        ASTIA_CHECK(guard.size() == 4);
-        ASTIA_CHECK(guard[0].id == 0);
+ASTIA_TEST(rcu_vector_destruction_releases_published_snapshot) {
+    reset_tracked();
+
+    {
+        astia::rcu::vector<tracked_int, 2> vector;
+
+        {
+            tracked_int values[2] = {tracked_int(0), tracked_int(1)};
+
+            astia::rcu::vector<tracked_int, 2>::writer writer{vector};
+
+            ASTIA_CHECK(writer.assign(astia::span<const tracked_int>(values, 2)));
+        }
+
         ASTIA_CHECK(tracked_live(0) == 1);
     }
 
-    tracked_int values[4] = {tracked_int(30), tracked_int(31), tracked_int(32),
-                             tracked_int(33)};
-
-    ASTIA_CHECK(vector.replace(astia::span<const tracked_int>(values, 4)));
     ASTIA_CHECK(tracked_live(0) == 0);
-}
-
-ASTIA_TEST(rcu_vector_supports_concurrent_cas_writers) {
-    astia::core::rcu_vector<int, 16> vector;
-    std::atomic<bool>                start{false};
-    std::atomic<bool>                failed{false};
-    std::vector<std::thread>         workers;
-
-    for (int writer = 0; writer < 4; ++writer) {
-        workers.emplace_back([&, writer] {
-            while (!start.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
-
-            for (int round = 1; round <= 500; ++round) {
-                int values[4] = {writer, round, writer ^ round, 0x55aa};
-
-                if (!vector.replace(astia::span<const int>(values, 4)))
-                    failed.store(true, std::memory_order_release);
-            }
-        });
-    }
-
-    for (int reader = 0; reader < 8; ++reader) {
-        workers.emplace_back([&] {
-            while (!start.load(std::memory_order_acquire)) {
-                std::this_thread::yield();
-            }
-
-            for (int round = 0; round < 4000; ++round) {
-                astia::core::rcu_vector<int, 16>::read_guard guard(vector);
-
-                if (guard.size() != 0 && guard.size() != 4)
-                    failed.store(true, std::memory_order_release);
-
-                if (guard.size() == 4 && guard[3] != 0x55aa)
-                    failed.store(true, std::memory_order_release);
-            }
-        });
-    }
-
-    start.store(true, std::memory_order_release);
-
-    for (auto& worker : workers) {
-        worker.join();
-    }
-
-    ASTIA_CHECK(!failed.load(std::memory_order_acquire));
+    ASTIA_CHECK(tracked_live(1) == 0);
 }

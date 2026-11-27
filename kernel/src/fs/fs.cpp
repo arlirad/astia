@@ -1,9 +1,9 @@
 #include <astia/api/errno.h>
 #include <astia/api/termios.h>
-#include <astia/core/rcu_vector.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/rcu/vector.hpp>
 #include <astia/strings.hpp>
 
 #include "filesystems/devfs/devfs.hpp"
@@ -54,10 +54,10 @@ namespace astia::fs {
             char target[path_max]{};
         };
 
-        type_entry                                         types[max_types];
-        mount_entry                                        mounts[max_mounts];
-        core::rcu_vector<mount_snapshot_entry, max_mounts> mount_snapshot;
-        core::spinlock                                     mount_registry_lock;
+        type_entry                        types[max_types];
+        mount_entry                       mounts[max_mounts];
+        rcu::vector<mount_snapshot_entry> mount_snapshot;
+        core::spinlock                    mount_registry_lock;
 
         // Lookup callers still take mount_registry_lock.  This is only a
         // hint: the generation makes the entry safe to reuse after an
@@ -192,7 +192,9 @@ namespace astia::fs {
                     copy_path(mount_snapshot_scratch[i].target, mounts[i].target);
             }
 
-            (void) mount_snapshot.replace(
+            rcu::vector<mount_snapshot_entry>::writer writer{mount_snapshot};
+
+            (void) writer.assign(
                 span<const mount_snapshot_entry>(mount_snapshot_scratch, max_mounts));
         }
 
@@ -200,8 +202,7 @@ namespace astia::fs {
             u32 best        = max_mounts;
             u32 best_length = 0;
 
-            core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
-                mount_snapshot);
+            rcu::vector<mount_snapshot_entry>::reader snapshot{mount_snapshot};
 
             for (usz i = 0; i < snapshot.size(); ++i) {
                 const auto& candidate = snapshot[i];
@@ -226,8 +227,7 @@ namespace astia::fs {
             u32 best_len = 0;
 
             {
-                core::rcu_vector<mount_snapshot_entry, max_mounts>::read_guard snapshot(
-                    mount_snapshot);
+                rcu::vector<mount_snapshot_entry>::reader snapshot{mount_snapshot};
 
                 for (usz i = 0; i < snapshot.size(); ++i) {
                     const auto& candidate = snapshot[i];

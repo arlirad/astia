@@ -248,7 +248,7 @@ export const DOCS_MANIFEST: readonly DocPage[] = [
     slug: "docs-rcu-7",
     title: "RCU and lockless constraints",
     group: "Manual page",
-    summary: "core::rcu_domain - bounded epoch reclamation; core::rcu_vector and core::rcu_hashmap - immutable lockless snapshots. Astia's RCU structures publish immutable snapshots. A reader...",
+    summary: "core::rcu_domain - bounded epoch reclamation; rcu::vector - reference-counted copy-on-write snapshots; core::rcu_hashmap - immutable lockless snapshots. Astia's RCU structures p...",
     sourcePath: "docs/7/rcu.md",
     contentKind: "markdown",
     aliases: ["docs-7-rcu"],
