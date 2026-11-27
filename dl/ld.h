@@ -134,6 +134,7 @@ typedef struct {
     const uint64_t*   fini_array;
     uint64_t          fini_array_size;
     uint32_t          symbol_count;
+    uint32_t          id;
     /* PT_TLS template and the static-TLS offset assigned to this module. */
     uint64_t tls_vaddr;
     uint64_t tls_filesz;
@@ -148,6 +149,7 @@ typedef struct {
     int      startup;
     int      dynamic;
     int      prelinked;
+    int      tls_static;
     int      nodelete;
     int      in_global;
     int      pending;

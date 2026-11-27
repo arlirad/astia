@@ -53,6 +53,8 @@
  * groups.  At most 32 modules, 16 handles, and 64-byte paths.
  * dlopen/dlclose are not safe against concurrent calls; unloading requires a
  * single-threaded, signal-free process.  There is no RTLD_NEXT.
+ * Static TLS covers initial-exec DSOs; the per-thread DTV and
+ * __tls_get_addr cover global-dynamic DSOs as well.
  */
 
 #include "ld.h"
@@ -357,6 +359,8 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->finalized       = 0;
     module->refcount        = 0;
     module->name[0]         = '\0';
+    module->id              = 0;
+    module->tls_static      = 0;
 
     for (uint32_t i = 0; i < phnum; ++i) {
         if (phdr[i].p_type == PT_TLS) {
@@ -684,8 +688,44 @@ static int apply_rela(const ld_module* module, const Elf64_Rela* rela, uint64_t 
             continue;
         }
 
-        if (type == LD_R_DTPMOD64 || type == LD_R_DTPOFF64)
-            return 4; /* global-dynamic TLS: build with -ftls-model=initial-exec */
+        if (type == LD_R_DTPMOD64 || type == LD_R_DTPOFF64) {
+            // Global-dynamic TLS: the GOT pair carries the defining module's
+            // DTV slot and the variable's offset inside that module's block.
+            // A default-visible definition is preemptible, so load order (not
+            // the referring module) decides which definition wins.
+            uint32_t         id     = 0;
+            int64_t          offset = 0;
+            const Elf64_Sym* symbol =
+                index != 0 && index < module->symbol_count ? &module->symtab[index] : 0;
+
+            if (symbol == 0) {
+                id     = module->id;
+                offset = entry->r_addend;
+            }
+            else if ((symbol->st_other & 3) != 0) {
+                id     = module->id;
+                offset = (int64_t) symbol->st_value + entry->r_addend;
+            }
+            else {
+                const ld_module* owner      = module;
+                const Elf64_Sym* definition = find_symbol(
+                    g_modules, g_module_count, module->strtab + symbol->st_name, &owner);
+                if (definition == 0) {
+                    if ((symbol->st_info >> 4) != 2)
+                        return 3;
+
+                    offset = entry->r_addend;
+                }
+                else {
+                    id     = owner->id;
+                    offset = (int64_t) definition->st_value + entry->r_addend;
+                }
+            }
+
+            *where = type == LD_R_DTPMOD64 ? (uint64_t) id : (uint64_t) offset;
+
+            continue;
+        }
 
         if (type != LD_R_GLOB_DAT && type != LD_R_JUMP_SLOT && type != LD_R_ABS)
             return 1;
@@ -738,6 +778,7 @@ static int layout_tls(ld_module* modules, int count, uint64_t tls_base, uint64_t
     // The payload's own TLS sits immediately below TP; the reserve extends
     // further down, so module 0's block starts at the reserve bottom.
     modules[0].tls_offset = (int64_t) (tls_base - tls_tp);
+    modules[0].tls_static = modules[0].tls_memsz != 0;
 
     uint64_t cursor = tls_base;
 
@@ -760,6 +801,7 @@ static int layout_tls(ld_module* modules, int count, uint64_t tls_base, uint64_t
             return -1;
 
         image->tls_offset = (int64_t) (cursor - tls_tp);
+        image->tls_static = 1;
     }
 
     return 0;
@@ -769,7 +811,7 @@ static void copy_tls_templates(const ld_module* modules, int count, uint64_t tls
     for (int module = 1; module < count; ++module) {
         const ld_module* image = &modules[module];
 
-        if (image->tls_memsz == 0 || image->tls_filesz == 0)
+        if (!image->tls_static || image->tls_memsz == 0 || image->tls_filesz == 0)
             continue;
 
         uint8_t* destination =
@@ -877,6 +919,139 @@ static void apply_relro_added(const int* added, int count) {
     for (int i = 0; i < count; ++i) {
         apply_module_relro(&g_modules[added[i]]);
     }
+}
+
+/* Per-thread DTV registry.  Threads are bounded by the kernel, so a fixed
+ * table keyed by the thread pointer is enough; entries are never retired
+ * (thread-exit cleanup is not implemented). */
+#define LD_MAX_THREADS 16
+
+typedef struct {
+    uint64_t tp;
+    uint64_t raw[LD_MAX_MODULES + 1];
+    uint64_t block[LD_MAX_MODULES + 1];
+    uint64_t size[LD_MAX_MODULES + 1];
+} ld_dtv;
+
+typedef struct {
+    uintptr_t module;
+    uintptr_t offset;
+} ld_tls_index;
+
+static ld_dtv   g_dtvs[LD_MAX_THREADS];
+static uint32_t g_dtv_count;
+
+static uint64_t ld_thread_pointer(void) {
+    uint64_t tp;
+
+    __asm__ volatile("movq %%fs:0, %0" : "=r"(tp) : : "memory");
+
+    return tp;
+}
+
+/* Entries are claimed lock-free with a CAS on the thread-pointer key, so a
+ * fork never inherits a held lock: the child's forking thread already has a
+ * valid entry.  Claiming publishes only the key, so a signal re-entering the
+ * loader finds either no entry (claims another; harmless) or a usable one. */
+static ld_dtv* dtv_for_current_thread(void) {
+    const uint64_t tp = ld_thread_pointer();
+
+    for (;;) {
+        for (uint32_t i = 0; i < LD_MAX_THREADS; ++i) {
+            if (__atomic_load_n(&g_dtvs[i].tp, __ATOMIC_ACQUIRE) == tp)
+                return &g_dtvs[i];
+        }
+
+        int full = 1;
+
+        for (uint32_t i = 0; i < LD_MAX_THREADS; ++i) {
+            const uint64_t observed = __atomic_load_n(&g_dtvs[i].tp, __ATOMIC_ACQUIRE);
+            if (observed == tp)
+                return &g_dtvs[i];
+
+            if (observed != 0)
+                continue;
+
+            full = 0;
+
+            uint64_t expected = 0;
+
+            if (__atomic_compare_exchange_n(&g_dtvs[i].tp, &expected, tp, 0,
+                                            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                __atomic_fetch_add(&g_dtv_count, 1, __ATOMIC_RELAXED);
+
+                return &g_dtvs[i];
+            }
+
+            if (expected == tp)
+                return &g_dtvs[i];
+
+            break;
+        }
+
+        if (full)
+            astia_exit(150);
+    }
+}
+
+__attribute__((visibility("default"))) void* __tls_get_addr(const ld_tls_index* index) {
+    if (index == 0 || index->module == 0 || index->module > LD_MAX_MODULES)
+        return 0;
+
+    ld_dtv* dtv = dtv_for_current_thread();
+
+    if (index->module > (uintptr_t) g_module_count)
+        return 0;
+
+    const uint64_t   id    = index->module;
+    const ld_module* image = &g_modules[id - 1];
+
+    if (image->tls_memsz == 0)
+        return 0;
+
+    /* Static blocks are computed from the thread pointer and immutable
+     * metadata, so this path has no initialisation window. */
+    if (image->tls_static)
+        return (void*) (uintptr_t) (dtv->tp + (uint64_t) image->tls_offset +
+                                    index->offset);
+
+    uint64_t block = __atomic_load_n(&dtv->block[id], __ATOMIC_ACQUIRE);
+    if (block != 0)
+        return (void*) (uintptr_t) (block + index->offset);
+
+    const uint64_t align   = image->tls_align > 16 ? image->tls_align : 16;
+    const uint64_t size    = (image->tls_memsz + 15) & ~(uint64_t) 15;
+    const uint64_t reserve = size + align;
+
+    const long mapped = astia_mmap(0, reserve, PROT_READ | PROT_WRITE,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    if (mapped <= 0)
+        return 0;
+
+    const uint64_t aligned = ((uint64_t) mapped + align - 1) & ~(align - 1);
+
+    if (image->tls_filesz != 0)
+        memcpy((void*) (uintptr_t) aligned, (const void*) (uintptr_t) image->tls_vaddr,
+               image->tls_filesz);
+
+    uint64_t expected = 0;
+
+    if (!__atomic_compare_exchange_n(&dtv->block[id], &expected, aligned, 0,
+                                     __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+        (void) astia_munmap((void*) (uintptr_t) mapped, reserve);
+
+        return expected != 0 ? (void*) (uintptr_t) (expected + index->offset) : 0;
+    }
+
+    dtv->raw[id]  = (uint64_t) mapped;
+    dtv->size[id] = reserve;
+
+    return (void*) (uintptr_t) (aligned + index->offset);
+}
+
+__attribute__((visibility("default"))) uint64_t ld_dtv_entries(void) {
+    return __atomic_load_n(&g_dtv_count, __ATOMIC_ACQUIRE);
 }
 
 /* Run DT_INIT and DT_INIT_ARRAY.  Dependencies initialize before the
@@ -1029,8 +1204,9 @@ static int load_module(const char* name, int flags, int* out, int* is_new) {
 
     set_module_name(module, path);
 
-    *out    = g_module_count++;
-    *is_new = 1;
+    g_modules[g_module_count].id = (uint32_t) (g_module_count + 1);
+    *out                         = g_module_count++;
+    *is_new                      = 1;
 
     return 0;
 }
@@ -1846,6 +2022,10 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
 
     if (at_base == 0 || *at_base == 0 || interpreter_module(*at_base) != 0)
         astia_exit(117);
+
+    for (int module = 0; module < g_module_count; ++module) {
+        g_modules[module].id = (uint32_t) (module + 1);
+    }
 
     if (layout_tls(g_modules, g_module_count, tls_base, tls_tp, tls_limit) != 0)
         astia_exit(119);
