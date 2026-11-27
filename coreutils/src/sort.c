@@ -75,6 +75,8 @@ int main(int argc, char** argv) {
 
     size_t count = 0, capacity = 0;
 
+    int status = 0;
+
     const char* value;
 
     while ((value = cu_args_next(&args)) != 0) {
@@ -110,15 +112,15 @@ int main(int argc, char** argv) {
 
         if (sort_fd(fd, value, &lines, &count, &capacity) != 0) {
             if (fd != CU_STDIN)
-                close(fd);
+                cu_close(fd, "sort", value);
 
             free_lines(lines, count);
 
             return 1;
         }
 
-        if (fd != CU_STDIN)
-            close(fd);
+        if (fd != CU_STDIN && cu_close(fd, "sort", value) != 0)
+            status = 1;
     }
 
     if (args.index == 1) {
@@ -155,5 +157,5 @@ int main(int argc, char** argv) {
 
     free(lines);
 
-    return 0;
+    return status;
 }

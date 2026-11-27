@@ -59,6 +59,22 @@ $clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
     -I "$root/coreutils/src" "$root/coreutils/tests/head_write_test.c" \
     "$out/host/head_write_head.o" -o "$out/host/head_write_test"
 "$out/host/head_write_test"
+
+# close() failure injection: link each tool with its main renamed and fail a
+# chosen close() call through the linker's --wrap hook.
+close_host_flags="-std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -include stdio.h -I $root/coreutils/src"
+for tool in head wc grep sort cp mv; do
+    # shellcheck disable=SC2086
+    $clang $close_host_flags -Dmain=cu_${tool}_main \
+        -c "$root/coreutils/src/$tool.c" -o "$out/host/${tool}_close.o"
+done
+# shellcheck disable=SC2086
+$clang $close_host_flags "$root/coreutils/tests/close_error_test.c" \
+    "$out/host/head_close.o" "$out/host/wc_close.o" "$out/host/grep_close.o" \
+    "$out/host/sort_close.o" "$out/host/cp_close.o" "$out/host/mv_close.o" \
+    -Wl,--wrap=close -o "$out/host/close_error_test"
+"$out/host/close_error_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to

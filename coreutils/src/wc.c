@@ -165,7 +165,7 @@ int main(int argc, char** argv) {
             add_counts(&totals, &counts);
 
         if (fd != CU_STDIN)
-            close(fd);
+            status |= cu_close(fd, "wc", path);
     }
 
     if (operands == 0) {

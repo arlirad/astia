@@ -239,3 +239,24 @@ static int cu_error(const char* name, const char* detail) {
 
     return 1;
 }
+
+/* Close a descriptor the utility opened and fold a failure into its exit
+ * status.  close() is the last point where a delayed-write or remote backend
+ * can report lost data, so the caller must not ignore it.  Do not retry on
+ * EINTR: POSIX leaves the descriptor state unspecified after an interrupted
+ * close, and Linux has already released it.
+ *
+ * Callers must only pass descriptors opened by the utility itself.  Standard
+ * input, output, and error belong to the invoking process and must not be
+ * closed here. */
+static int cu_close(int fd, const char* utility, const char* name) {
+    if (close(fd) == 0)
+        return 0;
+
+    cu_puts_fd(CU_STDERR, utility);
+    cu_puts_fd(CU_STDERR, ": ");
+    cu_puts_fd(CU_STDERR, name);
+    cu_puts_fd(CU_STDERR, ": close failed\n");
+
+    return 1;
+}
