@@ -1,10 +1,10 @@
+#include "internal/pty_name.h"
 #include <sys/ioctl.h>
 
 #include <errno.h>
 #include <fcntl.h>
 #include <pty.h>
 #include <stdio.h>
-#include <string.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -46,7 +46,7 @@ int ptsname_r(int fd, char* buffer, unsigned long buffer_size) {
 }
 
 char* ptsname(int fd) {
-    static _Thread_local char buffer[32];
+    static _Thread_local char buffer[PTY_NAME_MAX];
 
     int rc = ptsname_r(fd, buffer, sizeof buffer);
     if (rc != 0) {
@@ -60,10 +60,10 @@ char* ptsname(int fd) {
 
 int openpty(int* master, int* slave, char* name, const struct termios* termp,
             const struct winsize* winp) {
-    int master_fd;
-    int slave_fd;
-
-    const char* slave_name;
+    char slave_name[PTY_NAME_MAX];
+    int  master_fd;
+    int  slave_fd;
+    int  rc;
 
     if (master == NULL || slave == NULL) {
         errno = EINVAL;
@@ -81,11 +81,24 @@ int openpty(int* master, int* slave, char* name, const struct termios* termp,
         return -1;
     }
 
-    slave_name = ptsname(master_fd);
-    if (slave_name == NULL) {
+    rc = ptsname_r(master_fd, slave_name, sizeof slave_name);
+    if (rc != 0) {
+        errno = rc;
+
         close(master_fd);
 
         return -1;
+    }
+
+    if (name != NULL) {
+        rc = __astia_pty_copy_name(name, PTY_NAME_MAX, slave_name);
+        if (rc != 0) {
+            errno = rc;
+
+            close(master_fd);
+
+            return -1;
+        }
     }
 
     slave_fd = open(slave_name, O_RDWR | O_NOCTTY);
@@ -94,9 +107,6 @@ int openpty(int* master, int* slave, char* name, const struct termios* termp,
 
         return -1;
     }
-
-    if (name != NULL)
-        strcpy(name, slave_name);
 
     if (termp != NULL && tcsetattr(slave_fd, TCSANOW, termp) < 0)
         goto fail;
