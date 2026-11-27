@@ -98,6 +98,14 @@ namespace astia::proc {
             _queued = value;
         }
 
+        u32 run_slot() const {
+            return _run_slot;
+        }
+
+        void run_slot(u32 value) {
+            _run_slot = value;
+        }
+
         scheduling_class sched_class() const {
             return _sched_class;
         }
@@ -404,6 +412,7 @@ namespace astia::proc {
         bool                    _migratable           = false;
         core::spinlock          _lifecycle_lock       = {};
         u32                     _cpu_owner            = 0;
+        u32                     _run_slot             = ~u32{0};
         u32                     _signal_restore_mask  = 0;
         bool                    _signal_restore_armed = false;
         signal_state            _signals{};
