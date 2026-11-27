@@ -169,6 +169,17 @@ astia_add_test_label(astia_dl_symcount_test "dl;host;deterministic")
 astia_add_host_test(astia_dl_mode_test dl_mode_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c)
 astia_add_test_label(astia_dl_mode_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_unload_test
+        dl_unload_test.cpp
+        dl_unload_host.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
+set(_dl_unload_includes
+        "${ASTIA_KERNEL_SOURCE_DIR}/../dl"
+        "${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64"
+        "${ASTIA_KERNEL_SOURCE_DIR}/../libc/include")
+set_source_files_properties(dl_unload_host.c PROPERTIES
+        INCLUDE_DIRECTORIES "${_dl_unload_includes}")
+astia_add_test_label(astia_dl_unload_test "dl;host;deterministic")
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
