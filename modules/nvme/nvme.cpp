@@ -25,6 +25,7 @@ namespace {
     constexpr unsigned max_async_requests = 4;
     constexpr unsigned max_namespaces     = 16;
     constexpr unsigned csts_fatal         = 1u << 1;
+    constexpr unsigned register_space     = 0x1000;
 
     using dma = astia::mm::dma_buffer;
 
@@ -104,7 +105,7 @@ namespace {
         void doorbell(unsigned queue, bool completion_queue, unsigned short value) {
             const unsigned index = queue * 2 + (completion_queue ? 1 : 0);
 
-            write32(0x1000 + index * doorbell_stride, value);
+            write32(register_space + index * doorbell_stride, value);
         }
 
         bool wait_ready(bool ready, bool reject_fatal = true) const {
@@ -800,11 +801,20 @@ namespace {
             if (!astia::module::pci_map_bar(pci, 0))
                 return false;
 
+            const unsigned long long mapped = astia::module::pci_bar_mapped(pci, 0);
+            const unsigned long long size   = astia::module::pci_bar_size(pci, 0);
+
+            if (mapped == 0 || size < register_space) {
+                (void) astia::module::pci_unmap_bar(pci, 0);
+                (void) astia::module::pci_disable_bus_master(pci);
+
+                return false;
+            }
+
             if (!astia::module::pci_disable_msix(*pci))
                 return false;
 
-            registers = reinterpret_cast<volatile unsigned char*>(
-                astia::module::pci_bar_mapped(pci, 0));
+            registers  = reinterpret_cast<volatile unsigned char*>(mapped);
             capability = read64(0);
 
             if (((capability >> 48) & 0xf) != 0)
