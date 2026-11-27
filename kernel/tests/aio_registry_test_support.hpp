@@ -51,6 +51,7 @@ namespace astia::io::aio::test_support {
     void set_node_mode(fs::file_mode mode);
     void set_node_mode(const char* path, fs::file_mode mode);
     void set_node_owner(const char* path, uid_t uid, gid_t gid);
+    void set_node_identity(const char* path, u32 device, u64 inode);
     void set_directory_entry_inode(u64 inode);
     void set_process_credentials(uid_t uid, gid_t gid);
     void set_memory_allowed(bool allowed);

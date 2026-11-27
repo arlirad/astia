@@ -80,6 +80,24 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_statx(char* path, i32 dirfd, u32 op_flags, astia_stat* out) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_STATX, dirfd);
+
+        sqe.address  = reinterpret_cast<u64>(path);
+        sqe.offset   = reinterpret_cast<u64>(out);
+        sqe.length   = sizeof(astia_stat);
+        sqe.op_flags = op_flags;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_chown_path(char* path, u32 owner, u64 group, u32 flags = 0) {
         using namespace aio::test_support;
 
@@ -518,6 +536,93 @@ ASTIA_TEST(aio_filesystem_fsync_and_ftruncate_use_production_file) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, truncate));
     ASTIA_CHECK(capture.result(1) == 0);
     ASTIA_CHECK(node->size_value == 9);
+}
+
+ASTIA_TEST(aio_filesystem_statx_reports_directory_identity) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(
+        fs::file_mode(fs::file_type::directory, fs::default_directory_permissions));
+    set_directory("/tmp/first", 0755, uid_t{0}, gid_t{0});
+    set_node_identity("/tmp/first", 7, 4242);
+    set_directory("/tmp/second", 0755, uid_t{0}, gid_t{0});
+    set_node_identity("/tmp/second", 7, 9001);
+
+    char first_path[]  = "/tmp/first";
+    char second_path[] = "/tmp/second";
+
+    astia_stat first{};
+    astia_stat second{};
+
+    ASTIA_CHECK(submit_statx(first_path, -1, 0, &first) == 0);
+    ASTIA_CHECK(submit_statx(second_path, -1, 0, &second) == 0);
+    ASTIA_CHECK(first.dev == 7);
+    ASTIA_CHECK(first.ino == 4242);
+    ASTIA_CHECK(second.dev == 7);
+    ASTIA_CHECK(second.ino == 9001);
+    ASTIA_CHECK(first.ino != second.ino);
+}
+
+ASTIA_TEST(aio_filesystem_statx_reports_implicit_directory_identity) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_identity("/tmp/implicit", 5, 123);
+
+    char path[] = "/tmp/implicit";
+
+    astia_stat stat{};
+
+    ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == 0);
+    ASTIA_CHECK(stat.dev == 5);
+    ASTIA_CHECK(stat.ino == 123);
+}
+
+ASTIA_TEST(aio_filesystem_statx_reports_symlink_identity) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(fs::file_mode(fs::file_type::symlink, fs::default_symlink_permissions));
+    set_node_identity("/tmp/link", 3, 77);
+
+    char path[] = "/tmp/link";
+
+    astia_stat stat{};
+
+    ASTIA_CHECK(submit_statx(path, -1, STATX_NOFOLLOW, &stat) == 0);
+    ASTIA_CHECK(stat.dev == 3);
+    ASTIA_CHECK(stat.ino == 77);
+}
+
+ASTIA_TEST(aio_filesystem_statx_fstat_uses_handle_device) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_identity("/tmp/node", 9, 123);
+
+    auto file = aio_test::make_open_file(new aio_test::fake_file);
+
+    file->set_path("/tmp/node");
+
+    const i32 fd = install_descriptor(file);
+
+    astia_stat           stat{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_STATX, fd);
+
+    sqe.offset = reinterpret_cast<u64>(&stat);
+    sqe.length = sizeof(stat);
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(stat.dev == 9);
+    ASTIA_CHECK(stat.ino == 123);
 }
 
 ASTIA_TEST(aio_filesystem_statx_reports_production_size) {

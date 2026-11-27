@@ -52,8 +52,11 @@ namespace astia::io::aio::test_support {
             file_mode mode{};
             uid_t     uid{};
             gid_t     gid{};
-            bool      mode_set  = false;
-            bool      owner_set = false;
+            u32       device{};
+            u64       inode{};
+            bool      mode_set     = false;
+            bool      owner_set    = false;
+            bool      identity_set = false;
         };
 
         node_override_entry node_overrides[node_override_capacity];
@@ -353,6 +356,16 @@ namespace astia::io::aio::test_support {
         entry->uid       = uid;
         entry->gid       = gid;
         entry->owner_set = true;
+    }
+
+    void set_node_identity(const char* path, u32 device, u64 inode) {
+        node_override_entry* entry = ensure_override(path);
+        if (entry == nullptr)
+            return;
+
+        entry->device       = device;
+        entry->inode        = inode;
+        entry->identity_set = true;
     }
 
     void set_directory_entry_inode(u64 inode) {
@@ -860,6 +873,20 @@ namespace astia::fs {
     open_file::~open_file() {}
 #endif
 
+    void open_file::set_path(const char* path) {
+        if (path == nullptr)
+            return;
+
+        u32 i = 0;
+
+        for (; i + 1 < path_max && path[i] != '\0'; ++i) {
+            _path[i] = path[i];
+        }
+
+        _path[i]  = '\0';
+        _has_path = true;
+    }
+
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
             return -EINVAL;
@@ -1012,6 +1039,22 @@ namespace astia::fs {
 
     file_timestamps node_timestamps(const char*) {
         return {};
+    }
+
+    u32 node_device(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->identity_set ? entry->device : 0u;
+    }
+
+    u32 node_device(const open_file& handle) {
+        return node_device(handle.path());
+    }
+
+    u64 node_inode(const char* path) {
+        auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
+
+        return entry != nullptr && entry->identity_set ? entry->inode : 0ull;
     }
 
     long chmod_path(const char*, file_permissions) {

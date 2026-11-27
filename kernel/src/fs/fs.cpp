@@ -352,6 +352,22 @@ namespace astia::fs {
             return *relative == '\0' ? "/" : relative;
         }
 
+        /// Stable identity for filesystems that cannot describe a node.
+        /// FNV-1a over the mount and canonical path keeps two names apart;
+        /// the top bit keeps the result clear of real inode numbers.
+        u64 synthetic_inode(u32 device, const char* canonical) {
+            constexpr u64 offset_basis = 0xcbf29ce484222325ull;
+            constexpr u64 prime        = 0x100000001b3ull;
+
+            u64 hash = (offset_basis ^ device) * prime;
+
+            for (const char* cursor = canonical; *cursor != '\0'; ++cursor) {
+                hash = (hash ^ static_cast<u8>(*cursor)) * prime;
+            }
+
+            return hash | (u64{1} << 63);
+        }
+
         filesystems::devfs devfs_type;
         filesystems::tmpfs tmpfs_type_instance;
         alignas(filesystems::devfs_mount) u8
@@ -1191,6 +1207,37 @@ namespace astia::fs {
         return unix_mode.exists() ? unix_mode
                                   : operation.instance()->node_mode(
                                         relative_path(*operation.entry(), path));
+    }
+
+    u32 node_device(const char* path) {
+        if (path == nullptr || path[0] != '/')
+            return 0;
+
+        mount_operation operation(path);
+
+        return operation ? operation.instance()->device() : 0u;
+    }
+
+    u32 node_device(const open_file& handle) {
+        if (const auto* owner = handle.mount_owner())
+            return owner->device();
+
+        return node_device(handle.path());
+    }
+
+    u64 node_inode(const char* path) {
+        if (path == nullptr || path[0] != '/')
+            return 0;
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return 0;
+
+        const u64 inode =
+            operation.instance()->node_inode(relative_path(*operation.entry(), path));
+
+        return inode != 0 ? inode : synthetic_inode(operation.instance()->device(), path);
     }
 
     bool directory_matches(const char* path, mount* owner, u64 inode) {
