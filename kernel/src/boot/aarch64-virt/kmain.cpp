@@ -1,4 +1,5 @@
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/timer.hpp>
 #include <astia/boot/aarch64/fdt.hpp>
 #include <astia/boot/aarch64/virt.hpp>
 
@@ -35,7 +36,7 @@ namespace {
     struct local_irq_state {
         volatile astia::u32 self_sgi_count       = 0;
         volatile astia::u32 timer_count          = 0;
-        astia::u32          timer_ticks          = 0;
+        astia::u32          timer_interval_ticks = 0;
         volatile bool       timer_rearm_failed   = false;
         volatile astia::u32 deadline_a           = 0;
         volatile astia::u32 deadline_b           = 0;
@@ -101,10 +102,13 @@ namespace {
     void handle_timer(void* context) {
         auto*            state   = static_cast<local_irq_state*>(context);
         const astia::u32 handled = state->timer_count;
+        const astia::u64 now     = timer::now_ms();
 
         state->timer_count = handled + 1;
-        state->deadline_fired =
-            state->deadline_fired + timer::dispatch_due(timer::now_ms());
+
+        (void) timer::account_tick(now);
+
+        state->deadline_fired = state->deadline_fired + timer::dispatch_due(now);
 
         astia::arch::aarch64::notify_timer_tick();
 
@@ -112,14 +116,15 @@ namespace {
             timer::tick_action::rearm) {
             astia::u32 control = 0;
 
-            if (timer::arm_interval(state->timer_ticks, control) != timer::error::none) {
-                timer::disable_and_clear();
+            if (timer::arm_interval(state->timer_interval_ticks, control) !=
+                timer::error::none) {
+                timer::stop_periodic();
 
                 state->timer_rearm_failed = true;
             }
         }
         else {
-            timer::disable_and_clear();
+            timer::stop_periodic();
         }
     }
 
@@ -765,9 +770,11 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_line_field(console, "deadline: canceled=", 1, 8);
 
     write_line_field(console, "timer: ppi=", timer::ppi_id, 8);
+    write_line_field(console, "timer: hz=", astia::arch::timer_hz(), 8);
+    write_line_field(console, "timer: interval-ms=", timer::tick_interval_ms, 8);
 
-    timer::arm_result  armed{};
-    const timer::error timer_error = timer::arm_one_shot(armed);
+    timer::periodic_result armed{};
+    const timer::error     timer_error = timer::start_periodic(armed);
 
     if (timer_error != timer::error::none) {
         console.write("timer: error=");
@@ -785,7 +792,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     write_bit(console, " istatus=", armed.control, 2);
     console.write_line("");
 
-    local_irqs.timer_ticks = armed.ticks;
+    local_irqs.timer_interval_ticks = armed.ticks;
 
     write_line_field(console, "timer: tick-budget=", timer::periodic_tick_budget, 8);
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER ARMED");
@@ -813,6 +820,9 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER RETURNED");
     console.write_line("ASTIA AARCH64 VIRT BOOT: TIMER TICK OK");
+
+    write_line_field(console, "timer: delivered=", timer::delivered_ticks(), 8);
+    write_line_field(console, "timer: missed=", timer::missed_ticks(), 8);
 
     if (local_irqs.deadline_a != 1 || local_irqs.deadline_b != 1 ||
         local_irqs.deadline_c != 0 || local_irqs.deadline_fired != 2 ||
@@ -847,8 +857,8 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
     local_irqs.timer_count        = 0;
     local_irqs.timer_rearm_failed = false;
 
-    timer::arm_result  scheduler_armed{};
-    const timer::error scheduler_timer_error = timer::arm_one_shot(scheduler_armed);
+    timer::periodic_result scheduler_armed{};
+    const timer::error     scheduler_timer_error = timer::start_periodic(scheduler_armed);
 
     if (scheduler_timer_error != timer::error::none) {
         console.write("sched: timer-error=");
@@ -856,7 +866,7 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "scheduler timer arm failed");
     }
 
-    local_irqs.timer_ticks = scheduler_armed.ticks;
+    local_irqs.timer_interval_ticks = scheduler_armed.ticks;
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER ARMED");
 
@@ -886,6 +896,9 @@ extern "C" [[noreturn]] void astia_aarch64_early_main(astia::u64 entry_x0) {
         fail(console, "scheduler timer window did not complete");
 
     console.write_line("ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED");
+
+    write_line_field(console, "timer: delivered=", timer::delivered_ticks(), 8);
+    write_line_field(console, "timer: missed=", timer::missed_ticks(), 8);
 
     if (timer::pending_deadlines() != 0)
         fail(console, "scheduler sleep deadline was not consumed");

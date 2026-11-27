@@ -222,8 +222,12 @@ grep -Fxq 'ASTIA AARCH64 VIRT BOOT: GIC SELF-SGI OK' "$log" ||
     die "GICv3 self-SGI verification did not complete"
 grep -Fxq 'timer: ppi=0x0000001e' "$log" ||
     die "timer PPI ID diagnostic is missing or unexpected"
+grep -Fxq 'timer: hz=0x00000064' "$log" ||
+    die "timer tick-service frequency is missing or unexpected"
+grep -Fxq 'timer: interval-ms=0x0000000a' "$log" ||
+    die "timer tick interval is missing or unexpected"
 grep -Fxq 'timer: frequency=0x03b9aca0 ticks=0x00098968' "$log" ||
-    die "timer frequency/one-shot interval diagnostic is missing or unexpected"
+    die "timer frequency/tick interval diagnostic is missing or unexpected"
 grep -Eq '^timer: ctl=0x0000000[15] enable=1 imask=0 istatus=[01]$' "$log" ||
     die "timer CNTP_CTL_EL0 state is missing or unexpected"
 grep -Fxq 'timer: tick-budget=0x00000005' "$log" ||
@@ -240,6 +244,10 @@ grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER RETURNED' "$log" ||
     die "timer IRQ handler did not return to the interrupted context"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: TIMER TICK OK' "$log" ||
     die "periodic timer tick verification did not complete"
+grep -Fxq 'timer: delivered=0x00000005' "$log" ||
+    die "first timer window delivered-tick count is missing or unexpected"
+grep -Eq '^timer: missed=0x[0-9a-f]{8}$' "$log" ||
+    die "timer missed-tick accounting diagnostic is missing or malformed"
 awk '
     /ASTIA AARCH64 VIRT BOOT: TIMER ARMED/ {
         armed = NR
@@ -381,6 +389,8 @@ grep -Fxq 'sched: B observed-a-finished=1' "$log" ||
     die "context B did not observe A finishing"
 grep -Fxq 'ASTIA AARCH64 VIRT BOOT: SCHEDULER TIMER RETURNED' "$log" ||
     die "scheduler timer window did not return"
+grep -Fxq 'timer: delivered=0x0000000a' "$log" ||
+    die "scheduler timer window delivered-tick count is missing or unexpected"
 grep -Fxq 'sched: started=0x00000002' "$log" ||
     die "scheduler started count is missing or unexpected"
 grep -Fxq 'sched: retires=0x00000002' "$log" ||
