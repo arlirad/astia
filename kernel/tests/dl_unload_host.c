@@ -15,6 +15,8 @@ long astia_dl_test_dlunmap(uint64_t base);
 long astia_dl_test_sigaction(int32_t signal, const astia_sigaction_t* next,
                              astia_sigaction_t* old);
 long astia_dl_test_thread_count(void);
+int  astia_dl_test_dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*),
+                                   void* data);
 
 #define memcpy astia_dl_test_memcpy
 #define memset astia_dl_test_memset
@@ -84,6 +86,8 @@ void astia_dl_test_reset(void) {
     }
 
     g_module_count       = 0;
+    g_load_adds          = 0;
+    g_load_subs          = 0;
     g_ring               = 0;
     g_tag                = 0;
     g_lazy_bindings      = 0;
@@ -109,7 +113,6 @@ int astia_dl_test_add_module(uint64_t base, uint64_t span, uint32_t refcount,
 
     module->base            = base;
     module->span            = span;
-    module->used            = 1;
     module->dynamic         = 1;
     module->refcount        = refcount;
     module->nodelete        = nodelete;
@@ -117,7 +120,18 @@ int astia_dl_test_add_module(uint64_t base, uint64_t span, uint32_t refcount,
     module->strtab          = "";
     module->id              = (uint32_t) (index + 1);
 
+    module_activate(module);
+
     return index;
+}
+
+int astia_dl_test_iterate(int (*callback)(struct dl_phdr_info*, size_t, void*),
+                          void* data) {
+    return astia_dl_test_dl_iterate_phdr(callback, data);
+}
+
+void astia_dl_test_module_set_tls(int index, uint64_t memsz) {
+    g_modules[index].tls_memsz = memsz;
 }
 
 void* astia_dl_test_add_handle(int root, const int* deps, int ndeps) {

@@ -50,8 +50,10 @@
  * unrelated local image.
  *
  * dl_iterate_phdr reports every used image in load order (including this
- * prelinked interpreter); the payload has an empty dlpi_name.  A dlopen'ed
- * image containing PT_TLS is rejected until global-dynamic TLS exists.
+ * prelinked interpreter); the payload has an empty dlpi_name.  Each image
+ * reports the cumulative add/remove counters and, when it has PT_TLS, its
+ * DTPMOD64 module ID.  A dlopen'ed image containing PT_TLS is rejected until
+ * global-dynamic TLS exists.
  *
  * v1: eager binding, no lazy PLT, SysV/GNU hash, direct dependencies only,
  * and (name, version) symbol matching for the DT_VERSYM/DT_VERNEED/DT_VERDEF
@@ -200,6 +202,8 @@ static long ld_open(const char* path) {
 
 static ld_module g_modules[LD_MAX_MODULES];
 static int       g_module_count;
+static uint64_t  g_load_adds;
+static uint64_t  g_load_subs;
 static uint64_t  g_lazy_bindings;
 static int       g_lazy_lock;
 
@@ -571,6 +575,29 @@ static int module_init(ld_module* module, uint64_t base, const Elf64_Phdr* phdr,
     module->fini_array_size = dyn_tag(module, DT_FINI_ARRAYSZ);
 
     return 0;
+}
+
+/* dl_iterate_phdr reports these counters as dlpi_adds/dlpi_subs: the number
+   of images ever registered and ever retired, not the current population. */
+static void module_activate(ld_module* module) {
+    if (module->used)
+        return;
+
+    module->used = 1;
+
+    ++g_load_adds;
+}
+
+static void module_retire(ld_module* module) {
+    if (!module->used)
+        return;
+
+    module->used      = 0;
+    module->in_global = 0;
+    module->pending   = 0;
+    module->finalized = 0;
+
+    ++g_load_subs;
 }
 
 static int relocation_scope_allows(int index) {
@@ -1577,7 +1604,8 @@ static int load_module(const char* name, int flags, int* out, int* is_new) {
         return -1;
     }
 
-    module->used      = 1;
+    module_activate(module);
+
     module->dynamic   = 1;
     module->nodelete  = (flags & RTLD_NODELETE) != 0;
     module->in_global = (flags & RTLD_GLOBAL) != 0;
@@ -1657,10 +1685,7 @@ static void discard_added(const int* added, int count) {
 
         (void) astia_dlunmap(module->base);
 
-        module->used      = 0;
-        module->in_global = 0;
-        module->pending   = 0;
-        module->finalized = 0;
+        module_retire(module);
     }
 }
 
@@ -2024,10 +2049,7 @@ static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address
             continue;
         }
 
-        module->used      = 0;
-        module->in_global = 0;
-        module->pending   = 0;
-        module->finalized = 0;
+        module_retire(module);
     }
 
     return remaining;
@@ -2191,10 +2213,7 @@ int dlclose(void* handle) {
             continue;
         }
 
-        module->used      = 0;
-        module->in_global = 0;
-        module->pending   = 0;
-        module->finalized = 0;
+        module_retire(module);
     }
 
     g_loader_busy = 0;
@@ -2301,6 +2320,11 @@ int dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* 
     if (callback == 0)
         return 0;
 
+    /* One snapshot for the whole walk, so every image reports the same
+       generation even if the callback itself touches the loader. */
+    const uint64_t adds = g_load_adds;
+    const uint64_t subs = g_load_subs;
+
     for (int module = 0; module < g_module_count; ++module) {
         const ld_module* image = &g_modules[module];
 
@@ -2312,9 +2336,9 @@ int dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* 
             .dlpi_name      = image->name,
             .dlpi_phdr      = image->phdr,
             .dlpi_phnum     = (uint16_t) image->phnum,
-            .dlpi_adds      = 0,
-            .dlpi_subs      = 0,
-            .dlpi_tls_modid = 0,
+            .dlpi_adds      = adds,
+            .dlpi_subs      = subs,
+            .dlpi_tls_modid = image->tls_memsz != 0 ? image->id : 0,
             .dlpi_tls_data  = 0,
         };
 
@@ -2391,7 +2415,8 @@ static int interpreter_module(uint64_t base) {
     if (module_init(module, base, phdr, header->e_phnum) != 0)
         return -1;
 
-    module->used      = 1;
+    module_activate(module);
+
     module->startup   = 1;
     module->prelinked = 1;
     module->refcount  = 1;
@@ -2434,7 +2459,8 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
     if (module_init(&g_modules[g_module_count++], base, phdr, phnum) != 0)
         astia_exit(111);
 
-    g_modules[0].used      = 1;
+    module_activate(&g_modules[0]);
+
     g_modules[0].startup   = 1;
     g_modules[0].refcount  = 1;
     g_modules[0].in_global = 1;
@@ -2485,7 +2511,8 @@ __attribute__((visibility("hidden"))) uint64_t ld_main(uint64_t* sp) {
                             info.phnum) != 0)
                 astia_exit(127);
 
-            loaded->used      = 1;
+            module_activate(loaded);
+
             loaded->startup   = 1;
             loaded->refcount  = 1;
             loaded->in_global = 1;

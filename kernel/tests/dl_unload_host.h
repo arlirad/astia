@@ -1,12 +1,18 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct dl_phdr_info;
+
 void        astia_dl_test_reset(void);
+int         astia_dl_test_iterate(int (*callback)(struct dl_phdr_info*, size_t, void*),
+                                  void* data);
+void        astia_dl_test_module_set_tls(int index, uint64_t memsz);
 int         astia_dl_test_add_module(uint64_t base, uint64_t span, uint32_t refcount,
                                      int nodelete);
 void*       astia_dl_test_add_handle(int root, const int* deps, int ndeps);

@@ -34,7 +34,9 @@ char* dlerror(void);
 int   dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* data);
 
 /* dl_iterate_phdr visits every used image in load order, including the
- * prelinked interpreter; the payload reports an empty dlpi_name. */
+ * prelinked interpreter; the payload reports an empty dlpi_name.
+ * dlpi_adds/dlpi_subs are the cumulative images added/removed since startup;
+ * dlpi_tls_modid is the image's TLS module ID, or zero without PT_TLS. */
 
 #ifdef __cplusplus
 }

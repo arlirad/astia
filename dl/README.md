@@ -141,9 +141,13 @@ finalized. Reopening it re-initializes it as described above.
 The callback runs for every used image in load order, including the prelinked
 interpreter. The payload reports an empty `dlpi_name`; dependencies and
 `dlopen`ed images report their soname (or path when they have no soname).
-`dlpi_adds`/`dlpi_subs` are zero, and `dlpi_tls_modid`/`dlpi_tls_data` are
-zero because dynamic TLS is not implemented. A non-zero callback return stops
-the iteration.
+`dlpi_adds` and `dlpi_subs` are the cumulative numbers of images registered
+and retired since startup, identical for every image in one walk; a deferred
+or `RTLD_NODELETE` unload does not increment `dlpi_subs`.
+`dlpi_tls_modid` is the module's `DTPMOD64` ID when the image has `PT_TLS`,
+and zero otherwise. `dlpi_tls_data` stays zero: the loader does not expose a
+per-thread static TLS address through this callback. A non-zero callback
+return stops the iteration.
 
 ### Unload quiescence
 
