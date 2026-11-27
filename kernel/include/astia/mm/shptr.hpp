@@ -195,7 +195,6 @@ namespace astia::mm {
             }
         }
     };
-
 } // namespace astia::mm
 
 #include "shweak.hpp"

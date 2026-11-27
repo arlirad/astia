@@ -198,6 +198,7 @@ namespace astia::eth {
 
         const auto protocol =
             mapper<net::protocol_id, ethertype>::from(header.protocol.get());
+
         if (!protocol.has_value)
             return;
 
