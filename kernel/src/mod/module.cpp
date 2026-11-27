@@ -1059,6 +1059,11 @@ namespace astia::mod {
             if (error != module_error::ok)
                 return error;
 
+            // A synchronous unload cannot stop drivers; close() must do that
+            // first so the module image outlives its bound callbacks.
+            if (hw::drivers().devices_owned_by(driver_owner(id)) != 0)
+                return module_error::busy;
+
             if (!begin_unload_locked(*slot, plan))
                 return module_error::busy;
         }
@@ -1070,6 +1075,23 @@ namespace astia::mod {
 
     core::task<module_error> close(module_id id) {
         close_owner_guard ownership(id);
+
+        // Validate the generation before using its owner token: a stale id
+        // must not tear down the drivers of the slot's next occupant.
+        {
+            arch::interrupt_spinlock_guard guard(registry_lock);
+            module_error                   error = module_error::ok;
+
+            if (find_slot_locked(id, error) == nullptr)
+                co_return error;
+        }
+
+        // A module owns every driver it registered.  Stop and remove those
+        // bindings while the module image and its callbacks are still live.
+        const hw::owner_id owner = driver_owner(id);
+
+        if (hw::drivers().devices_owned_by(owner) != 0)
+            (void) co_await hw::drivers().unbind_owner(owner);
 
         while (true) {
             close_waiter* waiter = new (std::nothrow) close_waiter();
@@ -1415,6 +1437,17 @@ namespace astia::mod {
 
             deliver_waiter(waiter, module_error::ok);
         }
+    }
+
+    hw::owner_id driver_owner(module_id id) {
+        if (!id.valid())
+            return hw::kernel_owner;
+
+        return hw::owner_id{id.slot + 1};
+    }
+
+    hw::owner_id active_driver_owner() {
+        return driver_owner(active_module_id());
     }
 
     module_id active_module_id() {

@@ -6,6 +6,7 @@
 
 #include "../src/mod/module.hpp"
 #include "support/interrupts_host.hpp"
+#include "support/task_host.hpp"
 #include "support/test.hpp"
 #include <sys/mman.h>
 
@@ -65,6 +66,54 @@ namespace {
     };
 
     observation* active_observation = nullptr;
+
+    class owner_test_info final : public astia::hw::device_info {
+        public:
+        explicit owner_test_info(astia::u32 value) : value_(value) {}
+
+        astia::hw::bus_kind bus() const override {
+            return astia::hw::bus_kind::unknown;
+        }
+
+        bool equals(const astia::hw::device_info& other) const override {
+            return value_ == static_cast<const owner_test_info&>(other).value_;
+        }
+
+        private:
+        astia::u32 value_;
+    };
+
+    class owner_test_driver final : public astia::hw::driver {
+        public:
+        const char* name() const override {
+            return "module-owner-test";
+        }
+
+        bool match(const astia::hw::device_info&) const override {
+            return true;
+        }
+
+        astia::core::task<astia::i64> probe(const astia::hw::device_info&) override {
+            co_return 0;
+        }
+
+        astia::core::task<astia::i64> start(const astia::hw::device_info&) override {
+            co_return 0;
+        }
+
+        astia::core::task<void> stop(const astia::hw::device_info&) override {
+            ++stop_calls;
+            co_return astia::error_t::enone;
+        }
+
+        astia::core::task<void> remove(const astia::hw::device_info&) override {
+            ++remove_calls;
+            co_return astia::error_t::enone;
+        }
+
+        int stop_calls   = 0;
+        int remove_calls = 0;
+    };
 
     astia::dev::irq_route lifecycle_route{1};
 
@@ -1418,4 +1467,54 @@ ASTIA_TEST(module_lifecycle_close_waiter_defers_from_guarded_route) {
     ASTIA_CHECK(closing.value() != nullptr &&
                 *closing.value() == astia::mod::module_error::ok);
     ASTIA_CHECK(state.unmapped == 1);
+}
+
+ASTIA_TEST(module_lifecycle_close_unbinds_module_owned_drivers) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
+
+    const astia::hw::owner_id owner = astia::mod::driver_owner(id);
+
+    ASTIA_CHECK(owner == astia::hw::owner_id{id.slot + 1});
+    ASTIA_CHECK(owner != astia::hw::kernel_owner);
+
+    owner_test_driver        driver;
+    astia::hw::driver_handle registered{};
+
+    ASTIA_CHECK(astia::hw::drivers().register_driver(
+                    driver, registered, owner, astia::hw::driver_resource_async) == 0);
+
+    astia::mm::shptr<owner_test_info> info(new owner_test_info(7));
+
+    astia::mm::shptr<astia::hw::device_info> device(
+        static_cast<astia::mm::shptr<owner_test_info>&&>(info));
+
+    astia::hw::device_handle bound{};
+    astia::i64               bind_result = -1;
+
+    ASTIA_CHECK(astia_test::run_task(
+        astia::hw::drivers().bind_device(
+            static_cast<astia::mm::shptr<astia::hw::device_info>&&>(device), bound),
+        bind_result));
+    ASTIA_CHECK(bind_result == 0);
+    ASTIA_CHECK(bound.valid());
+    ASTIA_CHECK(astia::hw::drivers().devices_owned_by(owner) == 1);
+    ASTIA_CHECK(astia::mod::unload(id) == astia::mod::module_error::busy);
+
+    auto closing = astia::mod::close(id);
+
+    closing.resume();
+    ASTIA_CHECK(closing.done());
+    ASTIA_CHECK(closing.value() != nullptr &&
+                *closing.value() == astia::mod::module_error::ok);
+    ASTIA_CHECK(driver.stop_calls == 1);
+    ASTIA_CHECK(driver.remove_calls == 1);
+    ASTIA_CHECK(astia::hw::drivers().devices_owned_by(owner) == 0);
+    ASTIA_CHECK(!astia::hw::drivers().valid(bound));
+    ASTIA_CHECK(astia::hw::drivers().unregister_driver(registered) == 0);
 }

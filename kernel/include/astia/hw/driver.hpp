@@ -57,6 +57,15 @@ namespace astia::hw {
 
     inline constexpr owner_id kernel_owner{};
 
+    /// Resolve the owner of a registration that asks for `kernel_owner`.
+    /// The module loader installs this so a driver registered by a module is
+    /// owned by that module rather than by the kernel; built-in drivers and
+    /// every call outside a module entrypoint still resolve to the kernel.
+    using owner_resolver = owner_id (*)();
+
+    void     set_owner_resolver(owner_resolver resolver);
+    owner_id current_owner();
+
     /// Registry handles.  Slot 0 is invalid; a handle stays valid until the
     /// matching unregister_driver()/unbind().  Do not retain one across its
     /// release: slot reuse aliases the new entry.
@@ -118,8 +127,10 @@ namespace astia::hw {
         static constexpr u32 max_drivers = resource_limits::policy::registered_drivers;
         static constexpr u32 max_devices = resource_limits::policy::bound_devices;
 
-        /// Register a driver.  Returns 0, -EINVAL (missing/duplicate name or
-        /// invalid resource mask), -EEXIST (already registered), or -ENOSPC.
+        /// Register a driver.  `kernel_owner` means "the current owner": the
+        /// active module for module code, the kernel otherwise.  Returns 0,
+        /// -EINVAL (missing/duplicate name or invalid resource mask), -EEXIST
+        /// (already registered), or -ENOSPC.
         i64 register_driver(driver& value, driver_handle& out,
                             owner_id owner     = kernel_owner,
                             u32      resources = driver_resource_supported);

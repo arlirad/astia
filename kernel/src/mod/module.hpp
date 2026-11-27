@@ -3,6 +3,7 @@
 #include <astia/common.hpp>
 #include <astia/core/task.hpp>
 #include <astia/elf.hpp>
+#include <astia/hw/driver.hpp>
 #include <astia/span.hpp>
 
 #include "exports.hpp"
@@ -328,6 +329,15 @@ namespace astia::mod {
     /// invalid id outside that context. Used to resolve the calling module for
     /// kernel-owned route claims and residency.
     module_id active_module_id();
+
+    /// Driver-registry owner token for a module.  Slot 0 is reserved for the
+    /// kernel, so a module's token is its slot plus one; generations only
+    /// distinguish stale handles and are irrelevant while the module is live.
+    hw::owner_id driver_owner(module_id id);
+
+    /// Owner token for the module whose entrypoint or callback owns this
+    /// thread, or the kernel when no module is active.
+    hw::owner_id active_driver_owner();
 
     /// True when the module is loaded, not running, and has no active refs.
     bool quiesced(module_id id);

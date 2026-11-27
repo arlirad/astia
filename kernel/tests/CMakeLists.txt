@@ -1007,6 +1007,7 @@ astia_add_host_test(astia_module_lifecycle_test
          ${_lifecycle_reloc32_fixture_cpp}
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/irq_route.cpp
+         ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
          module_cxxabi_host_test.cpp
          ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
          support/resume_queue_host.cpp
@@ -1029,6 +1030,7 @@ astia_add_host_test(astia_module_syscall_test
         ${_fixture_dyn_cpp}
         ${_fixture_exec_cpp}
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/module.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/hw/driver.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modopen.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modls.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mod/syscalls/modstat.cpp
