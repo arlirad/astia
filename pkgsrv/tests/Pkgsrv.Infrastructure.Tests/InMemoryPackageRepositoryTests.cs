@@ -45,12 +45,16 @@ public sealed class InMemoryPackageRepositoryTests
     }
 
     [Fact]
-    public async Task Search_MatchesNameContainsAndSourceCommitPrefixOnly()
+    public async Task Search_MatchesNameContainsVersionContainsAndSourceCommitPrefix()
     {
         var repository = new InMemoryPackageRepository();
-        await repository.TryAddAsync(TestPackages.CreatePackage(name: "libc"), CancellationToken.None);
+        await repository.TryAddAsync(
+            TestPackages.CreatePackage(name: "libc", version: "2.3.4-rc.1+build.7"),
+            CancellationToken.None);
 
         var nameContains = await repository.SearchAsync("IBC", CancellationToken.None);
+        var versionContains = await repository.SearchAsync("RC.1", CancellationToken.None);
+        var buildMetadataContains = await repository.SearchAsync("build.7", CancellationToken.None);
         var commitPrefix = await repository.SearchAsync(
             TestPackages.CommitSha[..8],
             CancellationToken.None);
@@ -62,6 +66,8 @@ public sealed class InMemoryPackageRepositoryTests
             CancellationToken.None);
 
         Assert.Equal("libc", Assert.Single(nameContains).Manifest.Name.Value);
+        Assert.Equal("libc", Assert.Single(versionContains).Manifest.Name.Value);
+        Assert.Equal("libc", Assert.Single(buildMetadataContains).Manifest.Name.Value);
         Assert.Equal("libc", Assert.Single(commitPrefix).Manifest.Name.Value);
         Assert.Empty(commitSubstring);
         Assert.Empty(provenanceOnly);
@@ -89,13 +95,14 @@ public sealed class InMemoryPackageRepositoryTests
         var repository = new InMemoryPackageRepository();
         await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.10.0"), CancellationToken.None);
         await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.0"), CancellationToken.None);
-        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1-rc.1"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1-rc.10"), CancellationToken.None);
+        await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1-rc.2"), CancellationToken.None);
         await repository.TryAddAsync(TestPackages.CreatePackage(version: "1.9.1"), CancellationToken.None);
 
         var all = await repository.SearchAsync(null, CancellationToken.None);
 
         Assert.Equal(
-            ["1.9.0", "1.9.1-rc.1", "1.9.1", "1.10.0"],
+            ["1.9.0", "1.9.1-rc.2", "1.9.1-rc.10", "1.9.1", "1.10.0"],
             all.Select(entry => entry.Manifest.Version.ToString()));
     }
 

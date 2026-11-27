@@ -156,6 +156,10 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres.Migrations
                     b.Property<string>("VersionPreRelease")
                         .HasColumnType("text");
 
+                    b.Property<string>("VersionPreReleaseSortKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.HasKey("Name", "Version");
 
                     b.HasIndex("Name")
@@ -167,7 +171,7 @@ namespace Pkgsrv.Infrastructure.Persistence.Postgres.Migrations
                     b.HasIndex("State")
                         .HasDatabaseName("IX_packages_State");
 
-                    b.HasIndex("Name", "VersionMajor", "VersionMinor", "VersionPatch", "VersionPreRelease", "VersionBuildMetadata", "Version")
+                    b.HasIndex("Name", "VersionMajor", "VersionMinor", "VersionPatch", "VersionPreReleaseSortKey", "Version")
                         .HasDatabaseName("IX_packages_VersionOrder");
 
                     b.ToTable("packages", (string)null);

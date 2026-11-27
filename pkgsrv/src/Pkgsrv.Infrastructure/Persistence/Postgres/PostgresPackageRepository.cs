@@ -335,6 +335,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
 
             source = source.Where(record =>
                 EF.Functions.ILike(record.Name, contains, "\\")
+                || EF.Functions.ILike(record.Version, contains, "\\")
                 || EF.Functions.ILike(record.SourceCommit, prefix, "\\"));
         }
 
@@ -343,10 +344,7 @@ public sealed class PostgresPackageRepository : IPackageRepository, IPackageInde
             .ThenBy(record => record.VersionMajor)
             .ThenBy(record => record.VersionMinor)
             .ThenBy(record => record.VersionPatch)
-            .ThenBy(record => record.VersionPreRelease == null)
-            .ThenBy(record => EF.Functions.Collate(record.VersionPreRelease!, "C"))
-            .ThenBy(record => record.VersionBuildMetadata == null ? 0 : 1)
-            .ThenBy(record => EF.Functions.Collate(record.VersionBuildMetadata!, "C"))
+            .ThenBy(record => EF.Functions.Collate(record.VersionPreReleaseSortKey, "C"))
             .ThenBy(record => EF.Functions.Collate(record.Version, "C"))
             .Take(MaxListResults);
     }
