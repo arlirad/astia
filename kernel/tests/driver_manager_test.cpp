@@ -205,6 +205,20 @@ namespace {
         return result;
     }
 
+    astia::hw::owner_id resolved_owner() {
+        return astia::hw::owner_id{9};
+    }
+
+    struct owner_resolver_scope {
+        owner_resolver_scope() {
+            astia::hw::set_owner_resolver(&resolved_owner);
+        }
+
+        ~owner_resolver_scope() {
+            astia::hw::set_owner_resolver(nullptr);
+        }
+    };
+
     bool selftests_sync(astia::hw::driver_registry& manager) {
         bool result = false;
 
@@ -498,4 +512,32 @@ ASTIA_TEST(driver_manager_selftest_is_task_shaped) {
     ASTIA_CHECK(task.valid());
     task.resume();
     ASTIA_CHECK(!task.done());
+}
+
+ASTIA_TEST(driver_manager_resolves_current_owner_for_kernel_requests) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    test_driver     driver(state);
+
+    ASTIA_CHECK(current_owner() == kernel_owner);
+
+    driver_handle registered{};
+
+    {
+        owner_resolver_scope resolver;
+
+        ASTIA_CHECK(current_owner() == owner_id{9});
+        ASTIA_CHECK(manager.register_driver(driver, registered) == 0);
+
+        device_handle bound{};
+
+        ASTIA_CHECK(bind_sync(manager, typed_device(11), bound) == 0);
+        ASTIA_CHECK(manager.owner_of(bound) == owner_id{9});
+        ASTIA_CHECK(unbind_sync(manager, bound) == 0);
+    }
+
+    ASTIA_CHECK(current_owner() == kernel_owner);
+    ASTIA_CHECK(manager.unregister_driver(registered) == 0);
 }

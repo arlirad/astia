@@ -94,6 +94,10 @@ namespace astia::mod {
         if (!ctx.info)
             return false;
 
+        // Module code registers drivers through the kernel registry; resolve
+        // those registrations to the module that is running.
+        hw::set_owner_resolver(&active_driver_owner);
+
         // This step runs before the fs mount, so it loads and publishes the
         // normalized archive first; fs/initrd_init.cpp later reuses it for
         // the root mount instead of decoding or opening the image again.
