@@ -1,4 +1,5 @@
 #include "common.h"
+#include "read_retry.h"
 
 #include <fcntl.h>
 #include <stdlib.h>
@@ -8,7 +9,7 @@ static int copy_lines(int fd, const char* name, unsigned long wanted) {
     unsigned long lines = 0;
 
     for (;;) {
-        long count = read(fd, buffer, sizeof buffer);
+        long count = cu_read_retry(fd, buffer, sizeof buffer);
         if (count == 0)
             return 0;
 

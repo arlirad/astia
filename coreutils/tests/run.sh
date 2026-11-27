@@ -79,6 +79,10 @@ $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter
     -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
     "$root/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"
 "$out/host/login_read_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
+    "$root/coreutils/tests/read_retry_test.c" -o "$out/host/read_retry_test" \
+    -Wl,--wrap=read
+"$out/host/read_retry_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to
