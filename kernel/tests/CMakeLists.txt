@@ -97,6 +97,7 @@ endfunction()
 
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
 astia_add_host_test(acpi_host_test acpi_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/madt.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/core.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/decode.cpp
@@ -109,6 +110,10 @@ target_include_directories(acpi_host_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
 target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
 astia_add_test_label(acpi_host_test "acpi;host;deterministic")
+astia_add_host_test(astia_shutdown_host_test shutdown_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
+target_compile_definitions(astia_shutdown_host_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(astia_shutdown_host_test "core;shutdown;host;deterministic")
 astia_add_host_test(astia_memory_map_test memory_map_test.cpp)
 astia_add_host_test(astia_pvh_test pvh_test.cpp ${ASTIA_KERNEL_SOURCE_DIR}/src/boot/virt/pvh.cpp)
 astia_add_host_test(astia_multiboot2_test multiboot2_test.cpp
@@ -166,6 +171,32 @@ astia_add_host_test(astia_dl_test dl_test.cpp)
 astia_add_host_test(astia_dl_symcount_test dl_symcount_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
 astia_add_test_label(astia_dl_symcount_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_mode_test dl_mode_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c)
+astia_add_test_label(astia_dl_mode_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_unload_test
+        dl_unload_test.cpp
+        dl_unload_host.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/aio_wait.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c)
+set(_dl_unload_includes
+        "${ASTIA_KERNEL_SOURCE_DIR}/../dl"
+        "${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64"
+        "${ASTIA_KERNEL_SOURCE_DIR}/../libc/include")
+set_source_files_properties(dl_unload_host.c PROPERTIES
+        INCLUDE_DIRECTORIES "${_dl_unload_includes}")
+astia_add_test_label(astia_dl_unload_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_error_test dl_error_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c)
+target_include_directories(astia_dl_error_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl)
+target_link_libraries(astia_dl_error_test PRIVATE Threads::Threads)
+astia_add_test_label(astia_dl_error_test "dl;host;deterministic")
+astia_add_host_test(astia_dl_aio_wait_test dl_aio_wait_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/../dl/aio_wait.c)
+astia_add_test_label(astia_dl_aio_wait_test "dl;host;deterministic")
 astia_add_host_test(astia_task_test
         task_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -778,7 +809,11 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_dep_c.c
         dl_dep_a.c
         interp_dlopen.c
-        interp_dyntls.c)
+        interp_dyntls.c
+        fixture_versions.c
+        interp_ver.c
+        fixture_badver.c
+        interp_badver.c)
 target_include_directories(astia_dl_boot_fixture_compile_db PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/include
         ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include)
@@ -1526,16 +1561,20 @@ if (ARCH STREQUAL "x86_64")
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64
                 -o ${_fix_dir}/ld.astia.so
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/resolve.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/aio_wait.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
-                -Wl,--hash-style=sysv
+                -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libfixture_base.so -o ${_fix_dir}/libfixture_base.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -ftls-model=initial-exec -fno-stack-protector
-                -Wl,--hash-style=sysv
+                -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libfixture.so -o ${_fix_dir}/libfixture.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${_fix_dir}/libfixture_base.so
@@ -1544,6 +1583,12 @@ if (ARCH STREQUAL "x86_64")
                 -Wl,-soname,libfixture_ifunc.so -o ${_fix_dir}/libfixture_ifunc.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_ifunc.c
                 ${_fix_dir}/libfixture_base.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.map
+                -Wl,-soname,libfixture_versions.so
+                -o ${_fix_dir}/libfixture_versions.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
                 -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-rpath-link,${_fix_dir}
@@ -1551,7 +1596,31 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/interp_ifunc
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c ${_fix_dir}/libfixture_ifunc.so
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
-                -fno-stack-protector -Wl,--hash-style=sysv
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_ver
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ver.c ${_fix_dir}/libfixture_versions.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.map
+                -Wl,-soname,libverstub.so
+                -o ${_fix_dir}/libverstub_v1.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC -DONLY_V2
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver_v2.map
+                -Wl,-soname,libverstub.so
+                -o ${_fix_dir}/libverstub.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_badver
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c ${_fix_dir}/libverstub_v1.so
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,lazy
                 -Wl,-rpath-link,${_fix_dir}
                 -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
                 -o ${_fix_dir}/interp_link
@@ -1607,6 +1676,12 @@ if (ARCH STREQUAL "x86_64")
                 -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
                 -o ${_fix_dir}/interp_dlopen
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now -DEXPECT_EAGER
+                -Wl,-rpath-link,${_fix_dir}
+                -Wl,--dynamic-linker=/lib/ld.astia.so -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/interp_now
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_link.c ${_fix_dir}/libfixture.so
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/ld.astia.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
@@ -1620,7 +1695,13 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_link ${_fix_dir}/interp_ifunc
-                ${_fix_dir}/interp_dlopen
+                ${_fix_dir}/interp_dlopen ${_fix_dir}/interp_now
+                ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/libfixture_versions.so ${_fix_dir}/libverstub.so
+                ${_fix_dir}/boot_stage/lib/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_ver ${_fix_dir}/interp_badver
                 ${_fix_dir}/boot_stage/bin/
                 COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/strip_pt_phdr.py
@@ -1740,7 +1821,7 @@ if (ARCH STREQUAL "x86_64")
                 hello_initrd.o sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 lib/libfixture_base.so lib/libfixture_ifunc.so
-                bin/interp_link bin/interp_nophdr bin/interp_ifunc
+                bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
                 bin/interp_relro bin/interp_relro_ok
                 lib/libdlfixture.so lib/libdlglobal.so lib/libdlnd.so
                 lib/libdlfixture_dep.so lib/libdlfixture_user.so
@@ -1748,6 +1829,8 @@ if (ARCH STREQUAL "x86_64")
                 lib/libdl_dep_a.so
                 bin/interp_dlopen
                 lib/libfixture_dynamic_tls.so bin/interp_dyntls
+                lib/libfixture_versions.so lib/libverstub.so bin/interp_ver
+                bin/interp_badver
                 lib/libc.so bin/dyn_libc etc/passwd etc/group
                 lib/libfixture_gnu.so lib/libfixture_semihash.so
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
@@ -1758,12 +1841,19 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/ld.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/aio_wait.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/aio_wait.h
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/mode.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/symcount.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/dlfcn.h
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/start.S
+                ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/resolve.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/arch/x86_64/reloc.h
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_lib.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_base.c
@@ -1779,18 +1869,16 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_ifunc.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/reloc_type_rewrite.py
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_relro.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_global.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_nd.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_dep.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_user.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_base.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_b.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_c.c
-                ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_a.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dlopen.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_dynamic_tls.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_dyntls.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_versions.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_ver.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.c
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver_v2.map
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
                 ${_fix_dir}/crt0.o
                 ${_libc_shared_so}
@@ -1927,8 +2015,11 @@ if (ARCH STREQUAL "x86_64")
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: relro ok"
+                "astia: ver ok"
+                "astia: ver reject ok"
                 "astia: ld ok"
                 "astia: dyntls ok"
+                "astia: ld eager ok"
                 "astia: ld nophdr ok"
                 "astia: gnu-hash ok"
                 "astia: tpoff32 ok"

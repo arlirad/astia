@@ -13,7 +13,7 @@ set(ASTIA_PUBLIC_HEADERS
         astia/core/rcu_domain.hpp
         astia/core/rcu_hashmap.hpp
         astia/core/rcu_runtime.hpp
-        astia/core/rcu_vector.hpp
+        astia/rcu/vector.hpp
         astia/core/resume_queue.hpp
         astia/core/spinlock.hpp
         astia/core/task.hpp

@@ -65,6 +65,7 @@ set(ASTIA_LIBC_ARCHIVE_EXTRA_SOURCES
 # objects and the Astia-side AIO port.
 set(ASTIA_LIBC_SHARED_EXTRA_SOURCES
   src/process/pthread.c
+  src/process/pthread_once.c
   src/aio/process_aio.c
 )
 

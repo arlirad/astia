@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/crypto/csprng.hpp>
 
 #include "chr/pseudo.hpp"
 #include "support/test.hpp"
@@ -31,5 +32,24 @@ ASTIA_TEST(dev_urandom_fills_and_bounds) {
 
     ASTIA_CHECK(urandom.read(nullptr, 0, 0) == 0);
     ASTIA_CHECK(urandom.read(nullptr, 4, 0) == -EFAULT);
-    ASTIA_CHECK(urandom.read(first, 1024 * 1024 + 1, 0) == -EINVAL);
+    ASTIA_CHECK(urandom.read(first, 1, 0) == 1);
+}
+
+ASTIA_TEST(dev_urandom_chunks_large_reads) {
+    astia::dev::urandom_device urandom;
+
+    constexpr astia::u32 chunk = astia::crypto::csprng::max_request;
+
+    std::vector<astia::u8> first(static_cast<astia::usz>(chunk) * 2);
+    std::vector<astia::u8> second(static_cast<astia::usz>(chunk) * 2);
+
+    ASTIA_CHECK(urandom.read(first.data(), chunk, 0) == static_cast<long>(chunk));
+    ASTIA_CHECK(urandom.read(first.data(), chunk + 1, 0) == static_cast<long>(chunk + 1));
+
+    ASTIA_CHECK(urandom.read(first.data(), static_cast<astia::u32>(first.size()), 0) ==
+                static_cast<long>(first.size()));
+    ASTIA_CHECK(urandom.read(second.data(), static_cast<astia::u32>(second.size()), 0) ==
+                static_cast<long>(second.size()));
+
+    ASTIA_CHECK(std::memcmp(first.data(), second.data(), first.size()) != 0);
 }

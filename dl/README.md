@@ -18,7 +18,8 @@ declared in `libc/include/dlfcn.h`.
    shares the image physically, and `dlmap` is identity-keyed, so a diamond
    dependency maps once.
 4. Resolves `RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64`, `TPOFF64`/`TPOFF32`
-   and `DTPMOD64`/`DTPOFF64` against the payload and its dependencies; weak
+   and `DTPMOD64`/`DTPOFF64` against the payload and its dependencies using
+   `(name, version)` matching from `DT_VERSYM`/`DT_VERNEED`/`DT_VERDEF`; weak
    undefined references resolve to zero.  GNU IFUNC symbols (`STT_GNU_IFUNC`)
    resolve in two phases: relocation queues the slot and the resolver's
    address, then every resolver runs after all relocations and before any
@@ -27,11 +28,21 @@ declared in `libc/include/dlfcn.h`.
    ordinary functions whose relocations are already applied, but it must not
    call another IFUNC: that slot is still unpatched, so the call would land
    on the second resolver instead of its result.  Resolving such chains needs
-   the per-slot lazy thunk mechanism tracked with lazy PLT binding (#163),
-   and remains a known residual limitation.
-5. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
+   per-slot lazy thunks beyond the current PLT path, and remains a known
+   residual limitation.
+5. Binds startup `JUMP_SLOT` entries lazily by default: each module's
+   `GOT[1]`/`GOT[2]` point at its module record and the per-architecture
+   resolver trampoline, and the first PLT call patches its own slot. A slot
+   the toolchain left at its link-time PLT stub address is biased by the load
+   address when that address falls inside the executable segment. Two threads
+   may race the first call and both enter the resolver; the slot patch is
+   idempotent and harmless. Modules linked with `-z now` (`DT_BIND_NOW`,
+   `DT_FLAGS & DF_BIND_NOW`, or `DT_FLAGS_1 & DF_1_NOW`) keep eager binding.
+   `dlopen` groups are always relocated eagerly, so `RTLD_LAZY` changes
+   nothing for them.
+6. Lays each shared object's `PT_TLS` block out below the kernel's TLS arena,
    copies the templates after relocation, and applies the TLS relocations.
-6. Makes each module's `PT_GNU_RELRO` range read-only (`.data.rel.ro` and,
+7. Makes each module's `PT_GNU_RELRO` range read-only (`.data.rel.ro` and,
    under partial RELRO, `.got`) after relocation, IFUNC resolution and TLS
    setup, before any constructor runs. Only the lazy PLT slots (`.got.plt`)
    stay writable because they lie outside the segment; `-z now` alone does
@@ -41,15 +52,15 @@ declared in `libc/include/dlfcn.h`.
    interval fails closed. The interpreter image itself (`ld.astia.so`) is
    mapped by the kernel and is not in this base's module table, so its own
    RELRO is out of scope here.
-7. Appends the interpreter itself, prelinked: it is read from `AT_BASE`, its
+8. Appends the interpreter itself, prelinked: it is read from `AT_BASE`, its
    headers are parsed for symbol lookup, and its relocations are skipped. It
    also exports `__tls_get_addr`, so it stays in the lookup table for DSOs
    that use global-dynamic TLS.
-8. Builds a per-thread DTV lazily when a global-dynamic DSO calls
+9. Builds a per-thread DTV lazily when a global-dynamic DSO calls
    `__tls_get_addr`; every thread gets its own blocks and a forked child
    inherits the parent's entry.
-9. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
-10. Jumps to `AT_ENTRY` with the original stack.
+10. Runs `DT_INIT`/`DT_INIT_ARRAY` dependencies-first.
+11. Jumps to `AT_ENTRY` with the original stack.
 
 The kernel applies `RELATIVE` when it maps an image and defers symbol
 relocations for `dlmap`ped images (`defer_symbol_relocs`); an `astia_dlmap`
@@ -68,12 +79,15 @@ char* dlerror(void);
 int   dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*), void* data);
 ```
 
-`RTLD_LAZY` and `RTLD_NOW` are accepted; relocations are always eager, so
-`RTLD_LAZY` changes nothing (the fixtures are built with `-z now`).
+`RTLD_LAZY` and `RTLD_NOW` are accepted; `dlopen` groups are always relocated
+eagerly, so `RTLD_LAZY` changes nothing for them (the fixtures are built with
+`-z now`). Startup modules still lazy-bind by default.
 `RTLD_LOCAL` is the default; `RTLD_GLOBAL` puts every module in the group in
 the default scope; `RTLD_NODELETE` keeps the group mapped after its last
 handle closes. `RTLD_DEFAULT` (NULL) tells `dlsym` to search the default
-scope.
+scope. A mode with any other bit set, or with `RTLD_LAZY` and `RTLD_NOW`
+together, fails with a `dlerror()` message; `RTLD_NOLOAD` is recognised by
+`<dlfcn.h>` but unsupported.
 
 ### Handles, scopes, and refcounts
 
@@ -103,12 +117,16 @@ finalization runs in reverse order (dependents first). `DT_FINI` and
 `DT_FINI_ARRAY` run only once for the candidates that will actually unload,
 and the full unload decision is rechecked after the finalizers return. They
 never run for `RTLD_NODELETE` or deferred images. A finalized module that is
-retained because the unmap was deferred is marked `finalized`; a later
-`dlclose` re-attempts only the unmap and never runs `DT_FINI` again. Reopening
-that module re-runs its initializers, and those of any finalized members of
-its retained dependency closure, dependency-first, then clears `finalized`
-and `pending` before returning the new handle. Startup modules are never
-unloaded. `dlerror` returns a static bounded message once and clears it.
+retained because the unmap was deferred is marked `finalized`, and its handle
+stays reserved; a later `dlclose` of that handle re-attempts only the unmap,
+never runs `DT_FINI` again, and releases the handle once every pending module
+is gone. Reopening that module re-runs its initializers, and those of any
+finalized members of its retained dependency closure, dependency-first, then
+clears `finalized` and `pending` before returning the new handle. Startup
+modules are never unloaded. `dlerror` returns a bounded message once and
+clears it; the message is kept per thread (keyed by the thread pointer, with
+a shared fallback once 16 threads have reported errors), so concurrent
+failures do not overwrite each other.
 
 The loader is single-entry: while `dlopen`/`dlclose` mutate the tables, and
 during every `dlsym` lookup (including an IFUNC resolver call),
@@ -144,44 +162,39 @@ module stays mapped unless all of these hold:
 - no other used module lists it in `DT_NEEDED` and no other live handle
   references it.
 
-When a module cannot be unmapped it is kept mapped, removed from the global
-scope, marked `pending`, and `dlclose` still returns 0. A module whose
-finalizer has run is also marked `finalized`; reopening it re-initializes it
-as described above. This conservative fallback means an active frame or a
-handler can defer unload indefinitely; the process owns the image until it
-exits.
+When a module cannot be unmapped because the process is not quiescent, it is
+kept mapped, removed from the global scope, marked `pending`, and `dlclose`
+returns 0. The handle remains reserved as the retry token: calling `dlclose`
+on it again retries the unmap and releases the handle only after every
+pending module is gone. If `astia_dlunmap` itself fails, the same pending
+retry state is kept but `dlclose` records a `dlerror` message and returns
+-1. A module whose finalizer has run is also marked `finalized`; reopening
+it re-initializes it as described above. This conservative fallback means an
+active frame or a handler can defer unload indefinitely; the process owns the
+image until it exits or the same handle is closed again once quiescent.
 
 ## Scope (v1)
 
-- eager binding (`-z now`); no lazy PLT;
+- lazy `JUMP_SLOT` binding for startup modules by default; `-z now` modules
+  and every `dlopen` group are eager;
 - breadth-first `DT_NEEDED`, transitive dependencies, diamond dedup;
 - `PT_GNU_RELRO` applied after relocation/TLS and before constructors:
   `.data.rel.ro` and `.got` are read-only; full RELRO (`-z relro -z now`)
   additionally covers the lazy `.got.plt` slots; `dlopen` groups are hardened
   after their relocations and IFUNC resolution, before their constructors;
 - `DT_INIT`/`DT_INIT_ARRAY` and `DT_FINI`/`DT_FINI_ARRAY`;
-- static TLS only: build DSOs with `-ftls-model=initial-exec`;
-- `dlopen` of an image with `PT_TLS` is rejected with a `dlerror`; dynamic TLS
-  needs issue #166 and its DTV registry;
+- static TLS for initial-exec DSOs; global-dynamic TLS through per-thread
+  DTVs and `__tls_get_addr` (still laid out in the static reserve);
+- symbol versioning: a versioned reference binds only to a definition
+  exporting the same version name, a versioned reference never binds to an
+  unversioned definition, and an unversioned reference prefers the first
+  non-hidden default definition;
 - at most 32 loaded modules (`LD_MAX_MODULES`), 16 live handles
   (`LD_MAX_HANDLES`), and 64-byte paths (`LD_PATH_MAX`); the kernel's
   per-process `dlmap` binding table is smaller than 32 in practice;
 - one loader instance per process, single-threaded `dlopen`/`dlclose`; unload
   requires a quiescent single-threaded process;
-- no `RTLD_NEXT`, no symbol versioning, SysV hash only, direct dependencies
-  only.
-
-Known gaps are tracked in the issue tracker under the `dl` label
-(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
-global-dynamic TLS, and the eagerly allocated TLS reserve.  At most 64 IFUNC
-relocations per process (`LD_MAX_IFUNCS`) are supported.
-  additionally covers the lazy `.got.plt` slots;
-- `DT_INIT`/`DT_INIT_ARRAY` (dependencies first); `DT_FINI` is left to process
-  teardown;
-- static TLS for initial-exec DSOs; global-dynamic TLS through per-thread
-  DTVs and `__tls_get_addr` (still laid out in the static reserve);
-- at most 9 loaded modules (`LD_MAX_MODULES`: payload + 7 `DT_NEEDED` +
-  interpreter) and 7 `DT_NEEDED` per payload.
+- no `RTLD_NEXT`, SysV/GNU hash, direct dependencies only.
 
 Per-thread DTVs are bounded (`LD_MAX_THREADS`, 16) and never retired:
 thread-exit cleanup is not implemented, so the registry leaks one small entry
@@ -204,11 +217,9 @@ relocation) is not reentrant, so this signal-safety covers the TLS lookup
 path only.
 
 Known gaps are tracked in the issue tracker under the `dl` label
-(`gh issue list --label dl`): lazy PLT binding, symbol versioning,
-`dlopen`/`dlclose` scopes and unload quiescence, and the eagerly allocated
-TLS reserve.  At most 64 IFUNC relocations per process
+(`gh issue list --label dl`): the eagerly allocated TLS reserve, and IFUNC
+chains (noted above). At most 64 IFUNC relocations per process
 (`LD_MAX_IFUNCS`) are supported.
-
 A missing library or unresolved symbol exits with a non-zero status; the boot
 test turns that into a failure rather than a silent jump into a null pointer.
 
@@ -217,8 +228,11 @@ test turns that into a failure rather than a silent jump into a null pointer.
 ```
 dl/ld.c                 ELF/dynamic-section core and the dlopen family
 dl/ld.h                 ELF64, DT_* and registry definitions
+dl/symcount.c           dynamic-symbol count from SysV/GNU hash tables
+dl/symcount.h           symbol-count input used by ld.c
 libc/include/dlfcn.h    public loader API
 dl/arch/<arch>/start.S  entry stub: save the startup stack, run ld_main, jump
+dl/arch/<arch>/resolve.S lazy PLT trampoline into ld_lazy_resolve
 dl/arch/<arch>/reloc.h  relocation encoding for the architecture
 dl/CMakeLists.txt       standalone build (select with -DASTIA_DL_ARCH=...)
 ```

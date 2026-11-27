@@ -47,6 +47,7 @@ namespace astia::acpi::detail {
         invalid_reset,
         unsupported_address_space,
         unsupported_access_size,
+        read_failed,
         write_failed,
     };
 
@@ -54,7 +55,9 @@ namespace astia::acpi::detail {
 
     struct pm_io {
         void* context                                                = nullptr;
+        bool (*read_io)(void* context, u16 port, u16& value)         = nullptr;
         bool (*write_io)(void* context, u16 port, u16 value)         = nullptr;
+        bool (*read_memory)(void* context, u64 physical, u16& value) = nullptr;
         bool (*write_memory)(void* context, u64 physical, u16 value) = nullptr;
     };
 

@@ -75,7 +75,8 @@ add_custom_target(astia_libc_shared ALL DEPENDS ${ASTIA_LIBC_SHARED_OUTPUT})
 # to the freestanding userspace image (kernel/tests adds it directly),
 # not to those host executables.
 if(NOT ASTIA_BUILD_TESTS)
-  target_sources(astia_libc_objects PRIVATE src/process/pthread.c)
+  target_sources(astia_libc_objects PRIVATE src/process/pthread.c
+    src/process/pthread_once.c)
 endif()
 
 # backend_aio.c is the astia side of the file port: real syscall traps,

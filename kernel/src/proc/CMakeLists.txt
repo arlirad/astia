@@ -10,11 +10,13 @@ add_library(proc STATIC
         tls_arena.cpp
         exec_hooks.cpp
         fork.cpp
+        heap_report.cpp
         mmap.cpp
         signal_delivery.cpp
         thread.cpp
         fd_table.cpp
         scheduler.cpp
+        shutdown_executor.cpp
         init.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/../ipc/futex.cpp
 )

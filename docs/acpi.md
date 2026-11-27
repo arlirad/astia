@@ -30,8 +30,11 @@ Implementation and review used the official **ACPI Specification, Release 6.5
   objects, package-length encoding, all term/named-object/statement/expression
   encodings, misc objects, byte-value table, and namespace name encoding.
 
-The existing SMP MADT parser in `kernel/src/arch/x86_64/smp.cpp` is unchanged.
-AArch64 remains FDT-only. The AArch64 graph builds `kernel/src/acpi/stub.cpp`,
+The x86_64 SMP MADT path uses the same bounds-checked table reader as the ACPI
+subsystem: RSDP, XSDT/RSDT, and every MADT entry are read through the mapped
+identity/direct window, table lengths are capped, and malformed entries reject
+the whole topology instead of producing a partial CPU inventory. AArch64
+remains FDT-only. The AArch64 graph builds `kernel/src/acpi/stub.cpp`,
 which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 = false, so the public API links without claiming ACPI support.
 
@@ -71,6 +74,9 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 - RSDP v1/v2 signatures, both checksums, declared length, and range checks.
 - RSDT/XSDT signature, checksum, length, entry alignment, duplicate/cyclic table
   addresses, table count, and maximum sizes.
+- SMP MADT discovery validates the RSDP and root table bounds before walking
+  entries, caps every declared length, checksums only within the mapped table,
+  and rejects truncated, oversized, or out-of-range entry structures.
 - A heap-backed owning table store retains a validated copy of every discovered
   SDT (root table, RSDT/XSDT entries, FADT-referenced DSDT). One allocation per
   record holds the record header and table bytes, so no firmware pointers or
@@ -79,6 +85,11 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
   preserves discovery order across duplicate signatures.
 - FADT signature/length/checksum; DSDT from RSDT/XSDT or `Xdsdt`/`DSDT`;
   SSDTs validated and loaded in order.
+- S5 entry reads each PM1a/PM1b control register, clears SLP_TYPx and SLP_EN,
+  programs the `\_S5` sleep type with SLP_EN, and writes the result back.
+  SCI_EN and every other non-sleep bit keep their read values, as required by
+  ACPI 6.5 Table 4.13. A failed read or write aborts the transition and is
+  reported and logged.
 - AML fixed limits: total AML bytes, namespace nodes, values, name references,
   package items, package nesting, term/evaluation recursion depth, call depth,
   reference depth, and execution steps. Deeply nested firmware expressions are
@@ -144,10 +155,13 @@ claimed. Unsupported platforms must not assume ACPI shutdown works.
 ## Tests
 
 - `acpi_host_test`: synthetic RSDP v1/v2, RSDT/XSDT, checksum/duplicate
-  rejection, `_S5` Name and Method, malformed/unsupported AML, FADT legacy and
-  extended GAS plans, invalid SLP types, shutdown tier ordering/failure
-  behavior, and FADT reset plans for System I/O, System Memory, and bus-0 PCI
-  Configuration space.
+  rejection, malformed and oversized MADT lengths, malformed MADT entries,
+  duplicate APIC IDs, and out-of-range table addresses, `_S5` Name and Method,
+  malformed/unsupported AML, FADT legacy and extended GAS plans, invalid SLP
+  types, shutdown tier ordering/failure behavior, PM1 read-modify-write
+  preservation of non-SLP control bits, PM1 read/write failure handling, and
+  FADT reset plans for System I/O, System Memory, and bus-0 PCI Configuration
+  space.
 - `acpi_q35_shutdown`: GRUB Multiboot2 q35 boot; requires QEMU to exit normally
   with status 0 after the S5 write, plus inventory/S5/platform-handler markers.
 - `acpi_q35_malformed_rsdp`, `acpi_q35_malformed_aml`: synthetic corrupt RSDP

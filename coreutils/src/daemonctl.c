@@ -1,5 +1,6 @@
 #include "../../libc/include/daemon_protocol.h"
 #include "common.h"
+#include "daemonctl_path.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 
@@ -18,14 +19,14 @@ static int command_errno(const char* name, const char* detail) {
 static int connect_daemon(int fd, const char* path) {
     struct sockaddr_un address;
 
-    __builtin_memset(&address, 0, sizeof address);
+    size_t path_length;
 
-    address.sun_family = AF_UNIX;
+    if (cu_daemonctl_socket_address(&address, path, &path_length) != 0)
+        return -1;
 
-    __builtin_strcpy(address.sun_path, path);
-
-    return connect(fd, (struct sockaddr*) &address,
-                   (unsigned int) (2 + __builtin_strlen(path)));
+    return connect(
+        fd, (struct sockaddr*) &address,
+        (unsigned int) (offsetof(struct sockaddr_un, sun_path) + path_length + 1));
 }
 
 static int command(const char* name, const char* request) {

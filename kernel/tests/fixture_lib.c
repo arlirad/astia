@@ -18,6 +18,21 @@ int fixture_answer(void) {
     return fixture_base() + 2;
 }
 
+/* Variadic arguments exercise %al on the lazy PLT path: the callee only saves
+ * its xmm argument registers when %al reports the vector-register count. */
+int fixture_variadic(int tag, ...) {
+    __builtin_va_list args;
+
+    __builtin_va_start(args, tag);
+
+    const int    count = __builtin_va_arg(args, int);
+    const double scale = __builtin_va_arg(args, double);
+
+    __builtin_va_end(args);
+
+    return tag + count + (int) (scale * 10.0);
+}
+
 int fixture_tls_value(void) {
     return fixture_base_tls();
 }
