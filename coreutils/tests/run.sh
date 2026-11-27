@@ -83,6 +83,10 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/read_retry_test.c" -o "$out/host/read_retry_test" \
     -Wl,--wrap=read
 "$out/host/read_retry_test"
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function -pthread \
+    -I "$root/coreutils/src" "$root/coreutils/tests/tree_walk_test.c" \
+    -o "$out/host/tree_walk_test"
+"$out/host/tree_walk_test"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to

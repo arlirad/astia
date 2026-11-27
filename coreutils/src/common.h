@@ -47,6 +47,77 @@ static int cu_write_all(int fd, const void* data, size_t length) {
     return 0;
 }
 
+static char* cu_child_path(const char* parent, const char* name) {
+    size_t parent_length = strlen(parent);
+    size_t name_length   = strlen(name);
+    int    slash         = parent_length != 0 && parent[parent_length - 1] != '/';
+
+    char* result = malloc(parent_length + (size_t) slash + name_length + 1);
+    if (result == 0)
+        return 0;
+
+    memcpy(result, parent, parent_length);
+
+    if (slash)
+        result[parent_length++] = '/';
+
+    memcpy(result + parent_length, name, name_length + 1);
+
+    return result;
+}
+
+typedef struct {
+    unsigned char* items;
+    size_t         count;
+    size_t         capacity;
+    size_t         item_size;
+} cu_stack;
+
+static void cu_stack_init(cu_stack* stack, size_t item_size) {
+    stack->items     = 0;
+    stack->count     = 0;
+    stack->capacity  = 0;
+    stack->item_size = item_size;
+}
+
+static void cu_stack_destroy(cu_stack* stack) {
+    free(stack->items);
+
+    stack->items    = 0;
+    stack->count    = 0;
+    stack->capacity = 0;
+}
+
+static void* cu_stack_top(const cu_stack* stack) {
+    if (stack->count == 0)
+        return 0;
+
+    return stack->items + (stack->count - 1) * stack->item_size;
+}
+
+static int cu_stack_push(cu_stack* stack, const void* item) {
+    if (stack->count == stack->capacity) {
+        size_t next_capacity = stack->capacity == 0 ? 8 : stack->capacity * 2;
+
+        unsigned char* grown = realloc(stack->items, next_capacity * stack->item_size);
+        if (grown == 0)
+            return -1;
+
+        stack->items    = grown;
+        stack->capacity = next_capacity;
+    }
+
+    memcpy(stack->items + stack->count * stack->item_size, item, stack->item_size);
+    ++stack->count;
+
+    return 0;
+}
+
+static void cu_stack_pop(cu_stack* stack) {
+    if (stack->count != 0)
+        --stack->count;
+}
+
 typedef struct {
     int    fd;
     char   chunk[4096];

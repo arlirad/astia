@@ -874,6 +874,92 @@ static int find_symlink_checks(void) {
     return status;
 }
 
+static int tree_walk_checks(void) {
+    char* find_walk[]  = {"find", "/tmp/coreutils_walk", NULL};
+    char* cp_walk[]    = {"cp", "-r", "/tmp/coreutils_walk", "/tmp/coreutils_walk_copy",
+                          NULL};
+    char* chmod_walk[] = {"chmod", "-R", "640", "/tmp/coreutils_walk", NULL};
+    char* rm_walk[]    = {"rm", "-r", "/tmp/coreutils_walk", "/tmp/coreutils_walk_copy",
+                          NULL};
+
+    (void) unlink("/tmp/coreutils_b");
+    (void) unlink("/tmp/coreutils_lines");
+    (void) unlink("/tmp/coreutils_mode");
+    (void) unlink("/tmp/coreutils_touch");
+    (void) unlink("/tmp/coreutils_stdin");
+    (void) unlink("/tmp/coreutils_from_stdin");
+    (void) unlink("/tmp/coreutils_tee");
+    (void) unlink("/tmp/coreutils_long_sort");
+    (void) unlink("/tmp/coreutils_tree/nested/file");
+    (void) rmdir("/tmp/coreutils_tree/nested");
+    (void) rmdir("/tmp/coreutils_tree");
+    (void) unlink("/tmp/coreutils_ls_col/gamma");
+    (void) unlink("/tmp/coreutils_ls_col/alpha");
+    (void) unlink("/tmp/coreutils_ls_col/delta");
+    (void) unlink("/tmp/coreutils_ls_col/beta");
+    (void) rmdir("/tmp/coreutils_ls_col");
+    (void) rmdir("/tmp/coreutils_ls_color/sub");
+    (void) rmdir("/tmp/coreutils_ls_color");
+    (void) unlink("/tmp/coreutils_ls_wide/abcdefghijklmnopqrstuvwxyz0123");
+    (void) rmdir("/tmp/coreutils_ls_wide");
+    (void) rmdir("/tmp/coreutils_ls_empty");
+    (void) rmdir("/tmp/coreutils_parent/child");
+    (void) rmdir("/tmp/coreutils_parent");
+
+    (void) unlink("/tmp/coreutils_walk/a/b/c/file");
+    (void) rmdir("/tmp/coreutils_walk/a/b/c");
+    (void) rmdir("/tmp/coreutils_walk/a/b");
+    (void) unlink("/tmp/coreutils_walk/a/g");
+    (void) rmdir("/tmp/coreutils_walk/a");
+    (void) unlink("/tmp/coreutils_walk/h/i");
+    (void) rmdir("/tmp/coreutils_walk/h");
+    (void) rmdir("/tmp/coreutils_walk");
+    (void) unlink("/tmp/coreutils_walk_copy/a/b/c/file");
+    (void) rmdir("/tmp/coreutils_walk_copy/a/b/c");
+    (void) rmdir("/tmp/coreutils_walk_copy/a/b");
+    (void) unlink("/tmp/coreutils_walk_copy/a/g");
+    (void) rmdir("/tmp/coreutils_walk_copy/a");
+    (void) unlink("/tmp/coreutils_walk_copy/h/i");
+    (void) rmdir("/tmp/coreutils_walk_copy/h");
+    (void) rmdir("/tmp/coreutils_walk_copy");
+
+    if (mkdir("/tmp/coreutils_walk", 0777) != 0 ||
+        mkdir("/tmp/coreutils_walk/a", 0777) != 0 ||
+        mkdir("/tmp/coreutils_walk/a/b", 0777) != 0 ||
+        mkdir("/tmp/coreutils_walk/a/b/c", 0777) != 0 ||
+        put_file("/tmp/coreutils_walk/a/b/c/file", "deep\n") != 0 ||
+        put_file("/tmp/coreutils_walk/a/g", "side\n") != 0 ||
+        mkdir("/tmp/coreutils_walk/h", 0777) != 0 ||
+        put_file("/tmp/coreutils_walk/h/i", "other\n") != 0)
+        return fail("tree walk fixture setup");
+
+    int status = 0;
+
+    if (check("find nested order", find_walk, NULL, 0,
+              "/tmp/coreutils_walk\n"
+              "/tmp/coreutils_walk/a\n"
+              "/tmp/coreutils_walk/a/b\n"
+              "/tmp/coreutils_walk/a/b/c\n"
+              "/tmp/coreutils_walk/a/b/c/file\n"
+              "/tmp/coreutils_walk/a/g\n"
+              "/tmp/coreutils_walk/h\n"
+              "/tmp/coreutils_walk/h/i\n",
+              1) != 0 ||
+        check("cp -r nested tree", cp_walk, NULL, 0, NULL, 0) != 0 ||
+        !file_equals("/tmp/coreutils_walk_copy/a/b/c/file", "deep\n") ||
+        !file_equals("/tmp/coreutils_walk_copy/a/g", "side\n") ||
+        !file_equals("/tmp/coreutils_walk_copy/h/i", "other\n") ||
+        check("chmod -R nested tree", chmod_walk, NULL, 0, NULL, 0) != 0 ||
+        !has_mode("/tmp/coreutils_walk/a/b/c", 0640) ||
+        !has_mode("/tmp/coreutils_walk/a/b/c/file", 0640) ||
+        !has_mode("/tmp/coreutils_walk/h/i", 0640) ||
+        check("rm -r nested tree", rm_walk, NULL, 0, NULL, 0) != 0 ||
+        is_directory("/tmp/coreutils_walk") || is_directory("/tmp/coreutils_walk_copy"))
+        status = 1;
+
+    return status;
+}
+
 static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
@@ -1415,6 +1501,9 @@ int main(void) {
         return 1;
 
     if (find_symlink_checks() != 0)
+        return 1;
+
+    if (tree_walk_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
