@@ -59,8 +59,8 @@ The repository follows a layered kernel/userspace layout:
 - `kernel/src/` and `kernel/include/`: kernel implementation and public ABI.
 - `modules/`: loadable drivers and typed module fixtures (`nvme`, `virtio-blk`).
 - `libc/`: freestanding libc headers, implementation, and host tests.
-- `init/`, `daemond/`, `coreutils/`: native init, service management, and
-  userspace utilities.
+- `init/`, `daemond/`, `coreutils/`, `sysutils/`: native init, service
+  management, portable userspace utilities, and Astia-specific module tools.
 - `pkg/`: sandboxed host-Linux package manager prototype and static repository
   format.
 - `toolchain/`: Clang sysroot, zsh/nano builds, initrd packaging, and QEMU
