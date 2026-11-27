@@ -4,6 +4,7 @@
 #include <astia/api/errno.h>
 #include <astia/api/syscalls.h>
 
+#include "error.h"
 #include "ld.h"
 #include "reloc.h"
 #include "symcount.h"
@@ -90,11 +91,11 @@ void astia_dl_test_reset(void) {
     g_reloc_scope_count  = 0;
     g_reloc_scope_active = 0;
     g_loader_busy        = 0;
-    g_error[0]           = '\0';
-    g_error_set          = 0;
     g_test_threads       = 1;
     g_test_unmap_count   = 0;
     g_test_unmap_result  = 0;
+
+    ld_error_reset();
 }
 
 int astia_dl_test_add_module(uint64_t base, uint64_t span, uint32_t refcount,

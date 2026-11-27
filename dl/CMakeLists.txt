@@ -9,6 +9,7 @@ project(astia_dl LANGUAGES C ASM)
 set(ASTIA_DL_ARCH "x86_64" CACHE STRING "Interpreter architecture")
 
 add_library(ld_astia SHARED
+        error.c
         ld.c
         mode.c
         symcount.c
