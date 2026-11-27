@@ -30,8 +30,9 @@ fi
 
 rm -rf "$staging"
 mkdir -p "$staging"
-cp "$artifact_build/modules/ip/ip.o" "$staging/ip.o"
-(cd "$staging" && find ip.o -print | cpio -o -H newc > "$initrd")
+mkdir -p "$staging/mod"
+cp "$artifact_build/modules/ip/ip.o" "$staging/mod/ip.o"
+(cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 set +e
 timeout "$timeout_seconds" "$qemu" \
@@ -44,4 +45,4 @@ set -e
 cat "$log"
 test "$status" -eq 1
 grep -qF 'ip: ready' "$log"
-grep -qF 'mod: ip.o rc=0' "$log"
+grep -qF 'mod: mod/ip.o rc=0' "$log"
