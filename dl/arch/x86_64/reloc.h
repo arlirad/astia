@@ -4,6 +4,7 @@
 enum {
     LD_R_NONE      = 0,
     LD_R_ABS       = 1, /* R_X86_64_64 */
+    LD_R_COPY      = 5, /* R_X86_64_COPY */
     LD_R_GLOB_DAT  = 6,
     LD_R_JUMP_SLOT = 7,
     LD_R_RELATIVE  = 8,

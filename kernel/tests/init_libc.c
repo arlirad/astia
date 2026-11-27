@@ -5016,6 +5016,18 @@ int main(int argc, char** argv) {
             printf("astia: ld ok\n");
     }
 
+    /* R_X86_64_COPY: the non-PIE payload owns a copy-relocated data object.
+       The loader must seed that storage from libcopyfixture.so and make the
+       DSO resolve the symbol back to the executable's copy. */
+    {
+        const int fixture = run_staged_fixture("/bin/interp_copy");
+        if (fixture < 0)
+            return 246;
+
+        if (fixture == 0)
+            printf("astia: copy reloc ok\n");
+    }
+
     /* Global-dynamic TLS: the DSO's __tls_get_addr calls resolve against the
        interpreter's per-thread DTV, and a new thread gets its own blocks. */
     {
