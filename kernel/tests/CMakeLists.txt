@@ -98,7 +98,11 @@ endfunction()
 # --- Pure logic: no hardware, no fake memory needed. ------------------------
 astia_add_host_test(acpi_host_test acpi_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
-        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/core.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/decode.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/evaluator.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/namespace.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/parser.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
 target_include_directories(acpi_host_test PRIVATE
