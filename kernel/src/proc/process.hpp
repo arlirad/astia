@@ -24,6 +24,7 @@
 #include "mmap_region.hpp"
 #include "signal_waiter_registry.hpp"
 #include "thread.hpp"
+#include "waiter_registry.hpp"
 
 namespace astia::proc {
     struct exec_result {
@@ -34,8 +35,7 @@ namespace astia::proc {
     inline constexpr u32 max_processes = resource_limits::policy::process_count;
     inline constexpr u32 max_threads_per_process =
         resource_limits::policy::threads_per_process;
-    inline constexpr u32 max_waiters_per_process =
-        resource_limits::policy::process_waiters;
+    inline constexpr u32 max_waiters_per_process        = waiter_capacity;
     inline constexpr u32 max_signal_waiters_per_process = signal_waiter_capacity;
     inline constexpr u32 max_supplementary_groups =
         resource_limits::policy::supplementary_groups;
@@ -731,7 +731,7 @@ namespace astia::proc {
 
         mm::shptr<thread>      _threads[max_threads_per_process];
         u32                    _thread_count = 0;
-        thread*                _waiters[max_waiters_per_process]{};
+        waiter_registry        _waiters{};
         signal_waiter_registry _signal_waiters{};
         fd_table               _descriptors;
         mm::address_space      _address_space;

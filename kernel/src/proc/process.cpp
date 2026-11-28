@@ -1174,47 +1174,39 @@ namespace astia::proc {
         if (value == nullptr)
             return false;
 
+        mm::shptr<thread> retained = retain_thread(value);
+        if (!retained)
+            return false;
+
         arch::interrupt_spinlock_guard guard(process_wait_lock);
 
-        for (u32 i = 0; i < max_waiters_per_process; ++i) {
-            if (_waiters[i] == nullptr) {
-                _waiters[i] = value;
-
-                return true;
-            }
-        }
-
-        return false;
+        return _waiters.add(retained);
     }
 
     void process::remove_waiter(thread* value) {
-        arch::interrupt_spinlock_guard guard(process_wait_lock);
+        mm::shptr<thread> removed[max_waiters_per_process];
 
-        for (u32 i = 0; i < max_waiters_per_process; ++i) {
-            if (_waiters[i] == value)
-                _waiters[i] = nullptr;
+        {
+            arch::interrupt_spinlock_guard guard(process_wait_lock);
+
+            (void) _waiters.remove(value, removed, max_waiters_per_process);
         }
     }
 
     void process::wake_waiters() {
-        thread* wake_list[max_waiters_per_process];
+        mm::shptr<thread> wake_list[max_waiters_per_process];
 
         u32 count = 0;
 
         {
             arch::interrupt_spinlock_guard guard(process_wait_lock);
 
-            for (u32 i = 0; i < max_waiters_per_process; ++i) {
-                if (_waiters[i] != nullptr) {
-                    wake_list[count++] = _waiters[i];
-                    _waiters[i]        = nullptr;
-                }
-            }
+            count = _waiters.drain(wake_list, max_waiters_per_process);
         }
 
         for (u32 i = 0; i < count; ++i) {
             if (wake_list[i]->wake_wait())
-                (void) scheduler::wake(wake_list[i]);
+                (void) scheduler::wake(wake_list[i].get());
         }
     }
 
