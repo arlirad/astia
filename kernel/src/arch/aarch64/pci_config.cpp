@@ -12,4 +12,9 @@ namespace astia::arch {
         if (!address.valid() || offset > 0xffcu || (offset & 3u) != 0)
             return;
     }
+
+    void pci_config_write8(pci_bdf address, u16 offset, u8) {
+        if (!address.valid() || offset > 0xffu)
+            return;
+    }
 } // namespace astia::arch

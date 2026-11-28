@@ -26,6 +26,15 @@ namespace {
 
         astia::dev::uart16550_console_puts("core: runtime ok\n");
 
+        astia::acpi::pci_route route{};
+
+        if (astia::acpi::resolve_pci_route(0, 0x1f, 0, 1, route))
+            astia::log::info("acpi: PRT probe irq=%u gsi=%u",
+                             static_cast<unsigned>(route.irq),
+                             static_cast<unsigned>(route.gsi));
+        else
+            astia::log::info("acpi: PRT probe unavailable");
+
         if (!astia::acpi::shutdown_supported()) {
             astia::log::info("acpi: shutdown unsupported; boot continues");
             astia::dev::debug_exit(0);

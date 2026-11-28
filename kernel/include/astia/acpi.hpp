@@ -15,6 +15,16 @@ namespace astia::acpi {
     /// interrupt source overrides.
     u8 gsi_for_irq(u8 irq);
 
+    struct pci_route {
+        u8   irq    = 0xff;
+        u8   gsi    = 0xff;
+        u8   pin    = 0;
+        bool direct = false;
+        bool valid  = false;
+    };
+
+    bool resolve_pci_route(u8 bus, u8 device, u8 function, u8 pin, pci_route& out);
+
     /// True when the FADT, DSDT, \_S5 and PM1 control registers all passed
     /// validation and the ACPI platform shutdown handler is registered.
     bool shutdown_supported();
