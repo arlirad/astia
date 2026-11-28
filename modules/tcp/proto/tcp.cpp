@@ -1,5 +1,6 @@
 #include "tcp.hpp"
 
+#include <astia/core/timer.hpp>
 #include <astia/net/builder.hpp>
 
 #include <new>
@@ -264,6 +265,13 @@ namespace astia::tcp {
         if (flags & flag_ack) {
             if (after(ack, value.snd_una))
                 value.snd_una = ack;
+
+            if (!after(value.snd_nxt, value.snd_una)) {
+                core::detail::disarm_timer(&value);
+
+                value.retries           = 0;
+                value.retransmit_length = 0;
+            }
         }
 
         if (value.state == connection_state::syn_sent) {
@@ -396,10 +404,39 @@ namespace astia::tcp {
     }
 
     void tcp_protocol::close(connection& value) {
+        core::detail::disarm_timer(&value);
+
         notify(value, event_closed);
 
         value.state = connection_state::closed;
         value.used  = false;
+    }
+
+    void tcp_protocol::retransmit_trampoline(void* context) {
+        auto* value = static_cast<connection*>(context);
+
+        if (value != nullptr && value->owner != nullptr)
+            value->owner->retransmit(*value);
+    }
+
+    void tcp_protocol::retransmit(connection& value) {
+        if (!value.used || value.state == connection_state::closed)
+            return;
+
+        if (!after(value.snd_nxt, value.snd_una))
+            return;
+
+        if (value.retries >= connection::max_retries) {
+            close(value);
+
+            return;
+        }
+
+        ++value.retries;
+
+        drive(send_segment(
+            value, value.retransmit_flags, value.retransmit_seq, value.retransmit_ack,
+            span<const u8>(value.retransmit_data, value.retransmit_length)));
     }
 
     connection::waiter* tcp_protocol::acquire_waiter(connection& value) {
@@ -649,6 +686,21 @@ namespace astia::tcp {
         request.builder          = &builder;
 
         co_await net::tx(net::protocol_id::ipv4, request);
+
+        if ((flags & (flag_syn | flag_fin)) != 0 || !payload.empty()) {
+            core::detail::disarm_timer(&value);
+
+            value.retransmit_flags  = flags;
+            value.retransmit_seq    = seq;
+            value.retransmit_ack    = ack;
+            value.retransmit_length = static_cast<u16>(payload.size());
+
+            for (usz index = 0; index < payload.size(); ++index) {
+                value.retransmit_data[index] = payload.data()[index];
+            }
+
+            (void) core::detail::arm_timer_callback(&value, retransmit_trampoline, 1000);
+        }
 
         co_return error_t::enone;
     }
