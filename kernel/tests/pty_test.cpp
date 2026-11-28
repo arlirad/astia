@@ -282,3 +282,159 @@ ASTIA_TEST(pty_onlcr_partial_write_emits_single_cr) {
     ASTIA_CHECK(terminal.master_read(buffer, 1) == 1);
     ASTIA_CHECK(buffer[0] == '\n');
 }
+
+ASTIA_TEST(pty_master_nonblock_read_empty_returns_eagain) {
+    astia::dev::pty terminal(9);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    char byte = 0;
+
+    astia::io::request request(&byte, 1, 0, 0, astia::io::direction::input);
+
+    request.nonblock(true);
+
+    ASTIA_CHECK(terminal.master_submit(request) == -EAGAIN);
+    ASTIA_CHECK(request.stage() == 0);
+    ASTIA_CHECK(terminal.master_poll(POLLIN) == 0);
+
+    ASTIA_CHECK(terminal.write("x", 1, 0) == 1);
+    ASTIA_CHECK((terminal.master_poll(POLLIN) & POLLIN) != 0);
+    ASTIA_CHECK(terminal.master_submit(request) == 1);
+    ASTIA_CHECK(byte == 'x');
+}
+
+ASTIA_TEST(pty_master_nonblock_write_full_returns_eagain) {
+    astia::dev::pty terminal(10);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    const char byte = 'f';
+
+    while (terminal.master_write(&byte, 1) == 1) {
+    }
+
+    ASTIA_CHECK(terminal.master_write(&byte, 1) == 0);
+
+    char pending = 'z';
+
+    astia::io::request request(&pending, 1, 0, 0, astia::io::direction::output);
+
+    request.nonblock(true);
+
+    ASTIA_CHECK(terminal.master_submit(request) == -EAGAIN);
+    ASTIA_CHECK(request.stage() == 0);
+
+    char drained[4096]{};
+
+    ASTIA_CHECK(terminal.read(drained, sizeof drained, 0) > 0);
+    ASTIA_CHECK(terminal.master_submit(request) == 1);
+}
+
+ASTIA_TEST(pty_slave_nonblock_read_empty_returns_eagain) {
+    astia::dev::pty terminal(11);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    char byte = 0;
+
+    astia::io::request request(&byte, 1, 0, 0, astia::io::direction::input);
+
+    request.nonblock(true);
+
+    ASTIA_CHECK(terminal.submit(request) == -EAGAIN);
+    ASTIA_CHECK(request.stage() == 0);
+    ASTIA_CHECK((terminal.poll(POLLIN, 0) & POLLIN) == 0);
+
+    ASTIA_CHECK(terminal.master_write("y", 1) == 1);
+    ASTIA_CHECK((terminal.poll(POLLIN, 0) & POLLIN) != 0);
+    ASTIA_CHECK(terminal.submit(request) == 1);
+    ASTIA_CHECK(byte == 'y');
+}
+
+ASTIA_TEST(pty_slave_nonblock_write_full_returns_eagain) {
+    astia::dev::pty terminal(12);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    constexpr astia::u32 capacity = 4096;
+
+    char payload[capacity];
+
+    memset(payload, 'o', sizeof payload);
+
+    ASTIA_CHECK(terminal.write(payload, capacity, 0) == static_cast<long>(capacity));
+    ASTIA_CHECK((terminal.poll(POLLOUT, 0) & POLLOUT) == 0);
+
+    char byte = 'z';
+
+    astia::io::request request(&byte, 1, 0, 0, astia::io::direction::output);
+
+    request.nonblock(true);
+
+    ASTIA_CHECK(terminal.submit(request) == -EAGAIN);
+    ASTIA_CHECK(request.stage() == 0);
+
+    char drained = 0;
+
+    ASTIA_CHECK(terminal.master_read(&drained, 1) == 1);
+    ASTIA_CHECK((terminal.poll(POLLOUT, 0) & POLLOUT) != 0);
+    ASTIA_CHECK(terminal.submit(request) == 1);
+}
+
+ASTIA_TEST(pty_blocking_reads_park_until_peer_writes) {
+    astia::dev::pty terminal(13);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    char master_byte = 0;
+    char slave_byte  = 0;
+
+    astia::io::request master_request(&master_byte, 1, 0, 0, astia::io::direction::input);
+    astia::io::request slave_request(&slave_byte, 1, 0, 0, astia::io::direction::input);
+
+    ASTIA_CHECK(terminal.master_submit(master_request) == 0);
+    ASTIA_CHECK(master_request.stage() == 1);
+    ASTIA_CHECK(terminal.submit(slave_request) == 0);
+    ASTIA_CHECK(slave_request.stage() == 1);
+
+    ASTIA_CHECK(terminal.write("s", 1, 0) == 1);
+    ASTIA_CHECK(terminal.master_submit(master_request) == 1);
+    ASTIA_CHECK(master_byte == 's');
+
+    ASTIA_CHECK(terminal.master_write("m", 1) == 1);
+    ASTIA_CHECK(terminal.submit(slave_request) == 1);
+    ASTIA_CHECK(slave_byte == 'm');
+}
+
+ASTIA_TEST(pty_blocking_slave_write_parks_until_master_drains) {
+    astia::dev::pty terminal(14);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    constexpr astia::u32 capacity = 4096;
+
+    char payload[capacity];
+
+    memset(payload, 'o', sizeof payload);
+
+    ASTIA_CHECK(terminal.write(payload, capacity, 0) == static_cast<long>(capacity));
+
+    char byte = 'z';
+
+    astia::io::request request(&byte, 1, 0, 0, astia::io::direction::output);
+
+    ASTIA_CHECK(terminal.submit(request) == 0);
+    ASTIA_CHECK(!request.complete());
+
+    char drained = 0;
+
+    ASTIA_CHECK(terminal.master_read(&drained, 1) == 1);
+    ASTIA_CHECK(terminal.submit(request) == 1);
+}

@@ -133,7 +133,7 @@ namespace astia::fs {
         /// in submit() returns these tasks; the completion resumes them in
         /// task context.
         core::task<i64> submit_readv(span<const buffer> buffers, u64 offset,
-                                     core::cltoken token);
+                                     core::cltoken token, bool nonblock);
         core::task<i64> submit_writev(span<const buffer> buffers, u64 offset,
                                       core::cltoken token, bool nonblock);
 

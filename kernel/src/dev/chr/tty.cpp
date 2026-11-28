@@ -198,6 +198,15 @@ namespace astia::dev {
         return static_cast<long>(sent);
     }
 
+    long tty::park_request(io::request& request) {
+        if (request.nonblock())
+            return -EAGAIN;
+
+        request.stage(1);
+
+        return 0;
+    }
+
     long tty::submit(io::request& request) {
         termios current;
 
@@ -210,8 +219,15 @@ namespace astia::dev {
             eof_pending = _eof_pending;
         }
 
-        if (request.direction() == io::direction::output)
-            return write(request.buffer(), request.length(), request.offset());
+        if (request.direction() == io::direction::output) {
+            const long result =
+                write(request.buffer(), request.length(), request.offset());
+
+            if (result == 0 && request.length() != 0 && request.nonblock())
+                return -EAGAIN;
+
+            return result;
+        }
 
         // A canonical VEOF at an empty line completes a parked read with
         // zero.  Consume it here so the generic async engine does not
@@ -241,6 +257,9 @@ namespace astia::dev {
             return 0;
         }
 
+        if (request.nonblock())
+            return -EAGAIN;
+
         if ((current.c_lflag & ICANON) == 0) {
             if (current.c_cc[VTIME] != 0 && request.stage() != 0 && poll(POLLIN, 0) != 0)
                 request.timeout_ns(static_cast<u64>(current.c_cc[VTIME]) * vtime_tick_ns);
@@ -248,9 +267,7 @@ namespace astia::dev {
                 request.timeout_ns(static_cast<u64>(current.c_cc[VTIME]) * vtime_tick_ns);
         }
 
-        request.stage(1);
-
-        return 0;
+        return park_request(request);
     }
 
     u32 tty::poll(u32 events, u32) {

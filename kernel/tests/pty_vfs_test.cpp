@@ -88,3 +88,31 @@ ASTIA_TEST(pty_index_overflow_cannot_alias_an_existing_slave) {
     slave  = {};
     master = {};
 }
+
+ASTIA_TEST(pty_master_readv_nonblock_empty_returns_eagain) {
+    auto master = astia::dev::pty_open_master(ASTIA_AIO_O_NONBLOCK);
+
+    ASTIA_CHECK(master);
+
+    astia::i32 unlock = 0;
+
+    ASTIA_CHECK(master->ioctl(TIOCSPTLCK, &unlock, sizeof unlock) == 0);
+
+    auto slave = astia::dev::pty_open_slave("/pts/0", 0);
+
+    ASTIA_CHECK(slave);
+
+    astia::u8 byte = 0;
+
+    astia::fs::buffer entry{&byte, 1};
+
+    auto task = master->readv(astia::span<const astia::fs::buffer>(&entry, 1), 0);
+
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(task.failed());
+    ASTIA_CHECK(task.error() == astia::error_t::eagain);
+
+    slave  = {};
+    master = {};
+}

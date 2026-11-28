@@ -19,9 +19,9 @@ namespace astia::fs {
     /// instead of probing a virtual that returns -ENOSYS.
     class readable {
         public:
-        virtual ~readable()                                = default;
+        virtual ~readable()                                               = default;
         virtual core::task<i64> readv(span<const buffer> buffers, u64 offset,
-                                      core::cltoken token) = 0;
+                                      core::cltoken token, bool nonblock) = 0;
     };
 
     class writable {

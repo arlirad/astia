@@ -232,8 +232,8 @@ namespace astia::fs {
             }
 
             core::task<i64> readv(span<const buffer> buffers, u64 offset,
-                                  core::cltoken token) override {
-                return submit_readv(buffers, offset, token);
+                                  core::cltoken token, bool nonblock) override {
+                return submit_readv(buffers, offset, token, nonblock);
             }
 
             core::task<i64> writev(span<const buffer> buffers, u64 offset,
@@ -956,7 +956,7 @@ namespace astia::fs {
 
                 buffer     entry{data.data(), data.size()};
                 const auto received =
-                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token, false);
 
                 if (!received) {
                     result.length = error_errno(received.error);
@@ -1013,7 +1013,7 @@ namespace astia::fs {
 
                 buffer     entry{data.data(), data.size()};
                 const auto received =
-                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token, false);
 
                 if (!received) {
                     result.length = error_errno(received.error);
