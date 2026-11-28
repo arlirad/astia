@@ -42,6 +42,10 @@ class PkgError(Exception):
     pass
 
 
+class MissingFileError(PkgError):
+    pass
+
+
 def fail(message):
     raise PkgError(message)
 
@@ -158,6 +162,8 @@ def entry_stat(parent_fd, name):
 def read_file_at(parent_fd, name, label):
     try:
         fd = os.open(name, READ_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError as exc:
+        raise MissingFileError(f"cannot read {label}: {exc}") from exc
     except OSError as exc:
         fail(f"cannot read {label}: {exc}")
     try:
@@ -610,12 +616,9 @@ class State:
         self.cache = self.internal / "cache.json"
 
     def load(self):
-        try:
-            value = parse_json(read_file_at(self.internal_fd, "state.json", "package state"), "package state")
-        except PkgError as exc:
-            if "No such file or directory" in str(exc):
-                return {"schema": 1, "installed": {}, "owners": {}}
-            raise
+        value = self.load_optional("state.json", "package state")
+        if value is None:
+            return {"schema": 1, "installed": {}, "owners": {}}
         if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("installed"), dict) or not isinstance(value.get("owners"), dict):
             fail("malformed package state")
         for path_value, package in value["owners"].items():
@@ -626,10 +629,8 @@ class State:
     def load_optional(self, name, label):
         try:
             return parse_json(read_file_at(self.internal_fd, name, label), label)
-        except PkgError as exc:
-            if "No such file or directory" in str(exc):
-                return None
-            raise
+        except MissingFileError:
+            return None
 
     def configured_arch(self):
         config = self.load_optional("config.json", "package configuration")
