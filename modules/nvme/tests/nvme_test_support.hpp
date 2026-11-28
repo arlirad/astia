@@ -8,7 +8,7 @@
 
 namespace nvme_test {
     inline unsigned    dma_release_count = 0;
-    inline const void* released_dma[64]{};
+    inline const void* released_dma[256]{};
     inline unsigned    released_dma_count  = 0;
     inline bool        host_dma            = false;
     inline astia::u64  bar_mapped          = 0;

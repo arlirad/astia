@@ -23,6 +23,7 @@ namespace {
     constexpr unsigned io_write           = 0x01;
     constexpr unsigned io_read            = 0x02;
     constexpr unsigned max_async_requests = 4;
+    constexpr unsigned max_sync_requests  = 4;
     constexpr unsigned max_namespaces     = 16;
     constexpr unsigned csts_fatal         = 1u << 1;
     constexpr unsigned register_space     = 0x1000;
@@ -33,6 +34,13 @@ namespace {
 
     struct completion {
         unsigned dword[4]{};
+    };
+
+    struct sync_request {
+        bool           used      = false;
+        bool           completed = false;
+        unsigned short cid       = 0;
+        unsigned       status    = 0;
     };
 
     struct controller;
@@ -79,10 +87,11 @@ namespace {
         bool                      quiesce_safe      = true;
         bool                      release_pending   = false;
         volatile bool             interrupt_pending = false;
-        bool                      servicing_async   = false;
+        bool                      servicing_cq      = false;
         unsigned                  interrupts_seen   = 0;
         astia::module::msix_route msix_route{};
         async_request             async_requests[max_async_requests]{};
+        sync_request              sync_requests[max_sync_requests]{};
         dma                       admin_sq;
         dma                       admin_cq;
         dma                       io_sq;
@@ -134,6 +143,10 @@ namespace {
             admin_cid         = 1;
             io_cid            = 1;
             interrupt_pending = false;
+
+            for (sync_request& pending : sync_requests) {
+                pending = {};
+            }
 
             dma* queues[] = {&admin_sq, &admin_cq, &io_sq, &io_cq};
 
@@ -187,6 +200,162 @@ namespace {
 
             if (pending.request != nullptr && pending.request->device_state() != nullptr)
                 pending.request->wake();
+        }
+
+        struct service_guard {
+            bool& busy;
+
+            ~service_guard() {
+                astia::atomic_ref<bool>(busy).store(false, astia::memory_order::release);
+            }
+        };
+
+        bool begin_service() {
+            return !astia::atomic_ref<bool>(servicing_cq)
+                        .exchange(true, astia::memory_order::acquire);
+        }
+
+        async_request* find_async(unsigned short cid) {
+            for (async_request& pending : async_requests) {
+                if (pending.used && pending.cid == cid)
+                    return &pending;
+            }
+
+            return nullptr;
+        }
+
+        sync_request* find_sync(unsigned short cid) {
+            for (sync_request& pending : sync_requests) {
+                if (pending.used && pending.cid == cid)
+                    return &pending;
+            }
+
+            return nullptr;
+        }
+
+        unsigned short allocate_cid() {
+            while (true) {
+                const unsigned short cid = io_cid++;
+
+                if (find_async(cid) == nullptr && find_sync(cid) == nullptr)
+                    return cid;
+            }
+        }
+
+        bool begin_sync(unsigned short& cid) {
+            for (sync_request& pending : sync_requests) {
+                if (pending.used)
+                    continue;
+
+                const unsigned short allocated = allocate_cid();
+
+                pending      = {};
+                pending.used = true;
+                pending.cid = cid = allocated;
+
+                return true;
+            }
+
+            return false;
+        }
+
+        void end_sync(unsigned short cid) {
+            sync_request* pending = find_sync(cid);
+            if (pending != nullptr)
+                *pending = {};
+        }
+
+        bool take_sync_completion(unsigned short cid, unsigned& status) {
+            sync_request* pending = find_sync(cid);
+
+            if (pending == nullptr || !pending->completed)
+                return false;
+
+            status = pending->status;
+
+            *pending = {};
+
+            return true;
+        }
+
+        bool peek_io_completion(unsigned spins, unsigned& dw3) {
+            auto* entries = static_cast<volatile completion*>(io_cq.data());
+
+            for (unsigned spin = 0; spin < spins; ++spin) {
+                dw3 = entries[io_cq_head].dword[3];
+
+                if (((dw3 >> 16) & 1) == io_cq_phase)
+                    return true;
+
+                asm volatile("pause");
+            }
+
+            return false;
+        }
+
+        void retire_io_completion() {
+            io_cq_head = static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
+            if (io_cq_head == 0)
+                io_cq_phase ^= 1;
+
+            doorbell(1, true, io_cq_head);
+        }
+
+        void complete_async_hardware(async_request& found, unsigned status) {
+            if (!found.canceled && found.request != nullptr && !found.completed) {
+                long result =
+                    status == 0 ? static_cast<long>(found.request->length()) : -5;
+
+                if (status == 0 &&
+                    found.request->direction() == astia::io::direction::input) {
+                    auto* destination =
+                        static_cast<unsigned char*>(found.request->buffer());
+                    auto* source = static_cast<const unsigned char*>(found.bounce.data());
+
+                    for (unsigned i = 0; i < found.request->length(); ++i) {
+                        destination[i] = source[i];
+                    }
+                }
+
+                finish_async(found, result);
+            }
+
+            if (found.canceled) {
+                found.hardware_done = true;
+
+                if (found.request != nullptr) {
+                    if (found.request->device_state() != nullptr)
+                        found.request->wake();
+                }
+                else {
+                    found.bounce.release();
+
+                    found = {};
+                }
+            }
+        }
+
+        bool dispatch_io_completion(unsigned dw3) {
+            const unsigned short cid    = static_cast<unsigned short>(dw3 & 0xffff);
+            const unsigned       status = (dw3 >> 17) & 0x7ff;
+
+            async_request* async = find_async(cid);
+
+            if (async != nullptr) {
+                complete_async_hardware(*async, status);
+
+                return true;
+            }
+
+            sync_request* sync = find_sync(cid);
+            if (sync != nullptr) {
+                sync->status    = status;
+                sync->completed = true;
+
+                return true;
+            }
+
+            return false;
         }
 
         void acknowledge_async_hardware() {
@@ -510,14 +679,19 @@ namespace {
             if (!started || value.owner != this)
                 return false;
 
+            unsigned short cid = 0;
+
+            if (!begin_sync(cid))
+                return false;
+
             command request{};
 
-            request.dword[0] = io_flush | (static_cast<unsigned>(io_cid++) << 16);
+            request.dword[0] = io_flush | (static_cast<unsigned>(cid) << 16);
             request.dword[1] = value.id;
 
             submit_io(request);
 
-            return poll_io() == 0;
+            return poll_io(cid) == 0;
         }
 
         bool create_io_queues() {
@@ -572,7 +746,7 @@ namespace {
                 request.poll_interval_ns(1000000);
                 request.timeout_ns(1000000);
 
-                pending.cid = io_cid++;
+                pending.cid = allocate_cid();
 
                 const bool write = request.direction() == astia::io::direction::output;
                 if (write) {
@@ -677,89 +851,17 @@ namespace {
             if (quiescing || recovering)
                 return;
 
-            if (astia::atomic_ref<bool>(servicing_async)
-                    .exchange(true, astia::memory_order::acquire))
+            if (!begin_service())
                 return;
 
-            struct service_guard {
-                bool& busy;
+            service_guard guard{servicing_cq};
 
-                ~service_guard() {
-                    astia::atomic_ref<bool>(busy).store(false,
-                                                        astia::memory_order::release);
-                }
-            } guard{servicing_async};
+            unsigned dw3 = 0;
 
-            auto* entries = static_cast<volatile completion*>(io_cq.data());
+            while (peek_io_completion(100000, dw3)) {
+                dispatch_io_completion(dw3);
 
-            while (true) {
-                unsigned dw3 = entries[io_cq_head].dword[3];
-
-                for (unsigned spin = 0; ((dw3 >> 16) & 1) != io_cq_phase && spin < 100000;
-                     ++spin) {
-                    asm volatile("pause");
-
-                    dw3 = entries[io_cq_head].dword[3];
-                }
-
-                if (((dw3 >> 16) & 1) != io_cq_phase)
-                    return;
-
-                const unsigned short cid = static_cast<unsigned short>(dw3 & 0xffff);
-
-                async_request* found = nullptr;
-
-                for (async_request& pending : async_requests) {
-                    if (pending.used && pending.cid == cid) {
-                        found = &pending;
-
-                        break;
-                    }
-                }
-
-                if (found == nullptr)
-                    return;
-
-                const unsigned status = (dw3 >> 17) & 0x7ff;
-
-                if (!found->canceled && found->request != nullptr && !found->completed) {
-                    long result =
-                        status == 0 ? static_cast<long>(found->request->length()) : -5;
-
-                    if (status == 0 &&
-                        found->request->direction() == astia::io::direction::input) {
-                        auto* destination =
-                            static_cast<unsigned char*>(found->request->buffer());
-                        auto* source =
-                            static_cast<const unsigned char*>(found->bounce.data());
-
-                        for (unsigned i = 0; i < found->request->length(); ++i) {
-                            destination[i] = source[i];
-                        }
-                    }
-
-                    finish_async(*found, result);
-                }
-
-                if (found->canceled) {
-                    found->hardware_done = true;
-
-                    if (found->request != nullptr) {
-                        if (found->request->device_state() != nullptr)
-                            found->request->wake();
-                    }
-                    else {
-                        found->bounce.release();
-
-                        *found = {};
-                    }
-                }
-
-                io_cq_head = static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
-                if (io_cq_head == 0)
-                    io_cq_phase ^= 1;
-
-                doorbell(1, true, io_cq_head);
+                retire_io_completion();
             }
         }
 
@@ -866,23 +968,26 @@ namespace {
             doorbell(1, false, io_sq_tail);
         }
 
-        unsigned poll_io() {
-            auto* entries = static_cast<volatile completion*>(io_cq.data());
+        unsigned poll_io(unsigned short cid) {
+            unsigned status = 0;
 
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
-                const unsigned dw3 = entries[io_cq_head].dword[3];
+                if (begin_service()) {
+                    service_guard guard{servicing_cq};
 
-                if (((dw3 >> 16) & 1) == io_cq_phase) {
-                    const unsigned status = (dw3 >> 17) & 0x7ff;
+                    if (take_sync_completion(cid, status))
+                        return status;
 
-                    io_cq_head =
-                        static_cast<unsigned short>((io_cq_head + 1) % queue_depth);
-                    if (io_cq_head == 0)
-                        io_cq_phase ^= 1;
+                    unsigned dw3 = 0;
 
-                    doorbell(1, true, io_cq_head);
+                    if (peek_io_completion(1, dw3)) {
+                        dispatch_io_completion(dw3);
 
-                    return status;
+                        retire_io_completion();
+                    }
+
+                    if (take_sync_completion(cid, status))
+                        return status;
                 }
 
                 if (interrupt_pending)
@@ -890,6 +995,8 @@ namespace {
 
                 asm volatile("pause");
             }
+
+            end_sync(cid);
 
             abort_controller();
 
@@ -923,12 +1030,17 @@ namespace {
 
             command request{};
 
-            const unsigned short cid = io_cid++;
+            unsigned short cid = 0;
+
+            if (!begin_sync(cid))
+                return -16;
 
             request.dword[0] = io_read | (static_cast<unsigned>(cid) << 16);
             request.dword[1] = value.id;
 
             if (!set_prp(request, physical, length)) {
+                end_sync(cid);
+
                 if (token != nullptr)
                     astia::module::unpin(token);
 
@@ -941,7 +1053,7 @@ namespace {
 
             submit_io(request);
 
-            const unsigned status = poll_io();
+            const unsigned status = poll_io(cid);
             long           result = status == 0 ? static_cast<long>(length) : -5;
 
             if (!direct && result > 0 &&
@@ -988,12 +1100,17 @@ namespace {
 
             command request{};
 
-            const unsigned short cid = io_cid++;
+            unsigned short cid = 0;
+
+            if (!begin_sync(cid))
+                return -16;
 
             request.dword[0] = io_write | (static_cast<unsigned>(cid) << 16);
             request.dword[1] = value.id;
 
             if (!set_prp(request, physical, length)) {
+                end_sync(cid);
+
                 if (token != nullptr)
                     astia::module::unpin(token);
 
@@ -1006,7 +1123,7 @@ namespace {
 
             submit_io(request);
 
-            const unsigned status = poll_io();
+            const unsigned status = poll_io(cid);
 
             if (token != nullptr)
                 astia::module::unpin(token);
@@ -1033,7 +1150,7 @@ namespace {
                 msix_active = false;
             }
 
-            while (astia::atomic_ref<bool>(servicing_async)
+            while (astia::atomic_ref<bool>(servicing_cq)
                        .load(astia::memory_order::acquire)) {
                 asm volatile("pause");
             }
