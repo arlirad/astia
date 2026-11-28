@@ -60,6 +60,30 @@ $clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
     "$out/host/head_write_head.o" -o "$out/host/head_write_test"
 "$out/host/head_write_test"
 
+# wc: only the exact operand "-" selects standard input; a one-character
+# filename is opened as a file.
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
+    "$root/coreutils/src/wc.c" -o "$out/host/wc"
+mkdir -p "$out/host/wc_one" "$out/host/wc_missing"
+printf 'one\n' >"$out/host/wc_one/a"
+(cd "$out/host/wc_one" && "$out/host/wc" a) >"$out/host/wc_one.out"
+printf '1 1 4 a\n' >"$out/host/wc_one.expected"
+cmp "$out/host/wc_one.expected" "$out/host/wc_one.out"
+if (cd "$out/host/wc_missing" && printf 'stdin\n' | "$out/host/wc" a) \
+    >"$out/host/wc_missing.out" 2>"$out/host/wc_missing.err"; then
+    echo "wc accepted a missing one-character file" >&2
+    exit 1
+fi
+grep -qF 'wc: a' "$out/host/wc_missing.err"
+test ! -s "$out/host/wc_missing.out"
+printf 'dash\n' | "$out/host/wc" - >"$out/host/wc_dash.out"
+printf '1 1 5 -\n' >"$out/host/wc_dash.expected"
+cmp "$out/host/wc_dash.expected" "$out/host/wc_dash.out"
+printf 'bare\n' | "$out/host/wc" >"$out/host/wc_bare.out"
+printf '1 1 5\n' >"$out/host/wc_bare.expected"
+cmp "$out/host/wc_bare.expected" "$out/host/wc_bare.out"
+
 # close() failure injection: link each tool with its main renamed and fail a
 # chosen close() call through the linker's --wrap hook.
 close_host_flags="-std=c11 -Wall -Wextra -Werror -Wno-unused-function \

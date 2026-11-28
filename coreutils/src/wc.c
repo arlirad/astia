@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
 
         ++operands;
 
-        int fd = path[1] == '\0' ? CU_STDIN : open(path, O_RDONLY);
+        int fd = strcmp(path, "-") == 0 ? CU_STDIN : open(path, O_RDONLY);
         if (fd < 0) {
             status |= cu_error("wc", path);
 

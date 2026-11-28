@@ -1381,6 +1381,9 @@ int main(void) {
     char* wc_lines_stdin[] = {"wc", "-l", NULL};
     char* wc_words_file[]  = {"wc", "-w", "/tmp/coreutils_a", NULL};
     char* wc_lines_bytes[] = {"wc", "-lc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* wc_one_char[]    = {"wc", "a", NULL};
+    char* wc_dash[]        = {"wc", "-", NULL};
+    char* wc_stdin_bare[]  = {"wc", NULL};
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
@@ -1441,6 +1444,22 @@ int main(void) {
         put_file("/tmp/coreutils_ls_wide/abcdefghijklmnopqrstuvwxyz0123", "x\n") != 0 ||
         mkdir("/tmp/coreutils_ls_empty", 0777) != 0)
         return fail("ls fixture setup");
+
+    if (chdir("/tmp") != 0 || put_file("/tmp/a", "one\n") != 0)
+        return fail("wc one-character fixture");
+
+    int wc_operand_status =
+        check("wc one-character file", wc_one_char, NULL, 0, "1 1 4 a\n", 1) ||
+        check("wc dash stdin", wc_dash, "dash\n", 0, "1 1 5 -\n", 1) ||
+        check("wc stdin", wc_stdin_bare, "bare\n", 0, "1 1 5\n", 1);
+
+    (void) unlink("/tmp/a");
+
+    if (chdir("/bin") != 0)
+        return fail("wc fixture chdir");
+
+    if (wc_operand_status != 0)
+        return 1;
 
     if (check("cat stdin", cat_stdin, "plain\n", 0, "plain\n", 1) ||
         check("cat stdin dash", cat_stdin_dash, "dashed\n", 0, "dashed\n", 1) ||
