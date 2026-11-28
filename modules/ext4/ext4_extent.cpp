@@ -437,8 +437,11 @@ namespace astia::ext4 {
                 const u16 entries = load16(leaf + 2);
                 const u16 maximum = load16(leaf + 4);
 
-                if (entries == 0 || entries > maximum)
+                if (entries > maximum)
                     return false;
+
+                if (entries == 0)
+                    return true;
 
                 u16 position = 0;
 
@@ -810,6 +813,179 @@ namespace astia::ext4 {
             u64           _new_blocks[8]{};
             u32           _count = 0;
         };
+
+        bool free_range(space& alloc, u64 start, u32 length, u32& freed) {
+            for (u32 i = 0; i < length; ++i) {
+                if (!alloc.free_block(start + i))
+                    return false;
+
+                ++freed;
+            }
+
+            return true;
+        }
+
+        bool release_extent(space& alloc, const u8* entry, u32 from,
+                            u32& freed) {
+            const u16 encoded = load16(entry + 4);
+            const u32 length  = extent_length(encoded);
+            const u64 start   = extent_start(entry);
+
+            if (encoded > extent_max_length || start == 0 || from >= length)
+                return true;
+
+            return free_range(alloc, start + from, length - from, freed);
+        }
+
+        bool prune_leaf(space& alloc, u8* block, u32 keep, u32& freed,
+                        bool& changed) {
+            u16 entries = load16(block + 2);
+
+            changed = false;
+
+            u16 position = 0;
+
+            while (position < entries) {
+                u8*       entry   = node_entry(block, position);
+                const u32 first   = load32(entry);
+                const u16 encoded = load16(entry + 4);
+                const u32 length  = extent_length(encoded);
+
+                if (first >= keep) {
+                    if (!release_extent(alloc, entry, 0, freed))
+                        return false;
+
+                    for (u16 i = position; i + 1 < entries; ++i) {
+                        copy_bytes(node_entry(block, i),
+                                   node_entry(block, static_cast<u16>(i + 1)), 12);
+                    }
+
+                    --entries;
+                    store16(block + 2, entries);
+                    changed = true;
+
+                    continue;
+                }
+
+                if (static_cast<u64>(first) + length > keep) {
+                    const u32 keep_length = keep - first;
+
+                    if (!release_extent(alloc, entry, keep_length, freed))
+                        return false;
+
+                    store16(entry + 4, static_cast<u16>(keep_length));
+                    changed = true;
+                }
+
+                ++position;
+            }
+
+            return true;
+        }
+
+        bool prune_node(volume& v, space& alloc, const geometry& g,
+                        inode_record& node, u8* block, bool root,
+                        u64 block_number, u16 depth, u32 keep, u32& freed) {
+            u16 entries = 0;
+            u16 maximum = 0;
+
+            if (!read_header(g, block, root, depth, entries, maximum))
+                return false;
+
+            if (depth == 0) {
+                bool changed = false;
+
+                if (!prune_leaf(alloc, block, keep, freed, changed))
+                    return false;
+
+                if (changed && !root) {
+                    store_node_checksum(g, block, node.number,
+                                        node.generation());
+
+                    if (!v.write_block(block_number, block))
+                        return false;
+                }
+
+                return true;
+            }
+
+            bool changed = false;
+            u16  position = 0;
+
+            while (position < entries) {
+                u8* entry = node_entry(block, position);
+
+                const u64 child = index_child(entry);
+
+                if (child == 0 || child >= v.blocks_count())
+                    return false;
+
+                u8 child_block[4096];
+
+                if (!v.read_block(child, child_block))
+                    return false;
+
+                if (!verify_node_checksum(g, child_block, node.number,
+                                          node.generation()))
+                    return false;
+
+                if (!prune_node(v, alloc, g, node, child_block, false, child,
+                                static_cast<u16>(depth - 1), keep, freed))
+                    return false;
+
+                if (load16(child_block + 2) == 0) {
+                    if (!alloc.free_block(child))
+                        return false;
+
+                    ++freed;
+
+                    for (u16 i = position; i + 1 < entries; ++i) {
+                        copy_bytes(node_entry(block, i),
+                                   node_entry(block, static_cast<u16>(i + 1)), 12);
+                    }
+
+                    --entries;
+                    store16(block + 2, entries);
+                    changed = true;
+
+                    continue;
+                }
+
+                const u32 child_key = load32(node_entry(child_block, 0));
+
+                if (child_key != load32(entry)) {
+                    store32(entry, child_key);
+                    changed = true;
+                }
+
+                ++position;
+            }
+
+            if (root) {
+                if (entries == 0) {
+                    for (u32 i = 0; i < 60; ++i) {
+                        block[i] = 0;
+                    }
+
+                    store16(block, extent_magic);
+                    store16(block + 2, 0);
+                    store16(block + 4, extent_root_entries);
+                    store16(block + 6, 0);
+                    store32(block + 8, 0);
+                }
+
+                return true;
+            }
+
+            if (changed) {
+                store_node_checksum(g, block, node.number, node.generation());
+
+                if (!v.write_block(block_number, block))
+                    return false;
+            }
+
+            return true;
+        }
     } // namespace
 
     bool extent::map(volume& v, const inode_record& node, u32 logical,
@@ -912,6 +1088,62 @@ namespace astia::ext4 {
         physical = block;
 
         return true;
+    }
+
+    bool extent::truncate(volume& v, space& alloc, inode_record& node,
+                          u64 new_size) {
+        if (!v.writable())
+            return false;
+
+        if ((node.flags() & inode_inline_data) != 0 ||
+            (node.flags() & inode_extents) == 0)
+            return false;
+
+        const u64 block_size = v.block_size();
+
+        if (block_size == 0)
+            return false;
+
+        if (new_size >= node.size()) {
+            node.set_size(new_size);
+
+            return true;
+        }
+
+        const u64 keep_wide =
+            new_size / block_size + (new_size % block_size != 0 ? 1 : 0);
+
+        if (keep_wide > ~u32{0})
+            return false;
+
+        const geometry g    = make_geometry(v);
+        u8*            root = node.block_area();
+        const u16      depth = load16(root + 6);
+
+        if (load16(root) != extent_magic || depth > extent_max_depth)
+            return false;
+
+        u32 freed = 0;
+
+        if (!prune_node(v, alloc, g, node, root, true, 0, depth,
+                        static_cast<u32>(keep_wide), freed))
+            return false;
+
+        const u64 sectors   = block_size / 512;
+        const u64 reclaimed = static_cast<u64>(freed) * sectors;
+
+        node.set_blocks(node.blocks() > reclaimed ? node.blocks() - reclaimed
+                                                  : 0);
+        node.set_size(new_size);
+
+        if (new_size == 0)
+            node.set_blocks(0);
+
+        return true;
+    }
+
+    bool extent::free_all(volume& v, space& alloc, inode_record& node) {
+        return truncate(v, alloc, node, 0);
     }
 
     u64 extent::max_blocks(const volume& v) {
