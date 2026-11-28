@@ -253,6 +253,7 @@ static void test_utc_time(void) {
 static void test_signal_surface(void) {
     CHECK(STDOUT_FILENO == 1);
     CHECK(sysconf(_SC_REALTIME_SIGNALS) == -1);
+    CHECK(sysconf(_SC_SIGQUEUE_MAX) == -1);
 }
 
 int main(void) {

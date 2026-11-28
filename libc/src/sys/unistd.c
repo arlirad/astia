@@ -636,6 +636,7 @@ long sysconf(int name) {
     case _SC_CPUTIME:
     case _SC_THREAD_PROCESS_SHARED:
     case _SC_REALTIME_SIGNALS:
+    case _SC_SIGQUEUE_MAX:
         return -1;
     default:
         errno = EINVAL;
