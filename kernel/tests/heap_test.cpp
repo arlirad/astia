@@ -39,7 +39,11 @@ namespace {
         }
     }
 
-    alignas(16) astia::u8 region[64 * 1024];
+    alignas(64) astia::u8 region[64 * 1024];
+
+    struct alignas(64) over_aligned_probe {
+        astia::u32 value = 0;
+    };
 } // namespace
 
 // Must run before anything configures the heap.
@@ -74,6 +78,14 @@ ASTIA_TEST(heap_alloc_round_trip) {
     ASTIA_CHECK(got.value[0] == 0xaa);
 
     free(got.value);
+}
+
+ASTIA_TEST(mm_share_honours_over_alignment) {
+    auto shared = astia::mm::share<over_aligned_probe>();
+
+    ASTIA_CHECK(shared);
+    ASTIA_CHECK(
+        (reinterpret_cast<astia::usz>(shared.get()) % alignof(over_aligned_probe)) == 0);
 }
 
 ASTIA_TEST(heap_alloc_zeroed_clears_payload) {
