@@ -345,6 +345,7 @@ target_include_directories(libc_pthread_once_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include)
 target_link_libraries(libc_pthread_once_test PRIVATE Threads::Threads)
 add_test(NAME libc_pthread_once_test COMMAND libc_pthread_once_test)
+set_tests_properties(libc_pthread_once_test PROPERTIES TIMEOUT 120)
 
 astia_append_test_label("libc;host;deterministic")
 astia_append_test_label("sanitizer-unsupported-libc")

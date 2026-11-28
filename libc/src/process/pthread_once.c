@@ -22,6 +22,17 @@
  * child has no thread to wait for, so it takes the control over and runs the
  * initializer itself.  A finished control stays finished across fork because
  * the child inherits the initializer's effects.
+ *
+ * The initializer runs with cancellation disabled.  pthread_once is not a
+ * cancellation point, and a control abandoned while running would strand
+ * every later caller, so the winner always reaches the publication below and
+ * restores the caller's cancellation state afterwards.  A cancellation
+ * requested in the meantime is delivered by that restore, after the done
+ * state is stored and the waiters are woken: the control is never left in
+ * the running phase and a retry can never race with a partially applied
+ * initializer.  POSIX leaves the cancellation behaviour of the initializer
+ * unspecified; this trades the ability to cancel a running initializer for a
+ * once control that cannot deadlock.
  */
 enum {
     pthread_once_never   = 0,
@@ -73,11 +84,16 @@ int pthread_once(pthread_once_t* once_control, void (*init_routine)(void)) {
             return errno;
     }
 
+    int cancel_state;
+
+    (void) pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancel_state);
+
     init_routine();
 
     __atomic_store_n(once_control, pthread_once_state((int) pid, pthread_once_done),
                      __ATOMIC_RELEASE);
     (void) futex_wake((uint32_t*) once_control, pthread_once_wake_all);
+    (void) pthread_setcancelstate(cancel_state, NULL);
 
     return 0;
 }
