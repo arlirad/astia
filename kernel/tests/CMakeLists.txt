@@ -828,6 +828,9 @@ add_library(astia_dl_boot_fixture_compile_db OBJECT
         dl_fixture_global.c
         dl_fixture_nd.c
         dl_fixture_user.c
+        dl_fixture_ctor.c
+        dl_ctor_dep.c
+        dl_ctor_fini.c
         dl_dep_base.c
         dl_dep_b.c
         dl_dep_c.c
@@ -1688,6 +1691,20 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/libdlfixture_dep.so
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlctor_dep.so -o ${_fix_dir}/libdlctor_dep.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_ctor_dep.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlctor_fini.so -o ${_fix_dir}/libdlctor_fini.so
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_ctor_fini.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
+                -Wl,-soname,libdlctor.so -o ${_fix_dir}/libdlctor.so
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include
+                ${CMAKE_CURRENT_SOURCE_DIR}/dl_fixture_ctor.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
+                -fno-stack-protector -Wl,--hash-style=sysv -Wl,-z,now
                 -Wl,-soname,libdl_dep_base.so -o ${_fix_dir}/libdl_dep_base.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/dl_dep_base.c
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
@@ -1729,6 +1746,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/libdlfixture.so ${_fix_dir}/libdlglobal.so
                 ${_fix_dir}/libdlnd.so ${_fix_dir}/libdlfixture_dep.so
                 ${_fix_dir}/libdlfixture_user.so
+                ${_fix_dir}/libdlctor.so ${_fix_dir}/libdlctor_dep.so
+                ${_fix_dir}/libdlctor_fini.so
                 ${_fix_dir}/libdl_dep_base.so ${_fix_dir}/libdl_dep_b.so
                 ${_fix_dir}/libdl_dep_c.so ${_fix_dir}/libdl_dep_a.so
                 ${_fix_dir}/boot_stage/lib/
@@ -1865,6 +1884,7 @@ if (ARCH STREQUAL "x86_64")
                 bin/interp_relro bin/interp_relro_ok
                 lib/libdlfixture.so lib/libdlglobal.so lib/libdlnd.so
                 lib/libdlfixture_dep.so lib/libdlfixture_user.so
+                lib/libdlctor.so lib/libdlctor_dep.so lib/libdlctor_fini.so
                 lib/libdl_dep_base.so lib/libdl_dep_b.so lib/libdl_dep_c.so
                 lib/libdl_dep_a.so
                 bin/interp_dlopen
