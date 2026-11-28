@@ -298,6 +298,49 @@ namespace astia::tcp {
             return;
         }
 
+        if (value.state == connection_state::fin_wait_1) {
+            if ((flags & flag_ack) && ack == value.snd_nxt)
+                value.state = connection_state::fin_wait_2;
+
+            if ((flags & flag_fin) && seq == value.rcv_nxt) {
+                value.rcv_nxt += 1;
+                value.state = connection_state::time_wait;
+
+                notify(value, event_closed);
+
+                drive(send_segment(value, flag_ack, value.snd_nxt, value.rcv_nxt, {}));
+            }
+
+            return;
+        }
+
+        if (value.state == connection_state::fin_wait_2) {
+            if ((flags & flag_fin) && seq == value.rcv_nxt) {
+                value.rcv_nxt += 1;
+                value.state = connection_state::time_wait;
+
+                notify(value, event_closed);
+
+                drive(send_segment(value, flag_ack, value.snd_nxt, value.rcv_nxt, {}));
+            }
+
+            return;
+        }
+
+        if (value.state == connection_state::last_ack) {
+            if ((flags & flag_ack) && ack == value.snd_nxt)
+                abort(value);
+
+            return;
+        }
+
+        if (value.state == connection_state::time_wait) {
+            if (flags & flag_ack)
+                abort(value);
+
+            return;
+        }
+
         if (value.state != connection_state::established &&
             value.state != connection_state::close_wait)
             return;
@@ -404,6 +447,30 @@ namespace astia::tcp {
     }
 
     void tcp_protocol::close(connection& value) {
+        if (value.state == connection_state::established) {
+            drive(send_segment(value, flag_fin | flag_ack, value.snd_nxt, value.rcv_nxt,
+                               {}));
+
+            value.snd_nxt += 1;
+            value.state = connection_state::fin_wait_1;
+
+            return;
+        }
+
+        if (value.state == connection_state::close_wait) {
+            drive(send_segment(value, flag_fin | flag_ack, value.snd_nxt, value.rcv_nxt,
+                               {}));
+
+            value.snd_nxt += 1;
+            value.state = connection_state::last_ack;
+
+            return;
+        }
+
+        abort(value);
+    }
+
+    void tcp_protocol::abort(connection& value) {
         core::detail::disarm_timer(&value);
 
         notify(value, event_closed);
@@ -427,7 +494,7 @@ namespace astia::tcp {
             return;
 
         if (value.retries >= connection::max_retries) {
-            close(value);
+            abort(value);
 
             return;
         }

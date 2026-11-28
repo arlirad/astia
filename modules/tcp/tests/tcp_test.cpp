@@ -578,6 +578,70 @@ void test_retransmit_syn_and_data() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_active_close() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    astia::tcp::route path{};
+
+    path.egress           = &link;
+    path.link_destination = astia::net::link_address::from_packet(peer_mac, 6);
+    path.source           = address_of(local_ip);
+    path.destination      = address_of(remote_ip);
+
+    auto* value =
+        protocol.connect(endpoint_of(local_ip, 40000), endpoint_of(remote_ip, 80), path);
+
+    assert(value != nullptr);
+
+    u8  segment[64]{};
+    usz length = build_segment(segment, 80, 40000, 500, value->snd_nxt,
+                               astia::tcp::flag_syn | astia::tcp::flag_ack, nullptr, 0,
+                               remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(value->state == astia::tcp::connection_state::established);
+
+    const u32 fin_sequence = value->snd_nxt;
+
+    protocol.close(*value);
+
+    assert(value->state == astia::tcp::connection_state::fin_wait_1);
+    assert(value->snd_nxt == fin_sequence + 1);
+    assert((last_header(ipv4).flags() & astia::tcp::flag_fin) != 0);
+
+    length = build_segment(segment, 80, 40000, value->rcv_nxt, value->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(value->state == astia::tcp::connection_state::fin_wait_2);
+
+    length = build_segment(segment, 80, 40000, value->rcv_nxt, value->snd_nxt,
+                           astia::tcp::flag_fin | astia::tcp::flag_ack, nullptr, 0,
+                           remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(value->state == astia::tcp::connection_state::time_wait);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == value->rcv_nxt);
+
+    length = build_segment(segment, 80, 40000, value->rcv_nxt, value->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(!value->used);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -588,6 +652,7 @@ int main() {
     test_async_connect_wait();
     test_async_accept_and_receive();
     test_retransmit_syn_and_data();
+    test_active_close();
 
     return 0;
 }
