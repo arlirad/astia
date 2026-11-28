@@ -3,33 +3,19 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef ASTIA_RM_TEST_HOOK
+#define ASTIA_RM_TEST_HOOK(path) ((void) (path))
+#endif
 
 struct child_list {
     char** names;
     size_t count;
     size_t capacity;
 };
-
-static char* child_path(const char* parent, const char* name) {
-    size_t parent_len = __builtin_strlen(parent);
-    size_t name_len   = __builtin_strlen(name);
-    int    slash      = parent_len != 0 && parent[parent_len - 1] != '/';
-
-    char* result = malloc(parent_len + (size_t) slash + name_len + 1);
-    if (result == 0)
-        return 0;
-
-    __builtin_memcpy(result, parent, parent_len);
-
-    if (slash)
-        result[parent_len++] = '/';
-
-    __builtin_memcpy(result + parent_len, name, name_len + 1);
-
-    return result;
-}
 
 static void free_children(struct child_list* children) {
     for (size_t index = 0; index < children->count; ++index) {
@@ -68,14 +54,21 @@ static int append_child(struct child_list* children, const char* name) {
     return 0;
 }
 
-static int collect_children(const char* path, struct child_list* children) {
-    DIR*           directory = opendir(path);
+static int collect_children(int fd, struct child_list* children) {
+    int scan = dup(fd);
+    if (scan < 0)
+        return -1;
+
+    DIR* directory = fdopendir(scan);
+    if (directory == 0) {
+        close(scan);
+
+        return -1;
+    }
+
     struct dirent* entry;
 
     int status = 0;
-
-    if (directory == 0)
-        return -1;
 
     for (;;) {
         errno = 0;
@@ -103,6 +96,108 @@ static int collect_children(const char* path, struct child_list* children) {
     return status;
 }
 
+static int same_identity(const struct stat* left, const struct stat* right) {
+    return left->st_dev == right->st_dev && left->st_ino == right->st_ino;
+}
+
+static int open_directory_at(int parent_fd, const char* name,
+                             const struct stat* expected) {
+    int fd = openat(parent_fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0)
+        return -1;
+
+    struct stat opened;
+
+    if (fstat(fd, &opened) < 0) {
+        int saved = errno;
+
+        close(fd);
+
+        errno = saved;
+
+        return -1;
+    }
+
+    if (!same_identity(&opened, expected)) {
+        close(fd);
+
+        errno = ELOOP;
+
+        return -1;
+    }
+
+    return fd;
+}
+
+static int entry_identity(int dirfd, const char* name, const struct stat* expected) {
+    struct stat info;
+
+    if (fstatat(dirfd, name, &info, AT_SYMLINK_NOFOLLOW) < 0)
+        return -1;
+
+    return same_identity(&info, expected);
+}
+
+static int remove_directory(int fd);
+
+static int remove_child(int dirfd, const char* name, const struct stat* info) {
+    if (!S_ISDIR(info->st_mode))
+        return unlinkat(dirfd, name, 0);
+
+    int child_fd = open_directory_at(dirfd, name, info);
+    if (child_fd < 0)
+        return -1;
+
+    int status = remove_directory(child_fd);
+    int saved  = errno;
+
+    close(child_fd);
+
+    errno = saved;
+
+    if (status < 0)
+        return -1;
+
+    int matched = entry_identity(dirfd, name, info);
+    if (matched < 0)
+        return -1;
+
+    if (matched == 0) {
+        errno = ELOOP;
+
+        return -1;
+    }
+
+    return unlinkat(dirfd, name, AT_REMOVEDIR);
+}
+
+static int remove_directory(int fd) {
+    struct child_list children = {0};
+
+    if (collect_children(fd, &children) < 0) {
+        free_children(&children);
+
+        return -1;
+    }
+
+    int status = 0;
+
+    for (size_t index = 0; index < children.count; ++index) {
+        struct stat info;
+
+        if (fstatat(fd, children.names[index], &info, AT_SYMLINK_NOFOLLOW) < 0 ||
+            remove_child(fd, children.names[index], &info) < 0) {
+            status = -1;
+
+            break;
+        }
+    }
+
+    free_children(&children);
+
+    return status;
+}
+
 static int remove_path(const char* path, int recursive) {
     struct stat info;
 
@@ -118,29 +213,18 @@ static int remove_path(const char* path, int recursive) {
         return -1;
     }
 
-    struct child_list children = {0};
+    ASTIA_RM_TEST_HOOK(path);
 
-    if (collect_children(path, &children) < 0) {
-        free_children(&children);
-
+    int fd = open_directory_at(AT_FDCWD, path, &info);
+    if (fd < 0)
         return -1;
-    }
 
-    int status = 0;
+    int status = remove_directory(fd);
+    int saved  = errno;
 
-    for (size_t index = 0; index < children.count; ++index) {
-        char* child = child_path(path, children.names[index]);
+    close(fd);
 
-        if (child == 0 || remove_path(child, recursive) < 0)
-            status = -1;
-
-        free(child);
-
-        if (status < 0)
-            break;
-    }
-
-    free_children(&children);
+    errno = saved;
 
     if (status < 0)
         return -1;

@@ -26,11 +26,16 @@ namespace astia::io::aio::operations {
             // through.
             const bool exclusive = (sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 &&
                                    (sqe.op_flags & ASTIA_AIO_O_EXCL) != 0;
+            const bool nofollow = (sqe.op_flags & ASTIA_AIO_O_NOFOLLOW) != 0;
 
-            long resolve_rc = resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd, path,
-                                         resolved, sizeof resolved, !exclusive);
+            long resolve_rc =
+                resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd, path, resolved,
+                           sizeof resolved, !(exclusive || nofollow));
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
+
+            if (nofollow && fs::node_type(resolved) == fs::directory_lnk)
+                co_return -ELOOP;
 
             if (resolved[0] == '/' && resolved[1] == 'd' && resolved[2] == 'e' &&
                 resolved[3] == 'v' && resolved[4] == '/' && resolved[5] == 't' &&

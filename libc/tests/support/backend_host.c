@@ -126,6 +126,9 @@ long __astia_fio_open(const char* path, int flags, int mode) {
     if (flags & FIO_DIRECTORY)
         hf |= O_DIRECTORY;
 
+    if (flags & FIO_NOFOLLOW)
+        hf |= O_NOFOLLOW;
+
     long fd = syscall(SYS_openat, -100, path, hf, mode);
 
     return fd >= 0 ? fd : -HOST_ERRNO;

@@ -63,6 +63,9 @@ static uint32_t aio_open_flags_from_native(int flags) {
     if (flags & O_DIRECTORY)
         wire |= ASTIA_AIO_O_DIRECTORY;
 
+    if (flags & O_NOFOLLOW)
+        wire |= ASTIA_AIO_O_NOFOLLOW;
+
     return wire;
 }
 
@@ -472,6 +475,9 @@ long __astia_fio_open(const char* path, int flags, int mode) {
 
     if (flags & FIO_DIRECTORY)
         of |= ASTIA_AIO_O_DIRECTORY;
+
+    if (flags & FIO_NOFOLLOW)
+        of |= ASTIA_AIO_O_NOFOLLOW;
 
     return transact(OP_OPENAT, AT_FDCWD, 0, path, 0, of, (uint32_t) mode);
 }

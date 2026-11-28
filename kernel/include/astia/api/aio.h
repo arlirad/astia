@@ -464,6 +464,7 @@ enum {
     ASTIA_AIO_O_DIRECTORY = 0x40,
     ASTIA_AIO_O_CLOEXEC   = 0x80,
     ASTIA_AIO_O_NONBLOCK  = 0x100,
+    ASTIA_AIO_O_NOFOLLOW  = 0x200,
 };
 
 #define ASTIA_AIO_POSITIONED (1u << 31)
@@ -483,6 +484,10 @@ enum {
     O_DIRECTORY = ASTIA_AIO_O_DIRECTORY,
     O_CLOEXEC   = ASTIA_AIO_O_CLOEXEC,
 };
+#endif
+
+#ifndef O_NOFOLLOW
+enum { O_NOFOLLOW = ASTIA_AIO_O_NOFOLLOW };
 #endif
 
 /* poll events (POLL_ADD op_flags; revents in cqe.result).  libc's poll.h

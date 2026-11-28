@@ -201,6 +201,9 @@ int open(const char* path, int flags, ...) {
     if (flags & O_DIRECTORY)
         fio |= FIO_DIRECTORY;
 
+    if (flags & O_NOFOLLOW)
+        fio |= FIO_NOFOLLOW;
+
     long rc = __astia_fio_open(path, fio, mode);
     if (rc < 0) {
         errno = (int) -rc;
