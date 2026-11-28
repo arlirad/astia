@@ -3243,6 +3243,96 @@ int main(int argc, char** argv) {
                 return 284;
         }
 
+        /* Directory descriptors keep the object they were opened on:
+           rename moves it, and a recreated name is not adopted. */
+        {
+            struct stat value;
+
+            int dir_fd;
+            int child_fd;
+
+            (void) unlink("/tmp/dirfd-src/marker");
+            (void) unlink("/tmp/dirfd-moved/marker");
+            (void) unlink("/tmp/dirfd-moved/victim");
+            (void) rmdir("/tmp/dirfd-src/sub");
+            (void) rmdir("/tmp/dirfd-moved/sub");
+            (void) rmdir("/tmp/dirfd-src");
+            (void) rmdir("/tmp/dirfd-moved");
+
+            if (mkdir("/tmp/dirfd-src", 0755) != 0 ||
+                mkdir("/tmp/dirfd-src/sub", 0755) != 0)
+                return 341;
+
+            dir_fd = open("/tmp/dirfd-src", O_RDONLY | O_DIRECTORY);
+            if (dir_fd < 0)
+                return 342;
+
+            if (rename("/tmp/dirfd-src", "/tmp/dirfd-moved") != 0)
+                return 343;
+
+            if (fstatat(dir_fd, "sub", &value, 0) != 0 || !S_ISDIR(value.st_mode))
+                return 344;
+
+            child_fd = openat(dir_fd, "sub", O_RDONLY | O_DIRECTORY);
+            if (child_fd < 0)
+                return 345;
+
+            close(child_fd);
+
+            child_fd = openat(dir_fd, "victim", O_CREAT | O_RDWR, 0644);
+            if (child_fd < 0)
+                return 346;
+
+            if (fstatat(dir_fd, "victim", &value, 0) != 0 || !S_ISREG(value.st_mode))
+                return 347;
+
+            close(child_fd);
+
+            if (unlinkat(dir_fd, "victim", 0) != 0)
+                return 348;
+
+            if (stat("/tmp/dirfd-moved/victim", &value) == 0 || errno != ENOENT)
+                return 349;
+
+            if (mkdir("/tmp/dirfd-src", 0755) != 0)
+                return 350;
+
+            child_fd = open("/tmp/dirfd-src/marker", O_CREAT | O_RDWR, 0644);
+            if (child_fd < 0)
+                return 351;
+
+            close(child_fd);
+
+            errno = 0;
+
+            child_fd = openat(dir_fd, "marker", O_RDONLY);
+
+            if (child_fd >= 0 || errno != ENOENT) {
+                if (child_fd >= 0)
+                    close(child_fd);
+
+                return 352;
+            }
+
+            errno = 0;
+
+            if (fstatat(dir_fd, "marker", &value, 0) != -1 || errno != ENOENT)
+                return 353;
+
+            errno = 0;
+
+            if (unlinkat(dir_fd, "marker", 0) != -1 || errno != ENOENT)
+                return 354;
+
+            if (stat("/tmp/dirfd-src/marker", &value) != 0 || !S_ISREG(value.st_mode))
+                return 355;
+
+            if (close(dir_fd) != 0 || unlink("/tmp/dirfd-src/marker") != 0 ||
+                rmdir("/tmp/dirfd-src") != 0 || rmdir("/tmp/dirfd-moved/sub") != 0 ||
+                rmdir("/tmp/dirfd-moved") != 0)
+                return 356;
+        }
+
         if (direct_chdir("/bin") != 0)
             return 228;
 

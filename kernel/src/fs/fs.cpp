@@ -105,6 +105,24 @@ namespace astia::fs {
             return true;
         }
 
+        long copy_path_bounded(char* dst, const char* src, u32 capacity) {
+            if (dst == nullptr || src == nullptr || capacity == 0)
+                return -EINVAL;
+
+            u32 i = 0;
+
+            for (; src[i] != '\0'; ++i) {
+                if (i + 1 >= capacity)
+                    return -ENAMETOOLONG;
+
+                dst[i] = src[i];
+            }
+
+            dst[i] = '\0';
+
+            return 0;
+        }
+
         type_entry* find_type_locked(const char* name) {
             for (u32 i = 0; i < max_types; ++i) {
                 if (types[i].type != nullptr && string_equal(types[i].type->name(), name))
@@ -1188,13 +1206,11 @@ namespace astia::fs {
         if (!directory)
             return -EBADF;
 
-        const char* path = directory->path();
+        char path[path_max]{};
 
-        if (path == nullptr || path[0] != '/')
-            return -EBADF;
-
-        if (!directory->mode().is_directory())
-            return -ENOTDIR;
+        const long path_rc = directory_path(*directory, path, sizeof path);
+        if (path_rc < 0)
+            return path_rc;
 
         return read_directory(path, index, name, capacity, type, inode);
     }
@@ -1563,6 +1579,32 @@ namespace astia::fs {
         }
 
         return 0;
+    }
+
+    long directory_path(const open_file& directory, char* buffer, u32 capacity) {
+        if (buffer == nullptr || capacity == 0)
+            return -EINVAL;
+
+        if (!directory.mode().is_directory())
+            return -ENOTDIR;
+
+        const char* saved  = directory.path();
+        mount*      owner  = directory.mount_owner();
+        const auto  parent = directory.parent();
+
+        const u64 inode = parent ? parent->inode() : 0;
+
+        if (owner != nullptr && inode != 0) {
+            if (directory_matches(saved, owner, inode))
+                return copy_path_bounded(buffer, saved, capacity);
+
+            return directory_path(owner, inode, buffer, capacity);
+        }
+
+        if (saved == nullptr)
+            return -EBADF;
+
+        return copy_path_bounded(buffer, saved, capacity);
     }
 
     uid_t node_uid(const char* path) {
