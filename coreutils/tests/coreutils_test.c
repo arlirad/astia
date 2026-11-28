@@ -1227,6 +1227,48 @@ static int head_header_checks(void) {
     return status;
 }
 
+/* cp reads "-" from stdin; an existing destination directory must receive a
+ * literal "-" entry.  Run after the tree removals so the 32-entry tmpfs has
+ * room for these fixtures. */
+static int cp_stdin_dir_checks(void) {
+    char* cp_stdin_dir[]       = {"cp", "-", "/tmp/coreutils_cp_stdin_dir", NULL};
+    char* cp_stdin_dir_slash[] = {"cp", "-", "/tmp/coreutils_cp_stdin_dir/", NULL};
+    char* cp_stdin_new_file[]  = {"cp", "-", "/tmp/coreutils_cp_stdin_new", NULL};
+    char* cp_file_dir[] = {"cp", "/tmp/coreutils_b", "/tmp/coreutils_cp_stdin_dir", NULL};
+
+    int status = 0;
+
+    (void) unlink("/tmp/coreutils_cp_stdin_new");
+    (void) unlink("/tmp/coreutils_cp_stdin_dir/-");
+    (void) unlink("/tmp/coreutils_cp_stdin_dir/coreutils_b");
+    (void) rmdir("/tmp/coreutils_cp_stdin_dir");
+
+    if (mkdir("/tmp/coreutils_cp_stdin_dir", 0777) != 0)
+        return fail("cp stdin directory fixture setup");
+
+    status |=
+        check("cp stdin into directory", cp_stdin_dir, "to directory\n", 0, NULL, 0);
+    status |= !file_equals("/tmp/coreutils_cp_stdin_dir/-", "to directory\n");
+    status |=
+        check("cp stdin into directory slash", cp_stdin_dir_slash, "slash\n", 0, NULL, 0);
+    status |= !file_equals("/tmp/coreutils_cp_stdin_dir/-", "slash\n");
+
+    (void) unlink("/tmp/coreutils_cp_stdin_dir/-");
+
+    status |= check("cp file into directory", cp_file_dir, NULL, 0, NULL, 0);
+    status |= !file_equals("/tmp/coreutils_cp_stdin_dir/coreutils_b", "beta\ngamma\n");
+
+    (void) unlink("/tmp/coreutils_cp_stdin_dir/coreutils_b");
+
+    status |= check("cp stdin new file", cp_stdin_new_file, "new file\n", 0, NULL, 0);
+    status |= !file_equals("/tmp/coreutils_cp_stdin_new", "new file\n");
+
+    (void) unlink("/tmp/coreutils_cp_stdin_new");
+    (void) rmdir("/tmp/coreutils_cp_stdin_dir");
+
+    return status;
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -1577,7 +1619,7 @@ int main(void) {
         check("chmod recursive", chmod_recursive, NULL, 0, NULL, 0) ||
         !has_mode("/tmp/coreutils_tree", 0640) ||
         !has_mode("/tmp/coreutils_tree/nested/file", 0640) ||
-        check("rm -r tree", rm_tree, NULL, 0, NULL, 0) ||
+        check("rm -r tree", rm_tree, NULL, 0, NULL, 0) || cp_stdin_dir_checks() != 0 ||
         check("rm -r missing", rm_tree_bad, NULL, 1, NULL, 0) ||
         check("basename", basename_path, NULL, 0, "astia\n", 1) ||
         check("basename suffix", basename_suffix, NULL, 0, "astia\n", 1) ||
