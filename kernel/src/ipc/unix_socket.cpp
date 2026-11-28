@@ -499,15 +499,25 @@ namespace astia::fs {
                     return n;
                 }
                 if (kind == state::listener) {
-                    const long accepted = accept_queued(proc::current_process());
+                    astia_sockaddr peer{};
+
+                    const long accepted = accept_queued(proc::current_process(), peer);
+
                     if (accepted == 0) {
                         r.stage(1);
 
                         return 0;
                     }
 
-                    if (accepted > 0)
+                    if (accepted > 0) {
+                        {
+                            core::spinlock_guard guard(_lock);
+
+                            _accept_out_value = peer;
+                        }
+
                         r.complete(true);
+                    }
 
                     return accepted;
                 }
@@ -609,6 +619,58 @@ namespace astia::fs {
                 copy_path(_bound_path, path);
             }
 
+            astia_sockaddr bound_address() const {
+                core::spinlock_guard guard(_lock);
+
+                return _bound_addr;
+            }
+
+            /// The address this connection's peer bound, trimmed to the
+            /// actual pathname.  An unnamed peer still reports AF_UNIX with
+            /// the family-only length.
+            astia_sockaddr peer_address() const {
+                astia_sockaddr       out{};
+                mm::shptr<unix_file> peer;
+
+                {
+                    core::spinlock_guard guard(_lock);
+
+                    peer = _peer_owner;
+                }
+
+                if (!peer)
+                    return out;
+
+                const astia_sockaddr bound = peer->bound_address();
+
+                out.family = AF_UNIX;
+
+                if (bound.family != AF_UNIX || bound.len < 2) {
+                    out.len = sizeof(u16);
+
+                    return out;
+                }
+
+                u32 path = bound.len - 2;
+
+                if (path > sizeof(out.data))
+                    path = sizeof(out.data);
+
+                for (u32 i = 0; i < path; ++i) {
+                    out.data[i] = bound.data[i];
+
+                    if (bound.data[i] == '\0') {
+                        path = i + 1;
+
+                        break;
+                    }
+                }
+
+                out.len = 2 + path;
+
+                return out;
+            }
+
             void set_dgram_target(const mm::shptr<file>& endpoint) {
                 core::spinlock_guard guard(_lock);
 
@@ -628,6 +690,14 @@ namespace astia::fs {
                     return false;
 
                 out = _dgram_out_value;
+
+                return true;
+            }
+
+            bool take_accept_address(astia_sockaddr& out) {
+                core::spinlock_guard guard(_lock);
+
+                out = _accept_out_value;
 
                 return true;
             }
@@ -880,29 +950,41 @@ namespace astia::fs {
             /// Install the connection at the head of the backlog into a free
             /// descriptor and only then advance the queue.  A full descriptor
             /// table leaves the backlog untouched so a later accept can still
-            /// return the connection.
-            long accept_queued(proc::process* current) {
-                core::spinlock_guard guard(_lock);
+            /// return the connection.  The peer address is read before the
+            /// queue entry is dropped so accept can report it.
+            long accept_queued(proc::process* current, astia_sockaddr& peer) {
+                mm::shptr<open_file> pending;
 
-                if (!_queue_count)
-                    return 0;
+                u32 installed_fd = 0;
 
-                if (!current)
-                    return -ESRCH;
+                {
+                    core::spinlock_guard guard(_lock);
 
-                auto& pending = _queue[_queue_head];
+                    if (!_queue_count)
+                        return 0;
 
-                const auto installed = current->allocate_descriptor(pending);
+                    if (!current)
+                        return -ESRCH;
 
-                if (!installed)
-                    return -EMFILE;
+                    pending = _queue[_queue_head];
 
-                pending     = {};
-                _queue_head = (_queue_head + 1) % socket_backlog_capacity;
+                    const auto installed = current->allocate_descriptor(pending);
 
-                --_queue_count;
+                    if (!installed)
+                        return -EMFILE;
 
-                return installed.value.value;
+                    _queue[_queue_head] = {};
+                    _queue_head         = (_queue_head + 1) % socket_backlog_capacity;
+
+                    --_queue_count;
+
+                    installed_fd = installed.value.value;
+                }
+
+                if (auto* accepted = static_cast<unix_file*>(pending->parent().get()))
+                    peer = accepted->peer_address();
+
+                return installed_fd;
             }
 
             private:
@@ -919,6 +1001,7 @@ namespace astia::fs {
             mm::shptr<unix_file>    _dgram_target_owner;
             astia_sockaddr          _dgram_out_value{};
             bool                    _dgram_out_pending{};
+            astia_sockaddr          _accept_out_value{};
             mm::shptr<unix_control> _send_control;
             mm::shptr<unix_control> _dgram_control_out;
             bool                    _want_control{};
@@ -936,6 +1019,7 @@ namespace astia::fs {
         long socket_bind(open_file& o, const astia_sockaddr& a);
         long socket_listen(open_file& o, u32 b);
         long socket_accept(open_file& o, io::request& r);
+        bool socket_accept_address(open_file& o, astia_sockaddr& out);
         long socket_connect(open_file& o, const astia_sockaddr& a);
         long socket_shutdown(open_file& o, u32 how);
         long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value);
@@ -952,6 +1036,7 @@ namespace astia::fs {
         const unix_socket_operations socket_operations{socket_bind,
                                                        socket_listen,
                                                        socket_accept,
+                                                       socket_accept_address,
                                                        socket_connect,
                                                        socket_shutdown,
                                                        socket_getsockopt,
@@ -1118,6 +1203,15 @@ namespace astia::fs {
                 return -EINVAL;
 
             return l->submit(r);
+        }
+
+        bool socket_accept_address(open_file& o, astia_sockaddr& out) {
+            auto* f = static_cast<unix_file*>(o.parent().get());
+
+            if (!f || f->kind() != unix_file::state::listener)
+                return false;
+
+            return f->take_accept_address(out);
         }
     }
 

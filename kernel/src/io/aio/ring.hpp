@@ -74,6 +74,8 @@ namespace astia::io::aio::ring {
         bool                      control               = false;
         bool                      signal_interruptible  = false;
         bool                      socket_accept         = false;
+        bool                      accept_address        = false;
+        u64                       accept_address_user   = 0;
         bool                      readiness             = false;
         bool                      sleeping              = false;
         bool                      timed                 = false;
@@ -117,6 +119,8 @@ namespace astia::io::aio::ring {
             control               = false;
             signal_interruptible  = false;
             socket_accept         = false;
+            accept_address        = false;
+            accept_address_user   = 0;
             readiness             = false;
             sleeping              = false;
             timed                 = false;

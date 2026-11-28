@@ -5,6 +5,8 @@
 #include "aio_registry_test_support.hpp"
 #include "support/aio_test_file.hpp"
 #include "support/test.hpp"
+#include <io/aio/registry.hpp>
+#include <io/aio/ring.hpp>
 #include <ipc/unix_socket.hpp>
 #include <proc/proc.hpp>
 
@@ -101,7 +103,8 @@ namespace astia::fs {
 } // namespace astia::fs
 
 namespace {
-    namespace fs = astia::fs;
+    namespace fs  = astia::fs;
+    namespace aio = astia::io::aio;
 
     void set_unix_lookup_endpoint(const astia::mm::shptr<fs::file>& endpoint) {
         fs::unix_lookup_endpoint = endpoint;
@@ -125,6 +128,81 @@ namespace {
         }
 
         return address;
+    }
+
+    astia_sockaddr path_address(const char* path) {
+        astia_sockaddr address{};
+
+        u32 length = 0;
+
+        while (path[length] != '\0' && length < sizeof(address.data) - 1) {
+            ++length;
+        }
+
+        address.family = AF_UNIX;
+        address.len    = 2 + length + 1;
+
+        for (u32 i = 0; i <= length; ++i) {
+            address.data[i] = static_cast<u8>(path[i]);
+        }
+
+        return address;
+    }
+
+    struct accept_pair {
+        mm::shptr<fs::open_file>          listener;
+        mm::shptr<fs::open_file>          client;
+        const fs::unix_socket_operations* listener_ops = nullptr;
+        const fs::unix_socket_operations* client_ops   = nullptr;
+        i32                               listener_fd  = -1;
+    };
+
+    bool prepare_accept(accept_pair& pair, const char* client_path) {
+        using namespace astia::io::aio::test_support;
+
+        if (fs::create_unix_socket(pair.listener, SOCK_STREAM) != 0 ||
+            fs::create_unix_socket(pair.client, SOCK_STREAM) != 0)
+            return false;
+
+        if (!pair.listener || !pair.client)
+            return false;
+
+        pair.listener_ops = pair.listener->parent()->unix_socket_capability();
+        pair.client_ops   = pair.client->parent()->unix_socket_capability();
+
+        if (pair.listener_ops == nullptr || pair.client_ops == nullptr)
+            return false;
+
+        set_unix_lookup_endpoint(pair.listener->parent());
+
+        if (client_path != nullptr &&
+            pair.client_ops->bind(*pair.client, path_address(client_path)) != 0)
+            return false;
+
+        if (pair.listener_ops->listen(*pair.listener, 1) != 0)
+            return false;
+
+        pair.listener_fd = install_descriptor(pair.listener);
+
+        if (pair.listener_fd < 0)
+            return false;
+
+        return pair.client_ops->connect(*pair.client, socket_address()) == 0;
+    }
+
+    i32 dispatch_accept(accept_pair& pair, astia_sockaddr* peer,
+                        astia::io::aio::test_support::cq_capture& capture,
+                        aio::ring::ring_slot& slot, u32 index) {
+        astia_sqe sqe{};
+
+        sqe.op      = OP_ACCEPT;
+        sqe.fd      = pair.listener_fd;
+        sqe.address = reinterpret_cast<u64>(peer);
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EINVAL;
+
+        return capture.result(index);
     }
 } // namespace
 
@@ -368,4 +446,121 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
     io::request accepted;
 
     ASTIA_CHECK(listener_ops->accept(*listener, accepted) >= 0);
+}
+
+ASTIA_TEST(unix_socket_accept_reports_bound_peer_address) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    fs::reset_unix_registrations();
+
+    accept_pair pair;
+
+    ASTIA_CHECK(prepare_accept(pair, "/accepted"));
+
+    if (pair.listener_fd < 0)
+        return;
+
+    const astia_sockaddr expected = path_address("/accepted");
+
+    astia_sockaddr       peer{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    const i32 accepted = dispatch_accept(pair, &peer, capture, slot, 0);
+
+    ASTIA_CHECK(accepted >= 4);
+    ASTIA_CHECK(descriptor_present(accepted));
+    ASTIA_CHECK(peer.family == AF_UNIX);
+    ASTIA_CHECK(peer.len == expected.len);
+    ASTIA_CHECK(__builtin_memcmp(peer.data, expected.data, expected.len - 2) == 0);
+
+    release_parked(slot);
+}
+
+ASTIA_TEST(unix_socket_accept_reports_unnamed_peer) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    fs::reset_unix_registrations();
+
+    accept_pair pair;
+
+    ASTIA_CHECK(prepare_accept(pair, nullptr));
+
+    if (pair.listener_fd < 0)
+        return;
+
+    astia_sockaddr       peer{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    const i32 accepted = dispatch_accept(pair, &peer, capture, slot, 0);
+
+    ASTIA_CHECK(accepted >= 4);
+    ASTIA_CHECK(peer.family == AF_UNIX);
+    ASTIA_CHECK(peer.len == 2);
+
+    release_parked(slot);
+}
+
+ASTIA_TEST(unix_socket_accept_without_address_succeeds) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    fs::reset_unix_registrations();
+
+    accept_pair pair;
+
+    ASTIA_CHECK(prepare_accept(pair, "/accepted"));
+
+    if (pair.listener_fd < 0)
+        return;
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    const i32 accepted = dispatch_accept(pair, nullptr, capture, slot, 0);
+
+    ASTIA_CHECK(accepted >= 4);
+    ASTIA_CHECK(descriptor_present(accepted));
+
+    release_parked(slot);
+}
+
+ASTIA_TEST(unix_socket_accept_rejects_unmapped_address_without_consuming) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    fs::reset_unix_registrations();
+
+    accept_pair pair;
+
+    ASTIA_CHECK(prepare_accept(pair, "/accepted"));
+
+    if (pair.listener_fd < 0)
+        return;
+
+    astia_sockaddr       peer{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    set_memory_allowed(false);
+
+    ASTIA_CHECK(dispatch_accept(pair, &peer, capture, slot, 0) == -EFAULT);
+
+    set_memory_allowed(true);
+
+    ASTIA_CHECK(pair.listener->poll(POLLIN) == POLLIN);
+    ASTIA_CHECK(dispatch_accept(pair, &peer, capture, slot, 1) >= 4);
+
+    release_parked(slot);
 }

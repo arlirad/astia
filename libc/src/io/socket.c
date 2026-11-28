@@ -92,6 +92,33 @@ static int addr(const struct sockaddr* in, unsigned int n, astia_sockaddr* out) 
     return 0;
 }
 
+static unsigned int fill_address(const astia_sockaddr* in, struct sockaddr* out,
+                                 unsigned int capacity) {
+    unsigned int path;
+
+    if (in->len < 2)
+        return in->len;
+
+    path = in->len - 2;
+
+    if (path > sizeof(struct sockaddr_un) - 2)
+        path = sizeof(struct sockaddr_un) - 2;
+
+    if (out != NULL && capacity >= 2) {
+        unsigned int copied = path;
+
+        if (copied > capacity - 2)
+            copied = capacity - 2;
+
+        out->sa_family = (unsigned short) in->family;
+
+        if (copied)
+            memcpy((unsigned char*) out + 2, in->data, copied);
+    }
+
+    return 2 + path;
+}
+
 int bind(int f, const struct sockaddr* a, unsigned int n) {
     astia_sockaddr x;
 
@@ -106,7 +133,36 @@ int listen(int f, int b) {
 }
 
 int accept(int f, struct sockaddr* a, unsigned int* n) {
-    return r(__astia_fio_accept(f, a, n));
+    astia_sockaddr x;
+    uint32_t       length;
+
+    unsigned int capacity;
+    long         rc;
+
+    if (a == NULL)
+        return r(__astia_fio_accept(f, NULL, NULL));
+
+    if (n == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    memset(&x, 0, sizeof x);
+
+    capacity = *n;
+    length   = capacity;
+
+    rc = __astia_fio_accept(f, &x, &length);
+    if (rc < 0) {
+        errno = (int) -rc;
+
+        return -1;
+    }
+
+    *n = fill_address(&x, a, capacity);
+
+    return (int) rc;
 }
 
 int connect(int f, const struct sockaddr* a, unsigned int n) {
@@ -187,20 +243,9 @@ long recvfrom(int f, void* b, unsigned long n, int flags, struct sockaddr* a,
     }
 
     if (a && alen) {
-        unsigned int path = x.len > 2 ? x.len - 2 : 0;
+        unsigned int full = fill_address(&x, a, *alen);
 
-        if (path > sizeof(struct sockaddr_un) - 2)
-            path = sizeof(struct sockaddr_un) - 2;
-
-        if (path > *alen - 2)
-            path = *alen - 2;
-
-        a->sa_family = (unsigned short) x.family;
-
-        if (path)
-            memcpy((unsigned char*) a + 2, x.data, path);
-
-        *alen = x.len < 2 ? x.len : 2 + path;
+        *alen = full < *alen ? full : *alen;
     }
 
     return v;

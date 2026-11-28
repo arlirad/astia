@@ -238,6 +238,192 @@ int main(void) {
         }
     }
 
+    {
+        int listener        = -1;
+        int named_socket    = -1;
+        int other_socket    = -1;
+        int unnamed_socket  = -1;
+        int rejected_socket = -1;
+        int accepted;
+
+        struct sockaddr_un server;
+        struct sockaddr_un named;
+        struct sockaddr_un other;
+        struct sockaddr_un peer;
+
+        char server_path[64];
+        char named_path[64];
+        char other_path[64];
+
+        int server_written;
+        int named_written;
+        int other_written;
+
+        socklen_t peer_length;
+
+        unsigned int capacity;
+
+        __builtin_memset(&server, 0, sizeof server);
+        __builtin_memset(&named, 0, sizeof named);
+        __builtin_memset(&other, 0, sizeof other);
+
+        server_written =
+            snprintf(server_path, sizeof server_path, "/tmp/astia-accept-%012lx.sock",
+                     (unsigned long) (uintptr_t) &server);
+        named_written =
+            snprintf(named_path, sizeof named_path, "/tmp/astia-named-%012lx.sock",
+                     (unsigned long) (uintptr_t) &named);
+        other_written =
+            snprintf(other_path, sizeof other_path, "/tmp/astia-other-%012lx.sock",
+                     (unsigned long) (uintptr_t) &other);
+
+        CHECK(server_written > 0 && server_written < (int) sizeof server_path);
+        CHECK(named_written > 0 && named_written < (int) sizeof named_path);
+        CHECK(other_written > 0 && other_written < (int) sizeof other_path);
+
+        if (server_written > 0 && server_written < (int) sizeof server_path &&
+            named_written > 0 && named_written < (int) sizeof named_path &&
+            other_written > 0 && other_written < (int) sizeof other_path) {
+            unlink(server_path);
+            unlink(named_path);
+            unlink(other_path);
+
+            listener = socket(AF_UNIX, SOCK_STREAM, 0);
+
+            CHECK(listener >= 0);
+
+            if (listener >= 0) {
+                server.sun_family = AF_UNIX;
+
+                __builtin_memcpy(server.sun_path, server_path, server_written + 1);
+
+                CHECK(bind(listener, (struct sockaddr*) &server, sizeof server) == 0);
+                CHECK(listen(listener, 4) == 0);
+
+                named_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+
+                CHECK(named_socket >= 0);
+
+                if (named_socket >= 0) {
+                    named.sun_family = AF_UNIX;
+
+                    __builtin_memcpy(named.sun_path, named_path, named_written + 1);
+
+                    CHECK(bind(named_socket, (struct sockaddr*) &named, sizeof named) ==
+                          0);
+                    CHECK(connect(named_socket, (struct sockaddr*) &server,
+                                  sizeof server) == 0);
+
+                    __builtin_memset(&peer, 0, sizeof peer);
+
+                    peer_length = sizeof peer;
+                    accepted = accept(listener, (struct sockaddr*) &peer, &peer_length);
+
+                    CHECK(accepted >= 0);
+                    CHECK(peer_length == (socklen_t) named_written + 3);
+                    CHECK(peer.sun_family == AF_UNIX);
+                    CHECK(__builtin_memcmp(peer.sun_path, named_path,
+                                           named_written + 1) == 0);
+
+                    if (accepted >= 0)
+                        close(accepted);
+                }
+
+                other_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+
+                CHECK(other_socket >= 0);
+
+                if (other_socket >= 0) {
+                    other.sun_family = AF_UNIX;
+
+                    __builtin_memcpy(other.sun_path, other_path, other_written + 1);
+
+                    CHECK(bind(other_socket, (struct sockaddr*) &other, sizeof other) ==
+                          0);
+                    CHECK(connect(other_socket, (struct sockaddr*) &server,
+                                  sizeof server) == 0);
+
+                    __builtin_memset(&peer, 0xaa, sizeof peer);
+
+                    capacity    = 8;
+                    peer_length = capacity;
+                    accepted = accept(listener, (struct sockaddr*) &peer, &peer_length);
+
+                    CHECK(accepted >= 0);
+                    CHECK(peer_length == (socklen_t) other_written + 3);
+                    CHECK(peer.sun_family == AF_UNIX);
+                    CHECK(__builtin_memcmp(peer.sun_path, other_path, 6) == 0);
+                    CHECK(((unsigned char*) &peer)[8] == 0xaa);
+
+                    if (accepted >= 0)
+                        close(accepted);
+                }
+
+                unnamed_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+
+                CHECK(unnamed_socket >= 0);
+
+                if (unnamed_socket >= 0) {
+                    CHECK(connect(unnamed_socket, (struct sockaddr*) &server,
+                                  sizeof server) == 0);
+
+                    __builtin_memset(&peer, 0xaa, sizeof peer);
+
+                    peer_length = sizeof peer;
+                    accepted = accept(listener, (struct sockaddr*) &peer, &peer_length);
+
+                    CHECK(accepted >= 0);
+                    CHECK(peer_length == 2);
+                    CHECK(peer.sun_family == AF_UNIX);
+
+                    if (accepted >= 0)
+                        close(accepted);
+                }
+
+                rejected_socket = socket(AF_UNIX, SOCK_STREAM, 0);
+
+                CHECK(rejected_socket >= 0);
+
+                if (rejected_socket >= 0) {
+                    CHECK(connect(rejected_socket, (struct sockaddr*) &server,
+                                  sizeof server) == 0);
+
+                    peer_length = sizeof peer;
+                    errno       = 0;
+
+                    CHECK(accept(listener, (struct sockaddr*) &peer, NULL) == -1);
+                    CHECK(errno == EFAULT);
+
+                    accepted = accept(listener, NULL, NULL);
+
+                    CHECK(accepted >= 0);
+
+                    if (accepted >= 0)
+                        close(accepted);
+                }
+
+                if (unnamed_socket >= 0)
+                    close(unnamed_socket);
+
+                if (other_socket >= 0)
+                    close(other_socket);
+
+                if (named_socket >= 0)
+                    close(named_socket);
+
+                if (rejected_socket >= 0)
+                    close(rejected_socket);
+
+                if (listener >= 0)
+                    close(listener);
+            }
+
+            unlink(server_path);
+            unlink(named_path);
+            unlink(other_path);
+        }
+    }
+
     length = sizeof value;
     errno  = 0;
 

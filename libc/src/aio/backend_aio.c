@@ -787,10 +787,21 @@ long __astia_fio_listen(int fd, int backlog) {
 }
 
 long __astia_fio_accept(int fd, void* address, uint32_t* length) {
-    (void) address;
-    (void) length;
+    astia_sockaddr* out = address;
+    if (out == NULL)
+        return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0);
 
-    return transact(OP_ACCEPT, fd, 0, NULL, 0, 0, 0);
+    if (length == NULL)
+        return -EFAULT;
+
+    out->len = *length;
+
+    long rc = transact(OP_ACCEPT, fd, 0, out, 0, 0, 0);
+
+    if (rc >= 0)
+        *length = out->len;
+
+    return rc;
 }
 
 long __astia_fio_connect(int fd, const void* address, uint32_t length) {

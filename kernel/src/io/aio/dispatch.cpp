@@ -463,6 +463,21 @@ namespace astia::io::aio::dispatch {
             }
         }
 
+        void complete_accept_address(proc::process* owner, parked_op& op, long& result) {
+            if (op.accept_address && op.accept_address_user != 0 && result >= 0) {
+                astia_sockaddr address{};
+                const auto*    socket = op.handle->parent()->unix_socket_capability();
+                const auto     destination =
+                    memory::user_ptr<astia_sockaddr>(op.accept_address_user)
+                        .validate_for(owner);
+
+                if (socket == nullptr || socket->accept_address == nullptr ||
+                    !socket->accept_address(*op.handle, address) || !destination ||
+                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
+                    result = -EFAULT;
+            }
+        }
+
         void complete_recvmsg(proc::process* owner, parked_op& op, long& result) {
             if (!op.recvmsg || result < 0)
                 return;
@@ -613,6 +628,8 @@ namespace astia::io::aio::dispatch {
             p->control               = control;
             p->signal_interruptible  = false;
             p->socket_accept         = socket_accept;
+            p->accept_address        = s.op == OP_ACCEPT;
+            p->accept_address_user   = p->accept_address ? s.address : 0;
             p->readiness             = false;
             p->poll_events           = 0;
             p->pending_cqe           = false;
@@ -732,6 +749,7 @@ namespace astia::io::aio::dispatch {
                 result = -ECANCELED;
 
             complete_recvfrom_address(slot.owner.get(), *p, result);
+            complete_accept_address(slot.owner.get(), *p, result);
             complete_recvmsg(slot.owner.get(), *p, result);
 
             // Satisfied inline.  The operation has already happened, so a
@@ -843,6 +861,7 @@ namespace astia::io::aio::dispatch {
             }
 
             complete_recvfrom_address(owner, op, result);
+            complete_accept_address(owner, op, result);
             complete_recvmsg(owner, op, result);
 
             // A full CQ leaves the operation and its shared file
