@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/errno.h>
+#include <astia/fs/socket.hpp>
 #include <astia/mapping.hpp>
 
 #include "../../fs/mapping.hpp"
@@ -19,6 +20,24 @@ namespace astia::io::aio::operations {
     using ::astia::io::aio::dispatch::submit_socket_request;
 
     inline constexpr usz max_operation_bytes = ASTIA_AIO_MAX_OPERATION_BYTES;
+
+    inline fs::dgram_sock* dgram_for(const mm::shptr<fs::open_file>& handle) {
+        if (!handle)
+            return nullptr;
+
+        auto socket = handle->parent()->as_dgram_sock();
+
+        return socket ? &*socket : nullptr;
+    }
+
+    inline fs::stream_sock* stream_for(const mm::shptr<fs::open_file>& handle) {
+        if (!handle)
+            return nullptr;
+
+        auto socket = handle->parent()->as_stream_sock();
+
+        return socket ? &*socket : nullptr;
+    }
 
     inline bool socket_node_writable(proc::process* current, const char* path) {
         if (!current || !path)

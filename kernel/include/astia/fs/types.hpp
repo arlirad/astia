@@ -44,7 +44,6 @@ namespace astia::fs {
 
     class mount;
     class file;
-    struct unix_socket_operations;
 
     enum class file_type : u32 {
         unknown   = 0,

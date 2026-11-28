@@ -17,4 +17,5 @@
 #include <astia/fs/namespace.hpp>
 #include <astia/fs/open_file.hpp>
 #include <astia/fs/search.hpp>
+#include <astia/fs/socket.hpp>
 #include <astia/fs/types.hpp>

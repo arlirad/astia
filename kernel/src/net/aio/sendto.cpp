@@ -25,26 +25,28 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
 
-            char socket_path[fs::path_max]{};
-            long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
+            if (a.family == AF_UNIX) {
+                char socket_path[fs::path_max]{};
+                long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
+                if (path_rc < 0)
+                    co_return static_cast<i32>(path_rc);
 
-            auto* current = proc::current_process();
-            if (current == nullptr)
-                co_return -ESRCH;
+                auto* current = proc::current_process();
+                if (current == nullptr)
+                    co_return -ESRCH;
 
-            path_rc = current->resolve_path(socket_path, socket_path, sizeof socket_path,
-                                            false);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
+                path_rc = current->resolve_path(socket_path, socket_path,
+                                                sizeof socket_path, false);
+                if (path_rc < 0)
+                    co_return static_cast<i32>(path_rc);
 
-            if (!socket_node_writable(current, socket_path))
-                co_return -EACCES;
+                if (!socket_node_writable(current, socket_path))
+                    co_return -EACCES;
+            }
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* socket = dgram_for(handle);
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->sendto(*handle, &a);
+            long rc = socket == nullptr ? -EOPNOTSUPP : socket->set_destination(&a);
             if (rc < 0)
                 co_return static_cast<i32>(rc);
 

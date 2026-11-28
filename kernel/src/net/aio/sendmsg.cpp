@@ -28,10 +28,10 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&header, header_ptr.value.bytes()))
                 co_return -EFAULT;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* dgram  = dgram_for(handle);
+            auto* stream = stream_for(handle);
 
-            if (socket == nullptr || socket->set_send_control == nullptr ||
-                socket->sendmsg == nullptr)
+            if (dgram == nullptr && stream == nullptr)
                 co_return -EOPNOTSUPP;
 
             mm::shptr<fs::unix_control> control{};
@@ -62,7 +62,8 @@ namespace astia::io::aio::operations {
                     co_return static_cast<i32>(parsed);
             }
 
-            const long prepared = socket->set_send_control(*handle, control);
+            const long prepared = dgram != nullptr ? dgram->set_send_control(control)
+                                                   : stream->set_send_control(control);
             if (prepared < 0)
                 co_return static_cast<i32>(prepared);
 

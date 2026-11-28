@@ -50,13 +50,14 @@ namespace astia::io::aio::operations {
             if ((header.flags & ASTIA_MSG_DONTWAIT) != 0 && handle->poll(POLLIN) == 0)
                 co_return -EAGAIN;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* dgram  = dgram_for(handle);
+            auto* stream = stream_for(handle);
 
-            if (socket == nullptr || socket->recvmsg_prepare == nullptr ||
-                socket->recvmsg_complete == nullptr)
+            if (dgram == nullptr && stream == nullptr)
                 co_return -EOPNOTSUPP;
 
-            const long prepared = socket->recvmsg_prepare(*handle);
+            const long prepared =
+                dgram != nullptr ? dgram->recvmsg_prepare() : stream->recvmsg_prepare();
             if (prepared < 0)
                 co_return static_cast<i32>(prepared);
 

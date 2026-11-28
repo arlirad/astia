@@ -19,28 +19,35 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
 
-            char socket_path[fs::path_max]{};
-            long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
+            // AF_UNIX bindings live in the filesystem namespace; the family
+            // implementation resolves and registers the path.  Other
+            // families resolve their own addresses.
+            if (a.family == AF_UNIX) {
+                char socket_path[fs::path_max]{};
+                long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
+                if (path_rc < 0)
+                    co_return static_cast<i32>(path_rc);
 
-            auto* current = proc::current_process();
-            if (current == nullptr)
-                co_return -ESRCH;
+                auto* current = proc::current_process();
+                if (current == nullptr)
+                    co_return -ESRCH;
 
-            path_rc = current->resolve_path(socket_path, socket_path, sizeof socket_path,
-                                            false);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
+                path_rc = current->resolve_path(socket_path, socket_path,
+                                                sizeof socket_path, false);
+                if (path_rc < 0)
+                    co_return static_cast<i32>(path_rc);
 
-            if (!parent_writable(current, socket_path))
-                co_return -EACCES;
+                if (!parent_writable(current, socket_path))
+                    co_return -EACCES;
+            }
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            if (auto* sock = dgram_for(handle))
+                co_return static_cast<i32>(sock->bind(a));
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->bind(*handle, a);
+            if (auto* sock = stream_for(handle))
+                co_return static_cast<i32>(sock->bind(a));
 
-            co_return static_cast<i32>(rc);
+            co_return -EOPNOTSUPP;
         }
     };
 

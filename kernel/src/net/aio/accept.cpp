@@ -11,7 +11,7 @@ namespace astia::io::aio::operations {
             if (!handle)
                 co_return -EBADF;
 
-            if (handle->parent()->unix_socket_capability() == nullptr)
+            if (stream_for(handle) == nullptr)
                 co_return -EOPNOTSUPP;
 
             if (sqe.address != 0 &&

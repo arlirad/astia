@@ -23,9 +23,9 @@ namespace astia::io::aio::operations {
             if (sqe.length == 0)
                 co_return 0;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* socket = dgram_for(handle);
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*handle);
+            long rc = socket == nullptr ? -EOPNOTSUPP : socket->prepare_receive();
             if (rc < 0)
                 co_return static_cast<i32>(rc);
 

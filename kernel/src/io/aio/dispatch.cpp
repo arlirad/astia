@@ -5,6 +5,7 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/fs/socket.hpp>
 #include <astia/io.hpp>
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
@@ -396,18 +397,20 @@ namespace astia::io::aio::dispatch {
                 }
 
                 if (op.socket_accept) {
-                    const auto* socket = op.handle->parent()->unix_socket_capability();
+                    auto socket = op.handle->parent()->as_stream_sock();
 
-                    n = socket == nullptr
-                            ? -EOPNOTSUPP
-                            : socket->accept(*op.handle, op.operation->request());
+                    n = !socket ? -EOPNOTSUPP : socket->accept(op.operation->request());
                 }
                 else if (op.socket_sendmsg) {
-                    const auto* socket = op.handle->parent()->unix_socket_capability();
+                    auto dgram  = op.handle->parent()->as_dgram_sock();
+                    auto stream = op.handle->parent()->as_stream_sock();
 
-                    n = socket == nullptr || socket->sendmsg == nullptr
-                            ? -EOPNOTSUPP
-                            : socket->sendmsg(*op.handle, op.operation->request());
+                    if (dgram)
+                        n = dgram->sendmsg(op.operation->request());
+                    else if (stream)
+                        n = stream->sendmsg(op.operation->request());
+                    else
+                        n = -EOPNOTSUPP;
                 }
                 else {
                     n = op.handle->submit(op.operation->request());
@@ -496,13 +499,12 @@ namespace astia::io::aio::dispatch {
                                        long& result) {
             if (op.recvfrom_address && result >= 0) {
                 astia_sockaddr address{};
-                const auto*    socket = op.handle->parent()->unix_socket_capability();
+                auto           socket = op.handle->parent()->as_dgram_sock();
                 const auto     destination =
                     memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
                         .validate_for(owner);
 
-                if (socket == nullptr || !socket->recvfrom_address(*op.handle, address) ||
-                    !destination ||
+                if (!socket || !socket->take_source(address) || !destination ||
                     !memory::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
             }
@@ -511,13 +513,12 @@ namespace astia::io::aio::dispatch {
         void complete_accept_address(proc::process* owner, parked_op& op, long& result) {
             if (op.accept_address && op.accept_address_user != 0 && result >= 0) {
                 astia_sockaddr address{};
-                const auto*    socket = op.handle->parent()->unix_socket_capability();
+                auto           socket = op.handle->parent()->as_stream_sock();
                 const auto     destination =
                     memory::user_ptr<astia_sockaddr>(op.accept_address_user)
                         .validate_for(owner);
 
-                if (socket == nullptr || socket->accept_address == nullptr ||
-                    !socket->accept_address(*op.handle, address) || !destination ||
+                if (!socket || !socket->accept_address(address) || !destination ||
                     !memory::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
             }
@@ -543,9 +544,10 @@ namespace astia::io::aio::dispatch {
                 return;
             }
 
-            const auto* socket = op.handle->parent()->unix_socket_capability();
+            auto dgram  = op.handle->parent()->as_dgram_sock();
+            auto stream = op.handle->parent()->as_stream_sock();
 
-            if (socket == nullptr || socket->recvmsg_complete == nullptr) {
+            if (!dgram && !stream) {
                 result = -EOPNOTSUPP;
 
                 return;
@@ -560,9 +562,12 @@ namespace astia::io::aio::dispatch {
             u32 used      = 0;
             u32 msg_flags = 0;
 
-            const long rc =
-                socket->recvmsg_complete(*op.handle, owner, header.flags,
-                                         span<u8>(control, capacity), used, msg_flags);
+            const long rc = dgram ? dgram->recvmsg_complete(owner, header.flags,
+                                                            span<u8>(control, capacity),
+                                                            used, msg_flags)
+                                  : stream->recvmsg_complete(owner, header.flags,
+                                                             span<u8>(control, capacity),
+                                                             used, msg_flags);
             if (rc < 0) {
                 result = rc;
 

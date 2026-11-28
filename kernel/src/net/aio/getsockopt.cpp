@@ -24,12 +24,14 @@ namespace astia::io::aio::operations {
             if (capacity > max_operation_bytes)
                 co_return -EINVAL;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
-            if (socket == nullptr)
-                co_return -ENOTSOCK;
-
             u32  value = 0;
-            long rc    = socket->getsockopt(*handle, sqe.op_flags, sqe.aux, &value);
+            long rc    = -ENOTSOCK;
+
+            if (auto* socket = dgram_for(handle))
+                rc = socket->getsockopt(sqe.op_flags, sqe.aux, &value);
+            else if (auto* socket = stream_for(handle))
+                rc = socket->getsockopt(sqe.op_flags, sqe.aux, &value);
+
             if (rc < 0)
                 co_return static_cast<i32>(rc);
 

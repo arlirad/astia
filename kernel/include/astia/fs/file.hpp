@@ -13,6 +13,9 @@
 #include "types.hpp"
 
 namespace astia::fs {
+    class dgram_sock;
+    class stream_sock;
+
     /// The polymorphic object behind a filesystem node.  Device classes
     /// derive from this interface; the kernel passes these objects
     /// directly, while only the userspace ABI layer translates handles
@@ -86,9 +89,17 @@ namespace astia::fs {
         virtual long            touch(const file_timestamps& times);
         virtual void            duplicate(u32 flags);
         virtual void            close(u32 flags);
-        /// Kernel-internal typed hook for protocol-specific file operations.
-        /// This is deliberately separate from the generic file contracts.
-        virtual const unix_socket_operations* unix_socket_capability() const;
+
+        /// Socket capabilities.  A concrete socket overrides exactly one of
+        /// these, so callers substitute `dgram_sock`/`stream_sock` without
+        /// RTTI or knowledge of the concrete implementation.
+        virtual optional<dgram_sock&> as_dgram_sock() {
+            return {};
+        }
+
+        virtual optional<stream_sock&> as_stream_sock() {
+            return {};
+        }
 
         virtual const char* device_name() const {
             return nullptr;
