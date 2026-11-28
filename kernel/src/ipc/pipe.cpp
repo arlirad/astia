@@ -128,6 +128,8 @@ namespace astia::fs {
                          astia::atomic_ref<u32>(_writers).load(
                              astia::memory_order::acquire) == 0)
                     request.complete(true);
+                else if (result == 0 && request.nonblock())
+                    return -EAGAIN;
                 else if (result == 0)
                     request.stage(1);
                 return result;

@@ -24,7 +24,10 @@ namespace astia::mm::heap {
 } // namespace astia::mm::heap
 
 namespace astia::fs {
-    open_file::~open_file() = default;
+    open_file::~open_file() {
+        if (_parent)
+            _parent->close(_flags);
+    }
 
     long open_file::reserve_append(u32, u64* offset) {
         if (offset == nullptr)
@@ -36,6 +39,17 @@ namespace astia::fs {
     }
 
     void open_file::commit_append(u64, long) {}
+
+    u32 open_file::poll(u32 events) const {
+        if (!_parent)
+            return POLLNVAL;
+
+        auto contract = _parent->as_pollable();
+        if (contract)
+            return contract->poll(events, _flags);
+
+        return 0;
+    }
 } // namespace astia::fs
 
 namespace {
@@ -69,6 +83,19 @@ namespace {
         return static_cast<astia::i64>(*task.value());
     }
 
+    template <typename T>
+    astia::i64 run_result(astia::core::task<T>& task) {
+        task.resume();
+
+        if (!task.done())
+            return -1;
+
+        if (task.failed())
+            return astia::error_errno(task.error());
+
+        return static_cast<astia::i64>(*task.value());
+    }
+
     astia::i64 fill(open_file& writer, astia::u8* buffer, astia::usz length) {
         auto task = writer.write(astia::span<const astia::u8>(buffer, length));
 
@@ -79,6 +106,19 @@ namespace {
         auto task = reader.read(astia::span<astia::u8>(buffer, length));
 
         return run_now(task);
+    }
+
+    astia::i64 fill_result(open_file& writer, const astia::u8* buffer,
+                           astia::usz length) {
+        auto task = writer.write(astia::span<const astia::u8>(buffer, length));
+
+        return run_result(task);
+    }
+
+    astia::i64 drain_result(open_file& reader, astia::u8* buffer, astia::usz length) {
+        auto task = reader.read(astia::span<astia::u8>(buffer, length));
+
+        return run_result(task);
     }
 } // namespace
 
@@ -224,4 +264,155 @@ ASTIA_TEST(pipe_blocking_small_write_with_free_space_writes_all) {
     for (astia::usz i = 0; i < sizeof drained; ++i) {
         ASTIA_CHECK(drained[i] == 0x66);
     }
+}
+
+ASTIA_TEST(pipe_nonblocking_empty_read_returns_eagain) {
+    auto endpoints = make_pipe();
+
+    ASTIA_CHECK(endpoints);
+
+    if (!endpoints)
+        return;
+
+    endpoints.value.read->set_status_flags(
+        static_cast<astia::u32>(astia::fs::open_file_status_flags::nonblock));
+
+    astia::u8 buffer[8]{};
+
+    ASTIA_CHECK(drain_result(*endpoints.value.read, buffer, sizeof buffer) == -EAGAIN);
+}
+
+ASTIA_TEST(pipe_nonblocking_full_write_returns_eagain) {
+    auto endpoints = make_pipe();
+
+    ASTIA_CHECK(endpoints);
+
+    if (!endpoints)
+        return;
+
+    endpoints.value.write->set_status_flags(
+        static_cast<astia::u32>(astia::fs::open_file_status_flags::nonblock));
+
+    astia::u8 fill_data[pipe_capacity]{};
+
+    for (astia::usz i = 0; i < sizeof fill_data; ++i) {
+        fill_data[i] = 0x77;
+    }
+
+    ASTIA_CHECK(fill(*endpoints.value.write, fill_data, sizeof fill_data) ==
+                pipe_capacity);
+
+    const astia::u8 byte = 0x11;
+
+    ASTIA_CHECK(fill_result(*endpoints.value.write, &byte, 1) == -EAGAIN);
+
+    astia::u8 drained[pipe_capacity]{};
+
+    ASTIA_CHECK(drain(*endpoints.value.read, drained, sizeof drained) == pipe_capacity);
+
+    for (astia::usz i = 0; i < sizeof drained; ++i) {
+        ASTIA_CHECK(drained[i] == 0x77);
+    }
+}
+
+ASTIA_TEST(pipe_nonblocking_read_returns_available_bytes) {
+    auto endpoints = make_pipe();
+
+    ASTIA_CHECK(endpoints);
+
+    if (!endpoints)
+        return;
+
+    astia::u8 published[100]{};
+
+    for (astia::usz i = 0; i < sizeof published; ++i) {
+        published[i] = 0x22;
+    }
+
+    ASTIA_CHECK(fill(*endpoints.value.write, published, sizeof published) ==
+                static_cast<astia::i64>(sizeof published));
+
+    endpoints.value.read->set_status_flags(
+        static_cast<astia::u32>(astia::fs::open_file_status_flags::nonblock));
+
+    astia::u8 drained[pipe_capacity]{};
+
+    ASTIA_CHECK(drain_result(*endpoints.value.read, drained, sizeof drained) ==
+                static_cast<astia::i64>(sizeof published));
+
+    for (astia::usz i = 0; i < sizeof published; ++i) {
+        ASTIA_CHECK(drained[i] == 0x22);
+    }
+}
+
+ASTIA_TEST(pipe_blocking_read_parks_until_writer_publishes) {
+    auto endpoints = make_pipe();
+
+    ASTIA_CHECK(endpoints);
+
+    if (!endpoints)
+        return;
+
+    astia::u8 buffer[8]{};
+    auto      pending =
+        endpoints.value.read->read(astia::span<astia::u8>(buffer, sizeof buffer));
+
+    ASTIA_CHECK(pending.resume());
+    ASTIA_CHECK(!pending.done());
+
+    astia::u8 record[3]{0x31, 0x32, 0x33};
+
+    ASTIA_CHECK(fill(*endpoints.value.write, record, sizeof record) ==
+                static_cast<astia::i64>(sizeof record));
+
+    endpoints.value.read->parent()->pending().service();
+
+    ASTIA_CHECK(pending.done());
+    ASTIA_CHECK(!pending.failed());
+
+    if (pending.done() && !pending.failed()) {
+        ASTIA_CHECK(*pending.value() == static_cast<astia::i64>(sizeof record));
+    }
+
+    ASTIA_CHECK(buffer[0] == 0x31);
+    ASTIA_CHECK(buffer[1] == 0x32);
+    ASTIA_CHECK(buffer[2] == 0x33);
+}
+
+ASTIA_TEST(pipe_poll_tracks_readiness_and_hangup) {
+    auto endpoints = make_pipe();
+
+    ASTIA_CHECK(endpoints);
+
+    if (!endpoints)
+        return;
+
+    ASTIA_CHECK(endpoints.value.read->poll(POLLIN) == 0);
+    ASTIA_CHECK((endpoints.value.write->poll(POLLOUT) & POLLOUT) != 0);
+
+    astia::u8 record[4]{0x41, 0x42, 0x43, 0x44};
+
+    ASTIA_CHECK(fill(*endpoints.value.write, record, sizeof record) ==
+                static_cast<astia::i64>(sizeof record));
+
+    ASTIA_CHECK((endpoints.value.read->poll(POLLIN) & POLLIN) != 0);
+
+    astia::u8 drained[sizeof record]{};
+
+    ASTIA_CHECK(drain(*endpoints.value.read, drained, sizeof drained) ==
+                static_cast<astia::i64>(sizeof drained));
+    ASTIA_CHECK(endpoints.value.read->poll(POLLIN) == 0);
+
+    astia::u8 fill_data[pipe_capacity]{};
+
+    ASTIA_CHECK(fill(*endpoints.value.write, fill_data, sizeof fill_data) ==
+                pipe_capacity);
+    ASTIA_CHECK(endpoints.value.write->poll(POLLOUT) == 0);
+
+    ASTIA_CHECK(drain(*endpoints.value.read, drained, 1) == 1);
+    ASTIA_CHECK((endpoints.value.write->poll(POLLOUT) & POLLOUT) != 0);
+
+    endpoints.value.write = {};
+
+    ASTIA_CHECK((endpoints.value.read->poll(POLLIN) & POLLHUP) != 0);
 }
