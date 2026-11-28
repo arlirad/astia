@@ -97,7 +97,7 @@ namespace {
         alignas(uint32_t) volatile unsigned char notify[0x40]{};
     };
 
-    void configure(controller& value, fake_device& fake) {
+    void configure(controller& value, fake_device& fake, unsigned size = 8) {
         value.started           = true;
         value.capacity          = 2048;
         value.flush_supported   = true;
@@ -108,11 +108,11 @@ namespace {
         value.notify            = mmio{fake.notify};
         value.notify_cap.length = sizeof fake.notify;
 
-        value._requestqueue.size              = 8;
+        value._requestqueue.size              = size;
         value._requestqueue.descriptor_offset = 0;
-        value._requestqueue.available_offset  = 8 * 16;
+        value._requestqueue.available_offset  = size * 16;
         value._requestqueue.used_offset =
-            (value._requestqueue.available_offset + 6 + 8 * 2 + 3) & ~3u;
+            (value._requestqueue.available_offset + 6 + size * 2 + 3) & ~3u;
 
         assert(value._requestqueue.memory.allocate(1));
         value._requestqueue.clear();
@@ -325,6 +325,216 @@ namespace {
 
         value.release();
     }
+
+    void test_sync_async_interleave() {
+        const unsigned frees = dma_frees;
+
+        controller  value{};
+        fake_device fake{};
+
+        configure(value, fake);
+
+        alignas(8) unsigned char async_buffer[512]{};
+        alignas(8) unsigned char sync_buffer[512]{};
+
+        astia::io::request request(async_buffer, sizeof async_buffer, 0, 0,
+                                   astia::io::direction::input);
+
+        request.device_state(&value);
+
+        assert(value.submit_async(request) == 0);
+        assert(value.pending.head == 0);
+        assert(value.pending.count == 3);
+
+        dma sync_request;
+
+        assert(value.begin_sync(sync_request, sync_buffer, sizeof sync_buffer, 512,
+                                false) == 0);
+        assert(value.sync.active);
+        assert(value.sync.head == 3);
+        assert(value.sync.head != value.pending.head);
+        assert(value.pending.head + value.pending.count <= value.sync.head);
+
+        const unsigned async_head = value.pending.head;
+        const unsigned sync_head  = value.sync.head;
+
+        std::memset(static_cast<unsigned char*>(value.pending.request.data()) + 64, 0xa5,
+                    sizeof async_buffer);
+        std::memset(static_cast<unsigned char*>(sync_request.data()) + 64, 0x5a,
+                    sizeof sync_buffer);
+
+        static_cast<unsigned char*>(
+            value.pending.request.data())[value.pending.status_offset] = status_ok;
+        static_cast<unsigned char*>(sync_request.data())[value.sync.status_offset] =
+            status_ok;
+
+        post_used(value, async_head, sizeof async_buffer + 1);
+        post_used(value, sync_head, sizeof sync_buffer + 1);
+
+        assert(value.wait_sync(sync_request, sync_buffer) ==
+               static_cast<long>(sizeof sync_buffer));
+
+        for (unsigned char byte : sync_buffer) {
+            assert(byte == 0x5a);
+        }
+
+        for (unsigned char byte : async_buffer) {
+            assert(byte == 0);
+        }
+
+        value.finish_sync(sync_request);
+
+        assert(!value.sync.active);
+        assert(!value._requestqueue.descriptor_in_use[sync_head]);
+        assert(value._requestqueue.descriptor_in_use[async_head]);
+        assert(value._requestqueue.descriptor_in_use[async_head + 1]);
+        assert(value._requestqueue.descriptor_in_use[async_head + 2]);
+
+        assert(value.poll_async(request) == 0);
+
+        long result = 0;
+
+        assert(value.complete_async(request, result));
+        assert(result == static_cast<long>(sizeof async_buffer));
+
+        for (unsigned char byte : async_buffer) {
+            assert(byte == 0xa5);
+        }
+
+        assert(value._requestqueue.descriptors_available());
+        assert(dma_frees == frees + 2);
+
+        value.release();
+    }
+
+    void test_async_after_sync() {
+        const unsigned frees = dma_frees;
+
+        controller  value{};
+        fake_device fake{};
+
+        configure(value, fake);
+
+        alignas(8) unsigned char async_buffer[512]{};
+        alignas(8) unsigned char sync_buffer[512]{};
+
+        dma sync_request;
+
+        assert(value.begin_sync(sync_request, sync_buffer, sizeof sync_buffer, 0,
+                                false) == 0);
+        assert(value.sync.head == 0);
+
+        astia::io::request request(async_buffer, sizeof async_buffer, 0, 0,
+                                   astia::io::direction::input);
+
+        request.device_state(&value);
+
+        assert(value.submit_async(request) == 0);
+        assert(value.pending.head == 3);
+        assert(value.pending.head != value.sync.head);
+        assert(value.sync.head + value.sync.count <= value.pending.head);
+
+        const unsigned async_head = value.pending.head;
+        const unsigned sync_head  = value.sync.head;
+
+        std::memset(static_cast<unsigned char*>(value.pending.request.data()) + 64, 0xa5,
+                    sizeof async_buffer);
+        std::memset(static_cast<unsigned char*>(sync_request.data()) + 64, 0x5a,
+                    sizeof sync_buffer);
+
+        static_cast<unsigned char*>(
+            value.pending.request.data())[value.pending.status_offset] = status_ok;
+        static_cast<unsigned char*>(sync_request.data())[value.sync.status_offset] =
+            status_ok;
+
+        post_used(value, sync_head, sizeof sync_buffer + 1);
+        post_used(value, async_head, sizeof async_buffer + 1);
+
+        assert(value.wait_sync(sync_request, sync_buffer) ==
+               static_cast<long>(sizeof sync_buffer));
+
+        for (unsigned char byte : sync_buffer) {
+            assert(byte == 0x5a);
+        }
+
+        value.finish_sync(sync_request);
+
+        assert(!value._requestqueue.descriptor_in_use[sync_head]);
+        assert(value._requestqueue.descriptor_in_use[async_head]);
+
+        assert(value.poll_async(request) == 0);
+
+        long result = 0;
+
+        assert(value.complete_async(request, result));
+        assert(result == static_cast<long>(sizeof async_buffer));
+
+        for (unsigned char byte : async_buffer) {
+            assert(byte == 0xa5);
+        }
+
+        assert(value._requestqueue.descriptors_available());
+        assert(dma_frees == frees + 2);
+
+        value.release();
+    }
+
+    void test_sync_rejected_without_space() {
+        controller  value{};
+        fake_device fake{};
+
+        configure(value, fake, 4);
+
+        alignas(8) unsigned char async_buffer[512]{};
+        alignas(8) unsigned char sync_buffer[512]{};
+
+        astia::io::request request(async_buffer, sizeof async_buffer, 0, 0,
+                                   astia::io::direction::input);
+
+        request.device_state(&value);
+
+        assert(value.submit_async(request) == 0);
+        assert(value.pending.count == 3);
+
+        dma sync_request;
+
+        assert(value.begin_sync(sync_request, sync_buffer, sizeof sync_buffer, 0,
+                                false) == -16);
+        assert(!value.sync.active);
+
+        static_cast<unsigned char*>(
+            value.pending.request.data())[value.pending.status_offset] = status_ok;
+
+        post_used(value, value.pending.head, sizeof async_buffer + 1);
+
+        assert(value.poll_async(request) == 0);
+
+        long result = 0;
+
+        assert(value.complete_async(request, result));
+        assert(result == static_cast<long>(sizeof async_buffer));
+        assert(value._requestqueue.descriptors_available());
+
+        assert(value.begin_sync(sync_request, sync_buffer, sizeof sync_buffer, 0,
+                                false) == 0);
+
+        const unsigned sync_head = value.sync.head;
+
+        static_cast<unsigned char*>(sync_request.data())[value.sync.status_offset] =
+            status_ok;
+
+        post_used(value, sync_head, sizeof sync_buffer + 1);
+
+        assert(value.wait_sync(sync_request, sync_buffer) ==
+               static_cast<long>(sizeof sync_buffer));
+
+        value.finish_sync(sync_request);
+
+        assert(!value._requestqueue.descriptor_in_use[sync_head]);
+        assert(value._requestqueue.descriptors_available());
+
+        value.release();
+    }
 }
 
 int main() {
@@ -334,9 +544,12 @@ int main() {
     test_write_error();
     test_reset_mid_flight();
     test_timeout_without_reset();
+    test_sync_async_interleave();
+    test_async_after_sync();
+    test_sync_rejected_without_space();
 
     assert(dma_allocations == dma_frees + abandoned_count);
-    assert(used_slots == 5);
+    assert(used_slots == 11);
 
     for (unsigned i = 0; i < abandoned_count; ++i) {
         std::free(abandoned[i]);
