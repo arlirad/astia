@@ -52,6 +52,7 @@ namespace {
         std::string output;
         astia::u8   last_signal         = 0;
         unsigned    ready_notifications = 0;
+        bool        output_capacity     = true;
 
         bool receive(astia::u8 byte) {
             const astia::dev::tty_input_result result = tty_receive(byte);
@@ -64,8 +65,16 @@ namespace {
 
         protected:
         bool tty_putc(astia::u8 byte) override {
+            if (!output_capacity)
+                return false;
+
             output.push_back(static_cast<char>(byte));
+
             return true;
+        }
+
+        bool tty_output_ready() const override {
+            return output_capacity;
         }
 
         long tty_speed(speed_t) override {
@@ -563,6 +572,51 @@ ASTIA_TEST(tty_eof_and_software_flow_control) {
     tty.tty_receive(19);
     ASTIA_CHECK(tty.write(text, 1, 0) == 0);
     tty.tty_receive(17);
+    ASTIA_CHECK(tty.write(text, 1, 0) == 1);
+}
+
+ASTIA_TEST(tty_poll_tracks_software_flow_control) {
+    test_tty tty;
+
+    set_termios(tty, IXON, 0, 0);
+
+    const char text[] = "x";
+
+    ASTIA_CHECK((tty.poll(POLLOUT, 0) & POLLOUT) != 0);
+    ASTIA_CHECK(tty.write(text, 1, 0) == 1);
+
+    ASTIA_CHECK(tty.tty_receive(19) == astia::dev::tty_input_result::consumed);
+    ASTIA_CHECK((tty.poll(POLLOUT, 0) & POLLOUT) == 0);
+    ASTIA_CHECK(tty.write(text, 1, 0) == 0);
+
+    tty.receive('a');
+    ASTIA_CHECK((tty.poll(POLLIN | POLLOUT, 0) & POLLIN) != 0);
+    ASTIA_CHECK((tty.poll(POLLIN | POLLOUT, 0) & POLLOUT) == 0);
+
+    const unsigned notifications = tty.ready_notifications;
+
+    ASTIA_CHECK(tty.receive(17));
+    ASTIA_CHECK(tty.ready_notifications == notifications + 1);
+    ASTIA_CHECK((tty.poll(POLLOUT, 0) & POLLOUT) != 0);
+    ASTIA_CHECK(tty.write(text, 1, 0) == 1);
+}
+
+ASTIA_TEST(tty_poll_tracks_output_queue_capacity) {
+    test_tty tty;
+
+    set_termios(tty, 0, 0, 0);
+
+    const char text[] = "x";
+
+    tty.output_capacity = false;
+
+    ASTIA_CHECK(tty.poll(POLLOUT, 0) == 0);
+    ASTIA_CHECK(tty.write(text, 1, 0) == 0);
+    ASTIA_CHECK(tty.poll(POLLIN | POLLOUT, 0) == 0);
+
+    tty.output_capacity = true;
+
+    ASTIA_CHECK((tty.poll(POLLOUT, 0) & POLLOUT) != 0);
     ASTIA_CHECK(tty.write(text, 1, 0) == 1);
 }
 

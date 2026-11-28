@@ -67,6 +67,30 @@ ASTIA_TEST(pty_master_slave_data_and_termios) {
     ASTIA_CHECK(memcmp(buffer, "output", 6) == 0);
 }
 
+ASTIA_TEST(pty_slave_poll_tracks_master_queue_capacity) {
+    astia::dev::pty terminal(4);
+
+    raw(terminal);
+    ASTIA_CHECK(terminal.open_slave());
+
+    constexpr astia::u32 capacity = 4096;
+
+    char payload[capacity]{};
+
+    memset(payload, 'x', sizeof payload);
+
+    ASTIA_CHECK((terminal.poll(POLLOUT, 0) & POLLOUT) != 0);
+    ASTIA_CHECK(terminal.write(payload, capacity, 0) == static_cast<long>(capacity));
+    ASTIA_CHECK((terminal.poll(POLLOUT, 0) & POLLOUT) == 0);
+    ASTIA_CHECK(terminal.poll(POLLIN, 0) == 0);
+
+    char byte = 0;
+
+    ASTIA_CHECK(terminal.master_read(&byte, 1) == 1);
+    ASTIA_CHECK(byte == 'x');
+    ASTIA_CHECK((terminal.poll(POLLOUT, 0) & POLLOUT) != 0);
+}
+
 ASTIA_TEST(pty_multiple_instances_are_independent) {
     astia::dev::pty first(1);
     astia::dev::pty second(2);
