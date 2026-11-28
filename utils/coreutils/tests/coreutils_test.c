@@ -1210,6 +1210,11 @@ static int sort_operand_checks(void) {
         check("sort stdin default", sort_default, "b\na\n", 0, "a\nb\n", 1) ||
         check("sort -r stdin", sort_reverse, "alpha\nzulu\n", 0, "zulu\nalpha\n", 1) ||
         check("sort -u stdin", sort_unique, "b\na\n", 0, "a\nb\n", 1) ||
+        check("sort -u interleaved duplicates", sort_unique, "b\na\nb\n", 0, "a\nb\n",
+              1) ||
+        check("sort -u scattered duplicates", sort_unique,
+              "delta\nalpha\ncharlie\nbravo\nalpha\ndelta\n", 0,
+              "alpha\nbravo\ncharlie\ndelta\n", 1) ||
         check("sort -r -u stdin", sort_reverse_unique, "b\na\n", 0, "b\na\n", 1) ||
         check("sort - stdin", sort_dash, "b\na\n", 0, "a\nb\n", 1) ||
         check("sort -- stdin", sort_separator, "b\na\n", 0, "a\nb\n", 1) ||
