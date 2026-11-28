@@ -65,8 +65,4 @@ namespace astia::fs {
     void file::duplicate(u32) {}
 
     void file::close(u32) {}
-
-    const unix_socket_operations* file::unix_socket_capability() const {
-        return nullptr;
-    }
 } // namespace astia::fs

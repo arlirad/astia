@@ -1,5 +1,6 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
+#include <astia/fs/socket.hpp>
 #include <astia/strings.hpp>
 
 #include "aio_registry_test_support.hpp"
@@ -14,6 +15,20 @@
 #include <thread>
 
 using namespace astia;
+
+namespace {
+    template <typename T>
+    T drive_task(core::task<T> task) {
+        while (!task.done()) {
+            ASTIA_CHECK(task.resume());
+        }
+
+        ASTIA_CHECK(!task.failed());
+        ASTIA_CHECK(task.value() != nullptr);
+
+        return *task.value();
+    }
+} // namespace
 
 namespace astia::fs {
     namespace {
@@ -198,11 +213,11 @@ namespace {
     }
 
     struct accept_pair {
-        mm::shptr<fs::open_file>          listener;
-        mm::shptr<fs::open_file>          client;
-        const fs::unix_socket_operations* listener_ops = nullptr;
-        const fs::unix_socket_operations* client_ops   = nullptr;
-        i32                               listener_fd  = -1;
+        mm::shptr<fs::open_file> listener;
+        mm::shptr<fs::open_file> client;
+        fs::stream_sock*         listener_ops = nullptr;
+        fs::stream_sock*         client_ops   = nullptr;
+        i32                      listener_fd  = -1;
     };
 
     bool prepare_accept(accept_pair& pair, const char* client_path) {
@@ -215,20 +230,22 @@ namespace {
         if (!pair.listener || !pair.client)
             return false;
 
-        pair.listener_ops = pair.listener->parent()->unix_socket_capability();
-        pair.client_ops   = pair.client->parent()->unix_socket_capability();
+        auto listener_socket = pair.listener->parent()->as_stream_sock();
+        auto client_socket   = pair.client->parent()->as_stream_sock();
 
-        if (pair.listener_ops == nullptr || pair.client_ops == nullptr)
+        pair.listener_ops = listener_socket ? &*listener_socket : nullptr;
+        pair.client_ops   = client_socket ? &*client_socket : nullptr;
+
+        if (!pair.listener_ops || !pair.client_ops)
             return false;
 
         set_unix_lookup_endpoint(pair.listener->parent());
 
         if (client_path != nullptr &&
-            pair.client_ops->bind(*pair.client, path_address(client_path), client_path) !=
-                0)
+            pair.client_ops->bind(path_address(client_path), client_path) != 0)
             return false;
 
-        if (pair.listener_ops->listen(*pair.listener, 1) != 0)
+        if (pair.listener_ops->listen(1) != 0)
             return false;
 
         pair.listener_fd = install_descriptor(pair.listener);
@@ -236,7 +253,7 @@ namespace {
         if (pair.listener_fd < 0)
             return false;
 
-        return pair.client_ops->connect(*pair.client, socket_address(), "/") == 0;
+        return pair.client_ops->connect(socket_address(), "/") == 0;
     }
 
     i32 dispatch_accept(accept_pair& pair, astia_sockaddr* peer,
@@ -273,16 +290,16 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
 
     set_unix_lookup_endpoint(listener->parent());
 
-    const auto* listener_ops = listener->parent()->unix_socket_capability();
-    const auto* client_ops   = client->parent()->unix_socket_capability();
+    auto listener_ops = listener->parent()->as_stream_sock();
+    auto client_ops   = client->parent()->as_stream_sock();
 
-    ASTIA_CHECK(listener_ops != nullptr);
-    ASTIA_CHECK(client_ops != nullptr);
+    ASTIA_CHECK(listener_ops.has_value);
+    ASTIA_CHECK(client_ops.has_value);
 
-    if (listener_ops == nullptr || client_ops == nullptr)
+    if (!listener_ops || !client_ops)
         return;
 
-    ASTIA_CHECK(listener_ops->listen(*listener, 1) == 0);
+    ASTIA_CHECK(listener_ops->listen(1) == 0);
 
     auto filler = aio_test::make_open_file(new aio_test::fake_file);
 
@@ -291,20 +308,17 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
 
     const astia_sockaddr address = socket_address();
 
-    ASTIA_CHECK(client_ops->connect(*client, address, "/") == 0);
+    ASTIA_CHECK(client_ops->connect(address, "/") == 0);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request rejected;
-
-    ASTIA_CHECK(listener_ops->accept(*listener, rejected) == -EMFILE);
+    ASTIA_CHECK(drive_task(listener_ops->accept()).fd == -EMFILE);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
     clear_descriptor(3);
 
-    io::request accepted;
+    const fs::accepted accepted = drive_task(listener_ops->accept());
 
-    ASTIA_CHECK(listener_ops->accept(*listener, accepted) == 3);
-    ASTIA_CHECK(accepted.complete());
+    ASTIA_CHECK(accepted.fd == 3);
     ASTIA_CHECK(descriptor_present(3));
 
     const auto server = proc::current_process()->descriptor(fd_t{3});
@@ -324,11 +338,6 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
         ASTIA_CHECK(client->submit(read_request) == 1);
         ASTIA_CHECK(received == 'x');
     }
-
-    io::request empty;
-
-    ASTIA_CHECK(listener_ops->accept(*listener, empty) == 0);
-    ASTIA_CHECK(empty.stage() == 1);
 }
 
 ASTIA_TEST(unix_socket_second_bind_is_rejected_without_replacing_first) {
@@ -345,19 +354,18 @@ ASTIA_TEST(unix_socket_second_bind_is_rejected_without_replacing_first) {
     if (!socket)
         return;
 
-    const auto* ops = socket->parent()->unix_socket_capability();
+    auto ops = socket->parent()->as_stream_sock();
 
-    ASTIA_CHECK(ops != nullptr);
+    ASTIA_CHECK(ops.has_value);
 
-    if (ops == nullptr)
+    if (!ops)
         return;
 
-    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/first"), "/tmp/first") == 0);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/first"), "/tmp/first") == 0);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
 
-    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/second"), "/tmp/second") ==
-                -EINVAL);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/second"), "/tmp/second") == -EINVAL);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
 }
@@ -376,16 +384,15 @@ ASTIA_TEST(unix_socket_rejected_second_bind_keeps_first_binding_until_close) {
     if (!socket)
         return;
 
-    const auto* ops = socket->parent()->unix_socket_capability();
+    auto ops = socket->parent()->as_stream_sock();
 
-    ASTIA_CHECK(ops != nullptr);
+    ASTIA_CHECK(ops.has_value);
 
-    if (ops == nullptr)
+    if (!ops)
         return;
 
-    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/keep"), "/tmp/keep") == 0);
-    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/discard"), "/tmp/discard") ==
-                -EINVAL);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/keep"), "/tmp/keep") == 0);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/discard"), "/tmp/discard") == -EINVAL);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/keep"));
 
@@ -412,37 +419,29 @@ ASTIA_TEST(unix_socket_second_connect_is_rejected_with_eisconn) {
 
     set_unix_lookup_endpoint(listener->parent());
 
-    const auto* listener_ops = listener->parent()->unix_socket_capability();
-    const auto* client_ops   = client->parent()->unix_socket_capability();
+    auto listener_ops = listener->parent()->as_stream_sock();
+    auto client_ops   = client->parent()->as_stream_sock();
 
-    ASTIA_CHECK(listener_ops != nullptr);
-    ASTIA_CHECK(client_ops != nullptr);
+    ASTIA_CHECK(listener_ops.has_value);
+    ASTIA_CHECK(client_ops.has_value);
 
-    if (listener_ops == nullptr || client_ops == nullptr)
+    if (!listener_ops || !client_ops)
         return;
 
-    ASTIA_CHECK(listener_ops->listen(*listener, 1) == 0);
+    ASTIA_CHECK(listener_ops->listen(1) == 0);
 
     const astia_sockaddr address = socket_address("/s");
 
-    ASTIA_CHECK(client_ops->connect(*client, address, "/s") == 0);
-    ASTIA_CHECK(client_ops->connect(*client, address, "/s") == -EISCONN);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == 0);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == -EISCONN);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request accepted;
+    const fs::accepted accepted = drive_task(listener_ops->accept());
 
-    const long fd = listener_ops->accept(*listener, accepted);
+    ASTIA_CHECK(accepted.fd >= 0);
 
-    ASTIA_CHECK(fd >= 0);
-    ASTIA_CHECK(accepted.complete());
-
-    if (fd >= 0)
-        clear_descriptor(static_cast<i32>(fd));
-
-    io::request empty;
-
-    ASTIA_CHECK(listener_ops->accept(*listener, empty) == 0);
-    ASTIA_CHECK(empty.stage() == 1);
+    if (accepted.fd >= 0)
+        clear_descriptor(static_cast<i32>(accepted.fd));
 }
 
 ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
@@ -463,16 +462,16 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
 
     set_unix_lookup_endpoint(listener->parent());
 
-    const auto* listener_ops = listener->parent()->unix_socket_capability();
-    const auto* client_ops   = client->parent()->unix_socket_capability();
+    auto listener_ops = listener->parent()->as_stream_sock();
+    auto client_ops   = client->parent()->as_stream_sock();
 
-    ASTIA_CHECK(listener_ops != nullptr);
-    ASTIA_CHECK(client_ops != nullptr);
+    ASTIA_CHECK(listener_ops.has_value);
+    ASTIA_CHECK(client_ops.has_value);
 
-    if (listener_ops == nullptr || client_ops == nullptr)
+    if (!listener_ops || !client_ops)
         return;
 
-    ASTIA_CHECK(listener_ops->listen(*listener, 1) == 0);
+    ASTIA_CHECK(listener_ops->listen(1) == 0);
 
     const astia_sockaddr address = socket_address("/s");
 
@@ -480,14 +479,13 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
 
     std::atomic<long> first_result{-1};
 
-    std::thread first(
-        [&] { first_result.store(client_ops->connect(*client, address, "/s")); });
+    std::thread first([&] { first_result.store(client_ops->connect(address, "/s")); });
 
     while (!fs::lookup_entered.load()) {
         std::this_thread::yield();
     }
 
-    ASTIA_CHECK(client_ops->connect(*client, address, "/s") == -EALREADY);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == -EALREADY);
 
     fs::lookup_blocked.store(false);
     first.join();
@@ -495,9 +493,7 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
     ASTIA_CHECK(first_result.load() == 0);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request accepted;
-
-    ASTIA_CHECK(listener_ops->accept(*listener, accepted) >= 0);
+    ASTIA_CHECK(drive_task(listener_ops->accept()).fd >= 0);
 }
 
 ASTIA_TEST(unix_socket_accept_reports_bound_peer_address) {
@@ -665,9 +661,9 @@ ASTIA_TEST(aio_unix_connect_uses_caller_root) {
     if (!listener)
         return;
 
-    const auto* listener_ops = listener->parent()->unix_socket_capability();
+    auto listener_ops = listener->parent()->as_stream_sock();
 
-    ASTIA_CHECK(listener_ops != nullptr && listener_ops->listen(*listener, 1) == 0);
+    ASTIA_CHECK(listener_ops.has_value && listener_ops->listen(1) == 0);
 
     set_unix_lookup_endpoint(listener->parent());
     fs::require_unix_lookup_path("/jail/sock");
@@ -857,4 +853,91 @@ ASTIA_TEST(aio_unix_sendto_uses_caller_root) {
     ASTIA_CHECK(capture.result(1) == 1);
     ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/jail/sock"));
     release_parked(slot);
+}
+
+ASTIA_TEST(unix_dgram_sendto_recvfrom_roundtrip) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> sender;
+    mm::shptr<fs::open_file> receiver;
+
+    ASTIA_CHECK(fs::create_unix_socket(sender, SOCK_DGRAM) == 0);
+    ASTIA_CHECK(fs::create_unix_socket(receiver, SOCK_DGRAM) == 0);
+
+    if (!sender || !receiver)
+        return;
+
+    auto sender_sock   = sender->parent()->as_dgram_sock();
+    auto receiver_sock = receiver->parent()->as_dgram_sock();
+
+    ASTIA_CHECK(sender_sock.has_value);
+    ASTIA_CHECK(receiver_sock.has_value);
+
+    if (!sender_sock || !receiver_sock)
+        return;
+
+    ASTIA_CHECK(sender_sock->bind(socket_address("/tmp/msg-a")) == 0);
+    ASTIA_CHECK(receiver_sock->bind(socket_address("/tmp/msg-b")) == 0);
+
+    set_unix_lookup_endpoint(receiver->parent());
+
+    const u8 payload[] = {'p', 'i', 'n', 'g'};
+
+    const i64 sent = drive_task(sender_sock->sendto(
+        astia::span<const u8>(payload, sizeof payload), socket_address("/tmp/msg-b")));
+
+    ASTIA_CHECK(sent == 4);
+
+    u8 output[8]{};
+
+    const fs::message message =
+        drive_task(receiver_sock->recvfrom(astia::span<u8>(output, sizeof output)));
+
+    ASTIA_CHECK(message.length == 4);
+    ASTIA_CHECK(output[0] == 'p' && output[1] == 'i' && output[2] == 'n' &&
+                output[3] == 'g');
+    ASTIA_CHECK(message.source.family == AF_UNIX);
+}
+
+ASTIA_TEST(unix_stream_sendmsg_recvmsg_roundtrip) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    ASTIA_CHECK(fs::unix_socketpair(left, right, SOCK_STREAM) == 0);
+
+    if (!left || !right)
+        return;
+
+    auto left_sock  = left->parent()->as_stream_sock();
+    auto right_sock = right->parent()->as_stream_sock();
+
+    ASTIA_CHECK(left_sock.has_value);
+    ASTIA_CHECK(right_sock.has_value);
+
+    if (!left_sock || !right_sock)
+        return;
+
+    const u8 payload[] = {'s', 't', 'r', 'e', 'a', 'm'};
+
+    const i64 sent = drive_task(
+        left_sock->sendmsg(astia::span<const u8>(payload, sizeof payload), {}));
+
+    ASTIA_CHECK(sent == 6);
+
+    u8 output[8]{};
+
+    const fs::message message =
+        drive_task(right_sock->recvmsg(astia::span<u8>(output, sizeof output)));
+
+    ASTIA_CHECK(message.length == 6);
+    ASTIA_CHECK(output[0] == 's' && output[5] == 'm');
 }

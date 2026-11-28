@@ -1,3 +1,5 @@
+#include <astia/mm/heap.hpp>
+
 #include "../../io/aio/handler.hpp"
 #include "common.hpp"
 
@@ -23,19 +25,53 @@ namespace astia::io::aio::operations {
             if (sqe.length == 0)
                 co_return 0;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* current = proc::current_process();
+            if (!current)
+                co_return -ESRCH;
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->recvfrom(*handle);
-            if (rc < 0)
-                co_return static_cast<i32>(rc);
+            auto* socket = dgram_for(handle);
+            if (socket == nullptr)
+                co_return -EOPNOTSUPP;
 
-            span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
+            auto storage = mm::heap::alloc(sqe.length);
+            if (!storage)
+                co_return -ENOMEM;
 
-            co_return submit_socket_request(slot, ring, sqe, handle, &range, 1,
-                                            ::astia::io::direction::input, false, false,
-                                            token)
-                ? aio_result::pending
-                : aio_result::retry;
+            span<u8> kernel(storage.value, sqe.length);
+
+            const auto received = co_await socket->recvfrom(kernel, token);
+
+            if (!received) {
+                mm::heap::free(storage.value);
+
+                co_return static_cast<i32>(error_errno(received.error));
+            }
+
+            const fs::message message = received.value;
+
+            if (message.length < 0) {
+                mm::heap::free(storage.value);
+
+                co_return static_cast<i32>(message.length);
+            }
+
+            const usz moved = message.length < static_cast<i64>(kernel.size())
+                                  ? static_cast<usz>(message.length)
+                                  : kernel.size();
+
+            if (!memory::copy_out_for(current, span<u8>::bytes(sqe.address, moved),
+                                      storage.value)) {
+                mm::heap::free(storage.value);
+
+                co_return -EFAULT;
+            }
+
+            mm::heap::free(storage.value);
+
+            if (!memory::copy_out_for(current, address.value.bytes(), &message.source))
+                co_return -EFAULT;
+
+            co_return static_cast<i32>(message.length);
         }
     };
 

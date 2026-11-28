@@ -1,3 +1,5 @@
+#include <astia/mm/heap.hpp>
+
 #include "../../io/aio/handler.hpp"
 #include "common.hpp"
 
@@ -25,17 +27,46 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
 
-            const long rc = select_unix_destination(*handle, a);
-            if (rc < 0)
-                co_return static_cast<i32>(rc);
+            if (a.family == AF_UNIX) {
+                char socket_path[fs::path_max]{};
+                long path_rc = resolve_unix_path(a, socket_path, sizeof socket_path);
+                if (path_rc < 0)
+                    co_return static_cast<i32>(path_rc);
 
-            span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
+                auto* current = proc::current_process();
+                if (current == nullptr)
+                    co_return -ESRCH;
 
-            co_return submit_socket_request(slot, ring, sqe, handle, &range, 1,
-                                            ::astia::io::direction::output, false, false,
-                                            token)
-                ? aio_result::pending
-                : aio_result::retry;
+                if (!socket_node_writable(current, socket_path))
+                    co_return -EACCES;
+            }
+
+            auto* socket = dgram_for(handle);
+            if (socket == nullptr)
+                co_return -EOPNOTSUPP;
+
+            auto storage = mm::heap::alloc(sqe.length == 0 ? 1 : sqe.length);
+            if (!storage)
+                co_return -ENOMEM;
+
+            span<u8> kernel(storage.value, sqe.length);
+
+            if (sqe.length != 0 &&
+                !memory::copy_in(kernel.data(),
+                                 span<u8>::bytes(sqe.address, sqe.length))) {
+                mm::heap::free(storage.value);
+
+                co_return -EFAULT;
+            }
+
+            const auto result = co_await socket->sendto(kernel, a, token);
+
+            mm::heap::free(storage.value);
+
+            if (!result)
+                co_return static_cast<i32>(error_errno(result.error));
+
+            co_return static_cast<i32>(result.value);
         }
     };
 

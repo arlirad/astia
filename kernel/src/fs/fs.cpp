@@ -1540,10 +1540,6 @@ namespace astia::fs {
 
     void file::close(u32) {}
 
-    const unix_socket_operations* file::unix_socket_capability() const {
-        return nullptr;
-    }
-
     open_file::~open_file() {
         if (_parent)
             _parent->close(_flags);

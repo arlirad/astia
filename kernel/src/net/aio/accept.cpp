@@ -11,18 +11,29 @@ namespace astia::io::aio::operations {
             if (!handle)
                 co_return -EBADF;
 
-            if (handle->parent()->unix_socket_capability() == nullptr)
+            auto* stream = stream_for(handle);
+            if (stream == nullptr)
                 co_return -EOPNOTSUPP;
 
-            if (sqe.address != 0 &&
-                !memory::user_ptr<astia_sockaddr>(sqe.address).validate())
+            const auto address = memory::user_ptr<astia_sockaddr>(sqe.address).validate();
+
+            if (sqe.address != 0 && !address)
                 co_return -EFAULT;
 
-            co_return dispatch::submit_socket_request(slot, ring, sqe, handle, nullptr, 0,
-                                                      ::astia::io::direction::input, true,
-                                                      true, token)
-                ? aio_result::pending
-                : aio_result::retry;
+            const auto result = co_await stream->accept(token);
+            if (!result)
+                co_return static_cast<i32>(error_errno(result.error));
+
+            const fs::accepted accepted = result.value;
+
+            if (accepted.fd < 0)
+                co_return static_cast<i32>(accepted.fd);
+
+            if (address && !memory::copy_out_for(proc::current_process(),
+                                                 address.value.bytes(), &accepted.peer))
+                co_return -EFAULT;
+
+            co_return static_cast<i32>(accepted.fd);
         }
     };
 

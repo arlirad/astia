@@ -2,8 +2,11 @@
 
 #include <astia/api/errno.h>
 #include <astia/atomic.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/core/spinlock.hpp>
+#include <astia/fs/socket.hpp>
 #include <astia/mm/share.hpp>
+#include <astia/mm/shweak.hpp>
 #include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 
@@ -58,6 +61,127 @@ namespace astia::fs {
 
         class unix_file;
 
+        enum { accept_waiter_limit = 8 };
+
+        enum class accept_waiter_state : u8 {
+            free,
+            waiting,
+            delivering,
+        };
+
+        struct accept_waiter {
+            accept_waiter*       next = nullptr;
+            core::completion<u8> done{};
+            u32                  refs  = 0;
+            accept_waiter_state  state = accept_waiter_state::free;
+        };
+
+        class accept_scope final {
+            public:
+            accept_scope(unix_file& owner, accept_waiter* value);
+            ~accept_scope();
+
+            accept_scope(const accept_scope&)            = delete;
+            accept_scope& operator=(const accept_scope&) = delete;
+
+            private:
+            unix_file*     _owner = nullptr;
+            accept_waiter* _value = nullptr;
+        };
+
+        bool path(const astia_sockaddr& a, char* out) {
+            if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
+                return false;
+
+            u32 n = a.len - 2;
+            if (n >= path_max)
+                return false;
+
+            for (u32 i = 0; i < n; ++i) {
+                out[i] = static_cast<char>(a.data[i]);
+            }
+
+            out[n] = '\0';
+
+            return out[0] == '/';
+        }
+
+        /// Public datagram capability backed by one UNIX socket.  The view
+        /// exists so callers hold `fs::dgram_sock&` instead of downcasting to
+        /// the concrete implementation.
+        class unix_dgram_view final : public dgram_sock {
+            public:
+            explicit unix_dgram_view(unix_file& owner) : _owner(owner) {}
+
+            u16 family() const override {
+                return AF_UNIX;
+            }
+
+            u32 socket_type() const override {
+                return SOCK_DGRAM;
+            }
+
+            long bind(const astia_sockaddr& address,
+                      const char*           canonical = nullptr) override;
+            long connect(const astia_sockaddr& address,
+                         const char*           canonical = nullptr) override;
+            long getsockopt(u32 level, u32 name, u32* value) override;
+
+            core::task<i64> sendto(span<const u8> data, const astia_sockaddr& destination,
+                                   core::cltoken token = {}) override;
+            core::task<message> recvfrom(span<u8>      data,
+                                         core::cltoken token = {}) override;
+            core::task<i64>     sendmsg(span<const u8>                 data,
+                                        const astia_sockaddr*          destination,
+                                        const mm::shptr<unix_control>& control,
+                                        core::cltoken                  token = {}) override;
+            core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) override;
+
+            optional<readable&> as_readable() override;
+            optional<writable&> as_writable() override;
+            optional<pollable&> as_pollable() override;
+            long                submit(io::request& request) override;
+
+            private:
+            unix_file& _owner;
+        };
+
+        /// Public stream capability for the same implementation.
+        class unix_stream_view final : public stream_sock {
+            public:
+            explicit unix_stream_view(unix_file& owner) : _owner(owner) {}
+
+            u16 family() const override {
+                return AF_UNIX;
+            }
+
+            u32 socket_type() const override {
+                return SOCK_STREAM;
+            }
+
+            long                 bind(const astia_sockaddr& address,
+                                      const char*           canonical = nullptr) override;
+            long                 listen(u32 backlog) override;
+            core::task<accepted> accept(core::cltoken token = {}) override;
+            long                 connect(const astia_sockaddr& address,
+                                         const char*           canonical = nullptr) override;
+            long                 shutdown(u32 how) override;
+            long                 getsockopt(u32 level, u32 name, u32* value) override;
+
+            core::task<i64>     sendmsg(span<const u8>                 data,
+                                        const mm::shptr<unix_control>& control,
+                                        core::cltoken                  token = {}) override;
+            core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) override;
+
+            optional<readable&> as_readable() override;
+            optional<writable&> as_writable() override;
+            optional<pollable&> as_pollable() override;
+            long                submit(io::request& request) override;
+
+            private:
+            unix_file& _owner;
+        };
+
         class unix_file final : public file,
                                 public readable,
                                 public writable,
@@ -77,6 +201,24 @@ namespace astia::fs {
 
             optional<pollable&> as_pollable() override {
                 return *this;
+            }
+
+            optional<dgram_sock&> as_dgram_sock() override {
+                core::spinlock_guard guard(_lock);
+
+                if (_state == state::dgram)
+                    return _dgram_view;
+
+                return {};
+            }
+
+            optional<stream_sock&> as_stream_sock() override {
+                core::spinlock_guard guard(_lock);
+
+                if (_state != state::dgram)
+                    return _stream_view;
+
+                return {};
             }
 
             file_mode mode() const override {
@@ -158,21 +300,31 @@ namespace astia::fs {
             }
 
             long write_ready(const void* b, u32 n, u64) override {
-                state                kind;
-                mm::shptr<channel>   channel;
-                mm::shptr<unix_file> peer_owner;
-                u32                  side;
+                state                   kind;
+                mm::shptr<channel>      channel;
+                mm::shptr<unix_file>    peer_owner;
+                mm::shptr<unix_control> control;
+                u32                     side;
                 {
                     core::spinlock_guard guard(_lock);
 
                     kind       = _state;
                     channel    = _ch;
                     peer_owner = _peer_owner;
+                    control    = _send_control;
                     side       = _side;
                 }
-                if (kind == state::dgram)
-                    return send_dgram(
-                        astia::span<const u8>(static_cast<const u8*>(b), n));
+                if (kind == state::dgram) {
+                    const long result = send_dgram(
+                        astia::span<const u8>(static_cast<const u8*>(b), n), control);
+                    if (result >= 0) {
+                        core::spinlock_guard guard(_lock);
+
+                        _send_control = {};
+                    }
+
+                    return result;
+                }
                 if (kind != state::connected)
                     return -ENOTCONN;
                 if (!channel)
@@ -196,6 +348,20 @@ namespace astia::fs {
 
                     count = free < n ? free : n;
 
+                    if (control) {
+                        if (channel->control_count[side] >= socket_control_queue_capacity)
+                            return 0;
+
+                        const u32 index = channel->control_tail[side];
+
+                        control->offset               = h;
+                        channel->control[side][index] = control;
+                        channel->control_tail[side] =
+                            (index + 1) % socket_control_queue_capacity;
+
+                        ++channel->control_count[side];
+                    }
+
                     const u8* in = static_cast<const u8*>(b);
 
                     for (u32 i = 0; i < count; ++i) {
@@ -206,6 +372,11 @@ namespace astia::fs {
 
                     astia::atomic_ref<u32>(channel->head[side])
                         .store(h + count, astia::memory_order::release);
+                }
+                if (control) {
+                    core::spinlock_guard guard(_lock);
+
+                    _send_control = {};
                 }
                 // As above, readiness callbacks must run after channel unlock.
                 if (peer_owner)
@@ -219,113 +390,6 @@ namespace astia::fs {
                 _send_control = control;
 
                 return 0;
-            }
-
-            long sendmsg(io::request& r) {
-                state                   kind;
-                mm::shptr<channel>      channel;
-                mm::shptr<unix_file>    peer_owner;
-                mm::shptr<unix_control> control;
-
-                u32 side;
-
-                {
-                    core::spinlock_guard guard(_lock);
-
-                    kind       = _state;
-                    channel    = _ch;
-                    peer_owner = _peer_owner;
-                    control    = _send_control;
-                    side       = _side;
-                }
-
-                const auto data =
-                    span<const u8>(static_cast<const u8*>(r.buffer()), r.length());
-
-                if (kind == state::dgram) {
-                    const long result = send_dgram(data, control);
-                    if (result >= 0) {
-                        core::spinlock_guard guard(_lock);
-
-                        _send_control = {};
-                    }
-
-                    return result;
-                }
-
-                if (kind != state::connected || !channel)
-                    return -ENOTCONN;
-
-                const u32 peer = socket_peer_side(side);
-                u32       count;
-
-                {
-                    core::spinlock_guard channel_guard(channel->lock);
-
-                    if (channel->closed[peer] || channel->shut_rd[peer] ||
-                        channel->shut_wr[side])
-                        return -EPIPE;
-
-                    if (control &&
-                        channel->control_count[side] >= socket_control_queue_capacity)
-                        return -EAGAIN;
-
-                    const u32 h = astia::atomic_ref<u32>(channel->head[side])
-                                      .load(astia::memory_order::relaxed),
-                              t = astia::atomic_ref<u32>(channel->tail[side])
-                                      .load(astia::memory_order::acquire);
-
-                    const u32 free = socket_stream_capacity_bytes - (h - t);
-                    if (!free)
-                        return 0;
-
-                    count = free < data.size() ? free : static_cast<u32>(data.size());
-                    if (count == 0)
-                        return 0;
-
-                    if (control) {
-                        const u32 index = channel->control_tail[side];
-
-                        control->offset               = h;
-                        channel->control[side][index] = control;
-                        channel->control_tail[side] =
-                            (index + 1) % socket_control_queue_capacity;
-
-                        ++channel->control_count[side];
-                    }
-
-                    for (u32 i = 0; i < count; ++i) {
-                        channel
-                            ->data[side][(h + i) & (socket_stream_capacity_bytes - 1)] =
-                            data.data()[i];
-                    }
-
-                    astia::atomic_ref<u32>(channel->head[side])
-                        .store(h + count, astia::memory_order::release);
-                }
-
-                {
-                    core::spinlock_guard guard(_lock);
-
-                    _send_control = {};
-                }
-
-                if (peer_owner)
-                    sys::io_device_ready_context(peer_owner.get());
-
-                return count;
-            }
-
-            long recvmsg_prepare() {
-                core::spinlock_guard guard(_lock);
-
-                if (_state == state::dgram) {
-                    _want_control = true;
-
-                    return 0;
-                }
-
-                return _state == state::connected ? 0 : -ENOTCONN;
             }
 
             mm::shptr<unix_control> take_recv_control() {
@@ -498,29 +562,6 @@ namespace astia::fs {
 
                     return n;
                 }
-                if (kind == state::listener) {
-                    astia_sockaddr peer{};
-
-                    const long accepted = accept_queued(proc::current_process(), peer);
-
-                    if (accepted == 0) {
-                        r.stage(1);
-
-                        return 0;
-                    }
-
-                    if (accepted > 0) {
-                        {
-                            core::spinlock_guard guard(_lock);
-
-                            _accept_out_value = peer;
-                        }
-
-                        r.complete(true);
-                    }
-
-                    return accepted;
-                }
                 long n           = r.direction() == io::direction::input
                                        ? read_ready(r.buffer(), r.length(), 0)
                                        : write_ready(r.buffer(), r.length(), 0);
@@ -539,8 +580,6 @@ namespace astia::fs {
                 return n;
             }
 
-            const unix_socket_operations* unix_socket_capability() const override;
-
             void duplicate(u32) override {
                 astia::atomic_ref<u32>(_opens).fetch_add(1u,
                                                          astia::memory_order::acq_rel);
@@ -550,6 +589,9 @@ namespace astia::fs {
                 if (astia::atomic_ref<u32>(_opens).fetch_sub(
                         1u, astia::memory_order::acq_rel) != 1)
                     return;
+
+                cancel_accept_waiters();
+
                 bool                 bound;
                 char                 path[path_max]{};
                 mm::shptr<unix_file> peer;
@@ -583,6 +625,10 @@ namespace astia::fs {
                     if (peer)
                         sys::io_device_ready_context(peer.get());
                 }
+            }
+
+            void set_self(const mm::shptr<unix_file>& value) {
+                _self = value;
             }
 
             void make_dgram() {
@@ -694,12 +740,278 @@ namespace astia::fs {
                 return true;
             }
 
-            bool take_accept_address(astia_sockaddr& out) {
-                core::spinlock_guard guard(_lock);
+            long canonical(const astia_sockaddr& a, const char* hint, char* out) {
+                if (hint != nullptr) {
+                    for (u32 i = 0; i < path_max; ++i) {
+                        out[i] = hint[i];
 
-                out = _accept_out_value;
+                        if (out[i] == '\0')
+                            return 0;
+                    }
 
-                return true;
+                    return -EINVAL;
+                }
+
+                if (!path(a, out))
+                    return -EINVAL;
+
+                auto* current = proc::current_process();
+                if (!current)
+                    return -ESRCH;
+
+                return static_cast<long>(
+                    current->resolve_path(out, out, path_max, false));
+            }
+
+            long bind_address(const astia_sockaddr& a, const char* hint) {
+                char n[path_max];
+
+                long rc = canonical(a, hint, n);
+                if (rc < 0)
+                    return rc;
+
+                auto* current = proc::current_process();
+
+                rc = reserve_bind(a, n);
+                if (rc < 0)
+                    return rc;
+
+                auto self = mm::shptr<file>::borrowed(this);
+
+                rc = register_unix_path(n, self, uid_t{current->euid()},
+                                        gid_t{current->egid()});
+                if (rc < 0) {
+                    abort_bind();
+
+                    return rc;
+                }
+
+                commit_bind(n);
+
+                return 0;
+            }
+
+            long connect_address(const astia_sockaddr& a, const char* hint) {
+                char n[path_max];
+
+                long canonical_rc = canonical(a, hint, n);
+                if (canonical_rc < 0)
+                    return canonical_rc;
+
+                if (kind() == state::dgram) {
+                    mm::shptr<file> endpoint;
+
+                    if (lookup_unix_path(n, endpoint) < 0)
+                        return -ECONNREFUSED;
+
+                    auto* target = static_cast<unix_file*>(endpoint.get());
+
+                    if (!target || target->kind() != state::dgram)
+                        return -ENOTSUP;
+
+                    set_dgram_target(endpoint);
+
+                    return 0;
+                }
+
+                long rc = reserve_connect();
+                if (rc < 0)
+                    return rc;
+
+                mm::shptr<file> endpoint;
+
+                if (lookup_unix_path(n, endpoint) < 0) {
+                    abort_connect();
+
+                    return -ECONNREFUSED;
+                }
+
+                auto* listener = static_cast<unix_file*>(endpoint.get());
+
+                if (!listener || listener->kind() != state::listener) {
+                    abort_connect();
+
+                    return -ECONNREFUSED;
+                }
+
+                auto ch = mm::share<channel>();
+                auto s  = mm::share<unix_file>();
+
+                if (!ch || !s) {
+                    abort_connect();
+
+                    return -ENOMEM;
+                }
+
+                auto c_owner = _self.lock();
+                if (!c_owner) {
+                    abort_connect();
+
+                    return -EBADF;
+                }
+
+                attach(ch, socket_side_first, s);
+                s->attach(ch, socket_side_second, c_owner);
+
+                auto so = mm::share<open_file>(s, 0);
+
+                if (!so || !listener->enqueue(so)) {
+                    abort_connect();
+
+                    return -ECONNREFUSED;
+                }
+
+                return 0;
+            }
+
+            long sendto_address(const astia_sockaddr& a) {
+                if (kind() != state::dgram)
+                    return -EOPNOTSUPP;
+
+                char n[path_max];
+
+                long rc = canonical(a, nullptr, n);
+                if (rc < 0)
+                    return rc;
+
+                mm::shptr<file> endpoint;
+
+                if (lookup_unix_path(n, endpoint) < 0)
+                    return -ECONNREFUSED;
+
+                auto* target = static_cast<unix_file*>(endpoint.get());
+
+                if (!target || target->kind() != state::dgram)
+                    return -ECONNREFUSED;
+
+                set_dgram_target(endpoint);
+
+                return 0;
+            }
+
+            long getsockopt(u32 level, u32 name, u32* value) {
+                if (value == nullptr)
+                    return -ENOTSOCK;
+
+                const state current = kind();
+
+                if (current != state::connected && current != state::dgram)
+                    return -ENOTSOCK;
+
+                if (level != SOL_SOCKET || name != SO_SNDBUF)
+                    return -ENOPROTOOPT;
+
+                *value = socket_stream_capacity_bytes;
+
+                return 0;
+            }
+
+            core::task<i64> sendto_async(span<const u8>        data,
+                                         const astia_sockaddr& destination,
+                                         core::cltoken         token) {
+                if (kind() != state::dgram)
+                    co_return -EOPNOTSUPP;
+
+                const long queued = sendto_address(destination);
+                if (queued < 0)
+                    co_return queued;
+
+                buffer     entry{const_cast<u8*>(data.data()), data.size()};
+                const auto result = co_await submit_writev(span<const buffer>(&entry, 1),
+                                                           0, token, false);
+
+                co_return result ? result.value : error_errno(result.error);
+            }
+
+            core::task<message> recvfrom_async(span<u8> data, core::cltoken token) {
+                message result{};
+
+                if (kind() != state::dgram) {
+                    result.length = -EOPNOTSUPP;
+
+                    co_return result;
+                }
+
+                set_dgram_address();
+
+                buffer     entry{data.data(), data.size()};
+                const auto received =
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+
+                if (!received) {
+                    result.length = error_errno(received.error);
+
+                    co_return result;
+                }
+
+                result.length = received.value;
+
+                if (result.length >= 0)
+                    take_dgram_address(result.source);
+
+                co_return result;
+            }
+
+            core::task<i64> sendmsg_async(span<const u8>                 data,
+                                          const astia_sockaddr*          destination,
+                                          const mm::shptr<unix_control>& control,
+                                          core::cltoken                  token) {
+                if (destination != nullptr) {
+                    const long queued = sendto_address(*destination);
+                    if (queued < 0)
+                        co_return queued;
+                }
+
+                set_send_control(control);
+
+                buffer     entry{const_cast<u8*>(data.data()), data.size()};
+                const auto result = co_await submit_writev(span<const buffer>(&entry, 1),
+                                                           0, token, false);
+
+                set_send_control({});
+
+                co_return result ? result.value : error_errno(result.error);
+            }
+
+            core::task<message> recvmsg_async(span<u8> data, core::cltoken token,
+                                              bool with_control) {
+                message     result{};
+                const state current = kind();
+
+                if (current == state::dgram) {
+                    set_dgram_address();
+
+                    core::spinlock_guard guard(_lock);
+
+                    _want_control = with_control;
+                }
+                else if (current != state::connected) {
+                    result.length = -ENOTCONN;
+
+                    co_return result;
+                }
+
+                buffer     entry{data.data(), data.size()};
+                const auto received =
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+
+                if (!received) {
+                    result.length = error_errno(received.error);
+
+                    co_return result;
+                }
+
+                result.length = received.value;
+
+                if (result.length >= 0) {
+                    if (current == state::dgram)
+                        take_dgram_address(result.source);
+
+                    if (with_control)
+                        result.control = take_recv_control();
+                }
+
+                co_return result;
             }
 
             long send_dgram(astia::span<const u8>   payload,
@@ -942,49 +1254,196 @@ namespace astia::fs {
 
                 ++_queue_count;
                 guard.unlock();
+
+                wake_accept_one();
                 sys::io_device_ready_context(this);
 
                 return true;
             }
 
-            /// Install the connection at the head of the backlog into a free
-            /// descriptor and only then advance the queue.  A full descriptor
-            /// table leaves the backlog untouched so a later accept can still
-            /// return the connection.  The peer address is read before the
-            /// queue entry is dropped so accept can report it.
-            long accept_queued(proc::process* current, astia_sockaddr& peer) {
-                mm::shptr<open_file> pending;
+            core::task<accepted> accept_async(core::cltoken token) {
+                accepted result{};
 
-                u32 installed_fd = 0;
+                if (kind() != state::listener) {
+                    result.fd = -EINVAL;
+
+                    co_return result;
+                }
+
+                while (true) {
+                    if (token.canceled()) {
+                        result.fd = -ECANCELED;
+
+                        co_return result;
+                    }
+
+                    auto*                current = proc::current_process();
+                    mm::shptr<open_file> pending;
+
+                    u32 installed_fd = 0;
+
+                    {
+                        core::spinlock_guard guard(_lock);
+
+                        if (_queue_count != 0) {
+                            if (!current) {
+                                result.fd = -ESRCH;
+
+                                co_return result;
+                            }
+
+                            pending = _queue[_queue_head];
+
+                            const auto installed = current->allocate_descriptor(pending);
+
+                            if (!installed) {
+                                result.fd = -EMFILE;
+
+                                co_return result;
+                            }
+
+                            _queue[_queue_head] = {};
+                            _queue_head = (_queue_head + 1) % socket_backlog_capacity;
+
+                            --_queue_count;
+
+                            installed_fd = installed.value.value;
+                        }
+                    }
+
+                    if (pending) {
+                        result.fd = static_cast<i64>(installed_fd);
+
+                        if (auto* accepted =
+                                static_cast<unix_file*>(pending->parent().get()))
+                            result.peer = accepted->peer_address();
+
+                        co_return result;
+                    }
+
+                    accept_waiter* node = acquire_accept_waiter();
+                    if (!node) {
+                        result.fd = -EAGAIN;
+
+                        co_return result;
+                    }
+
+                    if (!arm_accept_waiter(node)) {
+                        release_accept_waiter(node);
+
+                        continue;
+                    }
+
+                    accept_scope scope(*this, node);
+
+                    const auto woke = co_await node->done;
+
+                    if (!woke.has_value) {
+                        result.fd = -ECANCELED;
+
+                        co_return result;
+                    }
+                }
+            }
+
+            accept_waiter* acquire_accept_waiter() {
+                core::spinlock_guard guard(_lock);
+
+                for (accept_waiter& value : _accept_waiters) {
+                    if (value.refs != 0)
+                        continue;
+
+                    new (&value.done) core::completion<u8>();
+
+                    value.next  = nullptr;
+                    value.refs  = 1;
+                    value.state = accept_waiter_state::free;
+
+                    return &value;
+                }
+
+                return nullptr;
+            }
+
+            bool arm_accept_waiter(accept_waiter* value) {
+                core::spinlock_guard guard(_lock);
+
+                if (_queue_count != 0)
+                    return false;
+
+                value->next     = _accept_waiting;
+                _accept_waiting = value;
+                value->state    = accept_waiter_state::waiting;
+
+                return true;
+            }
+
+            void release_accept_waiter(accept_waiter* value) {
+                if (value == nullptr)
+                    return;
+
+                core::spinlock_guard guard(_lock);
+
+                if (value->refs == 0)
+                    return;
+
+                --value->refs;
+
+                if (value->refs == 0) {
+                    value->next  = nullptr;
+                    value->state = accept_waiter_state::free;
+                }
+            }
+
+            void wake_accept_one() {
+                accept_waiter* value = nullptr;
 
                 {
                     core::spinlock_guard guard(_lock);
 
-                    if (!_queue_count)
-                        return 0;
+                    if (_accept_waiting == nullptr)
+                        return;
 
-                    if (!current)
-                        return -ESRCH;
+                    value           = _accept_waiting;
+                    _accept_waiting = value->next;
 
-                    pending = _queue[_queue_head];
+                    value->next  = nullptr;
+                    value->state = accept_waiter_state::delivering;
 
-                    const auto installed = current->allocate_descriptor(pending);
-
-                    if (!installed)
-                        return -EMFILE;
-
-                    _queue[_queue_head] = {};
-                    _queue_head         = (_queue_head + 1) % socket_backlog_capacity;
-
-                    --_queue_count;
-
-                    installed_fd = installed.value.value;
+                    ++value->refs;
                 }
 
-                if (auto* accepted = static_cast<unix_file*>(pending->parent().get()))
-                    peer = accepted->peer_address();
+                value->done.complete_deferred(1);
+                release_accept_waiter(value);
+            }
 
-                return installed_fd;
+            void cancel_accept_waiters() {
+                accept_waiter* value = nullptr;
+
+                {
+                    core::spinlock_guard guard(_lock);
+
+                    value           = _accept_waiting;
+                    _accept_waiting = nullptr;
+
+                    for (accept_waiter* cursor = value; cursor != nullptr;
+                         cursor                = cursor->next) {
+                        cursor->state = accept_waiter_state::delivering;
+
+                        ++cursor->refs;
+                    }
+                }
+
+                while (value != nullptr) {
+                    accept_waiter* next = value->next;
+
+                    value->next = nullptr;
+
+                    value->done.fail_deferred(error_t::ecanceled);
+                    release_accept_waiter(value);
+
+                    value = next;
+                }
             }
 
             private:
@@ -1001,7 +1460,6 @@ namespace astia::fs {
             mm::shptr<unix_file>    _dgram_target_owner;
             astia_sockaddr          _dgram_out_value{};
             bool                    _dgram_out_pending{};
-            astia_sockaddr          _accept_out_value{};
             mm::shptr<unix_control> _send_control;
             mm::shptr<unix_control> _dgram_control_out;
             bool                    _want_control{};
@@ -1013,63 +1471,133 @@ namespace astia::fs {
             astia_sockaddr          _bound_addr{};
             mm::shptr<open_file>    _queue[socket_backlog_capacity]{};
             u32                     _queue_head{}, _queue_tail{}, _queue_count{};
+            accept_waiter           _accept_waiters[accept_waiter_limit]{};
+            accept_waiter*          _accept_waiting = nullptr;
             u32                     _opens{1};
+            mm::shweak<unix_file>   _self;
+
+            unix_dgram_view  _dgram_view{*this};
+            unix_stream_view _stream_view{*this};
         };
 
-        long socket_bind(open_file& o, const astia_sockaddr& a, const char* canonical);
-        long socket_listen(open_file& o, u32 b);
-        long socket_accept(open_file& o, io::request& r);
-        bool socket_accept_address(open_file& o, astia_sockaddr& out);
-        long socket_connect(open_file& o, const astia_sockaddr& a, const char* canonical);
-        long socket_shutdown(open_file& o, u32 how);
-        long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value);
-        long socket_sendto(open_file& o, const char* canonical);
-        long socket_recvfrom(open_file& o);
-        bool socket_recvfrom_address(open_file& o, astia_sockaddr& out);
-        long socket_set_send_control(open_file&                     o,
-                                     const mm::shptr<unix_control>& control);
-        long socket_sendmsg(open_file& o, io::request& r);
-        long socket_recvmsg_prepare(open_file& o);
-        long socket_recvmsg_complete(open_file& o, proc::process* receiver, u32 flags,
-                                     span<u8> destination, u32& used, u32& msg_flags);
-
-        const unix_socket_operations socket_operations{socket_bind,
-                                                       socket_listen,
-                                                       socket_accept,
-                                                       socket_accept_address,
-                                                       socket_connect,
-                                                       socket_shutdown,
-                                                       socket_getsockopt,
-                                                       socket_sendto,
-                                                       socket_recvfrom,
-                                                       socket_recvfrom_address,
-                                                       socket_set_send_control,
-                                                       socket_sendmsg,
-                                                       socket_recvmsg_prepare,
-                                                       socket_recvmsg_complete};
-
-        const unix_socket_operations* unix_file::unix_socket_capability() const {
-            return &socket_operations;
+        optional<readable&> unix_dgram_view::as_readable() {
+            return _owner.as_readable();
         }
 
-        bool valid_address(const astia_sockaddr& a) {
-            return a.family == AF_UNIX && a.len >= 3 && a.len <= sizeof(a.data) + 2;
+        optional<writable&> unix_dgram_view::as_writable() {
+            return _owner.as_writable();
         }
 
-        bool canonical_path(const char* path) {
-            if (path == nullptr || path[0] != '/')
-                return false;
+        optional<pollable&> unix_dgram_view::as_pollable() {
+            return _owner.as_pollable();
+        }
 
-            u32 length = 0;
+        long unix_dgram_view::submit(io::request& request) {
+            return _owner.submit(request);
+        }
 
-            while (path[length] != '\0') {
-                if (length + 1 >= path_max)
-                    return false;
+        optional<readable&> unix_stream_view::as_readable() {
+            return _owner.as_readable();
+        }
 
-                ++length;
-            }
+        optional<writable&> unix_stream_view::as_writable() {
+            return _owner.as_writable();
+        }
 
-            return true;
+        optional<pollable&> unix_stream_view::as_pollable() {
+            return _owner.as_pollable();
+        }
+
+        long unix_stream_view::submit(io::request& request) {
+            return _owner.submit(request);
+        }
+
+        accept_scope::accept_scope(unix_file& owner, accept_waiter* value)
+            : _owner(&owner), _value(value) {}
+
+        accept_scope::~accept_scope() {
+            if (_owner != nullptr)
+                _owner->release_accept_waiter(_value);
+        }
+
+        long unix_dgram_view::bind(const astia_sockaddr& address, const char* canonical) {
+            return _owner.bind_address(address, canonical);
+        }
+
+        long unix_dgram_view::connect(const astia_sockaddr& address,
+                                      const char*           canonical) {
+            return _owner.connect_address(address, canonical);
+        }
+
+        long unix_dgram_view::getsockopt(u32 level, u32 name, u32* value) {
+            return _owner.getsockopt(level, name, value);
+        }
+
+        core::task<i64> unix_dgram_view::sendto(span<const u8>        data,
+                                                const astia_sockaddr& destination,
+                                                core::cltoken         token) {
+            return _owner.sendto_async(data, destination, token);
+        }
+
+        core::task<message> unix_dgram_view::recvfrom(span<u8>      data,
+                                                      core::cltoken token) {
+            return _owner.recvfrom_async(data, token);
+        }
+
+        core::task<i64> unix_dgram_view::sendmsg(span<const u8>        data,
+                                                 const astia_sockaddr* destination,
+                                                 const mm::shptr<unix_control>& control,
+                                                 core::cltoken                  token) {
+            return _owner.sendmsg_async(data, destination, control, token);
+        }
+
+        core::task<message> unix_dgram_view::recvmsg(span<u8> data, core::cltoken token) {
+            return _owner.recvmsg_async(data, token, true);
+        }
+
+        long unix_stream_view::bind(const astia_sockaddr& address,
+                                    const char*           canonical) {
+            return _owner.bind_address(address, canonical);
+        }
+
+        long unix_stream_view::listen(u32 backlog) {
+            if (_owner.kind() != unix_file::state::fresh)
+                return -EINVAL;
+
+            _owner.make_listener(backlog > socket_backlog_capacity
+                                     ? socket_backlog_capacity
+                                 : backlog ? backlog
+                                           : 1);
+
+            return 0;
+        }
+
+        core::task<accepted> unix_stream_view::accept(core::cltoken token) {
+            return _owner.accept_async(token);
+        }
+
+        long unix_stream_view::connect(const astia_sockaddr& address,
+                                       const char*           canonical) {
+            return _owner.connect_address(address, canonical);
+        }
+
+        long unix_stream_view::shutdown(u32 how) {
+            return _owner.shutdown(how);
+        }
+
+        long unix_stream_view::getsockopt(u32 level, u32 name, u32* value) {
+            return _owner.getsockopt(level, name, value);
+        }
+
+        core::task<i64> unix_stream_view::sendmsg(span<const u8>                 data,
+                                                  const mm::shptr<unix_control>& control,
+                                                  core::cltoken                  token) {
+            return _owner.sendmsg_async(data, nullptr, control, token);
+        }
+
+        core::task<message> unix_stream_view::recvmsg(span<u8>      data,
+                                                      core::cltoken token) {
+            return _owner.recvmsg_async(data, token, false);
         }
     }
 
@@ -1081,137 +1609,14 @@ namespace astia::fs {
         if (!f)
             return -ENOMEM;
 
+        f->set_self(f);
+
         if (type == SOCK_DGRAM)
             f->make_dgram();
 
         out = mm::share<open_file>(f, 0);
 
         return out ? 0 : -ENOMEM;
-    }
-
-    namespace {
-        long socket_bind(open_file& o, const astia_sockaddr& a, const char* canonical) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || !valid_address(a) || !canonical_path(canonical))
-                return -EINVAL;
-
-            auto* current = proc::current_process();
-            if (!current)
-                return -ESRCH;
-
-            long rc = f->reserve_bind(a, canonical);
-            if (rc < 0)
-                return rc;
-
-            mm::shptr<file> node = o.parent();
-
-            rc = register_unix_path(canonical, node, uid_t{current->euid()},
-                                    gid_t{current->egid()});
-            if (rc < 0) {
-                f->abort_bind();
-
-                return rc;
-            }
-
-            f->commit_bind(canonical);
-
-            return 0;
-        }
-
-        long socket_listen(open_file& o, u32 b) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || f->kind() != unix_file::state::fresh)
-                return -EINVAL;
-
-            f->make_listener(b > socket_backlog_capacity ? socket_backlog_capacity
-                             : b                         ? b
-                                                         : 1);
-
-            return 0;
-        }
-
-        long socket_connect(open_file& o, const astia_sockaddr& a,
-                            const char* canonical) {
-            auto* c = static_cast<unix_file*>(o.parent().get());
-
-            if (!c || !valid_address(a) || !canonical_path(canonical))
-                return -EINVAL;
-
-            long rc = c->reserve_connect();
-            if (rc < 0)
-                return rc;
-
-            mm::shptr<unix_file> c_owner(o.parent());
-            mm::shptr<file>      endpoint;
-
-            if (lookup_unix_path(canonical, endpoint) < 0) {
-                c->abort_connect();
-
-                return -ECONNREFUSED;
-            }
-
-            auto* l = static_cast<unix_file*>(endpoint.get());
-
-            if (c->connect_is_datagram()) {
-                if (l->kind() != unix_file::state::dgram) {
-                    c->abort_connect();
-
-                    return -ENOTSUP;
-                }
-
-                c->attach_dgram(endpoint);
-
-                return 0;
-            }
-
-            if (l->kind() != unix_file::state::listener) {
-                c->abort_connect();
-
-                return -ECONNREFUSED;
-            }
-
-            auto ch = mm::share<channel>();
-            auto s  = mm::share<unix_file>();
-
-            if (!ch || !s) {
-                c->abort_connect();
-
-                return -ENOMEM;
-            }
-
-            c->attach(ch, socket_side_first, s);
-            s->attach(ch, socket_side_second, c_owner);
-
-            auto so = mm::share<open_file>(s, 0);
-
-            if (!so || !l->enqueue(so)) {
-                c->abort_connect();
-
-                return -ECONNREFUSED;
-            }
-
-            return 0;
-        }
-
-        long socket_accept(open_file& o, io::request& r) {
-            auto* l = static_cast<unix_file*>(o.parent().get());
-
-            if (!l || l->kind() != unix_file::state::listener)
-                return -EINVAL;
-
-            return l->submit(r);
-        }
-
-        bool socket_accept_address(open_file& o, astia_sockaddr& out) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || f->kind() != unix_file::state::listener)
-                return false;
-
-            return f->take_accept_address(out);
-        }
     }
 
     long unix_socketpair(mm::shptr<open_file>& left, mm::shptr<open_file>& right,
@@ -1224,6 +1629,9 @@ namespace astia::fs {
 
         if (!a || !b)
             return -ENOMEM;
+
+        a->set_self(a);
+        b->set_self(b);
 
         if (type == SOCK_DGRAM) {
             a->make_dgram();
@@ -1250,107 +1658,5 @@ namespace astia::fs {
         right = {};
 
         return -ENOMEM;
-    }
-
-    namespace {
-        long socket_shutdown(open_file& o, u32 how) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            return f ? f->shutdown(how) : -EBADF;
-        }
-
-        long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || value == nullptr ||
-                (f->kind() != unix_file::state::connected &&
-                 f->kind() != unix_file::state::dgram))
-                return -ENOTSOCK;
-
-            if (level != SOL_SOCKET || name != SO_SNDBUF)
-                return -ENOPROTOOPT;
-
-            *value = socket_stream_capacity_bytes;
-
-            return 0;
-        }
-
-        long socket_sendto(open_file& o, const char* canonical) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || f->kind() != unix_file::state::dgram)
-                return -EOPNOTSUPP;
-
-            if (!canonical_path(canonical))
-                return -EINVAL;
-
-            mm::shptr<file> endpoint;
-
-            if (lookup_unix_path(canonical, endpoint) < 0)
-                return -ECONNREFUSED;
-
-            auto* t = static_cast<unix_file*>(endpoint.get());
-
-            if (!t || t->kind() != unix_file::state::dgram)
-                return -ECONNREFUSED;
-
-            f->set_dgram_target(endpoint);
-
-            return 0;
-        }
-
-        long socket_recvfrom(open_file& o) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || f->kind() != unix_file::state::dgram)
-                return -EOPNOTSUPP;
-
-            f->set_dgram_address();
-
-            return 0;
-        }
-
-        bool socket_recvfrom_address(open_file& o, astia_sockaddr& out) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || f->kind() != unix_file::state::dgram)
-                return false;
-
-            return f->take_dgram_address(out);
-        }
-
-        long socket_set_send_control(open_file&                     o,
-                                     const mm::shptr<unix_control>& control) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            return f ? f->set_send_control(control) : -EBADF;
-        }
-
-        long socket_sendmsg(open_file& o, io::request& r) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            return f ? f->sendmsg(r) : -EBADF;
-        }
-
-        long socket_recvmsg_prepare(open_file& o) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            return f ? f->recvmsg_prepare() : -EBADF;
-        }
-
-        long socket_recvmsg_complete(open_file& o, proc::process* receiver, u32 flags,
-                                     span<u8> destination, u32& used, u32& msg_flags) {
-            auto* f = static_cast<unix_file*>(o.parent().get());
-
-            if (!f || !receiver)
-                return -EBADF;
-
-            const auto control = f->take_recv_control();
-            if (!control)
-                return 0;
-
-            return build_unix_control(*receiver, *control, flags, destination, used,
-                                      msg_flags);
-        }
     }
 }

@@ -10,11 +10,10 @@ namespace astia::io::aio::operations {
             if (!handle)
                 co_return -EBADF;
 
-            const auto* socket = handle->parent()->unix_socket_capability();
+            auto* socket = stream_for(handle);
 
-            co_return static_cast<i32>(socket == nullptr
-                                           ? -EOPNOTSUPP
-                                           : socket->shutdown(*handle, sqe.op_flags));
+            co_return static_cast<i32>(
+                socket == nullptr ? -EOPNOTSUPP : socket->shutdown(sqe.op_flags));
         }
     };
 

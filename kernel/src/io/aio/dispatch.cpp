@@ -5,6 +5,7 @@
 #include <astia/arch/cpu.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/platform.hpp>
+#include <astia/fs/socket.hpp>
 #include <astia/io.hpp>
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
@@ -395,20 +396,6 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
 
-                if (op.socket_accept) {
-                    const auto* socket = op.handle->parent()->unix_socket_capability();
-
-                    n = socket == nullptr
-                            ? -EOPNOTSUPP
-                            : socket->accept(*op.handle, op.operation->request());
-                }
-                else if (op.socket_sendmsg) {
-                    const auto* socket = op.handle->parent()->unix_socket_capability();
-
-                    n = socket == nullptr || socket->sendmsg == nullptr
-                            ? -EOPNOTSUPP
-                            : socket->sendmsg(*op.handle, op.operation->request());
-                }
                 else {
                     n = op.handle->submit(op.operation->request());
                 }
@@ -490,102 +477,6 @@ namespace astia::io::aio::dispatch {
 
                 op.operation->request().append_reserved(append_reserved);
             }
-        }
-
-        void complete_recvfrom_address(proc::process* owner, parked_op& op,
-                                       long& result) {
-            if (op.recvfrom_address && result >= 0) {
-                astia_sockaddr address{};
-                const auto*    socket = op.handle->parent()->unix_socket_capability();
-                const auto     destination =
-                    memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
-                        .validate_for(owner);
-
-                if (socket == nullptr || !socket->recvfrom_address(*op.handle, address) ||
-                    !destination ||
-                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
-                    result = -EFAULT;
-            }
-        }
-
-        void complete_accept_address(proc::process* owner, parked_op& op, long& result) {
-            if (op.accept_address && op.accept_address_user != 0 && result >= 0) {
-                astia_sockaddr address{};
-                const auto*    socket = op.handle->parent()->unix_socket_capability();
-                const auto     destination =
-                    memory::user_ptr<astia_sockaddr>(op.accept_address_user)
-                        .validate_for(owner);
-
-                if (socket == nullptr || socket->accept_address == nullptr ||
-                    !socket->accept_address(*op.handle, address) || !destination ||
-                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
-                    result = -EFAULT;
-            }
-        }
-
-        void complete_recvmsg(proc::process* owner, parked_op& op, long& result) {
-            if (!op.recvmsg || result < 0)
-                return;
-
-            const auto destination =
-                memory::user_ptr<astia_msghdr>(op.recvmsg_user).validate_for(owner);
-            if (!destination) {
-                result = -EFAULT;
-
-                return;
-            }
-
-            astia_msghdr header{};
-
-            if (!memory::copy_in(owner, &header, destination.value.bytes())) {
-                result = -EFAULT;
-
-                return;
-            }
-
-            const auto* socket = op.handle->parent()->unix_socket_capability();
-
-            if (socket == nullptr || socket->recvmsg_complete == nullptr) {
-                result = -EOPNOTSUPP;
-
-                return;
-            }
-
-            u32 capacity = header.controllen;
-
-            if (capacity > fs::unix_control_max_bytes)
-                capacity = fs::unix_control_max_bytes;
-
-            u8  control[fs::unix_control_max_bytes]{};
-            u32 used      = 0;
-            u32 msg_flags = 0;
-
-            const long rc =
-                socket->recvmsg_complete(*op.handle, owner, header.flags,
-                                         span<u8>(control, capacity), used, msg_flags);
-            if (rc < 0) {
-                result = rc;
-
-                return;
-            }
-
-            if (used != 0) {
-                const span<u8> control_span(static_cast<u8*>(header.control), used);
-
-                if (header.control == nullptr ||
-                    !memory::user_span_writable_ok_for(owner, control_span) ||
-                    !memory::copy_out_for(owner, control_span, control)) {
-                    result = -EFAULT;
-
-                    return;
-                }
-            }
-
-            header.controllen = used;
-            header.msg_flags  = msg_flags;
-
-            if (!memory::copy_out_for(owner, destination.value.bytes(), &header))
-                result = -EFAULT;
         }
 
         void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
@@ -793,10 +684,6 @@ namespace astia::io::aio::dispatch {
             if (p->token.canceled())
                 result = -ECANCELED;
 
-            complete_recvfrom_address(slot.owner.get(), *p, result);
-            complete_accept_address(slot.owner.get(), *p, result);
-            complete_recvmsg(slot.owner.get(), *p, result);
-
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
@@ -830,10 +717,12 @@ namespace astia::io::aio::dispatch {
         /// returns 0 and stays parked.
         void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
                            ring_slot* slot) {
+            (void) owner;
             // Cancellation posts the target CQE and marks the operation done,
             // but the readiness nudge that was already in flight may still
             // reach this slot before task context reaps it.  Never post a
             // second completion for a canceled operation.
+
             if (op.resuming || op.done)
                 return;
 
@@ -904,10 +793,6 @@ namespace astia::io::aio::dispatch {
 
                 return;
             }
-
-            complete_recvfrom_address(owner, op, result);
-            complete_accept_address(owner, op, result);
-            complete_recvmsg(owner, op, result);
 
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.
