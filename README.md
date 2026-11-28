@@ -351,6 +351,7 @@ boundaries.
 - [Signal semantics](docs/signals.md)
 - [CTest suites](docs/ctest.md)
 - [Toolchain and userspace](toolchain/README.md)
+- [Userspace tool documentation](docs/userspace/)
 - [Man-page documentation guide](tools/man/DOCUMENTING.md)
 
 For changes, open an issue or pull request on

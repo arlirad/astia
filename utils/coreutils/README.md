@@ -6,9 +6,9 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 
 Currently built:
 
-`basename` `cat` `chmod` `cp` `cut` `dirname` `echo` `env` `false` `find` `grep`
-`head` `id` `ln` `login` `ls` `mkdir` `mv` `poweroff` `pwd` `readlink` `reboot`
-`rm` `sort` `tee` `touch` `true` `uname` `whoami` `wc`
+`basename` `cat` `chmod` `cp` `cut` `daemonctl` `dirname` `echo` `env` `false`
+`find` `grep` `head` `id` `ln` `login` `ls` `mkdir` `mv` `poweroff` `ps` `pwd`
+`readlink` `reboot` `rm` `sort` `tee` `touch` `true` `uname` `whoami` `wc`
 
 Build them with:
 
@@ -52,3 +52,6 @@ credentials and supplementary groups, and execs the account shell. There is
 no PAM, shadow, crypt, networking, or password backend: only the `x`
 convention (and an empty, explicitly passwordless field) is accepted; other
 password fields are rejected clearly.
+
+See [`../../docs/userspace/coreutils.md`](../../docs/userspace/coreutils.md)
+for the complete command reference.
