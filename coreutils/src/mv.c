@@ -39,12 +39,12 @@ static const char* base_name(const char* path) {
     return end;
 }
 
-static int copy_file(const char* source, const char* destination) {
+static int copy_file(const char* source, const char* destination, mode_t mode) {
     int input = open(source, O_RDONLY);
     if (input < 0)
         return cu_error("mv", source);
 
-    int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, mode);
     if (output < 0) {
         /* The destination failure is the primary error; the doomed input
          * close is legitimately ignorable. */
@@ -67,6 +67,11 @@ static int copy_file(const char* source, const char* destination) {
             break;
         }
     }
+
+    /* The create above is filtered by the process umask, so the exact source
+       bits (including set-id) are applied to the open descriptor afterwards. */
+    if (status == 0 && fchmod(output, mode) < 0)
+        status = cu_error("mv", destination);
 
     if (cu_close(input, "mv", source) != 0)
         status = 1;
@@ -101,13 +106,16 @@ static int move_file(const char* source, const char* destination) {
         if (errno != EXDEV) {
             status = cu_error("mv", source);
         }
-        else if (stat(source, &source_info) == 0 && S_ISDIR(source_info.st_mode)) {
+        else if (stat(source, &source_info) < 0) {
+            status = cu_error("mv", source);
+        }
+        else if (S_ISDIR(source_info.st_mode)) {
             /* Cross-filesystem moves cannot be atomic, and copy+unlink of a
                tree does not belong in mv; refuse instead of half-moving it. */
             status = cu_error("mv", "cannot move a directory across filesystems");
         }
         else {
-            status = copy_file(source, target);
+            status = copy_file(source, target, source_info.st_mode & 07777);
 
             if (status == 0 && unlink(source) < 0)
                 status = cu_error("mv", source);
