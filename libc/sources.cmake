@@ -43,6 +43,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/string/ctype.c
   src/string/string.c
   src/string/wchar.c
+  src/sys/cwd_port.c
   src/sys/errno.c
   src/sys/mman.c
   src/sys/random.c

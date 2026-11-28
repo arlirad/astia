@@ -460,22 +460,48 @@ int chdir(const char* path) {
     return 0;
 }
 
-__attribute__((noinline)) static long __astia_getcwd_call(char*         buffer,
-                                                          unsigned long length) {
-    return astia_getcwd(buffer, length);
-}
-
 char* getcwd(char* buffer, unsigned long length) {
-    char* result = buffer;
+    if (buffer != NULL) {
+        long rc = __astia_getcwd_call(buffer, length);
+        if (rc < 0) {
+            errno = (int) -rc;
 
-    long rc = __astia_getcwd_call(buffer, length);
-    if (rc < 0) {
-        errno = (int) -rc;
+            return NULL;
+        }
 
-        return NULL;
+        return buffer;
     }
 
-    return result;
+    unsigned long capacity = length != 0 ? length : astia_path_buffer_capacity;
+
+    for (;;) {
+        char* allocated = malloc(capacity);
+        if (allocated == NULL) {
+            errno = ENOMEM;
+
+            return NULL;
+        }
+
+        long rc = __astia_getcwd_call(allocated, capacity);
+        if (rc >= 0)
+            return allocated;
+
+        free(allocated);
+
+        if (rc != -ERANGE) {
+            errno = (int) -rc;
+
+            return NULL;
+        }
+
+        if (capacity > (unsigned long) -1 / 2) {
+            errno = ENOMEM;
+
+            return NULL;
+        }
+
+        capacity *= 2;
+    }
 }
 
 unsigned int umask(unsigned int mode) {
