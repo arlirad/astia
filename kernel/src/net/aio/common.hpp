@@ -12,6 +12,7 @@
 #include "../../ipc/unix_socket.hpp"
 #include "../../proc/mapping.hpp"
 #include "../../proc/proc.hpp"
+#include "../../proc/search_permission.hpp"
 
 namespace astia::io::aio::operations {
     using namespace ::astia::io::aio::ring;
@@ -39,17 +40,55 @@ namespace astia::io::aio::operations {
         return socket ? &*socket : nullptr;
     }
 
+    inline long unix_path_search(proc::process* current, const char* path) {
+        if (current == nullptr || path == nullptr)
+            return -EINVAL;
+
+        char root[fs::path_max]{};
+
+        const i64 copied = current->copy_root(root, sizeof root);
+
+        if (copied < 0)
+            return static_cast<long>(copied);
+
+        const proc::process_search_permission search(*current);
+
+        return fs::check_search(root, path, &search, false);
+    }
+
+    inline long unix_socket_node_access(proc::process* current, const char* path,
+                                        fs::permission_bits want) {
+        if (current == nullptr || path == nullptr)
+            return -EINVAL;
+
+        const fs::file_mode mode = fs::node_mode(path);
+
+        if (!mode.exists() || !mode.is_socket())
+            return 0;
+
+        return current->can_access(mode, fs::node_uid(path), fs::node_gid(path), want)
+                   ? 0
+                   : -EACCES;
+    }
+
     inline bool socket_node_writable(proc::process* current, const char* path) {
-        if (!current || !path)
-            return false;
+        return unix_socket_node_access(current, path, fs::permission_bits::write) == 0;
+    }
 
-        const fs::file_type type = fs::node_type(path);
+    inline long unix_connect_permission(proc::process* current, const char* path) {
+        const long search = unix_path_search(current, path);
+        if (search < 0)
+            return search;
 
-        if (type == fs::directory_unknown || type != fs::directory_sock)
-            return true;
+        return unix_socket_node_access(current, path, fs::permission_bits::write);
+    }
 
-        return current->can_access(fs::node_mode(path), fs::node_uid(path),
-                                   fs::node_gid(path), fs::permission_bits::write);
+    inline long unix_bind_permission(proc::process* current, const char* path) {
+        const long search = unix_path_search(current, path);
+        if (search < 0)
+            return search;
+
+        return parent_writable(current, path) ? 0 : -EACCES;
     }
 
     inline long decode_unix_path(const astia_sockaddr& address, char* path,
