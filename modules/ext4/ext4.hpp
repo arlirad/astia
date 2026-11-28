@@ -3,6 +3,7 @@
 #include "ext4_dir.hpp"
 #include "ext4_disk.hpp"
 #include "ext4_extent.hpp"
+#include "ext4_journal.hpp"
 #include "ext4_space.hpp"
 
 #include <astia/core/spinlock.hpp>
@@ -128,6 +129,8 @@ namespace astia::ext4 {
         private:
         friend class file;
 
+        long finish(long result);
+
         static bool read_source(void* context, u64 offset, void* buffer,
                                 usz length);
         static bool write_source(void* context, u64 offset, const void* buffer,
@@ -180,6 +183,7 @@ namespace astia::ext4 {
         mm::shptr<fs::open_file> _source;
         mutable volume           _volume;
         space                    _space{_volume};
+        journal                  _journal;
         open_reference _open_refs[open_reference_capacity]{};
 
         mutable core::spinlock _lock;

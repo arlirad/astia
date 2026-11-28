@@ -35,14 +35,18 @@ namespace astia::ext4 {
         bool supported() const;
         bool requires_recovery() const;
         bool recover(volume& v);
+        bool enable_checksums(volume& v);
         u32  sequence() const;
         u32  head() const;
 
         bool begin(volume& v);
         bool stage(volume& v, u64 fs_block, const void* data);
         bool commit(volume& v);
+        bool abort(volume& v);
         bool active() const;
         bool read_staged(volume& v, u64 fs_block, void* out) const;
+        bool crashed() const;
+        bool crash_pending() const;
 
         static bool test_set_crash_after_commit(bool enabled);
 

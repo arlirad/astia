@@ -1009,6 +1009,8 @@ namespace astia::ext4 {
     bool volume::open(const device_io& io, bool writable) {
         _io               = io;
         _sb               = superblock{};
+        _journal          = nullptr;
+        _hooks            = journal_hooks{};
         _writable         = false;
         _dirty            = false;
         _metadata_csum    = false;
@@ -1295,6 +1297,57 @@ namespace astia::ext4 {
         if (offset > _io.size || length > _io.size - offset)
             return false;
 
+        const bool journal_crashed =
+            _hooks.crashed != nullptr && _hooks.crashed(_hooks.context);
+
+        if (_journal != nullptr) {
+            if (journal_crashed)
+                return false;
+
+            const u32 block_size_value = block_size();
+
+            if (length == 0)
+                return true;
+
+            if (block_size_value == 0 || block_size_value > 4096)
+                return false;
+
+            const auto* source = static_cast<const u8*>(buffer);
+            const u64   end    = offset + length;
+            u64         block  = offset / block_size_value;
+            const u64   last   = (end - 1) / block_size_value;
+
+            for (; block <= last; ++block) {
+                u8        scratch[4096];
+                const u64 start = block * static_cast<u64>(block_size_value);
+                const u64 low   = offset > start ? offset : start;
+                const u64 high  = end < start + block_size_value
+                                      ? end
+                                      : start + block_size_value;
+
+                if (!read_block(block, scratch))
+                    return false;
+
+                for (u64 i = low; i < high; ++i)
+                    scratch[i - start] = source[i - offset];
+
+                if (!write_block(block, scratch))
+                    return false;
+            }
+
+            return true;
+        }
+
+        return write_direct_bytes(offset, buffer, length);
+    }
+
+    bool volume::write_direct_bytes(u64 offset, const void* buffer, usz length) {
+        if (_io.write == nullptr || (buffer == nullptr && length != 0))
+            return false;
+
+        if (offset > _io.size || length > _io.size - offset)
+            return false;
+
         const auto* input    = static_cast<const u8*>(buffer);
         u64         position = offset;
         usz         remaining = length;
@@ -1336,6 +1389,25 @@ namespace astia::ext4 {
     }
 
     bool volume::read_block(u64 block, void* output) {
+        if (_hooks.active != nullptr && _hooks.active(_hooks.context) &&
+            _hooks.read_staged(_hooks.context, *this, block, output))
+            return true;
+
+        return read_home_block(block, output);
+    }
+
+    bool volume::write_block(u64 block, const void* input) {
+        if (_journal != nullptr) {
+            if (_hooks.crashed != nullptr && _hooks.crashed(_hooks.context))
+                return false;
+
+            return _hooks.stage(_hooks.context, *this, block, input);
+        }
+
+        return write_home_block(block, input);
+    }
+
+    bool volume::read_home_block(u64 block, void* output) {
         if (block >= _sb.blocks_count())
             return false;
 
@@ -1347,7 +1419,7 @@ namespace astia::ext4 {
         return read_bytes(offset, output, block_size());
     }
 
-    bool volume::write_block(u64 block, const void* input) {
+    bool volume::write_home_block(u64 block, const void* input) {
         if (!_writable || block >= _sb.blocks_count())
             return false;
 
@@ -1356,7 +1428,37 @@ namespace astia::ext4 {
         if (mul_overflow(block, block_size(), offset))
             return false;
 
-        return write_bytes(offset, input, block_size());
+        return write_direct_bytes(offset, input, block_size());
+    }
+
+    bool volume::write_data_block(u64 block, const void* input) {
+        return write_home_block(block, input);
+    }
+
+    bool volume::journaling() const {
+        return _journal != nullptr && _hooks.active != nullptr &&
+               _hooks.active(_hooks.context);
+    }
+
+    bool volume::commit() {
+        if (_hooks.active != nullptr && _hooks.active(_hooks.context)) {
+            if (_dirty && !write_superblock())
+                return false;
+
+            return _hooks.commit(_hooks.context, *this);
+        }
+
+        if (_dirty)
+            return write_superblock_home();
+
+        return true;
+    }
+
+    bool volume::abort_transaction() {
+        if (_hooks.active == nullptr || !_hooks.active(_hooks.context))
+            return true;
+
+        return _hooks.abort(_hooks.context, *this);
     }
 
     u64 volume::descriptor_offset(u32 group) const {
@@ -1369,16 +1471,25 @@ namespace astia::ext4 {
         if (group >= _group_count)
             return false;
 
-        u8 raw[64]{};
+        const u64 offset = descriptor_offset(group);
+        const u64 block  = offset / block_size();
+        const u32 within = static_cast<u32>(offset % block_size());
+        const u32 size   = desc_size();
+        u8        bytes[4096];
+        u8        raw[64]{};
 
-        if (!read_bytes(descriptor_offset(group), raw, desc_size()))
+        if (size > sizeof raw || within + size > block_size() ||
+            !read_block(block, bytes))
             return false;
+
+        for (u32 i = 0; i < size; ++i)
+            raw[i] = bytes[within + i];
 
         if (!result.parse(raw))
             return false;
 
         if ((_sb.feature_ro_compat() & (ro_gdt_csum | ro_metadata_csum)) != 0 &&
-            !result.verify_checksum(group, _checksum_seed, desc_size()))
+            !result.verify_checksum(group, _checksum_seed, size))
             return false;
 
         return true;
@@ -1419,11 +1530,22 @@ namespace astia::ext4 {
             add_overflow(table_offset, index_offset, table_offset))
             return false;
 
-        u8 raw[512]{};
+        u8        raw[512]{};
+        const u64 block  = table_offset / block_size();
+        const u32 within = static_cast<u32>(table_offset % block_size());
 
         if (_sb.inode_size() > sizeof raw ||
-            !read_bytes(table_offset, raw, _sb.inode_size()))
+            within + _sb.inode_size() > block_size()) {
             return false;
+        }
+
+        u8 bytes[4096];
+
+        if (!read_block(block, bytes))
+            return false;
+
+        for (u32 i = 0; i < _sb.inode_size(); ++i)
+            raw[i] = bytes[within + i];
 
         if (!result.parse(raw, _sb.inode_size(), number))
             return false;
@@ -1489,12 +1611,24 @@ namespace astia::ext4 {
     }
 
     bool volume::write_superblock() {
+        return write_superblock_impl(false);
+    }
+
+    bool volume::write_superblock_home() {
+        return write_superblock_impl(true);
+    }
+
+    bool volume::write_superblock_impl(bool direct) {
         if (!_writable)
             return false;
 
         _sb.compute_checksum();
 
-        if (!write_bytes(superblock_block, _sb.raw, sizeof _sb.raw))
+        const bool written =
+            direct ? write_direct_bytes(superblock_block, _sb.raw, sizeof _sb.raw)
+                   : write_bytes(superblock_block, _sb.raw, sizeof _sb.raw);
+
+        if (!written)
             return false;
 
         _dirty = false;
@@ -1503,10 +1637,10 @@ namespace astia::ext4 {
     }
 
     bool volume::sync() {
-        if (!_dirty)
-            return true;
+        if (!commit())
+            return false;
 
-        return write_superblock();
+        return _dirty ? write_superblock() : true;
     }
 
     void volume::mark_superblock_dirty() {

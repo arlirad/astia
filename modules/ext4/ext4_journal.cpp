@@ -18,6 +18,7 @@ namespace astia::ext4 {
             journal_incompat_csum_v3 | journal_incompat_fast_commit;
 
         bool crash_after_commit = false;
+        bool crash_observed     = false;
 
         u16 load_be16(const void* source) {
             return core::be<u16>::load(source);
@@ -123,6 +124,14 @@ namespace astia::ext4 {
         return _active;
     }
 
+    bool journal::crashed() const {
+        return crash_observed;
+    }
+
+    bool journal::crash_pending() const {
+        return crash_after_commit;
+    }
+
     bool journal::open(volume& v, u32 inode_number) {
         reset();
 
@@ -138,7 +147,7 @@ namespace astia::ext4 {
         u64 physical = 0;
 
         if (!extent::map(v, _inode, 0, physical) || physical == 0 ||
-            !v.read_block(physical, _sb))
+            !v.read_home_block(physical, _sb))
             return false;
 
         if (load_be32(_sb) != journal_magic)
@@ -227,7 +236,7 @@ namespace astia::ext4 {
         if (!extent::map(v, _inode, position, physical) || physical == 0)
             return false;
 
-        return v.read_block(physical, out);
+        return v.read_home_block(physical, out);
     }
 
     bool journal::write_journal_block(volume& v, u32 position,
@@ -240,7 +249,7 @@ namespace astia::ext4 {
         if (!extent::map(v, _inode, position, physical) || physical == 0)
             return false;
 
-        return v.write_block(physical, input);
+        return v.write_home_block(physical, input);
     }
 
     bool journal::verify_tail(u8* block) const {
@@ -462,7 +471,7 @@ namespace astia::ext4 {
                     if ((item.flags & journal_flag_escape) != 0)
                         store_be32(_block, journal_magic);
 
-                    if (!v.write_block(item.block, _block))
+                    if (!v.write_home_block(item.block, _block))
                         return false;
                 }
 
@@ -490,15 +499,41 @@ namespace astia::ext4 {
     }
 
     bool journal::clear_recover(volume& v, bool reload) {
+        if (reload && !v.read_superblock())
+            return false;
+
         v.sb().set_feature_incompat(v.sb().feature_incompat() &
                                     ~incompat_recover);
         v.sb().set_state(1);
 
-        if (!v.write_superblock())
+        return v.write_superblock_home();
+    }
+
+    bool journal::enable_checksums(volume& v) {
+        if (!_present || !_supported)
             return false;
 
-        if (reload && !v.read_superblock())
+        const u32 incompat = load_be32(_sb + super_incompat);
+
+        if ((incompat & (journal_incompat_csum_v2 | journal_incompat_csum_v3)) != 0)
+            return true;
+
+        if (_start != 0) {
+            _supported = false;
+
             return false;
+        }
+
+        store_be32(_sb + super_incompat, incompat | journal_incompat_csum_v3);
+        _sb[super_checksum_type] = journal_checksum_crc32c;
+        _csum_v3 = true;
+        _csum    = true;
+
+        if (!write_superblock(v)) {
+            _supported = false;
+
+            return false;
+        }
 
         return true;
     }
@@ -518,7 +553,7 @@ namespace astia::ext4 {
             v.sb().set_feature_incompat(v.sb().feature_incompat() |
                                         incompat_recover);
 
-            if (!v.write_superblock())
+            if (!v.write_superblock_home())
                 return false;
 
             _set_recover = true;
@@ -530,7 +565,8 @@ namespace astia::ext4 {
     }
 
     bool journal::stage(volume& v, u64 fs_block, const void* data) {
-        if (!_supported || data == nullptr || fs_block >= v.blocks_count())
+        if (crashed() || !_supported || data == nullptr ||
+            fs_block >= v.blocks_count())
             return false;
 
         if (!_wide && (fs_block >> 32) != 0)
@@ -555,6 +591,16 @@ namespace astia::ext4 {
         if (load_be32(_block) == journal_magic) {
             store_be32(_block, 0);
             flags |= journal_flag_escape;
+        }
+
+        for (u32 i = 0; i < _tag_count; ++i) {
+            if (_tags[i].block != fs_block)
+                continue;
+
+            _tags[i].flags    = flags;
+            _tags[i].checksum = _csum ? tag_checksum(_expected, _block) : 0;
+
+            return write_journal_block(v, _tags[i].position, _block);
         }
 
         tag& item = _tags[_tag_count];
@@ -649,7 +695,7 @@ namespace astia::ext4 {
             if ((_tags[i].flags & journal_flag_escape) != 0)
                 store_be32(_block, journal_magic);
 
-            if (!v.write_block(_tags[i].block, _block))
+            if (!v.write_home_block(_tags[i].block, _block))
                 return false;
         }
 
@@ -657,7 +703,7 @@ namespace astia::ext4 {
     }
 
     bool journal::commit(volume& v) {
-        if (!_active)
+        if (crashed() || !_active)
             return false;
 
         if (_tag_count == 0) {
@@ -680,7 +726,11 @@ namespace astia::ext4 {
             _head     = next(commit_position);
             _active   = false;
 
-            return write_superblock(v);
+            const bool written = write_superblock(v);
+
+            crash_observed = true;
+
+            return written;
         }
 
         if (!checkpoint(v))
@@ -693,10 +743,21 @@ namespace astia::ext4 {
         if (!write_superblock(v))
             return false;
 
-        if (!clear_recover(v, false))
+        _active = false;
+
+        return clear_recover(v, false);
+    }
+
+    bool journal::abort(volume& v) {
+        (void) v;
+
+        if (crashed())
             return false;
 
-        _active = false;
+        reset_transaction();
+
+        _descriptor = 0;
+        _active     = false;
 
         return true;
     }
@@ -721,10 +782,43 @@ namespace astia::ext4 {
         return false;
     }
 
+    void volume::attach_journal(journal* value) {
+        _journal = value;
+        _hooks   = journal_hooks{};
+
+        if (value == nullptr)
+            return;
+
+        _hooks.context = value;
+        _hooks.active  = [](const void* context) {
+            return static_cast<const journal*>(context)->active();
+        };
+        _hooks.crashed = [](const void* context) {
+            return static_cast<const journal*>(context)->crashed();
+        };
+        _hooks.stage = [](void* context, volume& v, u64 block, const void* data) {
+            return static_cast<journal*>(context)->stage(v, block, data);
+        };
+        _hooks.read_staged =
+            [](const void* context, volume& v, u64 block, void* output) {
+                return static_cast<const journal*>(context)->read_staged(
+                    v, block, output);
+            };
+        _hooks.commit = [](void* context, volume& v) {
+            return static_cast<journal*>(context)->commit(v);
+        };
+        _hooks.abort = [](void* context, volume& v) {
+            return static_cast<journal*>(context)->abort(v);
+        };
+    }
+
     bool journal::test_set_crash_after_commit(bool enabled) {
         const bool previous = crash_after_commit;
 
         crash_after_commit = enabled;
+
+        if (!enabled)
+            crash_observed = false;
 
         return previous;
     }

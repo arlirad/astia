@@ -5,6 +5,19 @@
 #include <astia/core/endian.hpp>
 
 namespace astia::ext4 {
+    class journal;
+    class volume;
+
+    struct journal_hooks {
+        void* context = nullptr;
+        bool (*active)(const void*) = nullptr;
+        bool (*crashed)(const void*) = nullptr;
+        bool (*stage)(void*, volume&, u64, const void*) = nullptr;
+        bool (*read_staged)(const void*, volume&, u64, void*) = nullptr;
+        bool (*commit)(void*, volume&) = nullptr;
+        bool (*abort)(void*, volume&) = nullptr;
+    };
+
     inline constexpr u16 super_magic = 0xEF53;
 
     inline constexpr u32 compat_has_journal      = 0x0004;
@@ -353,6 +366,18 @@ namespace astia::ext4 {
 
         bool read_block(u64 block, void* output);
         bool write_block(u64 block, const void* input);
+        bool read_home_block(u64 block, void* output);
+        bool write_home_block(u64 block, const void* input);
+        bool write_data_block(u64 block, const void* input);
+
+        void     attach_journal(journal* value);
+        journal* attached_journal() const {
+            return _journal;
+        }
+
+        bool journaling() const;
+        bool     commit();
+        bool     abort_transaction();
 
         bool read_group(u32 group, group_descriptor& result);
         bool write_group(u32 group, group_descriptor& value);
@@ -362,6 +387,7 @@ namespace astia::ext4 {
 
         bool read_superblock();
         bool write_superblock();
+        bool write_superblock_home();
         bool sync();
 
         void mark_superblock_dirty();
@@ -383,11 +409,15 @@ namespace astia::ext4 {
 
         private:
         bool read_sector(u64 aligned, u32 length, u8* scratch);
+        bool write_direct_bytes(u64 offset, const void* buffer, usz length);
+        bool write_superblock_impl(bool direct);
         bool valid_sector_size(u32 size) const;
         u64  descriptor_offset(u32 group) const;
 
-        device_io _io{};
-        superblock _sb{};
+        device_io    _io{};
+        superblock   _sb{};
+        journal*     _journal = nullptr;
+        journal_hooks _hooks{};
         bool _writable     = false;
         bool _dirty        = false;
         bool _metadata_csum = false;

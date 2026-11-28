@@ -190,12 +190,16 @@ namespace {
 int main(int argc, char** argv) {
     const char* input = argc > 1 ? argv[1] : std::getenv("EXT4_RW_IMAGE");
     const char* output = argc > 2 ? argv[2] : std::getenv("EXT4_RW_OUTPUT");
+    const char* mode   = argc > 3 ? argv[3] : std::getenv("EXT4_RW_MODE");
 
     if (input == nullptr || output == nullptr) {
-        std::printf("usage: %s INPUT OUTPUT\n", argv[0]);
+        std::printf("usage: %s INPUT OUTPUT [MODE]\n", argv[0]);
 
         return 2;
     }
+
+    if (mode == nullptr)
+        mode = "normal";
 
     if (!check(fake_device.load(input), "load input image"))
         return 1;
@@ -205,6 +209,79 @@ int main(int argc, char** argv) {
 
     for (u32 i = 0; i < payload_size; ++i) {
         payload[i] = pattern_byte(i);
+    }
+
+    if (std::strcmp(mode, "crash") == 0) {
+        if (!check(astia::fs::make_directory(
+                       "/tmp/ext4/crash",
+                       astia::fs::file_mode(astia::fs::directory_dir,
+                                            astia::fs::file_permissions(0755))) == 0,
+                   "mkdir crash"))
+            return 1;
+
+        auto keep = astia::fs::open("/tmp/ext4/crash/keep.txt",
+                                    ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+        const u8 seed = 0xA5;
+
+        if (!check_handle(keep, "create crash/keep.txt") ||
+            !check(keep.get() != nullptr && keep->write(&seed, 1) == 1,
+                   "write crash/keep.txt seed byte"))
+            return 1;
+
+        astia::ext4::journal::test_set_crash_after_commit(true);
+
+        u8 crash_data[8192];
+
+        for (u32 i = 0; i < sizeof crash_data; ++i)
+            crash_data[i] = pattern_byte(i);
+
+        const long written =
+            keep->write(crash_data, sizeof crash_data, 0);
+
+        if (!check(written == static_cast<long>(sizeof crash_data) ||
+                       written == -EIO,
+                   "crash write attempted"))
+            return 1;
+
+        keep = {};
+
+        if (!check(fake_device.store(output), "store crash image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
+    if (std::strcmp(mode, "recover") == 0) {
+        auto keep = astia::fs::open("/tmp/ext4/crash/keep.txt",
+                                    ASTIA_AIO_O_RDONLY);
+
+        if (!check_handle(keep, "open recovered crash/keep.txt") ||
+            !check(keep.get() != nullptr && keep->size() == 8192,
+                   "recovered keep.txt size") ||
+            !check(keep.get() != nullptr &&
+                       keep->read(readback, 8192) == 8192,
+                   "read recovered keep.txt"))
+            return 1;
+
+        for (u32 i = 0; i < 8192; ++i) {
+            if (!check(readback[i] == pattern_byte(i),
+                       "recovered keep.txt pattern"))
+                return 1;
+        }
+
+        keep = {};
+
+        if (!check(astia::fs::unmount_type("/tmp/ext4") == 0,
+                   "unmount recovered ext4") ||
+            !check(fake_device.store(output), "store recovered image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
     }
 
     auto hello = astia::fs::open("/tmp/ext4/hello",

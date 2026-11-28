@@ -1300,6 +1300,7 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_space.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_extent.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_dir.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_journal.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/module_main.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
@@ -1329,6 +1330,7 @@ add_executable(astia_ext4_rw_vfs_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_space.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_extent.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_dir.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_journal.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
@@ -1360,6 +1362,15 @@ add_test(NAME astia_ext4_rw_vfs_test
 set_tests_properties(astia_ext4_rw_vfs_test PROPERTIES
         ENVIRONMENT "EXT4_RW_DIR=${CMAKE_CURRENT_BINARY_DIR}/ext4-rw-vfs")
 astia_add_test_label(astia_ext4_rw_vfs_test "ext4;filesystem;sanitizer-host-partial")
+
+add_test(NAME ext4_journal_vfs_test
+        COMMAND sh ${CMAKE_SOURCE_DIR}/modules/ext4/tests/run_journal_vfs_test.sh
+                $<TARGET_FILE:astia_ext4_rw_vfs_test>
+                ${CMAKE_CURRENT_BINARY_DIR}/ext4-journal-vfs)
+set_tests_properties(ext4_journal_vfs_test PROPERTIES
+        ENVIRONMENT "EXT4_JOURNAL_VFS_DIR=${CMAKE_CURRENT_BINARY_DIR}/ext4-journal-vfs")
+astia_add_test_label(ext4_journal_vfs_test "ext4;filesystem;sanitizer-host-partial")
+add_custom_target(astia_ext4_journal_vfs_test DEPENDS astia_ext4_rw_vfs_test)
 
 astia_add_arena_test(astia_tmpfs_readdir_test
         tmpfs_readdir_test.cpp
@@ -2715,7 +2726,7 @@ foreach (_astia_vga_test IN ITEMS astia_pvh_test astia_framebuffer_test astia_vi
         astia_add_test_label(${_astia_vga_test} "vga;pvh;ttv0")
     endif()
 endforeach()
-foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test astia_ext4_rw_vfs_test)
+foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test astia_ext4_rw_vfs_test ext4_journal_vfs_test)
     if(TEST ${_astia_ext4_test})
         astia_add_test_label(${_astia_ext4_test} "ext4;filesystem")
     endif()

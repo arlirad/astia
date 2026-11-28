@@ -22,13 +22,21 @@ kernel filesystem registry from `module_main.cpp`.
 
 Open/create/truncate, read/write, mkdir, rmdir, unlink, rename, hard link,
 symlink/readlink, chmod, chown, touch, directory enumeration, stat metadata,
-and `sync()` (superblock flush) are implemented through the kernel VFS. All
-metadata writes go through `volume::write_block` / `volume::write_bytes`, so a
-later journal layer can intercept them without touching the VFS adapter.
+and `sync()` are implemented through the kernel VFS. All metadata writes go
+through `volume::write_block` / `volume::write_bytes`, which stage them in the
+JBD2 journal while a transaction is active.
 
-A mounted image without a journal is writable. `initialize()` rejects an image
-whose journal needs replay (the `INCOMPAT_RECOVER` bit); a clean journal image
-mounts read-only because this chunk does not replay journals yet.
+Read-write mounts are journaled. Every VFS mutation ends one transaction
+(descriptor, staged metadata, commit) and checkpoints it, including the
+superblock free counts. File data blocks are written directly to their home
+blocks before the metadata transaction commits (data=ordered). A mounted image
+without a journal stays writable through the direct block path.
+
+`initialize()` opens the journal, replays it when `needs_recovery`
+(`INCOMPAT_RECOVER` / a nonzero journal `s_start`) is set, then enables
+`CSUM_V3` on journals created without checksum features before attaching the
+journal to the volume. A journal that cannot be opened or upgraded makes the
+mount read-only (or fails when replay is required).
 
 Unlink follows POSIX deferred-free semantics: while an open handle still
 references the inode, `unlink` clears `links_count`, records `dtime` and keeps
@@ -38,7 +46,6 @@ table of 64 open inodes; opening another inode when it is full fails.
 
 ## Limits
 
-- No journal replay and no journal writing.
 - No HTree insertion or conversion: existing indexed directories are read and
   can have entries removed, but creation/mutation inside one returns `-ENOSYS`
   until HTree insertion exists, so Linux and `debugfs` never miss an entry
@@ -59,5 +66,9 @@ table of 64 open inodes; opening another inode when it is full fails.
   exercises creation, writes, rename, link, symlink, chmod, truncate and
   removal, then remounts. The CTest entry runs `e2fsck -fn` and `debugfs`
   assertions on the resulting image.
+- `ext4_journal_vfs_test` runs the same tool against a journaled fixture in
+  `normal`, `crash` (power loss after commit, before checkpoint) and `recover`
+  (real VFS replay on mount) modes, then checks both images with `e2fsck -fn`,
+  `dumpe2fs` and `debugfs`, including the replayed 8 KiB file contents.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log.
