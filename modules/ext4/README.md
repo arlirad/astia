@@ -30,6 +30,12 @@ A mounted image without a journal is writable. `initialize()` rejects an image
 whose journal needs replay (the `INCOMPAT_RECOVER` bit); a clean journal image
 mounts read-only because this chunk does not replay journals yet.
 
+Unlink follows POSIX deferred-free semantics: while an open handle still
+references the inode, `unlink` clears `links_count`, records `dtime` and keeps
+the bitmap bit and data blocks allocated. The last handle close frees the
+extents (when the inode uses them) and the inode. The mount keeps a bounded
+table of 64 open inodes; opening another inode when it is full fails.
+
 ## Limits
 
 - No journal replay and no journal writing.

@@ -350,6 +350,184 @@ int main(int argc, char** argv) {
                "unlink hello"))
         return 1;
 
+    char root_names[20][61]{};
+
+    for (u32 i = 0; i < 20; ++i) {
+        root_names[i][0] = 'r';
+        root_names[i][1] = 'o';
+        root_names[i][2] = 'o';
+        root_names[i][3] = 't';
+
+        for (u32 j = 4; j < 58; ++j) {
+            root_names[i][j] =
+                static_cast<char>('a' + (i * 7 + j) % 26);
+        }
+
+        root_names[i][58] = static_cast<char>('0' + (i / 10) % 10);
+        root_names[i][59] = static_cast<char>('0' + i % 10);
+        root_names[i][60] = '\0';
+    }
+
+    for (u32 i = 0; i < 20; ++i) {
+        char path[128]{};
+
+        std::snprintf(path, sizeof path, "/tmp/ext4/%s", root_names[i]);
+
+        auto entry = astia::fs::open(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
+
+        if (!check_handle(entry, "create root entry") ||
+            !check(astia::fs::node_type(path) == astia::fs::directory_reg,
+                   "root entry resolves"))
+            return 1;
+
+        entry = {};
+    }
+
+    bool root_seen[20]{};
+    u32  root_entries = 0;
+
+    for (u64 index = 0; index < 256; ++index) {
+        char                entry_name[256]{};
+        astia::fs::file_type entry_type{};
+        const long          rc = astia::fs::read_directory(
+            "/tmp/ext4", index, entry_name, sizeof entry_name, &entry_type,
+            nullptr);
+
+        if (rc == 0)
+            break;
+
+        if (!check(rc > 0, "enumerate grown root"))
+            return 1;
+
+        ++root_entries;
+
+        for (u32 i = 0; i < 20; ++i) {
+            if (std::strcmp(entry_name, root_names[i]) == 0)
+                root_seen[i] = true;
+        }
+    }
+
+    if (!check(root_entries >= 20, "grown root has entries"))
+        return 1;
+
+    for (u32 i = 0; i < 20; ++i) {
+        if (!check(root_seen[i], "grown root entry visible"))
+            return 1;
+    }
+
+    for (u32 i = 0; i < 20; ++i) {
+        char path[128]{};
+
+        std::snprintf(path, sizeof path, "/tmp/ext4/%s", root_names[i]);
+
+        if (!check(astia::fs::remove_path(path, false) == 0,
+                   "unlink root entry"))
+            return 1;
+    }
+
+    u8 victim_data[4096];
+
+    for (u32 i = 0; i < sizeof victim_data; ++i) {
+        victim_data[i] = pattern_byte(i);
+    }
+
+    auto victim = astia::fs::open("/tmp/ext4/victim",
+                                  ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+    if (!check_handle(victim, "create victim") ||
+        !check(victim->write(victim_data, sizeof victim_data) ==
+                   static_cast<long>(sizeof victim_data),
+               "write victim data"))
+        return 1;
+
+    if (!check(astia::fs::remove_path("/tmp/ext4/victim", false) == 0,
+               "unlink open victim") ||
+        !check(astia::fs::node_type("/tmp/ext4/victim") ==
+                   astia::fs::directory_unknown,
+               "victim name is gone"))
+        return 1;
+
+    u8 victim_read[4096]{};
+
+    if (!check(victim->read(victim_read, sizeof victim_read, 0) ==
+                   static_cast<long>(sizeof victim_read),
+               "read unlinked open victim") ||
+        !check(std::memcmp(victim_read, victim_data, sizeof victim_data) == 0,
+               "unlinked victim data matches") ||
+        !check(victim->size() == static_cast<long>(sizeof victim_data),
+               "unlinked victim size"))
+        return 1;
+
+    victim = {};
+
+    u32 root_links_before = 0;
+
+    {
+        auto root_handle = astia::fs::open_directory("/tmp/ext4");
+
+        if (!check_handle(root_handle, "open root for link count") ||
+            !check(root_handle->parent() &&
+                       root_handle->parent()->nlink() != 0,
+                   "root link count readable"))
+            return 1;
+
+        root_links_before = root_handle->parent()->nlink();
+    }
+
+    if (!check(astia::fs::make_directory(
+                   "/tmp/ext4/ren1",
+                   astia::fs::file_mode(astia::fs::directory_dir,
+                                        astia::fs::file_permissions(0755))) == 0,
+               "mkdir ren1"))
+        return 1;
+
+    u32 root_links_mkdir = 0;
+
+    {
+        auto root_handle = astia::fs::open_directory("/tmp/ext4");
+
+        if (!check_handle(root_handle, "reopen root after mkdir") ||
+            !check(root_handle->parent() &&
+                       root_handle->parent()->nlink() != 0,
+                   "root link count readable after mkdir"))
+            return 1;
+
+        root_links_mkdir = root_handle->parent()->nlink();
+    }
+
+    if (!check(root_links_mkdir == root_links_before + 1,
+               "mkdir adds one root link") ||
+        !check(astia::fs::rename_path("/tmp/ext4/ren1",
+                                      "/tmp/ext4/ren2") == 0,
+               "rename ren1 to ren2") ||
+        !check(astia::fs::rename_path("/tmp/ext4/ren2",
+                                      "/tmp/ext4/ren3") == 0,
+               "rename ren2 to ren3"))
+        return 1;
+
+    u32 root_links_after = 0;
+
+    {
+        auto root_handle = astia::fs::open_directory("/tmp/ext4");
+
+        if (!check_handle(root_handle, "reopen root for link count") ||
+            !check(root_handle->parent() &&
+                       root_handle->parent()->nlink() != 0,
+                   "root link count readable after rename"))
+            return 1;
+
+        root_links_after = root_handle->parent()->nlink();
+    }
+
+    if (!check(root_links_after == root_links_mkdir,
+               "same-parent rename keeps root link count") ||
+        !check(astia::fs::node_type("/tmp/ext4/ren3") ==
+                   astia::fs::directory_dir,
+               "ren3 is a directory") ||
+        !check(astia::fs::remove_path("/tmp/ext4/ren3", true) == 0,
+               "rmdir ren3"))
+        return 1;
+
     if (!check(astia::fs::make_directory(
                    "/tmp/ext4/result",
                    astia::fs::file_mode(astia::fs::directory_dir,

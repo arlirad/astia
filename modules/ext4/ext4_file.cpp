@@ -3,6 +3,23 @@
 #include "ext4.hpp"
 
 namespace astia::ext4 {
+    file::~file() {
+        if (_owner != nullptr)
+            _owner->release_inode_reference(_node.number);
+    }
+
+    mm::shptr<file> file::create(mount* owner, const inode_record& node) {
+        if (owner == nullptr || !owner->acquire_inode(node.number))
+            return {};
+
+        auto handle = mm::share<file>(owner, node);
+
+        if (!handle)
+            owner->release_inode(node.number);
+
+        return handle;
+    }
+
     core::task<i64> file::readv(span<const fs::buffer> buffers, u64 offset,
                                 core::cltoken token) {
         return submit_readv(buffers, offset, token);

@@ -21,6 +21,11 @@ namespace astia::ext4 {
                        public fs::syncable {
         public:
         file(mount* owner, const inode_record& node) : _owner(owner), _node(node) {}
+        ~file() override;
+
+        /// Create a file object while holding the mount lock, taking one open
+        /// reference for its inode; the destructor drops it.
+        static mm::shptr<file> create(mount* owner, const inode_record& node);
 
         optional<fs::readable&> as_readable() override {
             return *this;
@@ -147,6 +152,19 @@ namespace astia::ext4 {
         long do_touch_node(inode_record& node, const fs::file_timestamps& times);
         bool refresh_inode(inode_record& node);
         u64  inode_size(u32 number) const;
+
+        static constexpr u32 open_reference_capacity = 64;
+
+        struct open_reference {
+            u32 inode = 0;
+            u16 count = 0;
+        };
+
+        bool acquire_inode(u32 inode);
+        void release_inode(u32 inode);
+        void release_inode_reference(u32 inode);
+        u16  open_count_for(u32 inode) const;
+
         long remove_entry(inode_record& parent, const char* name,
                           inode_record& node);
         long release_node(inode_record& parent, inode_record& node);
@@ -162,7 +180,7 @@ namespace astia::ext4 {
         mm::shptr<fs::open_file> _source;
         mutable volume           _volume;
         space                    _space{_volume};
-        inode_record             _root;
+        open_reference _open_refs[open_reference_capacity]{};
 
         mutable core::spinlock _lock;
         bool                   _writable = false;
