@@ -33,7 +33,7 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usz pages, bool zero) {
+    bool dma_buffer::allocate(usz pages, bool zero, u64) {
         if (!nvme_test::host_dma || pages == 0)
             return false;
 

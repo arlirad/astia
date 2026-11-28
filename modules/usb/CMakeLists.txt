@@ -2,6 +2,7 @@ set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.km)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
 set(ASTIA_USB_ENUMERATION_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_enumeration_unit)
+set(ASTIA_USB_DMA_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_dma_unit)
 set(ASTIA_USB_MMIO_WIDTH_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_mmio_width_unit)
 
 set(ASTIA_USB_ABI_HEADERS
@@ -88,6 +89,32 @@ add_custom_command(
 add_custom_target(usb_enumeration_unit_target ALL DEPENDS ${ASTIA_USB_ENUMERATION_UNIT})
 
 add_custom_command(
+        OUTPUT ${ASTIA_USB_DMA_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
+                -fno-rtti -ffunction-sections -fdata-sections
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/xhci_dma_test.cpp
+                -Wl,--gc-sections
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_USB_DMA_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/xhci_dma_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/xhci_test_support.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/usb_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/xhci.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/mmio_width.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
+        VERBATIM)
+
+add_custom_target(usb_dma_unit_target ALL DEPENDS ${ASTIA_USB_DMA_UNIT})
+
+add_custom_command(
         OUTPUT ${ASTIA_USB_MMIO_WIDTH_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
@@ -110,6 +137,9 @@ if(ASTIA_BUILD_TESTS)
     astia_add_test_label(usb_enumeration_unit
             "module;usb;xhci;host;deterministic")
     astia_add_test_label(usb_enumeration_unit "sanitizer-host")
+    add_test(NAME usb_dma_unit COMMAND ${ASTIA_USB_DMA_UNIT})
+    astia_add_test_label(usb_dma_unit "module;usb;xhci;host;deterministic")
+    astia_add_test_label(usb_dma_unit "sanitizer-host")
     add_test(NAME usb_mmio_width_unit COMMAND ${ASTIA_USB_MMIO_WIDTH_UNIT})
     astia_add_test_label(usb_mmio_width_unit "module;usb;xhci;host;deterministic")
     astia_add_test_label(usb_mmio_width_unit "sanitizer-host")

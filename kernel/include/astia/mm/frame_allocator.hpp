@@ -42,6 +42,8 @@ namespace astia::mm {
 
         static constexpr u64 invalid_frame = ~u64{0};
 
+        static constexpr u64 no_physical_limit = ~u64{0};
+
         /// Build the allocator from a memory map. Frames for the kernel
         /// image, the first MiB (firmware/BDA/EBDA/PVH option ROM) and the
         /// bitmap itself are reserved.
@@ -49,9 +51,12 @@ namespace astia::mm {
 
         void reserve(u64 physical, u64 size);
 
-        /// Allocate `count` contiguous frames. Returns the physical address
-        /// of the first frame, or invalid_frame on failure.
-        u64 alloc(usz count = 1, frame_flags flags = frame_flags::none);
+        /// Allocate `count` contiguous frames below `physical_limit` (the
+        /// first byte past the returned range must be at or below it).
+        /// Returns the physical address of the first frame, or invalid_frame
+        /// on failure.
+        u64 alloc(usz count = 1, frame_flags flags = frame_flags::none,
+                  u64 physical_limit = no_physical_limit);
 
         void configure_access(frame_access_fn   access,
                               frame_physical_fn physical = nullptr);

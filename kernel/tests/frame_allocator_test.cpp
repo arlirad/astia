@@ -111,6 +111,25 @@ ASTIA_TEST(frame_allocator_zeroes_on_request) {
     ASTIA_CHECK(zeroed);
 }
 
+ASTIA_TEST(frame_allocator_respects_physical_limit) {
+    frame_allocator alloc;
+
+    init_with_arena(alloc);
+
+    const astia::u64 first = alloc.alloc(1);
+
+    ASTIA_CHECK(first != frame_allocator::invalid_frame);
+    alloc.release(first, 1);
+
+    const astia::u64 limit = first + 4 * frame_size;
+
+    ASTIA_CHECK(alloc.alloc(4, frame_flags::none, limit) == first);
+    ASTIA_CHECK(alloc.alloc(1, frame_flags::none, limit) ==
+                frame_allocator::invalid_frame);
+    ASTIA_CHECK(alloc.alloc(1, frame_flags::none, astia_test::arena_base) ==
+                frame_allocator::invalid_frame);
+}
+
 ASTIA_TEST(frame_allocator_rejects_impossible_requests) {
     frame_allocator alloc;
 

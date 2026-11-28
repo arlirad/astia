@@ -17,7 +17,14 @@ namespace astia::mm {
         dma_buffer& operator=(dma_buffer&& other) noexcept;
         ~dma_buffer();
 
-        bool allocate(usz pages = 1, bool zero = true);
+        static constexpr u64 no_physical_limit = ~u64{0};
+
+        /// Allocate below `physical_limit`: the first byte past the returned
+        /// range is at or below the limit. Controllers that only decode a
+        /// narrow DMA address must pass their limit here instead of relying
+        /// on the allocator to hand out low memory by accident.
+        bool allocate(usz pages = 1, bool zero = true,
+                      u64 physical_limit = no_physical_limit);
         void release();
         void abandon();
 
