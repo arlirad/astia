@@ -1556,6 +1556,22 @@ static int run_staged_fixture(const char* path) {
     return status == 0 ? 0 : -1;
 }
 
+static int create_plain_file(const char* path) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0)
+        return -1;
+
+    int result = write(fd, "not executable\n", 15) == 15 ? 0 : -1;
+
+    if (close(fd) != 0)
+        result = -1;
+
+    if (result != 0)
+        return -1;
+
+    return chmod(path, 0644);
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--term-thread-check") == 0) {
         if (argc != 2)
@@ -5463,6 +5479,72 @@ int main(int argc, char** argv) {
             return 214;
 
         printf("astia: exec permission ok\n");
+    }
+
+    /* execvp must remember EACCES and keep searching PATH: a non-executable
+       first candidate cannot mask the valid fixture in /bin.  If no candidate
+       runs, the saved EACCES is the reported error.  The fixture is used
+       instead of a copied image because /tmp is a 16-page tmpfs.  Not every
+       initrd stages it, so an absent fixture skips the block. */
+    if (access("/bin/interp_relro_ok", X_OK) == 0) {
+        const char* noexec_dir = "/tmp/execvp-noexec";
+        const char* noexec     = "/tmp/execvp-noexec/interp_relro_ok";
+
+        (void) unlink(noexec);
+        (void) rmdir(noexec_dir);
+
+        if (mkdir(noexec_dir, 0755) != 0)
+            return 280;
+
+        if (create_plain_file(noexec) != 0)
+            return 281;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 283;
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) "interp_relro_ok", NULL};
+
+            if (setenv("PATH", "/tmp/execvp-noexec:/bin", 1) != 0)
+                _Exit(1);
+
+            execvp("interp_relro_ok", child_argv);
+            _Exit(errno == EACCES ? 2 : 3);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 284;
+
+        const pid_t denied = fork();
+        if (denied < 0)
+            return 285;
+
+        if (denied == 0) {
+            char* child_argv[] = {(char*) "interp_relro_ok", NULL};
+
+            if (setenv("PATH", "/tmp/execvp-noexec:/tmp/execvp-noexec", 1) != 0)
+                _Exit(1);
+
+            errno = 0;
+
+            if (execvp("interp_relro_ok", child_argv) == -1 && errno == EACCES)
+                _Exit(0);
+
+            _Exit(1);
+        }
+
+        status = 0;
+
+        if (waitpid(denied, &status, 0) != denied || status != 0)
+            return 286;
+
+        if (unlink(noexec) != 0 || rmdir(noexec_dir) != 0)
+            return 287;
+
+        printf("astia: execvp search ok\n");
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise
