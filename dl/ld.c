@@ -40,10 +40,13 @@
  * the same pending retry state but is reported through dlerror and -1.
  * Reopening a finalized retained module re-runs its
  * initializers (and those of finalized retained dependencies)
- * dependency-first and clears finalized/pending.  A loader-busy guard
- * rejects re-entrant dlopen/dlclose/dlsym from an initializer, a finalizer,
- * or an IFUNC resolver; a finalizer that installs a handler or creates a
- * thread has its unload deferred.
+ * dependency-first and clears finalized/pending.  Re-entry from an
+ * initializer, a finalizer, or an IFUNC resolver is allowed: the loader is
+ * single-threaded by contract, so a depth counter replaces the old busy
+ * guard, the in-flight group is pinned against nested unmapping, and the one
+ * refused recursion is dlopen of a module whose own initializer is still on
+ * the stack.  A finalizer that installs a handler or creates a thread has its
+ * unload deferred.
  *
  * Relocations for a dlopen group see only that group's closure plus startup
  * and global-scope modules, so a RTLD_LOCAL image cannot bind to an
@@ -218,6 +221,12 @@ static int g_reloc_scope_active;
 struct ld_handle {
     int used;
     int pending;
+
+    /* A dlclose frame is running this handle's finalizers.  The entry keeps
+       its slot so a nested dlopen cannot reuse it, but it no longer counts as
+       a live owner of its modules. */
+    int closing;
+
     int root;
     int refcount;
     int nodelete;
@@ -227,10 +236,39 @@ struct ld_handle {
 
 static struct ld_handle g_handles[LD_MAX_HANDLES];
 
-/* Loader entry points mutate the module/handle tables.  A finalizer must not
- * re-enter the loader; the guard makes re-entry fail instead of corrupting
- * state. */
-static int g_loader_busy;
+/* Loader reentrancy.
+ *
+ * POSIX lets a constructor or destructor call back into the dynamic loader,
+ * and dlopen'd libraries routinely resolve or load their own dependencies
+ * from an initializer.  The loader is single-threaded by contract
+ * (unload_safe refuses to unmap while another thread runs), so re-entry needs
+ * no lock; it needs to know which frames are on the stack:
+ *
+ *   g_loader_depth   entry points in flight.  Zero is idle, non-zero means a
+ *                    nested call from DT_INIT/DT_FINI code is running.  Nested
+ *                    calls are allowed up to LD_MAX_LOADER_DEPTH, so a runaway
+ *                    initializer fails with a diagnostic instead of
+ *                    overflowing the stack.
+ *   g_init_depth     DT_INIT/DT_FINI runs in flight.
+ *   g_pin_mask       modules the in-flight frames still need mapped: the
+ *                    group whose constructors run, or the candidates whose
+ *                    finalizers run.  A nested dlclose must not unmap a
+ *                    pinned module; it records the ordinary deferred
+ *                    (pending) state and returns success, and a later dlclose
+ *                    retries.  The frame that owns the pin clears it before
+ *                    its own unmapping pass.
+ *
+ * One recursion stays refused: dlopen of a module whose initializer is on the
+ * stack.  Its handle is not published until its constructors finish, so a
+ * second handle would expose a half-initialized image that the outer frame
+ * then retires under the caller.  Everything else, including a constructor
+ * that loads, resolves and closes an unrelated library, proceeds normally.
+ */
+#define LD_MAX_LOADER_DEPTH 32
+
+static int      g_loader_depth;
+static int      g_init_depth;
+static uint32_t g_pin_mask;
 
 static uint64_t ld_thread_pointer(void);
 
@@ -240,6 +278,56 @@ static void set_error(const char* text) {
 
 static void set_error_path(const char* prefix, const char* path) {
     ld_error_set_path(ld_thread_pointer(), prefix, path);
+}
+
+static int loader_enter(const char* too_deep) {
+    if (g_loader_depth >= LD_MAX_LOADER_DEPTH) {
+        set_error(too_deep);
+
+        return -1;
+    }
+
+    ++g_loader_depth;
+
+    return 0;
+}
+
+static void loader_leave(void) {
+    if (g_loader_depth > 0)
+        --g_loader_depth;
+}
+
+static uint32_t module_bit(int index) {
+    return (uint32_t) 1 << (unsigned) index;
+}
+
+static int module_pinned(int index) {
+    return (g_pin_mask & module_bit(index)) != 0;
+}
+
+/* Pin the modules of `group` for the caller's frame, all of them or only the
+ * ones `selected` marks, and return the mask it must restore when its
+ * constructors or finalizers are done. */
+static uint32_t pin_enter(const int* group, const int* selected, int count) {
+    const uint32_t saved = g_pin_mask;
+
+    for (int i = 0; i < count; ++i) {
+        if (selected != 0 && !selected[i])
+            continue;
+
+        if (group[i] >= 0 && group[i] < LD_MAX_MODULES)
+            g_pin_mask |= module_bit(group[i]);
+    }
+
+    ++g_init_depth;
+
+    return saved;
+}
+
+static void pin_leave(uint32_t saved) {
+    --g_init_depth;
+
+    g_pin_mask = saved;
 }
 
 static uint64_t dyn_tag(const ld_module* module, int64_t tag) {
@@ -1287,16 +1375,21 @@ static void copy_tls_templates(const ld_module* modules, int count, uint64_t tls
 /* Phase two of IFUNC resolution: every image is relocated, so a resolver may
  * call ordinary relocated code.  It must not call another IFUNC, whose slot
  * is still unpatched; that chain needs the lazy thunk from #163.  The slots
- * must hold the resolver's result before DT_INIT runs. */
+ * must hold the resolver's result before DT_INIT runs.
+ *
+ * A resolver is user code and may call back into the loader, so take the
+ * queue first: a nested frame owns the entries it enqueues. */
 static void resolve_ifuncs(void) {
-    for (int i = 0; i < g_ifunc_count; ++i) {
+    const int count = g_ifunc_count;
+
+    g_ifunc_count = 0;
+
+    for (int i = 0; i < count; ++i) {
         const ld_ifunc*   entry    = &g_ifuncs[i];
         ld_ifunc_resolver resolver = (ld_ifunc_resolver) (uintptr_t) entry->resolver;
 
         *entry->slot = resolver() + (uint64_t) entry->addend;
     }
-
-    g_ifunc_count = 0;
 }
 
 static void run_module_initializer(const ld_module* image, int argc, char** argv,
@@ -1782,6 +1875,8 @@ static int relocate_added(const int* added, int count) {
 
 static void initialize_group(const int* group, int group_count, const int* added,
                              int added_count) {
+    const uint32_t pinned = pin_enter(group, 0, group_count);
+
     for (int i = 0; i < group_count; ++i) {
         const int index = group[i];
 
@@ -1804,6 +1899,8 @@ static void initialize_group(const int* group, int group_count, const int* added
 
         run_module_initializer(module, 0, 0, 0);
     }
+
+    pin_leave(pinned);
 }
 
 static void* handle_value(int index) {
@@ -1897,7 +1994,7 @@ static int module_in_live_handle(int index) {
     for (int handle = 0; handle < LD_MAX_HANDLES; ++handle) {
         const struct ld_handle* entry = &g_handles[handle];
 
-        if (!entry->used || entry->pending)
+        if (!entry->used || entry->pending || entry->closing)
             continue;
 
         for (int dep = 0; dep < entry->ndeps; ++dep) {
@@ -1958,13 +2055,7 @@ static int lookup_symbol_value(const ld_module* module, const char* name,
     return 0;
 }
 
-void* dlopen(const char* file, int mode) {
-    if (g_loader_busy) {
-        set_error("dlopen: loader busy");
-
-        return 0;
-    }
-
+static void* dlopen_impl(const char* file, int mode) {
     if (file == 0) {
         set_error("dlopen: null path");
 
@@ -1991,10 +2082,16 @@ void* dlopen(const char* file, int mode) {
     int root        = -1;
     int is_new      = 0;
 
-    g_loader_busy = 1;
-
     if (load_module(file, mode, &root, &is_new) != 0)
         goto fail;
+
+    /* An initializer that loads its own image would get a handle to an object
+       whose constructors are still running, and the outer frame would publish
+       or retire the same module afterwards.  Refuse that one recursion. */
+    if (g_init_depth != 0 && module_pinned(root)) {
+        set_error_path("dlopen: module is initializing: ", g_modules[root].name);
+        goto fail;
+    }
 
     if (is_new)
         added[added_count++] = root;
@@ -2050,16 +2147,23 @@ void* dlopen(const char* file, int mode) {
         entry->deps[i] = group[i];
     }
 
-    g_loader_busy = 0;
-
     return handle_value(handle);
 
 fail:
     handle_release(handle);
 
-    g_loader_busy = 0;
-
     return 0;
+}
+
+void* dlopen(const char* file, int mode) {
+    if (loader_enter("dlopen: loader recursion too deep") != 0)
+        return 0;
+
+    void* handle = dlopen_impl(file, mode);
+
+    loader_leave();
+
+    return handle;
 }
 
 static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address,
@@ -2077,9 +2181,9 @@ static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address
         if (!module->used || !module->pending)
             continue;
 
-        if (module->refcount != 0 || !module->dynamic || module->nodelete ||
-            module_in_live_handle(index) || module_referenced(index) ||
-            !unload_safe(module, return_address)) {
+        if (module_pinned(index) || module->refcount != 0 || !module->dynamic ||
+            module->nodelete || module_in_live_handle(index) ||
+            module_referenced(index) || !unload_safe(module, return_address)) {
             module->in_global = 0;
             module->pending   = 1;
             remaining         = 1;
@@ -2104,13 +2208,7 @@ static int retry_pending_group(struct ld_handle* entry, uintptr_t return_address
     return remaining;
 }
 
-int dlclose(void* handle) {
-    if (g_loader_busy) {
-        set_error("dlclose: loader busy");
-
-        return -1;
-    }
-
+static int dlclose_impl(void* handle, uintptr_t return_address) {
     struct ld_handle* entry = handle_from(handle);
     if (entry == 0) {
         set_error("dlclose: invalid handle");
@@ -2126,24 +2224,22 @@ int dlclose(void* handle) {
         return -1;
     }
 
+    if (entry->closing) {
+        set_error("dlclose: handle is closing");
+
+        return -1;
+    }
+
     if (entry->refcount > 1) {
         --entry->refcount;
 
         return 0;
     }
 
-    /* __builtin_return_address(0) here is the caller of dlclose, not this
-       frame; it decides whether the caller still executes inside a module. */
-    const uintptr_t return_address = (uintptr_t) __builtin_return_address(0);
-
     if (entry->pending) {
         int unmap_failed = 0;
 
-        g_loader_busy = 1;
-
         const int remaining = retry_pending_group(entry, return_address, &unmap_failed);
-
-        g_loader_busy = 0;
 
         if (remaining)
             entry->used = 1;
@@ -2167,8 +2263,9 @@ int dlclose(void* handle) {
         candidate[i] = 0;
     }
 
-    entry->used   = 0;
-    g_loader_busy = 1;
+    /* Keep the slot reserved for this frame: a nested dlopen must not reuse
+       it, and a nested dlclose of the same handle is refused above. */
+    entry->closing = 1;
 
     int deferred     = 0;
     int unmap_failed = 0;
@@ -2198,7 +2295,7 @@ int dlclose(void* handle) {
         if (module_in_live_handle(group[i]))
             continue;
 
-        if (!unload_safe(module, return_address)) {
+        if (module_pinned(group[i]) || !unload_safe(module, return_address)) {
             module->in_global = 0;
             module->pending   = 1;
             deferred          = 1;
@@ -2228,11 +2325,17 @@ int dlclose(void* handle) {
 
     /* The group is post-order (dependencies first), so reverse iteration
        finalizes dependents before their dependencies.  Finalizers run only
-       for the candidate set; the unload decision is revalidated afterwards. */
+       for the candidate set; they are user code, so their images stay pinned
+       until every one of them has returned.  The unload decision is
+       revalidated afterwards. */
+    const uint32_t pinned = pin_enter(group, candidate, count);
+
     for (int i = count - 1; i >= 0; --i) {
         if (candidate[i] && !g_modules[group[i]].finalized)
             run_module_finalizer(&g_modules[group[i]]);
     }
+
+    pin_leave(pinned);
 
     for (int i = count - 1; i >= 0; --i) {
         if (!candidate[i])
@@ -2265,15 +2368,12 @@ int dlclose(void* handle) {
         module_retire(module);
     }
 
-    g_loader_busy = 0;
+    entry->closing = 0;
 
-    if (deferred || unmap_failed) {
-        entry->used    = 1;
+    if (deferred || unmap_failed)
         entry->pending = 1;
-    }
-    else {
+    else
         handle_release(handle_index);
-    }
 
     if (unmap_failed)
         return -1;
@@ -2281,19 +2381,25 @@ int dlclose(void* handle) {
     return 0;
 }
 
-void* dlsym(void* handle, const char* name) {
-    if (g_loader_busy) {
-        set_error("dlsym: loader busy");
+int dlclose(void* handle) {
+    /* __builtin_return_address(0) here is the caller of dlclose, not the
+       implementation frame; it decides whether that caller still executes
+       inside a module. */
+    const uintptr_t return_address = (uintptr_t) __builtin_return_address(0);
 
-        return 0;
-    }
+    if (loader_enter("dlclose: loader recursion too deep") != 0)
+        return -1;
 
-    g_loader_busy = 1;
+    const int result = dlclose_impl(handle, return_address);
 
+    loader_leave();
+
+    return result;
+}
+
+static void* dlsym_impl(void* handle, const char* name) {
     if (name == 0) {
         set_error("dlsym: null name");
-
-        g_loader_busy = 0;
 
         return 0;
     }
@@ -2350,8 +2456,6 @@ void* dlsym(void* handle, const char* name) {
         }
     }
 
-    g_loader_busy = 0;
-
     if (found)
         return (void*) (uintptr_t) value;
 
@@ -2359,6 +2463,17 @@ void* dlsym(void* handle, const char* name) {
         set_error_path("dlsym: symbol not found: ", name);
 
     return 0;
+}
+
+void* dlsym(void* handle, const char* name) {
+    if (loader_enter("dlsym: loader recursion too deep") != 0)
+        return 0;
+
+    void* symbol = dlsym_impl(handle, name);
+
+    loader_leave();
+
+    return symbol;
 }
 
 char* dlerror(void) {

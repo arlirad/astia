@@ -94,7 +94,9 @@ void astia_dl_test_reset(void) {
     g_lazy_lock          = 0;
     g_reloc_scope_count  = 0;
     g_reloc_scope_active = 0;
-    g_loader_busy        = 0;
+    g_loader_depth       = 0;
+    g_init_depth         = 0;
+    g_pin_mask           = 0;
     g_test_threads       = 1;
     g_test_unmap_count   = 0;
     g_test_unmap_result  = 0;

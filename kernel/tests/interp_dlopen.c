@@ -57,6 +57,9 @@ struct iterate_probe {
     int dep_b;
     int dep_c;
     int dep_base;
+    int ctor;
+    int ctor_dep;
+    int ctor_fini;
 };
 
 static int visit(struct dl_phdr_info* info, size_t size, void* data) {
@@ -92,6 +95,15 @@ static int visit(struct dl_phdr_info* info, size_t size, void* data) {
 
     if (info->dlpi_name != NULL && text_equal(info->dlpi_name, "libdl_dep_base.so"))
         probe->dep_base = 1;
+
+    if (info->dlpi_name != NULL && text_equal(info->dlpi_name, "libdlctor.so"))
+        probe->ctor = 1;
+
+    if (info->dlpi_name != NULL && text_equal(info->dlpi_name, "libdlctor_dep.so"))
+        probe->ctor_dep = 1;
+
+    if (info->dlpi_name != NULL && text_equal(info->dlpi_name, "libdlctor_fini.so"))
+        probe->ctor_fini = 1;
 
     return 0;
 }
@@ -221,6 +233,36 @@ __attribute__((force_align_arg_pointer, noreturn)) void _start(void) {
 
     if (dl_iterate_phdr(visit, &kept) != 0 || kept.nd != 1)
         astia_exit(72);
+
+    /* A constructor and a destructor of this library load, resolve and close
+       libdlctor_dep.so while dlopen/dlclose is running them.  The constructor
+       reports through dl_ctor_value; the destructor reports a failure by
+       exiting with 84 + step. */
+    void* ctor = dlopen("/lib/libdlctor.so", RTLD_NOW);
+    if (ctor == NULL)
+        astia_exit(81);
+
+    int (*ctor_value)(void) = (int (*)(void)) dlsym(ctor, "dl_ctor_value");
+
+    if (ctor_value == NULL)
+        astia_exit(82);
+
+    const int ctor_status = ctor_value();
+    if (ctor_status != 7)
+        astia_exit(89 + ctor_status);
+
+    if (dlclose(ctor) != 0)
+        astia_exit(83);
+
+    /* The constructor closed libdlctor_dep.so, so a real nested unload
+       removed it; the destructor closed libdlctor_fini.so with RTLD_NODELETE,
+       so its image stays behind as proof that the destructor's own
+       dlopen/dlsym/dlclose ran while dlclose was busy. */
+    struct iterate_probe reentrant = {0};
+
+    if (dl_iterate_phdr(visit, &reentrant) != 0 || reentrant.ctor != 0 ||
+        reentrant.ctor_dep != 0 || reentrant.ctor_fini != 1)
+        astia_exit(84);
 
     if (dlclose(first) != 0)
         astia_exit(72);
