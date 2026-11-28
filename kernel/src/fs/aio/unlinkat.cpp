@@ -27,6 +27,9 @@ namespace astia::io::aio::operations {
             if (!parent_writable(current, resolved))
                 co_return -EACCES;
 
+            if (!sticky_directory_allows(current, resolved))
+                co_return -EPERM;
+
             const long rc =
                 fs::remove_path(resolved, (sqe.op_flags & UNLINKAT_REMOVEDIR) != 0);
 

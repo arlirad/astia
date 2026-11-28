@@ -112,13 +112,8 @@ namespace astia::io::aio::dispatch {
                                        want);
         }
 
-        bool parent_allows(proc::process* current, const char* path,
-                           fs::permission_bits want) {
-            if (current == nullptr || path == nullptr)
-                return false;
-
-            char parent[fs::path_max]{};
-            u32  n = 0;
+        bool parent_directory(const char* path, char* parent) {
+            u32 n = 0;
 
             while (path[n]) {
                 ++n;
@@ -131,11 +126,26 @@ namespace astia::io::aio::dispatch {
                 --n;
             }
 
-            for (u32 i = 0; i < (n > 1 ? n - 1 : 1); ++i) {
+            const u32 end = n > 1 ? n - 1 : 1;
+
+            for (u32 i = 0; i < end; ++i) {
                 parent[i] = path[i];
             }
 
-            parent[n > 1 ? n - 1 : 1] = '\0';
+            parent[end] = '\0';
+
+            return true;
+        }
+
+        bool parent_allows(proc::process* current, const char* path,
+                           fs::permission_bits want) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            char parent[fs::path_max]{};
+
+            if (!parent_directory(path, parent))
+                return false;
 
             const fs::file_mode mode = fs::node_mode(parent);
 
@@ -152,6 +162,41 @@ namespace astia::io::aio::dispatch {
 
         bool parent_searchable(proc::process* current, const char* path) {
             return parent_allows(current, path, fs::permission_bits::execute);
+        }
+
+        /// Apply the sticky-directory ("save text") removal rule to one
+        /// directory entry.  A root, directory-owner or entry-owner caller may
+        /// remove or replace the entry; anyone else is refused.  A non-sticky
+        /// parent, or a parent whose mode is unavailable, defers to the
+        /// filesystem.
+        bool sticky_directory_allows(proc::process* current, const char* path) {
+            if (current == nullptr || path == nullptr)
+                return false;
+
+            char parent[fs::path_max]{};
+
+            if (!parent_directory(path, parent))
+                return false;
+
+            const fs::file_mode directory = fs::node_mode(parent);
+
+            if (!directory.is_directory() || !directory.is_sticky())
+                return true;
+
+            if (current->euid() == 0)
+                return true;
+
+            if (current->euid() == static_cast<u32>(fs::node_uid(parent)))
+                return true;
+
+            const fs::file_mode entry = fs::node_mode(path);
+
+            // A missing destination has no owner to protect; the filesystem
+            // reports ENOENT where the entry was meant to be removed.
+            if (!entry.exists())
+                return true;
+
+            return current->euid() == static_cast<u32>(fs::node_uid(path));
         }
 
         bool node_allows(proc::process* current, const char* path,
@@ -1095,6 +1140,10 @@ namespace astia::io::aio::dispatch {
 
     bool parent_searchable(proc::process* current, const char* path) {
         return detail::parent_searchable(current, path);
+    }
+
+    bool sticky_directory_allows(proc::process* current, const char* path) {
+        return detail::sticky_directory_allows(current, path);
     }
 
     bool directory_listable(proc::process* current, const char* path) {

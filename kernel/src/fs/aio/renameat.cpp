@@ -37,6 +37,10 @@ namespace astia::io::aio::operations {
                 !parent_writable(current, new_resolved))
                 co_return -EACCES;
 
+            if (!sticky_directory_allows(current, old_resolved) ||
+                !sticky_directory_allows(current, new_resolved))
+                co_return -EPERM;
+
             co_return static_cast<i32>(fs::rename_path(old_resolved, new_resolved));
         }
     };
