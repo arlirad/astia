@@ -25,6 +25,7 @@ void        astia_dl_test_module_reopen(int index);
 int         astia_dl_test_unmap_count(void);
 const char* astia_dl_test_error(void);
 void        astia_dl_test_set_threads(uint32_t count);
+void        astia_dl_test_set_signal_handler(uintptr_t handler);
 void        astia_dl_test_set_unmap_result(int result);
 
 #ifdef __cplusplus
