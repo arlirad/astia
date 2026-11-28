@@ -95,6 +95,7 @@ def check_production_layout(repository: Path) -> None:
     assert shared_headers == {
         "proc/syscalls/ipc/shm_common.hpp",
         "proc/syscalls/process/argv.hpp",
+        "proc/syscalls/process/path_staging.hpp",
         "proc/syscalls/signal/signal_park.hpp",
         "proc/syscalls/thread/thread_create_common.hpp",
     }
