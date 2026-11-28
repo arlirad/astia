@@ -6,35 +6,51 @@
 #include "user_mem.hpp"
 namespace astia::proc::syscalls::detail {
     argument_staging::~argument_staging() {
+        for (usz i = 0; i < _chunk_count; ++i) {
+            mm::heap::free(_chunks[i]);
+        }
+
         mm::heap::free(_storage);
     }
 
     bool argument_staging::allocate() {
-        const usz vec_bytes  = 2 * (vec_max + 1) * sizeof(char*);
-        const usz pool_bytes = 2 * vec_max * arg_cap;
+        const usz vec_bytes = 2 * (vec_max + 1) * sizeof(char*);
 
-        auto storage = mm::heap::alloc(vec_bytes + pool_bytes);
+        auto storage = mm::heap::alloc_zeroed(vec_bytes);
         if (!storage)
             return false;
 
         _storage = storage.value;
         _argv    = reinterpret_cast<char**>(_storage);
         _envp    = _argv + vec_max + 1;
-        _pool    = reinterpret_cast<char*>(_envp + vec_max + 1);
+
+        return true;
+    }
+
+    bool argument_staging::add_chunk() {
+        if (_chunk_count == pool_chunk_max)
+            return false;
+
+        auto storage = mm::heap::alloc(chunk_cap);
+        if (!storage)
+            return false;
+
+        _chunk                  = reinterpret_cast<char*>(storage.value);
+        _chunks[_chunk_count++] = _chunk;
+        _chunk_used             = 0;
 
         return true;
     }
 
     i64 argument_staging::copy(u64 argv, u64 envp) {
-        i64 result = copy_in_vector(_argv, span<char>(_pool, vec_max * arg_cap), argv);
-        if (result == 0)
-            result = copy_in_vector(
-                _envp, span<char>(_pool + vec_max * arg_cap, vec_max * arg_cap), envp);
+        const i64 result = copy_vector(_argv, argv);
+        if (result != 0)
+            return result;
 
-        return result;
+        return copy_vector(_envp, envp);
     }
 
-    i64 copy_in_vector(char** vec, span<char> pool, u64 user_vector) {
+    i64 argument_staging::copy_vector(char** vec, u64 user_vector) {
         if (user_vector == 0) {
             vec[0] = nullptr;
 
@@ -60,12 +76,44 @@ namespace astia::proc::syscalls::detail {
                 return 0;
             }
 
-            if (!sys::copy_in_string(span<char>(pool.data(), arg_cap),
-                                     sys::user_ptr<char>(reinterpret_cast<u64>(element))))
+            const usz budget_left = pool_cap - _pool_used;
+            if (budget_left == 0)
+                return -E2BIG;
+
+            const usz limit = budget_left < arg_cap ? budget_left : arg_cap;
+
+            if (_chunk == nullptr && !add_chunk())
+                return -ENOMEM;
+
+            if (_chunk_used == chunk_cap && !add_chunk())
+                return -ENOMEM;
+
+            usz tail   = chunk_cap - _chunk_used;
+            usz take   = tail < limit ? tail : limit;
+            usz length = 0;
+
+            auto copied = sys::copy_in_string_ex(
+                span<char>(_chunk + _chunk_used, take),
+                sys::user_ptr<char>(reinterpret_cast<u64>(element)).string(), length);
+
+            if (copied == sys::string_copy::too_long && take < limit) {
+                if (!add_chunk())
+                    return -ENOMEM;
+
+                copied = sys::copy_in_string_ex(
+                    span<char>(_chunk, limit),
+                    sys::user_ptr<char>(reinterpret_cast<u64>(element)).string(), length);
+            }
+
+            if (copied == sys::string_copy::fault)
                 return -EFAULT;
 
-            vec[i] = pool.data();
-            pool   = span<char>(pool.data() + arg_cap, pool.size() - arg_cap);
+            if (copied == sys::string_copy::too_long)
+                return -E2BIG;
+
+            vec[i] = _chunk + _chunk_used;
+            _chunk_used += length;
+            _pool_used += length;
         }
 
         return -E2BIG;

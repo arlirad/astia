@@ -468,6 +468,12 @@ namespace astia::sys {
         return true;
     }
 
+    enum class string_copy : u8 {
+        ok,
+        fault,
+        too_long,
+    };
+
     /// Copy a NUL-terminated string out of the caller's memory into a
     /// kernel buffer of `capacity` bytes (terminator included).  `source`
     /// is a string range, so its length is not consulted: the walk ends at
@@ -475,13 +481,17 @@ namespace astia::sys {
     /// ring-3 caller, pages are validated lazily as the walk crosses them,
     /// so a string at the top of a mapped region is not rejected for the
     /// unmapped page above it; a kernel client gets a plain bounded copy.
-    /// Fails if any page is unmapped or the terminator is not found within
-    /// the capacity bound.
-    inline bool copy_in_string(span<char> destination, span<u8> source) {
+    /// `length` receives the bytes written including the terminator.
+    /// `fault` means a page was unmapped; `too_long` means the terminator
+    /// was not found within the capacity bound.
+    inline string_copy copy_in_string_ex(span<char> destination, span<u8> source,
+                                         usz& length) {
         const usz capacity = destination.size();
 
+        length = 0;
+
         if (capacity == 0 || source.null())
-            return false;
+            return string_copy::fault;
 
         proc::process* owner = proc::current_process();
         auto*          space = owner == nullptr ? nullptr : &owner->memory_space();
@@ -494,34 +504,46 @@ namespace astia::sys {
             for (usz i = 0; i < capacity; ++i) {
                 destination.data()[i] = static_cast<char>(from[i]);
 
-                if (destination.data()[i] == '\0')
-                    return true;
+                if (destination.data()[i] == '\0') {
+                    length = i + 1;
+
+                    return string_copy::ok;
+                }
             }
 
-            return false;
+            return string_copy::too_long;
         }
 
         if (!space->valid_user_range(byte, 1))
-            return false;
+            return string_copy::fault;
 
         if (!user_span_ok_for(owner, span<u8>::bytes(byte, 1)))
-            return false;
+            return string_copy::fault;
 
         for (usz i = 0; i < capacity; ++i, ++byte) {
             if (!space->valid_user_range(byte, 1))
-                return false;
+                return string_copy::fault;
 
             if ((byte & mm::page_mask) == 0 &&
                 !user_span_ok_for(owner, span<u8>::bytes(byte, 1)))
-                return false;
+                return string_copy::fault;
 
             destination.data()[i] = static_cast<char>(from[i]);
 
-            if (destination.data()[i] == '\0')
-                return true;
+            if (destination.data()[i] == '\0') {
+                length = i + 1;
+
+                return string_copy::ok;
+            }
         }
 
-        return false; // no terminator within capacity
+        return string_copy::too_long;
+    }
+
+    inline bool copy_in_string(span<char> destination, span<u8> source) {
+        usz length = 0;
+
+        return copy_in_string_ex(destination, source, length) == string_copy::ok;
     }
 
     inline bool copy_in_string(span<char> destination, user_ptr<char> source) {

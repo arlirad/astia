@@ -27,6 +27,13 @@ ASTIA_TEST(resource_limits_publish_fixed_contracts) {
                 astia::resource_limits::abi::aio_parked_operations);
 }
 
+ASTIA_TEST(resource_limits_exec_arguments_match_arg_max) {
+    ASTIA_CHECK(astia::resource_limits::policy::argv_entries >= 200);
+    ASTIA_CHECK(astia::resource_limits::policy::env_entries >= 200);
+    ASTIA_CHECK(astia::resource_limits::policy::spawn_string_bytes == 4096);
+    ASTIA_CHECK(astia::resource_limits::policy::spawn_argument_bytes == 131072);
+}
+
 ASTIA_TEST(resource_limits_queue_accepts_exact_capacity_only) {
     astia::core::mpmc_queue<int, astia::resource_limits::queue::resume> queue;
 

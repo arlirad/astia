@@ -529,9 +529,9 @@ void c_main(const long* frame) {
 
     /* an unterminated vector is cut off with -E2BIG, never walked */
     {
-        char* oversized[33];
+        char* oversized[512];
 
-        for (int i = 0; i < 33; ++i) {
+        for (int i = 0; i < 512; ++i) {
             oversized[i] = (char*) "/sbin/init";
         }
 

@@ -1662,6 +1662,16 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/bin
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_init_libc_image} ${_fix_dir}/boot_stage/bin/init_libc
+                COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables
+                -mno-red-zone -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -o ${_fix_dir}/exec_argv_probe.o
+                ${CMAKE_CURRENT_SOURCE_DIR}/exec_argv_probe.c
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                -o ${_fix_dir}/exec_argv_probe ${_fix_dir}/exec_argv_probe.o
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/exec_argv_probe ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -Wl,-e,_start -o ${_fix_dir}/ld.stub.so
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
@@ -1980,6 +1990,7 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 mod sbin/init sbin/truncated-elf bin/init_libc
+                bin/exec_argv_probe
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
                 bin/interp_exec_perm bin/interp_exec_search
                 lib/libfixture_base.so lib/libfixture_ifunc.so
@@ -2003,6 +2014,7 @@ if (ARCH STREQUAL "x86_64")
                 DEPENDS astia_fixture_hello_initrd astia_fixture_exec
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_target}
+                ${CMAKE_CURRENT_SOURCE_DIR}/exec_argv_probe.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
@@ -2186,6 +2198,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: interp ok"
                 "astia: interp exec permission ok"
                 "astia: exec search permission ok"
+                "astia: exec argv limits ok"
                 "astia: w^x ok"
                 "astia: copy reloc ok"
                 "astia: relro ok"
@@ -2238,6 +2251,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: tpoff32 ok"
                 "astia: relative ro ok"
                 "astia: exec repeat ok"
+                "astia: exec argv limits ok"
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
         )
@@ -2256,6 +2270,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: tpoff32 ok"
                 "astia: relative ro ok"
                 "astia: exec repeat ok"
+                "astia: exec argv limits ok"
                 "astia: dyn tls clone ok"
                 "astia: dl binding enospc ok"
         )

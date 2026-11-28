@@ -15,13 +15,16 @@ namespace astia::resource_limits {
     }
 
     namespace policy {
-        inline constexpr u32 process_count            = 64;
-        inline constexpr u32 threads_per_process      = 16;
-        inline constexpr u32 process_waiters          = 4;
-        inline constexpr u32 supplementary_groups     = 16;
-        inline constexpr u32 argv_entries             = 16;
-        inline constexpr u32 env_entries              = 16;
-        inline constexpr usz spawn_string_bytes       = 2048;
+        inline constexpr u32 process_count        = 64;
+        inline constexpr u32 threads_per_process  = 16;
+        inline constexpr u32 process_waiters      = 4;
+        inline constexpr u32 supplementary_groups = 16;
+        /// execve/spawnve vectors: entry count and per-string limit, plus the
+        /// argv+envp staging budget that backs the libc ARG_MAX (131072).
+        inline constexpr u32 argv_entries             = 256;
+        inline constexpr u32 env_entries              = 256;
+        inline constexpr usz spawn_string_bytes       = 4096;
+        inline constexpr usz spawn_argument_bytes     = 131072;
         inline constexpr u32 process_file_descriptors = 64;
         inline constexpr u32 iovec_segments           = 8;
         inline constexpr u32 pci_devices              = 256;

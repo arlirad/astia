@@ -1942,6 +1942,162 @@ static int interp_exec_permission_check(void) {
     return 0;
 }
 
+static int exec_child_status(char* const argv[]) {
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        execv(argv[0], argv);
+        _Exit(127);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child)
+        return -1;
+
+    return status;
+}
+
+static int exec_argument_limits_check(void) {
+    static const char probe[] = "/bin/exec_argv_probe";
+
+    if (access(probe, X_OK) != 0)
+        return 0;
+
+    {
+        const pid_t child = fork();
+        if (child < 0)
+            return 330;
+
+        if (child == 0) {
+            char* empty[] = {NULL};
+
+            execve(probe, empty, environ);
+            _Exit(331);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 332;
+    }
+
+    {
+        static char value[301];
+
+        char* child_argv[] = {(char*) probe, (char*) "long300", value, NULL};
+
+        for (size_t i = 0; i < 300; ++i) {
+            value[i] = 'x';
+        }
+
+        value[300] = '\0';
+
+        if (exec_child_status(child_argv) != 0)
+            return 333;
+    }
+
+    {
+        static char entries[200][16];
+
+        char* child_argv[203];
+
+        child_argv[0]   = (char*) probe;
+        child_argv[1]   = (char*) "many200";
+        child_argv[202] = NULL;
+
+        for (size_t i = 0; i < 200; ++i) {
+            snprintf(entries[i], sizeof entries[i], "entry-%03d", (int) i);
+
+            child_argv[2 + i] = entries[i];
+        }
+
+        if (exec_child_status(child_argv) != 0)
+            return 334;
+    }
+
+    {
+        char* oversized = malloc(4097);
+        if (oversized == NULL)
+            return 335;
+
+        memset(oversized, 'y', 4096);
+
+        oversized[4096] = '\0';
+
+        const pid_t child = fork();
+
+        if (child < 0) {
+            free(oversized);
+
+            return 336;
+        }
+
+        if (child == 0) {
+            char* child_argv[] = {(char*) probe, oversized, NULL};
+
+            errno = 0;
+
+            execv(probe, child_argv);
+            _Exit(errno == E2BIG ? 0 : 1);
+        }
+
+        free(oversized);
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 337;
+    }
+
+    {
+        enum { count = 40, entry_bytes = 4001 };
+
+        char* block = malloc((size_t) count * entry_bytes);
+        if (block == NULL)
+            return 338;
+
+        char* child_argv[count + 2];
+
+        child_argv[0]         = (char*) probe;
+        child_argv[count + 1] = NULL;
+
+        for (size_t i = 0; i < count; ++i) {
+            memset(block + i * entry_bytes, 'z', entry_bytes - 1);
+
+            block[(i + 1) * entry_bytes - 1] = '\0';
+            child_argv[i + 1]                = block + i * entry_bytes;
+        }
+
+        const pid_t child = fork();
+        if (child < 0) {
+            free(block);
+
+            return 339;
+        }
+
+        if (child == 0) {
+            errno = 0;
+
+            execv(probe, child_argv);
+            _Exit(errno == E2BIG ? 0 : 1);
+        }
+
+        free(block);
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != 0)
+            return 340;
+    }
+
+    printf("astia: exec argv limits ok\n");
+
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--term-thread-check") == 0) {
         if (argc != 2)
@@ -6236,6 +6392,15 @@ int main(int argc, char** argv) {
         const int search_permission = exec_search_permission_check();
         if (search_permission != 0)
             return search_permission;
+    }
+
+    /* execve staging must accept real ARG_MAX arguments instead of the
+       former 256-byte/32-entry slots, and still reject over-budget vectors
+       with E2BIG rather than EFAULT. */
+    {
+        const int argument_limits = exec_argument_limits_check();
+        if (argument_limits != 0)
+            return argument_limits;
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise
