@@ -24,6 +24,11 @@ add_test(NAME astia_banner_assets
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/images/test_banner_assets.py)
 set_tests_properties(astia_banner_assets PROPERTIES
         LABELS "repository;deterministic" TIMEOUT 30)
+add_test(NAME astia_png_decode_limits
+        COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/images/test_png_asset_limits.py)
+set_tests_properties(astia_png_decode_limits PROPERTIES
+        LABELS "repository;deterministic" TIMEOUT 30)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/AstiaCTest.cmake)
 

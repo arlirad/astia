@@ -18,6 +18,9 @@ BIT_DEPTH = 8
 COLOR_TYPE_RGBA = 6
 INTERLACE_NONE = 0
 BYTES_PER_PIXEL = 4
+MAX_DIMENSION = 1 << 14
+MAX_PIXELS = 1 << 24
+MAX_KEYWORD_LENGTH = 79
 
 
 @dataclass(frozen=True)
@@ -61,6 +64,67 @@ def pack_chunk(chunk_type: bytes, payload: bytes) -> bytes:
     )
 
 
+def _validate_dimensions(width: int, height: int) -> None:
+    if width == 0 or height == 0:
+        raise ValueError("PNG dimensions must be nonzero")
+    if width > MAX_DIMENSION or height > MAX_DIMENSION or width * height > MAX_PIXELS:
+        raise ValueError(
+            f"PNG dimensions {width}x{height} exceed the supported limit "
+            f"({MAX_DIMENSION} per side, {MAX_PIXELS} pixels)"
+        )
+
+
+def _keyword_payload(payload: bytes, chunk_type: bytes) -> bytes:
+    keyword_end = payload.find(b"\x00")
+    if not 1 <= keyword_end <= MAX_KEYWORD_LENGTH:
+        raise ValueError(f"invalid PNG {chunk_type!r} keyword")
+    keyword = payload[:keyword_end]
+    if (
+        keyword.startswith(b" ")
+        or keyword.endswith(b" ")
+        or b"  " in keyword
+        or any(byte < 32 or 127 <= byte <= 160 for byte in keyword)
+    ):
+        raise ValueError(f"invalid PNG {chunk_type!r} keyword")
+    return payload[keyword_end + 1 :]
+
+
+def _validate_text_chunk(payload: bytes) -> None:
+    _keyword_payload(payload, b"tEXt")
+
+
+def _validate_compressed_text_chunk(payload: bytes) -> None:
+    remainder = _keyword_payload(payload, b"zTXt")
+    if not remainder or remainder[0] != 0:
+        raise ValueError("invalid PNG zTXt chunk")
+
+
+def _validate_international_text_chunk(payload: bytes) -> None:
+    remainder = _keyword_payload(payload, b"iTXt")
+    if len(remainder) < 2 or remainder[0] not in (0, 1) or remainder[1] != 0:
+        raise ValueError("invalid PNG iTXt chunk")
+    body = remainder[2:]
+    language_end = body.find(b"\x00")
+    if language_end < 0:
+        raise ValueError("invalid PNG iTXt chunk")
+    if body.find(b"\x00", language_end + 1) < 0:
+        raise ValueError("invalid PNG iTXt chunk")
+
+
+def _validate_icc_profile_chunk(payload: bytes) -> None:
+    remainder = _keyword_payload(payload, b"iCCP")
+    if len(remainder) < 2 or remainder[0] != 0:
+        raise ValueError("invalid PNG iCCP chunk")
+
+
+AUXILIARY_CHUNK_VALIDATORS = {
+    b"tEXt": _validate_text_chunk,
+    b"zTXt": _validate_compressed_text_chunk,
+    b"iTXt": _validate_international_text_chunk,
+    b"iCCP": _validate_icc_profile_chunk,
+}
+
+
 def read_png_info(data: bytes) -> PngInfo:
     width = height = bit_depth = color_type = interlace = None
     density = None
@@ -87,11 +151,14 @@ def read_png_info(data: bytes) -> PngInfo:
             if len(payload) != 9:
                 raise ValueError("invalid PNG pHYs chunk")
             density = struct.unpack(">IIB", payload)
+        elif chunk_type in AUXILIARY_CHUNK_VALIDATORS:
+            AUXILIARY_CHUNK_VALIDATORS[chunk_type](payload)
         elif chunk_type == b"IEND" and payload:
             raise ValueError("invalid PNG IEND chunk")
         last_chunk = chunk_type
     if width is None or height is None:
         raise ValueError("PNG has no IHDR chunk")
+    _validate_dimensions(width, height)
     if last_chunk != b"IEND":
         raise ValueError("PNG has no IEND chunk")
     return PngInfo(
@@ -146,6 +213,31 @@ def _unfilter_line(
     raise ValueError(f"unknown PNG filter type {filter_type}")
 
 
+def _inflate_exact(compressed: bytes, expected: int) -> bytes:
+    decompressor = zlib.decompressobj()
+    limit = expected + 1
+    raw = bytearray()
+    pending = compressed
+    while not decompressor.eof:
+        try:
+            chunk = decompressor.decompress(pending, limit - len(raw))
+        except zlib.error as error:
+            raise ValueError(f"invalid PNG image data: {error}") from None
+        raw.extend(chunk)
+        if len(raw) >= limit:
+            raise ValueError(f"PNG image data exceeds the expected length {expected}")
+        if decompressor.eof:
+            break
+        if not decompressor.unconsumed_tail and not chunk and not pending:
+            raise ValueError("truncated PNG image data")
+        pending = decompressor.unconsumed_tail
+    if decompressor.unused_data:
+        raise ValueError("trailing bytes after PNG image data")
+    if len(raw) != expected:
+        raise ValueError(f"unexpected PNG image data length {len(raw)} != {expected}")
+    return bytes(raw)
+
+
 def decode_rgba(data: bytes) -> bytes:
     info = read_png_info(data)
     if (
@@ -159,14 +251,9 @@ def decode_rgba(data: bytes) -> bytes:
     )
     if not compressed:
         raise ValueError("PNG has no IDAT data")
-    try:
-        raw = zlib.decompress(compressed)
-    except zlib.error as error:
-        raise ValueError(f"invalid PNG image data: {error}") from None
     stride = info.width * BYTES_PER_PIXEL
     expected = info.height * (stride + 1)
-    if len(raw) != expected:
-        raise ValueError(f"unexpected PNG image data length {len(raw)} != {expected}")
+    raw = _inflate_exact(compressed, expected)
     output = bytearray(info.height * stride)
     previous = bytearray(stride)
     position = 0
