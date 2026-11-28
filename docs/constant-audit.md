@@ -23,8 +23,9 @@ are checked against that header at compile time.
 | Process waiters | `policy::process_waiters` | 4 | queue | Additional process waiters are rejected without replacing an existing waiter. |
 | Signal waiters | `queue::signal_waiters` | 16 | queue | The 17th waiter is rejected; wake snapshots are bounded by 16. |
 | Supplementary groups | `policy::supplementary_groups` | 16 | ABI / policy | `setgroups(17, ...)` returns `-EINVAL`. |
-| Spawn vectors | `policy::argv_entries`, `policy::env_entries` | 16 each | ABI / policy | Excess startup entries are rejected rather than silently truncated. |
-| Spawn strings | `policy::spawn_string_bytes` | 2048 | policy | An oversized startup string is rejected with the existing validation error. |
+| Spawn vectors | `policy::argv_entries`, `policy::env_entries` | 256 each | ABI / policy | Excess startup entries are rejected with `-E2BIG` rather than silently truncated. |
+| Spawn strings | `policy::spawn_string_bytes` | 4096 (terminator included) | policy | An oversized startup string is rejected with `-E2BIG`. |
+| Spawn budget | `policy::spawn_argument_bytes` | 131072 (argv + envp strings) | policy | A vector whose strings exceed the shared budget is rejected with `-E2BIG`; matches libc `ARG_MAX`. |
 | I/O vectors | `policy::iovec_segments` / `mm::iovec::max_segments` | 8 | ABI / policy | A ninth `readv`/`writev` entry returns `-EINVAL`; entries are never truncated. |
 | PCI registry | `policy::pci_devices` / `pci_registry::max_devices` | 256 | policy | The 257th device is not inserted; enumeration stops at the cap. |
 | PCI resources | `policy::pci_resources` | 256 | policy | The 257th BAR reservation fails without overwriting an owner. |
