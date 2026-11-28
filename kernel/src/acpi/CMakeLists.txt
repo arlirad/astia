@@ -21,7 +21,6 @@ target_link_libraries(acpi_madt PUBLIC libcore)
 
 add_library(acpi STATIC
         tables.cpp
-        fwcfg.cpp
         aml/core.cpp
         aml/decode.cpp
         aml/eval.cpp

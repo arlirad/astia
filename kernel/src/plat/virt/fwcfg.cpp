@@ -4,7 +4,7 @@
 
 #include "io.hpp"
 
-namespace astia::acpi::detail {
+namespace astia::plat::fw_cfg {
     namespace {
         constexpr u16 selector_port      = 0x510;
         constexpr u16 data_port          = 0x511;
@@ -93,7 +93,7 @@ namespace astia::acpi::detail {
         }
     } // namespace
 
-    bool fw_cfg_size(const char* name, u32& size) {
+    bool file_size(const char* name, u32& size) {
         file_entry entry{};
 
         if (name == nullptr || !find(name, entry) || entry.size == 0)
@@ -104,7 +104,7 @@ namespace astia::acpi::detail {
         return true;
     }
 
-    bool fw_cfg_read(const char* name, u8* destination, u32 capacity) {
+    bool read_file(const char* name, u8* destination, u32 capacity) {
         file_entry entry{};
 
         if (name == nullptr || destination == nullptr || !find(name, entry) ||
@@ -119,4 +119,4 @@ namespace astia::acpi::detail {
 
         return true;
     }
-} // namespace astia::acpi::detail
+} // namespace astia::plat::fw_cfg

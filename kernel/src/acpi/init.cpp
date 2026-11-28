@@ -9,8 +9,8 @@
 #include <astia/mm/heap.hpp>
 #include <astia/shutdown.hpp>
 
+#include "../plat/virt/fwcfg.hpp"
 #include "aml.hpp"
-#include "fwcfg.hpp"
 #include "io.hpp"
 #include "physical.hpp"
 #include "power.hpp"
@@ -93,7 +93,7 @@ namespace astia::acpi {
         bool load_madt_from_fw_cfg() {
             u32 size = 0;
 
-            if (!detail::fw_cfg_size("etc/acpi/tables", size) || size > (1u << 20))
+            if (!plat::fw_cfg::file_size("etc/acpi/tables", size) || size > (1u << 20))
                 return false;
 
             auto allocation = mm::heap::alloc(size);
@@ -102,7 +102,7 @@ namespace astia::acpi {
 
             auto* data = static_cast<u8*>(allocation.value);
 
-            const bool read = detail::fw_cfg_read("etc/acpi/tables", data, size);
+            const bool read = plat::fw_cfg::read_file("etc/acpi/tables", data, size);
 
             if (read)
                 parse_madt(data, size);
