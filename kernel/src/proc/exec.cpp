@@ -1,9 +1,11 @@
 #include <astia/api/syscalls.h>
 #include <astia/elf.hpp>
 #include <astia/fs.hpp>
+#include <astia/mapping.hpp>
 #include <astia/mm/frame_allocator.hpp>
 
 #include "exec_hooks.hpp"
+#include "exec_permission.hpp"
 #include "exec_rollback.hpp"
 #include "proc.hpp"
 #include "process.hpp"
@@ -848,7 +850,8 @@ namespace astia::proc {
         }
     }
 
-    core::task<bool> process::load_user_file_async(mm::shptr<fs::open_file> file,
+    core::task<bool> process::load_user_file_async(const process&           caller,
+                                                   mm::shptr<fs::open_file> file,
                                                    usz length, u64* entry_out) {
         if (!file || length == 0 || entry_out == nullptr || _address_space.attached())
             co_return false;
@@ -970,7 +973,16 @@ namespace astia::proc {
                 path[image.interp_size - 1] != '\0')
                 co_return false;
 
-            auto interp = co_await load_interpreter(*this, path);
+            char      resolved[fs::path_max]{};
+            const i64 resolve_rc =
+                caller.resolve_path(path, resolved, sizeof resolved, true);
+            if (resolve_rc < 0)
+                co_return error_from_errno(-resolve_rc);
+
+            if (exec_permission_denied(caller, resolved))
+                co_return error_t::eacces;
+
+            auto interp = co_await load_interpreter(*this, resolved);
             if (!interp)
                 co_return false;
 
