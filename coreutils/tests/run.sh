@@ -162,6 +162,26 @@ for target_length in 255 256 300 4095; do
     grep -qF " -> $long_target" "$out/host/ls_long_target_$target_length.out"
 done
 
+# ls hides dot entries by default; -a adds . and .., -A adds dotfiles only.
+hidden_dir="$out/host/ls_hidden"
+mkdir -p "$hidden_dir"
+: >"$hidden_dir/visible"
+: >"$hidden_dir/.hidden"
+printf 'visible\n' >"$out/host/ls_hidden_default.expected"
+"$out/host/ls" "$hidden_dir" >"$out/host/ls_hidden_default.out"
+cmp "$out/host/ls_hidden_default.expected" "$out/host/ls_hidden_default.out"
+printf '.\n..\n.hidden\nvisible\n' >"$out/host/ls_hidden_all.expected"
+"$out/host/ls" -a "$hidden_dir" >"$out/host/ls_hidden_all.out"
+cmp "$out/host/ls_hidden_all.expected" "$out/host/ls_hidden_all.out"
+printf '.hidden\nvisible\n' >"$out/host/ls_hidden_almost.expected"
+"$out/host/ls" -A "$hidden_dir" >"$out/host/ls_hidden_almost.out"
+cmp "$out/host/ls_hidden_almost.expected" "$out/host/ls_hidden_almost.out"
+"$out/host/ls" -la "$hidden_dir" >"$out/host/ls_hidden_long_all.out"
+grep -q ' \.$' "$out/host/ls_hidden_long_all.out"
+grep -q ' \.\.$' "$out/host/ls_hidden_long_all.out"
+grep -q ' \.hidden$' "$out/host/ls_hidden_long_all.out"
+grep -q ' visible$' "$out/host/ls_hidden_long_all.out"
+
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
 $clang $common -fno-builtin -nostdinc -isystem "$resource/include" \

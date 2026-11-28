@@ -22,6 +22,8 @@ typedef struct {
     int    detailed;
     int    color;
     int    columns;
+    int    all;
+    int    almost_all;
     size_t width;
 } ls_options;
 
@@ -199,19 +201,80 @@ static void free_entries(ls_entry* entries, size_t count) {
     free(entries);
 }
 
-static int collect_entries(const char* path, DIR* directory, int color, ls_entry** result,
-                           size_t* count) {
+static int is_dot_entry(const char* name) {
+    return strcmp(name, ".") == 0 || strcmp(name, "..") == 0;
+}
+
+static int reserve_entry(ls_entry** entries, size_t* capacity, size_t needed) {
+    if (needed < *capacity)
+        return 0;
+
+    size_t next = *capacity == 0 ? 16 : *capacity * 2;
+
+    ls_entry* grown = realloc(*entries, next * sizeof(ls_entry));
+    if (grown == 0)
+        return -1;
+
+    *entries  = grown;
+    *capacity = next;
+
+    return 0;
+}
+
+static int append_entry(ls_entry** entries, size_t* used, size_t* capacity,
+                        const char* path, const char* name, int color) {
+    if (reserve_entry(entries, capacity, *used) != 0)
+        return -1;
+
+    char* copy = duplicate_name(name);
+    if (copy == 0)
+        return -1;
+
+    ls_entry* entry = &(*entries)[*used];
+
+    entry->name     = copy;
+    entry->width    = strlen(copy);
+    entry->mode     = 0;
+    entry->has_mode = 0;
+
+    if (color) {
+        char*       child = join_path(path, copy);
+        struct stat info;
+
+        if (child != 0 && lstat(child, &info) == 0) {
+            entry->mode     = info.st_mode;
+            entry->has_mode = 1;
+        }
+
+        free(child);
+    }
+
+    ++*used;
+
+    return 0;
+}
+
+static int collect_entries(const char* path, DIR* directory, const ls_options* options,
+                           ls_entry** result, size_t* count) {
     ls_entry* entries = 0;
 
     size_t used     = 0;
     size_t capacity = 0;
     int    error    = 0;
+    int    color    = options->color && !options->detailed;
+    int    hidden   = options->all || options->almost_all;
 
-    struct dirent* item;
+    if (options->all) {
+        if (append_entry(&entries, &used, &capacity, path, ".", color) != 0 ||
+            append_entry(&entries, &used, &capacity, path, "..", color) != 0)
+            error = ENOMEM;
+    }
 
-    for (;;) {
+    while (error == 0) {
         errno = 0;
-        item  = readdir(directory);
+
+        struct dirent* item = readdir(directory);
+
         if (item == 0) {
             if (errno != 0)
                 error = errno;
@@ -219,45 +282,17 @@ static int collect_entries(const char* path, DIR* directory, int color, ls_entry
             break;
         }
 
-        if (used == capacity) {
-            size_t next_capacity = capacity == 0 ? 16 : capacity * 2;
+        if (is_dot_entry(item->d_name))
+            continue;
 
-            ls_entry* grown = realloc(entries, next_capacity * sizeof(ls_entry));
-            if (grown == 0) {
-                error = ENOMEM;
+        if (!hidden && item->d_name[0] == '.')
+            continue;
 
-                break;
-            }
-
-            entries  = grown;
-            capacity = next_capacity;
-        }
-
-        char* name = duplicate_name(item->d_name);
-        if (name == 0) {
+        if (append_entry(&entries, &used, &capacity, path, item->d_name, color) != 0) {
             error = ENOMEM;
 
             break;
         }
-
-        entries[used].name     = name;
-        entries[used].width    = strlen(name);
-        entries[used].mode     = 0;
-        entries[used].has_mode = 0;
-
-        if (color) {
-            char*       child = join_path(path, name);
-            struct stat info;
-
-            if (child != 0 && lstat(child, &info) == 0) {
-                entries[used].mode     = info.st_mode;
-                entries[used].has_mode = 1;
-            }
-
-            free(child);
-        }
-
-        ++used;
     }
 
     if (error != 0) {
@@ -376,8 +411,7 @@ static int list_directory(const char* path, int headers, const ls_options* optio
     size_t count = 0;
     int    status;
 
-    if (collect_entries(path, directory, options->color && !options->detailed, &entries,
-                        &count) != 0) {
+    if (collect_entries(path, directory, options, &entries, &count) != 0) {
         status = cu_error("ls", strerror(errno));
     }
     else {
@@ -494,10 +528,12 @@ static int list_operands(const char* const* operands, size_t count,
 }
 
 static void options_init(ls_options* options) {
-    options->detailed = 0;
-    options->color    = 0;
-    options->columns  = 0;
-    options->width    = 0;
+    options->detailed   = 0;
+    options->color      = 0;
+    options->columns    = 0;
+    options->all        = 0;
+    options->almost_all = 0;
+    options->width      = 0;
 
     if (!isatty(CU_STDOUT))
         return;
@@ -510,6 +546,34 @@ static void options_init(ls_options* options) {
         options->columns = 1;
         options->width   = window.ws_col;
     }
+}
+
+static int parse_options(const char* value, ls_options* options) {
+    if (value[1] == '-') {
+        if (strcmp(value, "--all") == 0)
+            options->all = 1;
+        else if (strcmp(value, "--almost-all") == 0)
+            options->almost_all = 1;
+        else if (strcmp(value, "--long") == 0)
+            options->detailed = 1;
+        else
+            return -1;
+
+        return 0;
+    }
+
+    for (const char* option = value + 1; *option != '\0'; ++option) {
+        if (*option == 'a')
+            options->all = 1;
+        else if (*option == 'A')
+            options->almost_all = 1;
+        else if (*option == 'l')
+            options->detailed = 1;
+        else
+            return -1;
+    }
+
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -531,11 +595,17 @@ int main(int argc, char** argv) {
     size_t operand_count = 0;
 
     while ((path = cu_args_next(&args)) != 0) {
+        if (!args.options || path[0] != '-' || path[1] == '\0') {
+            operands[operand_count++] = path;
+
+            continue;
+        }
+
         if (cu_is_help(path)) {
             free(operands);
 
             return cu_help("ls", "[OPTION]... [FILE]...",
-                           "List directory contents.  -a and -l are supported.");
+                           "List directory contents.  -a, -A, and -l are supported.");
         }
 
         if (cu_is_version(path)) {
@@ -544,22 +614,11 @@ int main(int argc, char** argv) {
             return cu_version("ls");
         }
 
-        if (cu_arg_is(path, "-a", "--all"))
-            continue;
-
-        if (cu_arg_is(path, "-l", "--long")) {
-            options.detailed = 1;
-
-            continue;
-        }
-
-        if (path[0] == '-') {
+        if (parse_options(path, &options) != 0) {
             free(operands);
 
             return cu_error("ls", "unknown option");
         }
-
-        operands[operand_count++] = path;
     }
 
     int status = operand_count == 0 ? list_one(".", 0, &options)
