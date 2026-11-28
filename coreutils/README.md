@@ -7,8 +7,8 @@ Astia libc, and keeps its behavior small enough to test on the real kernel.
 Currently built:
 
 `basename` `cat` `chmod` `cp` `cut` `dirname` `echo` `env` `false` `find` `grep`
-`head` `id` `ln` `login` `ls` `mkdir` `mv` `pwd` `readlink` `rm` `sort` `tee`
-`touch` `true` `uname` `whoami` `wc`
+`head` `id` `ln` `login` `ls` `mkdir` `mv` `poweroff` `pwd` `readlink` `reboot`
+`rm` `sort` `tee` `touch` `true` `uname` `whoami` `wc`
 
 Build them with:
 
@@ -26,8 +26,8 @@ launcher builds and installs them into `/bin` automatically.
 mutates `environ` and never changes the environment of `env COMMAND`.
 
 The utilities deliberately use only native Astia primitives (`read`, `write`,
-`open`, `close`, `mkdir`, `unlink`, `rmdir`, `environ`, process exit, and the
-libc directory API).  The
+`open`, `close`, `mkdir`, `unlink`, `rmdir`, `environ`, native power operations
+through `astia_power`, process exit, and the libc directory API).  The
 QEMU regression suite can be run with `coreutils/tests/run.sh`; it builds the
 utilities and checks their exit status and output on the real kernel.
 
