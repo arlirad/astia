@@ -87,6 +87,7 @@ namespace astia::io::aio::test_support {
     void set_process_root(const char* root);
     void set_process_cwd(const char* cwd);
     void set_memory_allowed(bool allowed);
+    void set_memory_writable(bool allowed);
     void set_timer(u64 hz, u64 ticks);
     void add_timer_ticks(u64 ticks);
     void release_parked(ring::ring_slot& slot);

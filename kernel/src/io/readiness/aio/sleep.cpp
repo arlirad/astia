@@ -12,7 +12,7 @@ namespace astia::io::aio::operations {
                 co_return -EINVAL;
 
             if (sqe.address != 0 &&
-                !memory::user_span_ok_for(span<u8>::bytes(sqe.address, sizeof(u64))))
+                !memory::user_span_writable_ok(span<u8>::bytes(sqe.address, sizeof(u64))))
                 co_return -EFAULT;
 
             if (arch::timer_hz() == 0)

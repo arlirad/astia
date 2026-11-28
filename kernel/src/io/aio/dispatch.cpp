@@ -43,6 +43,19 @@ namespace astia::io::aio::dispatch {
                 io_device_ready_context(static_cast<io_device*>(context));
         }
 
+        /// A read fills the caller's range and a write drains it, so the two
+        /// directions need different page permissions: an `input` buffer is a
+        /// destination and must be writable, an `output` buffer only has to be
+        /// readable.  A read-only mapping that merely translate()s is not a
+        /// legal place to put bytes.
+        bool user_buffer_ok_for(proc::process* owner, span<u8> range,
+                                ::astia::io::direction direction) {
+            if (direction == ::astia::io::direction::input)
+                return memory::user_span_writable_ok_for(owner, range);
+
+            return memory::user_span_ok_for(owner, range);
+        }
+
         long search_check(proc::process* current, const char* path, bool include_final) {
             if (current == nullptr)
                 return -ESRCH;
@@ -908,7 +921,7 @@ namespace astia::io::aio::dispatch {
                     context.slot.kernel_buffers && memory::kernel_span_ok(ranges[i]);
 
                 if (!kernel_buffer &&
-                    !memory::user_span_ok_for(context.slot.owner.get(), ranges[i]))
+                    !user_buffer_ok_for(context.slot.owner.get(), ranges[i], direction))
                     return context.complete(-EFAULT);
 
                 if (ranges[i].length() > max_operation_bytes ||
@@ -983,7 +996,7 @@ namespace astia::io::aio::dispatch {
                     slot.kernel_buffers && memory::kernel_span_ok(ranges[i]);
 
                 if (!kernel_buffer &&
-                    !memory::user_span_ok_for(slot.owner.get(), ranges[i]))
+                    !user_buffer_ok_for(slot.owner.get(), ranges[i], direction))
                     return error_t::efault;
 
                 if (ranges[i].length() > max_operation_bytes ||

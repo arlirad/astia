@@ -27,7 +27,7 @@ namespace astia::io::aio::operations {
 
             auto out = span<u8>::bytes(sqe.offset, sqe.length);
 
-            if (!memory::user_span_ok_for(out))
+            if (!memory::user_span_writable_ok(out))
                 co_return -EFAULT;
 
             // read_symlink is a kernel/VFS API; never give it a raw
