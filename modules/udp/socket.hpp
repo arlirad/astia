@@ -63,7 +63,7 @@ namespace astia::udp {
         /// UDP header in front of the payload already placed in it.  Returns
         /// the payload length or a negative errno.
         core::task<i64> send(net::packet_builder& builder, span<const u8> payload,
-                             const endpoint& destination, const route& path);
+                             endpoint destination, route path);
 
         /// Dequeue one datagram.  A short buffer truncates the payload but
         /// still returns the original datagram length, like recvfrom(2).

@@ -92,6 +92,7 @@ add_custom_command(
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_UDP_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/udp_test.cpp
@@ -104,6 +105,7 @@ add_custom_command(
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/src/net/net_lock.hpp
                 ${ASTIA_UDP_LOCAL_HEADERS}
                 ${ASTIA_UDP_ABI_HEADERS}

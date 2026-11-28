@@ -102,7 +102,7 @@ namespace astia::udp {
     }
 
     core::task<i64> socket::send(net::packet_builder& builder, span<const u8> payload,
-                                 const endpoint& destination, const route& path) {
+                                 endpoint destination, route path) {
         if (_owner == nullptr)
             co_return -ENODEV;
 
