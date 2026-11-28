@@ -217,8 +217,8 @@ namespace astia::acpi::detail {
 
                 out.extended = false;
                 out.mask     = static_cast<u32>(data[value.body]) |
-                               (static_cast<u32>(data[value.body + 1]) << 8);
-                out.count    = out.mask == 0 ? 0 : 1;
+                           (static_cast<u32>(data[value.body + 1]) << 8);
+                out.count = out.mask == 0 ? 0 : 1;
 
                 return true;
             }

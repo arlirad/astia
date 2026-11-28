@@ -589,7 +589,7 @@ namespace astia::acpi::detail {
             }
 
             if (!transient) {
-                struct target destination{};
+                struct target destination {};
 
                 destination.slot = &entry.value;
                 destination.name = target;
