@@ -1,3 +1,4 @@
+#include <astia/acpi.hpp>
 #include <astia/arch/interrupts.hpp>
 #include <astia/arch/spinlock_guard.hpp>
 #include <astia/arch/timer.hpp>
@@ -118,7 +119,10 @@ namespace {
             (void) astia::module::pci_write16(
                 *_pci, 0x04, static_cast<uint16_t>(command & ~(1u << 10)));
 
-            if (!astia::arch::route_irq(_pci->interrupt_line) ||
+            const astia::u8  gsi  = astia::acpi::gsi_for_irq(_pci->interrupt_line);
+            const astia::u64 base = astia::acpi::ioapic_base();
+
+            if (!astia::arch::route_gsi(_pci->interrupt_line, base, gsi) ||
                 !astia::arch::unmask_irq_handler(_pci->interrupt_line)) {
                 (void) astia::arch::unregister_irq_handler(_pci->interrupt_line);
 

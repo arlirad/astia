@@ -2,6 +2,7 @@ set(ASTIA_RTL8139_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/rtl8139.o)
 set(ASTIA_RTL8139_UNIT ${CMAKE_CURRENT_BINARY_DIR}/rtl8139_unit)
 
 set(ASTIA_RTL8139_ABI_HEADERS
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/acpi.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/arch/interrupts.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/arch/timer.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/timer.hpp

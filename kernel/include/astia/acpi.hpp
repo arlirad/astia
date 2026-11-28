@@ -8,6 +8,13 @@ namespace astia::acpi {
     /// RSDP is the normal outcome on AArch64/FDT platforms.
     u64 rsdp();
 
+    /// IOAPIC physical base discovered through ACPI MADT (0 when unknown).
+    u64 ioapic_base();
+
+    /// Translate a legacy ISA/PCI interrupt line to its GSI using MADT
+    /// interrupt source overrides.
+    u8 gsi_for_irq(u8 irq);
+
     /// True when the FADT, DSDT, \_S5 and PM1 control registers all passed
     /// validation and the ACPI platform shutdown handler is registered.
     bool shutdown_supported();

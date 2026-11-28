@@ -7,6 +7,7 @@
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/plat/firmware.hpp>
 #include <astia/shutdown.hpp>
 
 #include "aml.hpp"
@@ -31,6 +32,85 @@ namespace astia::acpi {
         u64                 validated_rsdp = 0;
         bool                s5_ready       = false;
         bool                reset_ready    = false;
+
+        constexpr u32 madt_signature = detail::signature("APIC");
+        constexpr u32 max_isos       = 16;
+
+        u64 ioapic_address_value = 0;
+        u32 ioapic_gsi_base      = 0;
+
+        struct iso_entry {
+            u8  source = 0;
+            u32 gsi    = 0;
+        };
+
+        iso_entry isos[max_isos]{};
+        u32       iso_count = 0;
+
+        void parse_madt(const u8* data, u32 size) {
+            for (u32 offset = 0; offset + 36 <= size;) {
+                const u32 table_signature = detail::load_u32(data + offset);
+                const u32 table_length    = detail::load_u32(data + offset + 4);
+
+                if (table_length < 36 || table_length > size - offset)
+                    return;
+
+                if (table_signature == madt_signature) {
+                    u32 entry = offset + 44;
+
+                    while (entry + 2 <= offset + table_length) {
+                        const u8 type   = data[entry];
+                        const u8 length = data[entry + 1];
+
+                        if (length < 2 || entry + length > offset + table_length)
+                            break;
+
+                        if (type == 1 && length >= 12 && ioapic_address_value == 0) {
+                            ioapic_address_value = detail::load_u32(data + entry + 4);
+                            ioapic_gsi_base      = detail::load_u32(data + entry + 8);
+                        }
+                        else if (type == 2 && length >= 10 && iso_count < max_isos) {
+                            isos[iso_count].source = data[entry + 2];
+                            isos[iso_count].gsi    = detail::load_u32(data + entry + 4);
+
+                            ++iso_count;
+                        }
+
+                        entry += length;
+                    }
+
+                    logs::info("MADT: ioapic=%llx gsi_base=%u iso=%u",
+                               static_cast<unsigned long long>(ioapic_address_value),
+                               ioapic_gsi_base, iso_count);
+
+                    return;
+                }
+
+                offset += table_length;
+            }
+        }
+
+        bool load_madt_from_platform() {
+            u32 size = 0;
+
+            if (!plat::acpi_tables_size(size) || size > (1u << 20))
+                return false;
+
+            auto allocation = mm::heap::alloc(size);
+            if (!allocation)
+                return false;
+
+            auto* data = static_cast<u8*>(allocation.value);
+
+            const bool read = plat::acpi_tables_read(data, size);
+
+            if (read)
+                parse_madt(data, size);
+
+            mm::heap::free(data);
+
+            return read;
+        }
 
         void* heap_allocate(void*, usz bytes) {
             auto allocation = astia::mm::heap::alloc(bytes);
@@ -162,7 +242,8 @@ namespace astia::acpi {
                 astia_acpi_test_override(ctx.info->cmdline, access, rsdp_address);
 
             if (rsdp_address == 0) {
-                logs::info("unavailable: no RSDP");
+                if (!load_madt_from_platform())
+                    logs::info("unavailable: no RSDP");
 
                 return true;
             }
@@ -238,6 +319,21 @@ namespace astia::acpi {
 
     u64 rsdp() {
         return validated_rsdp;
+    }
+
+    u64 ioapic_base() {
+        return ioapic_address_value;
+    }
+
+    u8 gsi_for_irq(u8 irq) {
+        for (u32 index = 0; index < iso_count; ++index) {
+            if (isos[index].source == irq)
+                return static_cast<u8>(isos[index].gsi);
+        }
+
+        const u32 gsi = ioapic_gsi_base + irq;
+
+        return gsi > 0xff ? irq : static_cast<u8>(gsi);
     }
 
     bool shutdown_supported() {
