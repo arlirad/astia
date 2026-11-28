@@ -122,6 +122,10 @@ $clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -I "$root/utils/coreutil
     "$root/utils/coreutils/tests/mv_symlink_test.c" "$out/host/mv_close.o" \
     -o "$out/host/mv_symlink_test"
 "$out/host/mv_symlink_test"
+$clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/mv_dest_symlink_test.c" "$out/host/mv_close.o" \
+    -o "$out/host/mv_dest_symlink_test"
+"$out/host/mv_dest_symlink_test"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
     -D_DEFAULT_SOURCE -I "$root/utils/coreutils/src" \
     "$root/utils/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"

@@ -40,12 +40,31 @@ static const char* base_name(const char* path) {
     return end;
 }
 
+/* Replace the destination entry itself, as rename() does, instead of writing
+   through whatever lives at that name; a missing destination is fine. */
+static int remove_destination(const char* destination) {
+    if (unlink(destination) == 0 || errno == ENOENT)
+        return 0;
+
+    return cu_error("mv", destination);
+}
+
 static int copy_file(const char* source, const char* destination, mode_t mode) {
     int input = open(source, O_RDONLY);
     if (input < 0)
         return cu_error("mv", source);
 
-    int output = open(destination, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    if (remove_destination(destination) != 0) {
+        /* The destination failure is the primary error; the doomed input
+         * close is legitimately ignorable. */
+        close(input);
+
+        return 1;
+    }
+
+    /* O_EXCL after the unlink refuses to follow a destination symlink created
+       in between, keeping the EXDEV fallback equivalent to rename(). */
+    int output = open(destination, O_WRONLY | O_CREAT | O_EXCL, mode);
     if (output < 0) {
         /* The destination failure is the primary error; the doomed input
          * close is legitimately ignorable. */
@@ -102,16 +121,13 @@ static int copy_symlink(const char* source, const char* destination) {
         if ((size_t) count < capacity) {
             target[count] = '\0';
 
-            if (symlink(target, destination) == 0) {
+            if (remove_destination(destination) != 0) {
                 free(target);
 
-                return 0;
+                return 1;
             }
 
-            /* rename() replaces an existing destination, but symlink() does
-               not, so mirror that replacement after the EXDEV fallback. */
-            if (errno == EEXIST && unlink(destination) == 0 &&
-                symlink(target, destination) == 0) {
+            if (symlink(target, destination) == 0) {
                 free(target);
 
                 return 0;
