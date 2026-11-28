@@ -1,3 +1,5 @@
+#include "internal/allocator.h"
+
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -17,15 +19,14 @@
  * additionally threaded through a first-fit list (fd/bk).  All payloads
  * are 16-byte aligned.
  *
- * Threading: the arena and both lists are shared mutable state, so this
- * is NOT thread-safe yet — there is no lock primitive to use (astia has
- * no futex yet).  The plan is one arena mutex with an uncontended
- * cmpxchg fast path the moment astia_futex exists, and the structure is
- * kept ready for it: all mutation happens inside exactly three entry
- * points (malloc/free/realloc), none of them runs user code or blocks
- * while holding state, so wrapping them is a pure mechanical change with
- * no locking order to reason about.  Until then: one allocator user per
- * process, like every libc before it got locks.
+ * Threading: one internal recursive spin lock owns the arena and both
+ * lists.  It is statically initialized from zero and identifies its owner
+ * through a thread-local address, so it works before pthread
+ * initialization, during constructors, and while libc is bootstrapping.
+ * fork() acquires it in prepare and resets it in the child, so the child
+ * inherits a consistent arena and a usable allocator.  Like every malloc
+ * with a lock, it is not async-signal-safe: a handler that interrupts the
+ * lock holder re-enters the recursive path and must not touch the arena.
  */
 
 #define ARENA_SIZE (1u << 20) /* 1 MiB of BSS: costs no file space */
@@ -60,7 +61,56 @@ static _Alignas(ALIGN_MIN) unsigned char arena[ARENA_SIZE];
 static struct blk* free_list; /* first fit, newest at the head */
 static int         arena_ready;
 
+static uintptr_t                  arena_lock_owner;
+static _Thread_local unsigned int arena_lock_depth;
+
 #define ALIGNED_META_MAGIC ((size_t) 0x41535449414d454du)
+
+static void arena_lock(void) {
+    const uintptr_t owner = (uintptr_t) &arena_lock_depth;
+
+    if (arena_lock_depth != 0) {
+        ++arena_lock_depth;
+
+        return;
+    }
+
+    for (;;) {
+        uintptr_t expected = 0;
+
+        if (__atomic_compare_exchange_n(&arena_lock_owner, &expected, owner, 0,
+                                        __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+            arena_lock_depth = 1;
+
+            return;
+        }
+
+        while (__atomic_load_n(&arena_lock_owner, __ATOMIC_RELAXED) != 0) {
+            __atomic_signal_fence(__ATOMIC_ACQUIRE);
+        }
+    }
+}
+
+static void arena_unlock(void) {
+    if (--arena_lock_depth != 0)
+        return;
+
+    __atomic_store_n(&arena_lock_owner, 0, __ATOMIC_RELEASE);
+}
+
+void __astia_malloc_fork_prepare(void) {
+    arena_lock();
+}
+
+void __astia_malloc_fork_parent(void) {
+    arena_unlock();
+}
+
+void __astia_malloc_fork_child(void) {
+    arena_lock_depth = 0;
+
+    __atomic_store_n(&arena_lock_owner, 0, __ATOMIC_RELEASE);
+}
 
 static int aligned_unwrap(void* ptr, void** base, size_t* alignment) {
     struct aligned_meta meta;
@@ -220,19 +270,8 @@ static void* arena_alloc(size_t size) {
     return (char*) b + HDR;
 }
 
-void* malloc(size_t size) {
-    void* ptr = arena_alloc(size);
-    if (ptr == NULL)
-        errno = ENOMEM;
-
-    return ptr;
-}
-
-void free(void* ptr) {
+static void arena_free(void* ptr) {
     void* base;
-
-    if (ptr == NULL)
-        return; /* free(NULL) is a no-op, per the standard */
 
     if (aligned_unwrap(ptr, &base, NULL))
         ptr = base;
@@ -240,7 +279,7 @@ void free(void* ptr) {
     release((struct blk*) ((char*) ptr - HDR));
 }
 
-int posix_memalign(void** memptr, size_t alignment, size_t size) {
+static int arena_memalign(void** memptr, size_t alignment, size_t size) {
     size_t overhead;
     size_t request;
 
@@ -248,10 +287,6 @@ int posix_memalign(void** memptr, size_t alignment, size_t size) {
     uintptr_t            candidate;
     uintptr_t            aligned;
     struct aligned_meta* meta;
-
-    if (memptr == NULL || alignment == 0 || (alignment & (alignment - 1)) != 0 ||
-        alignment % sizeof(void*) != 0)
-        return EINVAL;
 
     if (alignment - 1 > (size_t) -1 - sizeof(struct aligned_meta))
         return ENOMEM;
@@ -269,7 +304,7 @@ int posix_memalign(void** memptr, size_t alignment, size_t size) {
     candidate = (uintptr_t) base + sizeof(struct aligned_meta);
 
     if (candidate < (uintptr_t) base || candidate > (uintptr_t) -1 - (alignment - 1)) {
-        free(base);
+        arena_free(base);
 
         return ENOMEM;
     }
@@ -285,31 +320,7 @@ int posix_memalign(void** memptr, size_t alignment, size_t size) {
     return 0;
 }
 
-void* calloc(size_t nmemb, size_t size) {
-    size_t bytes;
-
-    void* p;
-
-    if (nmemb != 0 && size > ((size_t) -1) / nmemb) {
-        errno = ENOMEM;
-
-        return NULL; /* nmemb * size would wrap */
-    }
-
-    bytes = nmemb * size;
-    p     = malloc(bytes);
-    if (p == NULL) {
-        errno = ENOMEM;
-
-        return NULL;
-    }
-
-    memset(p, 0, bytes);
-
-    return p;
-}
-
-void* realloc(void* ptr, size_t size) {
+static void* arena_realloc(void* ptr, size_t size) {
     struct blk* b;
     struct blk* t;
 
@@ -317,15 +328,6 @@ void* realloc(void* ptr, size_t size) {
     size_t alignment;
 
     void* base;
-
-    if (ptr == NULL)
-        return malloc(size);
-
-    if (size == 0) {
-        free(ptr); /* v1 semantics: free and return NULL */
-
-        return NULL;
-    }
 
     if (aligned_unwrap(ptr, &base, &alignment)) {
         struct blk* bb = (struct blk*) ((char*) base - HDR);
@@ -338,7 +340,7 @@ void* realloc(void* ptr, size_t size) {
         if (size <= usable)
             return ptr;
 
-        if (posix_memalign(&np, alignment, size) != 0) {
+        if (arena_memalign(&np, alignment, size) != 0) {
             errno = ENOMEM;
 
             return NULL;
@@ -390,7 +392,7 @@ void* realloc(void* ptr, size_t size) {
     }
 
     { /* relocate */
-        void* np = malloc(size);
+        void* np = arena_alloc(size);
         if (np == NULL) {
             errno = ENOMEM;
 
@@ -398,8 +400,99 @@ void* realloc(void* ptr, size_t size) {
         }
 
         memcpy(np, ptr, b->size < need ? b->size : need);
-        free(ptr);
+        arena_free(ptr);
 
         return np;
     }
+}
+
+void* malloc(size_t size) {
+    void* ptr;
+
+    arena_lock();
+
+    ptr = arena_alloc(size);
+
+    arena_unlock();
+
+    if (ptr == NULL)
+        errno = ENOMEM;
+
+    return ptr;
+}
+
+void free(void* ptr) {
+    if (ptr == NULL)
+        return; /* free(NULL) is a no-op, per the standard */
+
+    arena_lock();
+    arena_free(ptr);
+    arena_unlock();
+}
+
+int posix_memalign(void** memptr, size_t alignment, size_t size) {
+    int result;
+
+    if (memptr == NULL || alignment == 0 || (alignment & (alignment - 1)) != 0 ||
+        alignment % sizeof(void*) != 0)
+        return EINVAL;
+
+    arena_lock();
+
+    result = arena_memalign(memptr, alignment, size);
+
+    arena_unlock();
+
+    return result;
+}
+
+void* calloc(size_t nmemb, size_t size) {
+    size_t bytes;
+
+    void* p;
+
+    if (nmemb != 0 && size > ((size_t) -1) / nmemb) {
+        errno = ENOMEM;
+
+        return NULL; /* nmemb * size would wrap */
+    }
+
+    bytes = nmemb * size;
+
+    arena_lock();
+
+    p = arena_alloc(bytes);
+    if (p != NULL)
+        memset(p, 0, bytes);
+
+    arena_unlock();
+
+    if (p == NULL) {
+        errno = ENOMEM;
+
+        return NULL;
+    }
+
+    return p;
+}
+
+void* realloc(void* ptr, size_t size) {
+    void* result;
+
+    if (ptr == NULL)
+        return malloc(size);
+
+    if (size == 0) {
+        free(ptr); /* v1 semantics: free and return NULL */
+
+        return NULL;
+    }
+
+    arena_lock();
+
+    result = arena_realloc(ptr, size);
+
+    arena_unlock();
+
+    return result;
 }

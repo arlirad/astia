@@ -61,6 +61,11 @@ foreach(_entry string/string string/ctype stdlib/stdlib stdlib/malloc stdio/snpr
   add_test(NAME libc_${_name}_test COMMAND libc_${_name}_test)
 endforeach()
 
+add_executable(libc_malloc_thread_test stdlib/malloc_thread_test.c
+  support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_malloc_thread_test PRIVATE astia_libc_host Threads::Threads)
+add_test(NAME libc_malloc_thread_test COMMAND libc_malloc_thread_test)
+
 add_executable(libc_wchar_test string/wchar_test.c)
 target_link_libraries(libc_wchar_test PRIVATE astia_libc)
 add_test(NAME libc_wchar_test COMMAND libc_wchar_test)
