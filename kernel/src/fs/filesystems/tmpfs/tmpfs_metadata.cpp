@@ -14,12 +14,12 @@ namespace astia::fs::filesystems {
         if (string_equal(path, "/"))
             return directory_dir;
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].directory
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].directory
                            ? directory_dir
-                           : (_entries[i].mode.is_symlink() ? directory_lnk
-                                                            : directory_reg);
+                           : (entry_table()[i].mode.is_symlink() ? directory_lnk
+                                                                 : directory_reg);
         }
 
         return directory_unknown;
@@ -34,9 +34,10 @@ namespace astia::fs::filesystems {
         if (string_equal(path, "/"))
             return file_mode(file_type::directory, readonly_directory_permissions);
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].target ? _entries[i].target->mode() : _entries[i].mode;
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].target ? entry_table()[i].target->mode()
+                                               : entry_table()[i].mode;
         }
 
         return {};
@@ -48,9 +49,9 @@ namespace astia::fs::filesystems {
         if (path == nullptr || path[0] != '/')
             return 0;
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].target ? _entries[i].target->inode() : 0;
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].target ? entry_table()[i].target->inode() : 0;
         }
 
         return 0;
@@ -72,16 +73,17 @@ namespace astia::fs::filesystems {
             return 0;
         }
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!_entries[i].used || !_entries[i].directory || !_entries[i].target)
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (!entry_table()[i].used || !entry_table()[i].directory ||
+                !entry_table()[i].target)
                 continue;
 
-            if (_entries[i].target->inode() != inode)
+            if (entry_table()[i].target->inode() != inode)
                 continue;
 
             u32 length = 0;
 
-            while (_entries[i].path[length] != '\0') {
+            while (entry_table()[i].path[length] != '\0') {
                 ++length;
             }
 
@@ -89,7 +91,7 @@ namespace astia::fs::filesystems {
                 return -ENAMETOOLONG;
 
             for (u32 j = 0; j <= length; ++j) {
-                buffer[j] = _entries[i].path[j];
+                buffer[j] = entry_table()[i].path[j];
             }
 
             return 0;
@@ -101,9 +103,9 @@ namespace astia::fs::filesystems {
     uid_t tmpfs_mount::node_uid(const char* path) const {
         core::spinlock_guard guard(_namespace_lock);
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].uid;
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].uid;
         }
 
         return {};
@@ -112,9 +114,9 @@ namespace astia::fs::filesystems {
     gid_t tmpfs_mount::node_gid(const char* path) const {
         core::spinlock_guard guard(_namespace_lock);
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].gid;
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].gid;
         }
 
         return {};
@@ -134,10 +136,10 @@ namespace astia::fs::filesystems {
             return _root_times;
         }
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path))
-                return _entries[i].target ? _entries[i].target->timestamps()
-                                          : file_timestamps{};
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
+                return entry_table()[i].target ? entry_table()[i].target->timestamps()
+                                               : file_timestamps{};
         }
 
         return {};
@@ -152,12 +154,12 @@ namespace astia::fs::filesystems {
         if (string_equal(path, "/"))
             return 0; /* mount root is not an entry */
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path)) {
-                _entries[i].mode = _entries[i].mode.chmod(permissions);
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path)) {
+                entry_table()[i].mode = entry_table()[i].mode.chmod(permissions);
 
-                if (_entries[i].target)
-                    _entries[i].target->set_mode(_entries[i].mode);
+                if (entry_table()[i].target)
+                    entry_table()[i].target->set_mode(entry_table()[i].mode);
 
                 return 0;
             }
@@ -172,13 +174,13 @@ namespace astia::fs::filesystems {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used && string_equal(_entries[i].path, path)) {
-                _entries[i].uid = uid;
-                _entries[i].gid = gid;
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used && string_equal(entry_table()[i].path, path)) {
+                entry_table()[i].uid = uid;
+                entry_table()[i].gid = gid;
 
-                if (_entries[i].target)
-                    (void) _entries[i].target->chown(uid, gid);
+                if (entry_table()[i].target)
+                    (void) entry_table()[i].target->chown(uid, gid);
 
                 return 0;
             }

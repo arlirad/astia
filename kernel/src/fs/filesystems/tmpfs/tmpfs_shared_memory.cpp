@@ -21,11 +21,11 @@ namespace astia::fs::filesystems {
 
         core::spinlock_guard guard(_namespace_lock);
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (!_entries[i].used || !string_equal(_entries[i].path, path))
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (!entry_table()[i].used || !string_equal(entry_table()[i].path, path))
                 continue;
 
-            if (_entries[i].directory)
+            if (entry_table()[i].directory)
                 return -EISDIR;
 
             if ((flags & oflag_creat) != 0 && (flags & oflag_excl) != 0)
@@ -40,18 +40,18 @@ namespace astia::fs::filesystems {
                 : access == ASTIA_AIO_O_WRONLY ? permission_bits::write
                                                : permission_bits::read;
 
-            if (!access_allowed(_entries[i].mode, _entries[i].uid, _entries[i].gid, euid,
-                                egid, want, privileged))
+            if (!access_allowed(entry_table()[i].mode, entry_table()[i].uid,
+                                entry_table()[i].gid, euid, egid, want, privileged))
                 return -EACCES;
 
-            result = mm::share<open_file>(_entries[i].target, flags);
+            result = mm::share<open_file>(entry_table()[i].target, flags);
             if (!result)
                 return -ENOMEM;
 
             result->set_path(path);
 
             if ((flags & oflag_trunc) != 0 && access != 0)
-                return _entries[i].target->truncate_ready(0);
+                return entry_table()[i].target->truncate_ready(0);
 
             return 0;
         }
@@ -59,8 +59,8 @@ namespace astia::fs::filesystems {
         if ((flags & oflag_creat) == 0)
             return -ENOENT;
 
-        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-            if (_entries[i].used)
+        for (u32 i = 0; i < node_capacity(); ++i) {
+            if (entry_table()[i].used)
                 continue;
 
             auto file = mm::shptr<tmpfs_file>(new tmpfs_file{tmpfs_max_pages, mode});
@@ -69,18 +69,18 @@ namespace astia::fs::filesystems {
 
             file->chown(uid, gid);
 
-            if (!copy_path(_entries[i].path, path))
+            if (!copy_path(entry_table()[i].path, path))
                 return -ENAMETOOLONG;
 
-            _entries[i].used      = true;
-            _entries[i].directory = false;
-            _entries[i].mode      = mode;
-            _entries[i].uid       = uid;
-            _entries[i].gid       = gid;
-            _entries[i].target    = file;
-            result                = mm::share<open_file>(file, flags);
+            entry_table()[i].used      = true;
+            entry_table()[i].directory = false;
+            entry_table()[i].mode      = mode;
+            entry_table()[i].uid       = uid;
+            entry_table()[i].gid       = gid;
+            entry_table()[i].target    = file;
+            result                     = mm::share<open_file>(file, flags);
             if (!result) {
-                _entries[i] = entry{};
+                entry_table()[i] = entry{};
 
                 return -ENOMEM;
             }
@@ -102,15 +102,15 @@ namespace astia::fs::filesystems {
         {
             core::spinlock_guard guard(_namespace_lock);
 
-            for (u32 i = 0; i < tmpfs_max_entries; ++i) {
-                if (!_entries[i].used || !string_equal(_entries[i].path, path))
+            for (u32 i = 0; i < node_capacity(); ++i) {
+                if (!entry_table()[i].used || !string_equal(entry_table()[i].path, path))
                     continue;
 
-                if (_entries[i].directory)
+                if (entry_table()[i].directory)
                     return -EISDIR;
 
-                file        = _entries[i].target;
-                _entries[i] = entry{};
+                file             = entry_table()[i].target;
+                entry_table()[i] = entry{};
 
                 break;
             }

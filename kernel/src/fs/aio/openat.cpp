@@ -87,11 +87,18 @@ namespace astia::io::aio::operations {
                     co_return -EACCES;
             }
 
-            mm::shptr<fs::open_file> handle = existing_mode.is_directory()
-                                                  ? fs::open_directory(resolved)
-                                                  : fs::open(resolved, sqe.op_flags);
-            if (!handle)
-                co_return exclusive ? -EEXIST : -ENOENT;
+            long open_error = 0;
+
+            mm::shptr<fs::open_file> handle =
+                existing_mode.is_directory()
+                    ? fs::open_directory(resolved)
+                    : fs::open(resolved, sqe.op_flags, &open_error);
+            if (!handle) {
+                if (exclusive)
+                    co_return -EEXIST;
+
+                co_return open_error != 0 ? open_error : -ENOENT;
+            }
 
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 const auto requested = mapper<fs::file_permissions>::from(

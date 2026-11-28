@@ -221,6 +221,70 @@ ASTIA_TEST(tmpfs_mkdir_rejects_symlink_entries_without_following) {
     ASTIA_CHECK(mount.node_type("/plain") == astia::fs::directory_dir);
 }
 
+ASTIA_TEST(tmpfs_node_limit_reports_enospc_for_a_new_file) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs_mount mount{2};
+
+    auto first = mount.open("/first", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+    ASTIA_CHECK(static_cast<bool>(first));
+
+    auto second = mount.open("/second", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+    ASTIA_CHECK(static_cast<bool>(second));
+
+    long error = 0;
+
+    auto third = mount.open("/third", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR, &error);
+
+    ASTIA_CHECK(!static_cast<bool>(third));
+    ASTIA_CHECK(error == -ENOSPC);
+
+    long missing_error = 0;
+
+    auto missing = mount.open("/missing", 0, &missing_error);
+
+    ASTIA_CHECK(!static_cast<bool>(missing));
+    ASTIA_CHECK(missing_error == -ENOENT);
+
+    ASTIA_CHECK(mount.mkdir("/fourth", directory_mode()) == -ENOSPC);
+}
+
+ASTIA_TEST(tmpfs_mount_source_selects_the_node_budget) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs type;
+
+    astia::fs::mount* default_mount = type.mount(nullptr);
+
+    ASTIA_CHECK(default_mount != nullptr);
+    type.destroy_mount(default_mount);
+
+    astia::fs::mount* limited = type.mount("nodes=2");
+
+    ASTIA_CHECK(limited != nullptr);
+
+    if (limited == nullptr)
+        return;
+
+    auto* budget = static_cast<astia::fs::filesystems::tmpfs_mount*>(limited);
+
+    long error = 0;
+
+    ASTIA_CHECK(static_cast<bool>(budget->open("/one", ASTIA_AIO_O_CREAT, &error)));
+    ASTIA_CHECK(error == 0);
+    ASTIA_CHECK(static_cast<bool>(budget->open("/two", ASTIA_AIO_O_CREAT, &error)));
+
+    ASTIA_CHECK(!static_cast<bool>(budget->open("/three", ASTIA_AIO_O_CREAT, &error)));
+    ASTIA_CHECK(error == -ENOSPC);
+
+    type.destroy_mount(limited);
+
+    ASTIA_CHECK(type.mount("nodes=0") == nullptr);
+    ASTIA_CHECK(type.mount("capacity=2") == nullptr);
+}
+
 ASTIA_TEST(tmpfs_node_path_follows_a_directory_rename) {
     initialize_runtime();
 

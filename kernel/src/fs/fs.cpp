@@ -58,6 +58,10 @@ namespace astia::fs {
         mount_entry                       mounts[max_mounts];
         rcu::vector<mount_snapshot_entry> mount_snapshot;
         core::spinlock                    mount_registry_lock;
+        // Production keeps the fixed budget; test images raise it before the
+        // filesystem init step mounts /tmp, so guest fixture suites do not
+        // collide with each other's leftover trees.
+        u32 tmpfs_default_nodes = max_nodes;
 
         // Lookup callers still take mount_registry_lock.  This is only a
         // hint: the generation makes the entry safe to reuse after an
@@ -375,9 +379,10 @@ namespace astia::fs {
         filesystems::devfs_mount* devfs_instance;
     } // namespace
 
-    mm::shptr<open_file> mount::open(const char* path, u32 flags) {
+    mm::shptr<open_file> mount::open(const char* path, u32 flags, long* error) {
         (void) path;
         (void) flags;
+        (void) error;
 
         return {};
     }
@@ -494,6 +499,16 @@ namespace astia::fs {
 
     long mount::readlink(const char*, char*, u32) const {
         return -ENOSYS;
+    }
+
+    u32 default_tmpfs_nodes() {
+        return tmpfs_default_nodes;
+    }
+
+    void set_default_tmpfs_nodes(u32 nodes) {
+        tmpfs_default_nodes = nodes == 0                ? max_nodes
+                              : nodes > max_nodes_limit ? max_nodes_limit
+                                                        : nodes;
     }
 
     bool init() {
@@ -878,7 +893,7 @@ namespace astia::fs {
             relative_path(*operation.entry(), path), entry);
     }
 
-    mm::shptr<open_file> open_path(const char* path, u32 flags) {
+    mm::shptr<open_file> open_path(const char* path, u32 flags, long* error) {
         char resolved[path_max]{};
 
         if (resolve_path(path, resolved, sizeof resolved, true) < 0)
@@ -902,7 +917,7 @@ namespace astia::fs {
         }
 
         auto result = operation.instance()->open(
-            relative_path(*operation.entry(), resolved), flags);
+            relative_path(*operation.entry(), resolved), flags, error);
         if (result) {
             result->set_path(resolved);
             result->attach_mount(operation.instance());
@@ -911,8 +926,8 @@ namespace astia::fs {
         return result;
     }
 
-    mm::shptr<open_file> open(const char* path, u32 flags) {
-        return open_path(path, flags);
+    mm::shptr<open_file> open(const char* path, u32 flags, long* error) {
+        return open_path(path, flags, error);
     }
 
     bool read_only_path(const char* path) {

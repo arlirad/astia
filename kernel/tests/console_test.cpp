@@ -19,7 +19,7 @@ namespace {
 }
 
 namespace astia::fs {
-    mm::shptr<open_file> open(const char* path, u32) {
+    mm::shptr<open_file> open(const char* path, u32, long*) {
         opened_path = path;
 
         return mm::shptr<open_file>(new open_file(path, file_mode{}));

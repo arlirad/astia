@@ -12,6 +12,51 @@ namespace astia::fs::filesystems::tmpfs_detail {
     inline constexpr u32 oflag_excl  = ASTIA_AIO_O_EXCL;
     inline constexpr u32 oflag_trunc = ASTIA_AIO_O_TRUNC;
 
+    inline void set_error(long* error, long value) {
+        if (error != nullptr)
+            *error = value;
+    }
+
+    /// Parse a tmpfs mount source.  An empty source keeps the default node
+    /// budget; "nodes=<count>" requests another, clamped to the table
+    /// maximum.  Any other source is rejected so a typo cannot silently
+    /// mount with the wrong budget.
+    inline bool source_capacity(const char* source, u32& capacity) {
+        constexpr const char* prefix = "nodes=";
+
+        if (source == nullptr || source[0] == '\0')
+            return true;
+
+        u32 at = 0;
+
+        for (; prefix[at] != '\0'; ++at) {
+            if (source[at] != prefix[at])
+                return false;
+        }
+
+        if (source[at] == '\0')
+            return false;
+
+        u32 value = 0;
+
+        for (; source[at] != '\0'; ++at) {
+            if (source[at] < '0' || source[at] > '9')
+                return false;
+
+            value = value * 10 + static_cast<u32>(source[at] - '0');
+
+            if (value > tmpfs_max_entries)
+                break;
+        }
+
+        if (value == 0)
+            return false;
+
+        capacity = value > tmpfs_max_entries ? tmpfs_max_entries : value;
+
+        return true;
+    }
+
     inline bool copy_path(char* dst, const char* src) {
         if (src == nullptr || src[0] != '/')
             return false;
