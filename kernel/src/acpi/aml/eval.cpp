@@ -279,23 +279,9 @@ namespace astia::acpi::detail {
         node& entry = _nodes[id];
 
         if (entry.kind == static_cast<u8>(node_kind::name)) {
-            out.slot = &entry.value;
-            out.name = id;
-
-            node_id parent = id;
-
-            while (parent != no_node && parent < _node_count) {
-                if (_nodes[parent].kind == static_cast<u8>(node_kind::method)) {
-                    out.transient = true;
-
-                    break;
-                }
-
-                if (parent == root())
-                    break;
-
-                parent = _nodes[parent].parent;
-            }
+            out.slot      = &entry.value;
+            out.name      = id;
+            out.transient = entry.transient;
 
             return true;
         }
@@ -1060,7 +1046,7 @@ namespace astia::acpi::detail {
 
         execution e{};
 
-        e.scope = method;
+        e.scope = _nodes[method].parent;
 
         for (value_id& local : e.local) {
             local = add_integer(0);

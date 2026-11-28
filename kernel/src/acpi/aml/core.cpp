@@ -73,27 +73,13 @@ namespace astia::acpi::detail {
     }
 
     void interpreter::reset_evaluation() {
-        auto under_method = [this](node_id id) {
-            while (id != no_node && id < _node_count) {
-                if (_nodes[id].kind == static_cast<u8>(node_kind::method))
-                    return true;
-
-                if (id == root())
-                    break;
-
-                id = _nodes[id].parent;
-            }
-
-            return false;
-        };
-
         bool dynamic_value = false;
 
         for (node_id id = 0; id < _node_count; ++id) {
-            if (under_method(id))
-                continue;
-
             const node& entry = _nodes[id];
+
+            if (entry.transient)
+                continue;
 
             if (entry.value != no_value && entry.value >= _static_values)
                 dynamic_value = true;

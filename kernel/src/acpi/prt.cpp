@@ -795,7 +795,6 @@ namespace astia::acpi::detail {
             return false;
         }
 
-        bool saw_prt   = false;
         bool saw_known = false;
 
         for (usz i = 0; i < bridge_count; ++i) {
@@ -812,8 +811,6 @@ namespace astia::acpi::detail {
             if (prt_node == no_node)
                 continue;
 
-            saw_prt = true;
-
             prt_error route_error = prt_error::none;
 
             if (route_from_prt(aml, bridges[i].id, prt_node, device, function, pin, out,
@@ -825,10 +822,7 @@ namespace astia::acpi::detail {
             return false;
         }
 
-        if (!saw_known)
-            error = prt_error::no_root_bridge;
-        else
-            error = saw_prt ? prt_error::no_route : prt_error::no_prt;
+        error = saw_known ? prt_error::no_prt : prt_error::no_root_bridge;
 
         return false;
     }

@@ -571,24 +571,7 @@ namespace astia::acpi::detail {
         node& entry = _nodes[target];
 
         if (_static_values != 0 && data >= _static_values) {
-            bool transient = false;
-
-            node_id parent = target;
-
-            while (parent != no_node && parent < _node_count) {
-                if (_nodes[parent].kind == static_cast<u8>(node_kind::method)) {
-                    transient = true;
-
-                    break;
-                }
-
-                if (parent == root())
-                    break;
-
-                parent = _nodes[parent].parent;
-            }
-
-            if (!transient) {
+            if (!entry.transient) {
                 struct target destination {};
 
                 destination.slot = &entry.value;

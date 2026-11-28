@@ -13,6 +13,7 @@ namespace astia::acpi::detail {
         added.name                 = name;
         added.parent               = parent;
         added.kind                 = static_cast<u8>(kind);
+        added.transient            = _static_values != 0;
         added.value                = no_value;
         added.target               = no_node;
         added.next_sibling         = _nodes[parent].first_child;
@@ -444,12 +445,21 @@ namespace astia::acpi::detail {
                                           entry.bit_width != 32 && entry.bit_width != 64))
             return fail(aml_error::unsupported_object);
 
-        const u64 offset = region.address + entry.bit_offset / 8;
+        const u64 byte_offset = entry.bit_offset / 8;
 
-        if (region.length != 0 &&
-            (entry.bit_offset / 8 > region.length ||
-             entry.bit_width / 8 > region.length - entry.bit_offset / 8))
+        if (region.length != 0 && (byte_offset > region.length ||
+                                   entry.bit_width / 8 > region.length - byte_offset))
             return fail(aml_error::invalid_value);
+
+        if (region.flags == 2 && static_cast<u64>(region.address & 0xFFFFu) +
+                                         byte_offset + entry.bit_width / 8 >
+                                     0x10000)
+            return fail(aml_error::invalid_value);
+
+        if (region.address > ~u64{0} - byte_offset)
+            return fail(aml_error::invalid_value);
+
+        const u64 offset = region.address + byte_offset;
 
         if (_region_io.read == nullptr ||
             !_region_io.read(_region_io.context, region.flags, offset,
@@ -503,12 +513,21 @@ namespace astia::acpi::detail {
                                           entry.bit_width != 32 && entry.bit_width != 64))
             return fail(aml_error::unsupported_object);
 
-        const u64 offset = region.address + entry.bit_offset / 8;
+        const u64 byte_offset = entry.bit_offset / 8;
 
-        if (region.length != 0 &&
-            (entry.bit_offset / 8 > region.length ||
-             entry.bit_width / 8 > region.length - entry.bit_offset / 8))
+        if (region.length != 0 && (byte_offset > region.length ||
+                                   entry.bit_width / 8 > region.length - byte_offset))
             return fail(aml_error::invalid_value);
+
+        if (region.flags == 2 && static_cast<u64>(region.address & 0xFFFFu) +
+                                         byte_offset + entry.bit_width / 8 >
+                                     0x10000)
+            return fail(aml_error::invalid_value);
+
+        if (region.address > ~u64{0} - byte_offset)
+            return fail(aml_error::invalid_value);
+
+        const u64 offset = region.address + byte_offset;
 
         if (_region_io.write == nullptr ||
             !_region_io.write(_region_io.context, region.flags, offset,

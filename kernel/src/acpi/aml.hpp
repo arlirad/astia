@@ -108,6 +108,7 @@ namespace astia::acpi::detail {
         u8        arg_count    = 0;
         u8        flags        = 0;
         u8        object_type  = 0;
+        bool      transient    = false;
     };
 
     struct region_io {
