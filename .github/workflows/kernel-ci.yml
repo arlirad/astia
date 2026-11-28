@@ -60,7 +60,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             binutils \
+            autoconf \
+            automake \
             build-essential \
+            gperf \
+            gettext \
+            help2man \
+            libtool \
+            texinfo \
             clang-${LLVM_VERSION} \
             cmake \
             cpio \
