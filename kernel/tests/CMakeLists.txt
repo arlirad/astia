@@ -33,6 +33,21 @@ find_program(ASTIA_CPIO cpio REQUIRED)
 find_program(ASTIA_GZIP gzip REQUIRED)
 find_program(ASTIA_ZSTD zstd REQUIRED)
 
+find_program(ASTIA_SETARCH setarch)
+if (NOT ASTIA_SETARCH)
+    message(FATAL_ERROR
+            "setarch is required to run fixed-arena host tests with ASLR disabled")
+endif ()
+execute_process(
+        COMMAND ${ASTIA_SETARCH} -R ${CMAKE_COMMAND} -E true
+        RESULT_VARIABLE ASTIA_SETARCH_RESULT
+        OUTPUT_QUIET ERROR_QUIET)
+if (NOT ASTIA_SETARCH_RESULT EQUAL 0)
+    message(FATAL_ERROR
+            "setarch -R is unavailable; fixed-arena host tests require ASLR disabled")
+endif ()
+set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
+
 add_library(astia_test_support STATIC
         support/main.cpp
         support/arena.cpp
@@ -386,6 +401,7 @@ astia_add_host_test(astia_fd_table_test
 target_link_libraries(astia_fd_table_test PRIVATE Threads::Threads)
 astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
+set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
@@ -396,6 +412,7 @@ astia_add_host_test(astia_cwd_context_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
         support/arena.cpp
         support/resume_queue_host.cpp)
+unset(ASTIA_HOST_TEST_LAUNCHER)
 target_compile_options(astia_cwd_context_test PRIVATE -ffunction-sections -fdata-sections -fno-pie)
 target_link_options(astia_cwd_context_test PRIVATE
         "-Wl,-no-pie"
@@ -1149,21 +1166,6 @@ set_source_files_properties(${ASTIA_KERNEL_SOURCE_DIR}/src/lib/memory.cpp
 # as pointers. Back a fixed mmap'd window with real memory (support/arena.cpp)
 # and inject symbols the allocator reserves. The addresses must match
 # astia_test::arena_base / kernel_image_size in support/arena.hpp.
-find_program(ASTIA_SETARCH setarch)
-if (NOT ASTIA_SETARCH)
-    message(FATAL_ERROR
-            "setarch is required to run fixed-arena host tests with ASLR disabled")
-endif ()
-execute_process(
-        COMMAND ${ASTIA_SETARCH} -R ${CMAKE_COMMAND} -E true
-        RESULT_VARIABLE ASTIA_SETARCH_RESULT
-        OUTPUT_QUIET ERROR_QUIET)
-if (NOT ASTIA_SETARCH_RESULT EQUAL 0)
-    message(FATAL_ERROR
-            "setarch -R is unavailable; fixed-arena host tests require ASLR disabled")
-endif ()
-set(ASTIA_ARENA_TEST_LAUNCHER ${ASTIA_SETARCH} -R)
-
 set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_exec_rollback_test
         astia_rcu_hashmap_test
@@ -1173,7 +1175,11 @@ set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_address_space_test
         astia_heap_test
         astia_phys_region_test
-        astia_path_service_test)
+        astia_path_service_test
+        astia_tls_arena_test
+        astia_ext4_vfs_test
+        astia_tmpfs_readdir_test
+        astia_tmpfs_timestamps_test)
 
 function(astia_add_arena_test name)
     if (name IN_LIST ASTIA_ARENA_ASLR_TEST_NAMES)

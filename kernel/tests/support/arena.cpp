@@ -2,6 +2,7 @@
 
 #include <sys/mman.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 
@@ -18,8 +19,11 @@ namespace astia_test {
             wanted, arena_size, PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE | MAP_NORESERVE, -1, 0);
         if (got != wanted) {
-            std::fprintf(stderr, "astia_test: mmap of arena at 0x%llx failed (%p)\n",
-                         static_cast<unsigned long long>(arena_base), got);
+            const int error = errno;
+
+            std::fprintf(stderr,
+                         "astia_test: mmap of arena at 0x%llx failed (%p, errno=%d)\n",
+                         static_cast<unsigned long long>(arena_base), got, error);
             std::abort();
         }
 
