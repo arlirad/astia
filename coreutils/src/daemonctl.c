@@ -6,44 +6,118 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 
-static int command_errno(const char* name, const char* detail) {
+/* The supervisor publishes a service only after its control socket is
+ * listening, but a service can still lose the race against the socket
+ * becoming connectable.  Retry that short transient window instead of
+ * reporting a hard failure; the bound is short enough that a genuinely
+ * absent daemon still fails promptly. */
+enum { CONNECT_ATTEMPTS = 80, CONNECT_INTERVAL_NSEC = 25 * 1000 * 1000 };
+
+_Static_assert(sizeof(DAEMON_SOCKET_PATH) - 1 <
+                   sizeof(((struct sockaddr_un*) 0)->sun_path),
+               "primary daemon socket path must fit in sun_path");
+_Static_assert(sizeof(DAEMON_SOCKET_FALLBACK) - 1 <
+                   sizeof(((struct sockaddr_un*) 0)->sun_path),
+               "fallback daemon socket path must fit in sun_path");
+
+static int command_errno(const char* name, const char* detail, int error) {
     char message[96];
 
-    snprintf(message, sizeof message, "%s (errno=%d)", detail, errno);
+    snprintf(message, sizeof message, "%s (errno=%d)", detail, error);
 
     return cu_error(name, message);
 }
 
-static int connect_daemon(int fd, const char* path) {
+static int transient_connect_error(int error) {
+    return error == ENOENT || error == ECONNREFUSED || error == EAGAIN;
+}
+
+/* Every attempt owns its descriptor: POSIX leaves the socket state
+ * unspecified after a failed connect(), so it cannot be reused. */
+static int connect_path(const char* path, int* error) {
     struct sockaddr_un address;
 
     size_t path_length;
 
-    if (cu_daemonctl_socket_address(&address, path, &path_length) != 0)
-        return -1;
+    unsigned int length;
 
-    return connect(
-        fd, (struct sockaddr*) &address,
-        (unsigned int) (offsetof(struct sockaddr_un, sun_path) + path_length + 1));
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+
+    if (fd < 0) {
+        *error = errno;
+
+        return -1;
+    }
+
+    if (cu_daemonctl_socket_address(&address, path, &path_length) != 0) {
+        *error = errno;
+
+        close(fd);
+
+        return -1;
+    }
+
+    length = (unsigned int) (offsetof(struct sockaddr_un, sun_path) + path_length + 1);
+
+    if (connect(fd, (struct sockaddr*) &address, length) == 0)
+        return fd;
+
+    *error = errno;
+
+    close(fd);
+
+    return -1;
+}
+
+static int connect_daemon(int* last_error) {
+    static const char* const paths[] = {DAEMON_SOCKET_PATH, DAEMON_SOCKET_FALLBACK};
+
+    int error = ECONNREFUSED;
+
+    for (int attempt = 0; attempt < CONNECT_ATTEMPTS; ++attempt) {
+        int retry = 1;
+
+        for (unsigned int index = 0; index < sizeof paths / sizeof paths[0]; ++index) {
+            int attempt_error = 0;
+
+            int fd = connect_path(paths[index], &attempt_error);
+            if (fd >= 0)
+                return fd;
+
+            error = attempt_error;
+
+            if (!transient_connect_error(attempt_error))
+                retry = 0;
+        }
+
+        if (!retry)
+            break;
+
+        if (attempt + 1 < CONNECT_ATTEMPTS) {
+            struct timespec pause = {0, CONNECT_INTERVAL_NSEC};
+
+            while (nanosleep(&pause, NULL) != 0 && errno == EINTR) {
+            }
+        }
+    }
+
+    *last_error = error;
+
+    return -1;
 }
 
 static int command(const char* name, const char* request) {
     char   response[DAEMON_RESPONSE_MAX];
-    int    fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int    error = 0;
     long   n;
     size_t length = __builtin_strlen(request);
+    int    fd     = connect_daemon(&error);
 
     if (fd < 0)
-        return command_errno(name, "daemon unavailable");
-
-    if (connect_daemon(fd, DAEMON_SOCKET_PATH) < 0 &&
-        connect_daemon(fd, DAEMON_SOCKET_FALLBACK) < 0) {
-        close(fd);
-
-        return command_errno(name, "daemon unavailable");
-    }
+        return command_errno(name, "daemon unavailable", error);
 
     {
         const char* cursor = request;
@@ -53,9 +127,11 @@ static int command(const char* name, const char* request) {
         while (remaining) {
             long written = send(fd, cursor, (unsigned long) remaining, 0);
             if (written <= 0) {
+                error = written == 0 ? EPIPE : errno;
+
                 close(fd);
 
-                return command_errno(name, "daemon request failed");
+                return command_errno(name, "daemon request failed", error);
             }
 
             cursor += written;
@@ -69,9 +145,11 @@ static int command(const char* name, const char* request) {
         long received =
             recv(fd, response + n, sizeof response - 1 - (unsigned long) n, 0);
         if (received < 0) {
+            error = errno;
+
             close(fd);
 
-            return command_errno(name, "daemon response failed");
+            return command_errno(name, "daemon response failed", error);
         }
 
         if (received == 0)
@@ -83,7 +161,7 @@ static int command(const char* name, const char* request) {
     close(fd);
 
     if (n <= 0)
-        return command_errno(name, "daemon response failed");
+        return command_errno(name, "daemon response failed", ECONNRESET);
 
     response[n] = '\0';
 
