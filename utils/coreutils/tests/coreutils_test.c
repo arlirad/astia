@@ -696,6 +696,62 @@ static int check_output_excludes(const char* name, char* const argv[], int statu
     return strstr(buffer, absent) == NULL ? 0 : fail(name);
 }
 
+static void cleanup_mkdir_mode_paths(void) {
+    static const char* const paths[] = {
+        "/tmp/coreutils_mkdir_mode/a/b/c",     "/tmp/coreutils_mkdir_mode/a/b",
+        "/tmp/coreutils_mkdir_mode/a",         "/tmp/coreutils_mkdir_mode",
+        "/tmp/coreutils_mkdir_restricted/a/b", "/tmp/coreutils_mkdir_restricted/a",
+        "/tmp/coreutils_mkdir_restricted",
+    };
+
+    for (size_t i = 0; i < sizeof paths / sizeof paths[0]; ++i) {
+        (void) chmod(paths[i], 0700);
+        (void) rmdir(paths[i]);
+    }
+}
+
+static int mkdir_mode_checks(void) {
+    char* mkdir_umask[]      = {"mkdir", "-p", "/tmp/coreutils_mkdir_mode/a/b/c", NULL};
+    char* mkdir_restricted[] = {"mkdir", "-p", "/tmp/coreutils_mkdir_restricted/a/b",
+                                NULL};
+
+    cleanup_mkdir_mode_paths();
+
+    mode_t saved_umask = umask(0077);
+
+    int status = check("mkdir -p umask", mkdir_umask, NULL, 0, NULL, 0);
+
+    (void) umask(saved_umask);
+
+    if (status != 0 || !mode_is("/tmp/coreutils_mkdir_mode/a", 0700) ||
+        !mode_is("/tmp/coreutils_mkdir_mode/a/b", 0700) ||
+        !mode_is("/tmp/coreutils_mkdir_mode/a/b/c", 0700)) {
+        cleanup_mkdir_mode_paths();
+
+        return fail("mkdir -p umask modes");
+    }
+
+    saved_umask = umask(0777);
+    status      = check("mkdir -p restricted umask", mkdir_restricted, NULL, 0, NULL, 0);
+
+    (void) umask(saved_umask);
+
+    if (status != 0 || !mode_is("/tmp/coreutils_mkdir_restricted/a", 0) ||
+        !mode_is("/tmp/coreutils_mkdir_restricted/a/b", 0)) {
+        cleanup_mkdir_mode_paths();
+
+        return fail("mkdir -p restricted umask modes");
+    }
+
+    cleanup_mkdir_mode_paths();
+
+    if (!is_absent("/tmp/coreutils_mkdir_mode") ||
+        !is_absent("/tmp/coreutils_mkdir_restricted"))
+        return fail("mkdir mode cleanup");
+
+    return 0;
+}
+
 static int mv_directory_checks(void) {
     char* mv_into_directory[]           = {"mv", "/tmp/coreutils_mv_file",
                                            "/tmp/coreutils_mv_target", NULL};
@@ -1877,6 +1933,7 @@ int main(void) {
         check("mkdir -p existing", mkdir_existing, NULL, 0, NULL, 0) ||
         check("mkdir missing parent", mkdir_bad, NULL, 1, NULL, 0) ||
         check("mkdir file parent", mkdir_file_parent, NULL, 1, NULL, 0) ||
+        mkdir_mode_checks() != 0 ||
         check("touch create", touch_create, NULL, 0, NULL, 0) ||
         !is_file("/tmp/coreutils_touch") ||
         check("touch -c missing", touch_no_create, NULL, 0, NULL, 0) ||
