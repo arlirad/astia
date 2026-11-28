@@ -61,6 +61,12 @@ static int is_file(const char* path) {
     return stat(path, &info) == 0 && S_ISREG(info.st_mode);
 }
 
+static int mode_is(const char* path, mode_t mode) {
+    struct stat info;
+
+    return stat(path, &info) == 0 && (info.st_mode & 0777) == mode;
+}
+
 static int is_directory(const char* path) {
     struct stat info;
 
@@ -1172,7 +1178,8 @@ int main(void) {
     char* touch_modify[]      = {"touch", "-m", "/tmp/coreutils_touch", NULL};
     char* touch_both[]        = {"touch", "-a", "-m", "/tmp/coreutils_touch", NULL};
     char* cp_file[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_copy", NULL};
-    char* cp_self[]           = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_a", NULL};
+    char* cp_mode[] = {"cp", "/tmp/coreutils_mode_src", "/tmp/coreutils_mode_copy", NULL};
+    char* cp_self[] = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_a", NULL};
     char* cp_hardlink[]  = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_cp_hard", NULL};
     char* cp_symlink[]   = {"cp", "/tmp/coreutils_a", "/tmp/coreutils_link", NULL};
     char* cp_directory[] = {"cp", "-r", "/tmp/coreutils_tree", "/tmp/coreutils_tree_copy",
@@ -1256,6 +1263,8 @@ int main(void) {
 
     /* Keep reruns deterministic when a previous QEMU run stopped midway. */
     (void) unlink("/tmp/coreutils_copy");
+    (void) unlink("/tmp/coreutils_mode_copy");
+    (void) unlink("/tmp/coreutils_mode_src");
     (void) unlink("/tmp/coreutils_cp_hard");
     (void) unlink("/tmp/coreutils_from_stdin");
     (void) unlink("/tmp/coreutils_moved");
@@ -1288,11 +1297,16 @@ int main(void) {
         put_file("/tmp/coreutils_mode", "mode\n") != 0 || 0)
         return fail("fixture setup");
 
+    if (put_file("/tmp/coreutils_mode_src", "mode\n") != 0 ||
+        chmod("/tmp/coreutils_mode_src", 0640) != 0)
+        return fail("cp mode fixture setup");
+
     struct stat dangling_stat;
 
     if (mkdir("/tmp/coreutils_tree", 0777) != 0 ||
         mkdir("/tmp/coreutils_tree/nested", 0777) != 0 ||
-        put_file("/tmp/coreutils_tree/nested/file", "tree\n") != 0)
+        put_file("/tmp/coreutils_tree/nested/file", "tree\n") != 0 ||
+        chmod("/tmp/coreutils_tree/nested/file", 0640) != 0)
         return fail("recursive fixture setup");
 
     if (mkdir("/tmp/coreutils_ls_col", 0777) != 0 ||
@@ -1385,6 +1399,8 @@ int main(void) {
         is_directory("/tmp/coreutils_tree/coreutils_tree") ||
         is_directory("/tmp/coreutils_tree/nested_copy") ||
         check("cp", cp_file, NULL, 0, NULL, 0) || !is_file("/tmp/coreutils_copy") ||
+        check("cp mode", cp_mode, NULL, 0, NULL, 0) ||
+        (!mode_is("/tmp/coreutils_mode_copy", 0640) && fail("cp preserves file mode")) ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
         check("ls sorted pipe", ls_col_dir, NULL, 0,
@@ -1408,6 +1424,8 @@ int main(void) {
          fail("cp -r nested directory")) ||
         (!file_equals("/tmp/coreutils_tree_copy/nested/file", "tree\n") &&
          fail("cp -r nested file")) ||
+        (!mode_is("/tmp/coreutils_tree_copy/nested/file", 0640) &&
+         fail("cp -r preserves file mode")) ||
         check("find directory", find_tree, NULL, 0, "/tmp/coreutils_tree/nested/file\n",
               0) ||
         check("cp stdin", cp_stdin, "from stdin\n", 0, NULL, 0) ||
@@ -1499,6 +1517,9 @@ int main(void) {
 
     if (rm_directory_checks() != 0)
         return 1;
+
+    (void) unlink("/tmp/coreutils_mode_src");
+    (void) unlink("/tmp/coreutils_mode_copy");
 
     if (find_symlink_checks() != 0)
         return 1;

@@ -114,8 +114,7 @@ static int copy_fd(int input, int output, const char* name) {
     }
 }
 
-static int copy_node(const char* source, const char* destination, mode_t mode,
-                     cu_stack* frames);
+static int copy_node(const char* source, const char* destination, cu_stack* frames);
 
 static void close_cp_frame(cp_frame* frame) {
     closedir(frame->directory);
@@ -170,8 +169,7 @@ static int copy_directory_node(const char* source, const char* destination, mode
     return 0;
 }
 
-static int copy_node(const char* source, const char* destination, mode_t mode,
-                     cu_stack* frames) {
+static int copy_node(const char* source, const char* destination, cu_stack* frames) {
     struct stat info;
 
     int input;
@@ -188,7 +186,7 @@ static int copy_node(const char* source, const char* destination, mode_t mode,
     if (input < 0)
         return cu_error("cp", source);
 
-    output = open(destination, O_WRONLY | O_CREAT, mode & 0777);
+    output = open(destination, O_WRONLY | O_CREAT, info.st_mode & 0777);
     if (output < 0) {
         /* The destination failure is the primary error; the doomed input
          * close is legitimately ignorable. */
@@ -210,12 +208,12 @@ static int copy_node(const char* source, const char* destination, mode_t mode,
     return status;
 }
 
-static int copy_tree(const char* source, const char* destination, mode_t mode) {
+static int copy_tree(const char* source, const char* destination) {
     cu_stack frames;
 
     cu_stack_init(&frames, sizeof(cp_frame));
 
-    int status = copy_node(source, destination, mode, &frames);
+    int status = copy_node(source, destination, &frames);
 
     while (frames.count != 0) {
         cp_frame* frame = (cp_frame*) cu_stack_top(&frames);
@@ -250,7 +248,7 @@ static int copy_tree(const char* source, const char* destination, mode_t mode) {
             break;
         }
 
-        status |= copy_node(from, to, 0777, &frames);
+        status |= copy_node(from, to, &frames);
 
         free(from);
         free(to);
@@ -374,7 +372,7 @@ int main(int argc, char** argv) {
         return status;
     }
 
-    int status = copy_tree(source, target_path, 0666);
+    int status = copy_tree(source, target_path);
 
     free(target);
 
