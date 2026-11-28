@@ -34,6 +34,47 @@ namespace {
     astia::vaddr_t kvirt(astia::vaddr_t offset) {
         return astia::arch::kernel_base + offset;
     }
+
+    // Walk a root table the way the CPU does, without consulting any parent
+    // fallback: the physical pointers are arena addresses in host tests.
+    astia::paddr_t hardware_translate(astia::paddr_t root, astia::vaddr_t virt) {
+        constexpr astia::u64 present      = 1ull << 0;
+        constexpr astia::u64 huge         = 1ull << 7;
+        constexpr astia::u64 address_mask = 0x000FFFFFFFFFF000ull;
+
+        auto table = reinterpret_cast<const astia::u64*>(root);
+
+        astia::u64 entry = table[(virt >> 39) & 0x1ff];
+
+        if ((entry & present) == 0)
+            return page_map::invalid;
+
+        table = reinterpret_cast<const astia::u64*>(entry & address_mask);
+        entry = table[(virt >> 30) & 0x1ff];
+
+        if ((entry & present) == 0)
+            return page_map::invalid;
+
+        if ((entry & huge) != 0)
+            return (entry & (~0ull << 30)) | (virt & 0x3fffffff);
+
+        table = reinterpret_cast<const astia::u64*>(entry & address_mask);
+        entry = table[(virt >> 21) & 0x1ff];
+
+        if ((entry & present) == 0)
+            return page_map::invalid;
+
+        if ((entry & huge) != 0)
+            return (entry & (~0ull << 21)) | (virt & 0x1fffff);
+
+        table = reinterpret_cast<const astia::u64*>(entry & address_mask);
+        entry = table[(virt >> 12) & 0x1ff];
+
+        if ((entry & present) == 0)
+            return page_map::invalid;
+
+        return (entry & address_mask) | (virt & 0xfff);
+    }
 } // namespace
 
 ASTIA_TEST(page_map_create_allocates_empty_root) {
@@ -226,6 +267,38 @@ ASTIA_TEST(page_map_parent_fallback_for_late_kernel_maps) {
     // ...translate still finds it through the parent.
     ASTIA_CHECK(child.translate(virt) == phys);
     ASTIA_CHECK(child.translate(virt) == parent.translate(virt));
+}
+
+ASTIA_TEST(page_map_late_kernel_slot_reaches_existing_children) {
+    // The generic MMIO window lives in PML4 slot 384, which is still empty
+    // when early processes are created.
+    constexpr astia::u64 late_slot = 0xFFFFC00000000000ull;
+
+    auto parent = make_map();
+    auto child  = page_map::create(&parent);
+
+    ASTIA_CHECK(child.valid());
+
+    const astia::u64 virt = late_slot + 0x200000;
+    const astia::u64 phys = astia_test::arena_base + 0x400000;
+    const astia::usz slot = (virt >> 39) & 0x1ff;
+
+    ASTIA_CHECK(
+        ((reinterpret_cast<const astia::u64*>(child.root())[slot]) & (1ull << 0)) == 0);
+
+    // Populate a kernel slot that did not exist when the child was created.
+    ASTIA_CHECK(parent.map_4k(virt, phys, rw));
+
+    const astia::u64 parent_entry =
+        reinterpret_cast<const astia::u64*>(parent.root())[slot];
+    const astia::u64 child_entry =
+        reinterpret_cast<const astia::u64*>(child.root())[slot];
+
+    // The child's own root now points at the parent's PDPT, so the hardware
+    // walk — not just translate()'s parent fallback — resolves the mapping.
+    ASTIA_CHECK((parent_entry & (1ull << 0)) != 0);
+    ASTIA_CHECK(child_entry == parent_entry);
+    ASTIA_CHECK(hardware_translate(child.root(), virt) == phys);
 }
 
 ASTIA_TEST(page_map_child_maps_only_its_own_half) {

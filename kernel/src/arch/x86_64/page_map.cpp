@@ -1,5 +1,6 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
+#include <astia/arch/spinlock_guard.hpp>
 #include <astia/arch/user_layout.hpp>
 #ifndef ASTIA_HOST_TEST
 #include <astia/arch/cpu.hpp>
@@ -89,6 +90,12 @@ namespace astia::arch {
         // host unit tests, which is exactly when table access has to use
         // physical pointers instead of the recursive window.
         const page_map* active_map = nullptr;
+
+        // Serialises the parent/child registry against kernel-half slot
+        // publication: create() copies the parent's kernel half and links the
+        // child under this lock, and a newly populated kernel slot is copied
+        // to every linked descendant under the same lock.
+        core::spinlock kernel_slot_lock;
 
         enum class table_level {
             root,
@@ -313,14 +320,21 @@ namespace astia::arch {
     } // namespace
 
     page_map::page_map(page_map&& other) noexcept
-        : _root(other._root), _parent(other._parent) {
-        other._root   = 0;
-        other._parent = nullptr;
+        : _root(other._root), _parent(other._parent), _first_child(other._first_child),
+          _next_sibling(other._next_sibling) {
+        migrate_registry(other);
+
+        other._root         = 0;
+        other._parent       = nullptr;
+        other._first_child  = nullptr;
+        other._next_sibling = nullptr;
     }
 
     page_map::~page_map() {
         if (!valid())
             return;
+
+        unlink_from_parent();
 #ifndef ASTIA_HOST_TEST
         interrupt_guard gate;
 #endif
@@ -345,11 +359,86 @@ namespace astia::arch {
 
             _root         = other._root;
             _parent       = other._parent;
-            other._root   = 0;
-            other._parent = nullptr;
+            _first_child  = other._first_child;
+            _next_sibling = other._next_sibling;
+
+            migrate_registry(other);
+
+            other._root         = 0;
+            other._parent       = nullptr;
+            other._first_child  = nullptr;
+            other._next_sibling = nullptr;
         }
 
         return *this;
+    }
+
+    void page_map::migrate_registry(page_map& source) {
+        interrupt_spinlock_guard guard(kernel_slot_lock);
+
+        if (source._parent != nullptr) {
+            auto*     parent = const_cast<page_map*>(source._parent);
+            page_map* link   = parent->_first_child;
+
+            if (link == &source) {
+                parent->_first_child = this;
+            }
+            else {
+                while (link != nullptr && link->_next_sibling != &source) {
+                    link = link->_next_sibling;
+                }
+
+                if (link != nullptr)
+                    link->_next_sibling = this;
+            }
+        }
+
+        for (page_map* child = _first_child; child != nullptr;
+             child           = child->_next_sibling) {
+            child->_parent = this;
+        }
+
+        source._first_child  = nullptr;
+        source._next_sibling = nullptr;
+    }
+
+    void page_map::unlink_from_parent() {
+        if (_parent == nullptr)
+            return;
+
+        interrupt_spinlock_guard guard(kernel_slot_lock);
+
+        auto*     parent = const_cast<page_map*>(_parent);
+        page_map* link   = parent->_first_child;
+
+        if (link == this) {
+            parent->_first_child = _next_sibling;
+        }
+        else {
+            while (link != nullptr && link->_next_sibling != this) {
+                link = link->_next_sibling;
+            }
+
+            if (link != nullptr)
+                link->_next_sibling = _next_sibling;
+        }
+
+        _next_sibling = nullptr;
+    }
+
+    void page_map::publish_kernel_entry(usz slot, u64 entry) {
+        interrupt_spinlock_guard guard(kernel_slot_lock);
+
+        publish_kernel_entry_locked(slot, entry);
+    }
+
+    void page_map::publish_kernel_entry_locked(usz slot, u64 entry) {
+        phys_ptr(_root)[slot] = entry;
+
+        for (page_map* child = _first_child; child != nullptr;
+             child           = child->_next_sibling) {
+            child->publish_kernel_entry_locked(slot, entry);
+        }
     }
 
     page_map page_map::create(const page_map* parent) {
@@ -362,15 +451,21 @@ namespace astia::arch {
         u64*     dst = phys_ptr(frame);
 
         if (parent != nullptr && parent->valid()) {
-            // Share the parent's kernel-half top-level entries: the same
-            // table frames, so the hardware walk from a child address space
-            // sees every kernel mapping — including ones the kernel adds
-            // after this child was created (they land in the shared tables).
-            const u64* src = root_table(*parent);
+            // Share the parent's kernel-half top-level entries and link this
+            // map into the parent's registry under one lock: a slot the
+            // kernel populates concurrently is then either copied here or
+            // published to this map after it is linked, never missed.
+            interrupt_spinlock_guard guard(kernel_slot_lock);
+            const u64*               src = root_table(*parent);
 
             for (usz i = kernel_slot; i < 512; ++i) {
                 dst[i] = src[i];
             }
+
+            auto* parent_map = const_cast<page_map*>(parent);
+
+            map._next_sibling        = parent_map->_first_child;
+            parent_map->_first_child = &map;
         }
 
         // The recursive slot is never shared: each map points it back at its
@@ -395,11 +490,19 @@ namespace astia::arch {
             return false; // reserved for the map's self-reference
         }
 
+        const usz slot = pml4_index(virt);
+
         u64* pml4 = root_table(*this);
-        u64* pdpt =
-            ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
+
+        const bool new_kernel_slot =
+            slot >= kernel_slot && (pml4[slot] & entry_present) == 0;
+
+        u64* pdpt = ensure_table(*this, virt, table_level::pdpt, pml4[slot], flags);
         if (pdpt == nullptr)
             return false;
+
+        if (new_kernel_slot)
+            publish_kernel_entry(slot, pml4[slot]);
 
         u64* pd =
             ensure_table(*this, virt, table_level::pd, pdpt[pdpt_index(virt)], flags);
@@ -445,11 +548,19 @@ namespace astia::arch {
             return false; // reserved for the map's self-reference
         }
 
+        const usz slot = pml4_index(virt);
+
         u64* pml4 = root_table(*this);
-        u64* pdpt =
-            ensure_table(*this, virt, table_level::pdpt, pml4[pml4_index(virt)], flags);
+
+        const bool new_kernel_slot =
+            slot >= kernel_slot && (pml4[slot] & entry_present) == 0;
+
+        u64* pdpt = ensure_table(*this, virt, table_level::pdpt, pml4[slot], flags);
         if (pdpt == nullptr)
             return false;
+
+        if (new_kernel_slot)
+            publish_kernel_entry(slot, pml4[slot]);
 
         u64& pdpe = pdpt[pdpt_index(virt)];
 
