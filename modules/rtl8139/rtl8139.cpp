@@ -11,12 +11,15 @@
 #include <astia/net/registry.hpp>
 
 #include "rtl8139_protocol.hpp"
+#include "rtl8139_teardown.hpp"
 
 namespace {
     using astia::mm::dma_buffer;
     using astia::module::net_device;
     using astia::rtl8139::bounded_spsc_queue;
     using astia::rtl8139::device_state;
+    using astia::rtl8139::intx_claim;
+    using astia::rtl8139::intx_ops;
     using astia::rtl8139::packet_view;
     using astia::rtl8139::pci_match;
     using astia::rtl8139::register_file;
@@ -45,12 +48,11 @@ namespace {
         device_state              _state           = device_state::detached;
         static constexpr unsigned poll_interval_ms = 1;
 
-        bool                              _irq_active  = false;
-        bool                              _intx_active = false;
-        uint8_t                           _irq_line    = 0;
-        static inline rtl8139_controller* _intx_owner  = nullptr;
-        bool                              _polling     = false;
-        uint64_t                          _generation  = 1;
+        bool                              _irq_active = false;
+        intx_claim                        _intx;
+        static inline rtl8139_controller* _intx_owner = nullptr;
+        bool                              _polling    = false;
+        uint64_t                          _generation = 1;
         astia::core::spinlock             _process{};
         unsigned                          _tx_selftest_reclaimed = 0;
         uint32_t                          _tx_next               = 0;
@@ -137,6 +139,9 @@ namespace {
                                                    &rtl8139_controller::intx_leave, this))
                 return false;
 
+            if (!_intx.claim(line))
+                return false;
+
             const uint16_t command = astia::module::pci_read16(*_pci, 0x04);
 
             (void) astia::module::pci_write16(
@@ -146,14 +151,13 @@ namespace {
 
             if (!astia::arch::route_gsi(line, base, gsi) ||
                 !astia::arch::unmask_irq_handler(line)) {
-                (void) astia::arch::unregister_irq_handler(line);
+                if (!_intx.release(intx_operations()))
+                    return false;
 
                 return false;
             }
 
-            _irq_line    = line;
-            _intx_active = true;
-            _intx_owner  = this;
+            _intx_owner = this;
 
             return true;
         }
@@ -165,6 +169,18 @@ namespace {
         }
 
         static void intx_leave(void*) {}
+
+        static void report_intx_deferred(astia::u8 line) {
+            astia::module::log_u64("rtl8139", "intx unregister deferred", line);
+        }
+
+        static const intx_ops& intx_operations() {
+            static constexpr intx_ops ops{&astia::arch::unregister_irq_handler,
+                                          &astia::arch::mask_irq_handler,
+                                          &rtl8139_controller::report_intx_deferred};
+
+            return ops;
+        }
 
         static void intx_entry() {
             if (_intx_owner != nullptr)
@@ -236,25 +252,26 @@ namespace {
             self->start_polling();
         }
 
-        void release_irq() {
+        bool release_irq() {
             stop_polling();
 
-            if (_intx_active) {
-                (void) astia::arch::unregister_irq_handler(_irq_line);
+            if (_intx.active()) {
+                if (!_intx.release(intx_operations()))
+                    return false;
 
-                _irq_line    = 0;
-                _intx_active = false;
-                _intx_owner  = nullptr;
+                _intx_owner = nullptr;
             }
 
             if (!_irq_active)
-                return;
+                return true;
 
             astia::module::pci_msix_disable(&_irq_route);
             astia::module::pci_msix_release(&_irq_route);
 
             _irq_route  = {};
             _irq_active = false;
+
+            return true;
         }
 
         void recycle_rx(uint16_t next) {
@@ -544,9 +561,10 @@ namespace {
             if (_state == device_state::detached)
                 return -19;
 
-            _net_device.tx().set_kick(nullptr, nullptr);
+            if (!release_irq())
+                return -16;
 
-            release_irq();
+            _net_device.tx().set_kick(nullptr, nullptr);
             _net_device.tx().reset();
 
             {
@@ -587,9 +605,10 @@ namespace {
             if (_state == device_state::detached)
                 return 0;
 
-            _net_device.tx().set_kick(nullptr, nullptr);
+            if (!release_irq())
+                return -16;
 
-            release_irq();
+            _net_device.tx().set_kick(nullptr, nullptr);
             _net_device.tx().reset();
 
             {
@@ -719,7 +738,12 @@ class rtl8139_driver final : public astia::hw::driver {
     }
 
     astia::core::task<void> remove(const astia::hw::device_info&) override {
-        controller.detach_process();
+        if (controller.detach_process() != 0) {
+            astia::module::log("rtl8139", "detach deferred: irq dispatch in flight");
+
+            co_return astia::error_t::ebusy;
+        }
+
         (void) co_await astia::net::bus::unbind(*controller.device());
         astia::net::devices().unregister_device(*controller.device());
         co_return astia::error_t::enone;

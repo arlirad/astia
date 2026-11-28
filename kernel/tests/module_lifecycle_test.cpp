@@ -111,11 +111,12 @@ namespace {
 
         astia::core::task<void> remove(const astia::hw::device_info&) override {
             ++remove_calls;
-            co_return astia::error_t::enone;
+            co_return remove_error;
         }
 
-        int stop_calls   = 0;
-        int remove_calls = 0;
+        int            stop_calls   = 0;
+        int            remove_calls = 0;
+        astia::error_t remove_error = astia::error_t::enone;
     };
 
     astia::dev::irq_route lifecycle_route{1};
@@ -1630,6 +1631,65 @@ ASTIA_TEST(module_lifecycle_close_unbinds_module_owned_drivers) {
     ASTIA_CHECK(driver.stop_calls == 1);
     ASTIA_CHECK(driver.remove_calls == 1);
     ASTIA_CHECK(astia::hw::drivers().devices_owned_by(owner) == 0);
+    ASTIA_CHECK(!astia::hw::drivers().valid(bound));
+    ASTIA_CHECK(astia::hw::drivers().unregister_driver(registered) == 0);
+}
+
+ASTIA_TEST(module_lifecycle_close_keeps_module_mapped_when_remove_is_refused) {
+    loader_state                  state{};
+    const astia::elf::loader::env env = environment(state);
+    astia::mod::module_id         id{};
+
+    ASTIA_CHECK(astia::mod::load_image(blob(module_lifecycle_no_fini_blob,
+                                            module_lifecycle_no_fini_blob_len),
+                                       env, {}, id) == astia::mod::module_error::ok);
+
+    const astia::hw::owner_id owner = astia::mod::driver_owner(id);
+
+    owner_test_driver driver;
+
+    driver.remove_error = astia::error_t::ebusy;
+
+    astia::hw::driver_handle registered{};
+
+    ASTIA_CHECK(astia::hw::drivers().register_driver(
+                    driver, registered, owner, astia::hw::driver_resource_async) == 0);
+
+    astia::mm::shptr<owner_test_info> info(new owner_test_info(9));
+
+    astia::mm::shptr<astia::hw::device_info> device(
+        static_cast<astia::mm::shptr<owner_test_info>&&>(info));
+
+    astia::hw::device_handle bound{};
+    astia::i64               bind_result = -1;
+
+    ASTIA_CHECK(astia_test::run_task(
+        astia::hw::drivers().bind_device(
+            static_cast<astia::mm::shptr<astia::hw::device_info>&&>(device), bound),
+        bind_result));
+    ASTIA_CHECK(bind_result == 0);
+
+    auto refused = astia::mod::close(id);
+
+    refused.resume();
+    ASTIA_CHECK(refused.done());
+    ASTIA_CHECK(refused.value() != nullptr &&
+                *refused.value() == astia::mod::module_error::busy);
+    ASTIA_CHECK(state.unmapped == 0);
+    ASTIA_CHECK(driver.remove_calls == 1);
+    ASTIA_CHECK(astia::hw::drivers().devices_owned_by(owner) == 1);
+    ASTIA_CHECK(astia::hw::drivers().valid(bound));
+
+    driver.remove_error = astia::error_t::enone;
+
+    auto retried = astia::mod::close(id);
+
+    retried.resume();
+    ASTIA_CHECK(retried.done());
+    ASTIA_CHECK(retried.value() != nullptr &&
+                *retried.value() == astia::mod::module_error::ok);
+    ASTIA_CHECK(state.unmapped == 1);
+    ASTIA_CHECK(driver.remove_calls == 2);
     ASTIA_CHECK(!astia::hw::drivers().valid(bound));
     ASTIA_CHECK(astia::hw::drivers().unregister_driver(registered) == 0);
 }

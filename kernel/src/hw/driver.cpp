@@ -213,11 +213,15 @@ namespace astia::hw {
         co_return last_error;
     }
 
-    core::task<void> driver_registry::release_binding(binding& value) {
+    core::task<i64> driver_registry::release_binding(binding& value) {
         registration* item = registration_for(value.driver);
         if (item != nullptr) {
             (void) co_await item->value->stop(*value.device);
-            (void) co_await item->value->remove(*value.device);
+
+            const error_t removed = co_await item->value->remove(*value.device);
+
+            if (removed != error_t::enone)
+                co_return error_errno(removed);
         }
 
         value.product = {};
@@ -229,7 +233,7 @@ namespace astia::hw {
 
         --_device_count;
 
-        co_return astia::error_t::enone;
+        co_return 0;
     }
 
     core::task<i64> driver_registry::unbind(device_handle value) {
@@ -237,9 +241,9 @@ namespace astia::hw {
         if (item == nullptr)
             co_return -ENOENT;
 
-        co_await release_binding(*item);
+        const i64 released = task_error(co_await release_binding(*item));
 
-        co_return 0;
+        co_return released < 0 ? released : 0;
     }
 
     core::task<i64> driver_registry::unbind_owner(owner_id owner) {
@@ -251,7 +255,10 @@ namespace astia::hw {
             if (!item.used || !(item.owner == owner))
                 continue;
 
-            co_await release_binding(item);
+            const i64 result = task_error(co_await release_binding(item));
+            if (result < 0)
+                co_return result;
+
             ++released;
         }
 
@@ -267,7 +274,10 @@ namespace astia::hw {
             if (!item.used)
                 continue;
 
-            co_await release_binding(item);
+            const i64 result = task_error(co_await release_binding(item));
+            if (result < 0)
+                co_return result;
+
             ++released;
         }
 

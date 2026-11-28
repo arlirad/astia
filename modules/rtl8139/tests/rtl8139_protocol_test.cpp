@@ -1,4 +1,5 @@
 #include "../rtl8139_protocol.hpp"
+#include "../rtl8139_teardown.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -6,6 +7,42 @@
 using namespace astia::rtl8139;
 
 namespace {
+    struct fake_irq {
+        bool      registered        = false;
+        bool      refuse_unregister = false;
+        int       mask_calls        = 0;
+        int       unregister_calls  = 0;
+        int       report_calls      = 0;
+        astia::u8 reported_line     = 0xff;
+    };
+
+    fake_irq irq_state;
+
+    bool fake_unregister(astia::u8) {
+        ++irq_state.unregister_calls;
+
+        if (irq_state.refuse_unregister)
+            return false;
+
+        irq_state.registered = false;
+
+        return true;
+    }
+
+    bool fake_mask(astia::u8) {
+        ++irq_state.mask_calls;
+
+        return true;
+    }
+
+    void fake_report(astia::u8 line) {
+        ++irq_state.report_calls;
+
+        irq_state.reported_line = line;
+    }
+
+    const intx_ops fake_ops{&fake_unregister, &fake_mask, &fake_report};
+
     void write_ring(uint8_t* ring, uint16_t offset, const uint8_t* data,
                     uint16_t length) {
         for (uint16_t index = 0; index < length; ++index) {
@@ -68,6 +105,57 @@ namespace {
         assert(ring.release(0));
         assert(ring.state(0) == tx_slot_state::free);
     }
+
+    void test_intx_teardown_refusal_is_sticky() {
+        irq_state = {};
+
+        intx_claim claim;
+
+        assert(claim.claim(11));
+        assert(claim.active());
+        assert(claim.line() == 11);
+
+        irq_state.registered        = true;
+        irq_state.refuse_unregister = true;
+
+        assert(!claim.release(fake_ops));
+        assert(claim.active());
+        assert(claim.line() == 11);
+        assert(irq_state.registered);
+        assert(irq_state.mask_calls == 1);
+        assert(irq_state.unregister_calls == 1);
+        assert(irq_state.report_calls == 1);
+        assert(irq_state.reported_line == 11);
+
+        assert(!claim.release(fake_ops));
+        assert(claim.active());
+        assert(irq_state.registered);
+        assert(irq_state.mask_calls == 2);
+        assert(irq_state.unregister_calls == 2);
+        assert(irq_state.report_calls == 2);
+
+        irq_state.refuse_unregister = false;
+
+        assert(claim.release(fake_ops));
+        assert(!claim.active());
+        assert(claim.line() == 0);
+        assert(!irq_state.registered);
+        assert(irq_state.unregister_calls == 3);
+
+        assert(claim.release(fake_ops));
+        assert(irq_state.unregister_calls == 3);
+    }
+
+    void test_intx_claim_rejects_invalid_line() {
+        irq_state = {};
+
+        intx_claim claim;
+
+        assert(!claim.claim(16));
+        assert(!claim.active());
+        assert(claim.release(fake_ops));
+        assert(irq_state.unregister_calls == 0);
+    }
 }
 
 int main() {
@@ -77,6 +165,8 @@ int main() {
     assert(pci_match(nullptr) == false);
     test_rx_ownership();
     test_tx_ownership();
+    test_intx_teardown_refusal_is_sticky();
+    test_intx_claim_rejects_invalid_line();
 
     uint8_t        ring[rx_ring_allocation]{};
     const uint16_t cursor    = static_cast<uint16_t>(rx_ring_size - 5);

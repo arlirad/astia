@@ -58,17 +58,18 @@ namespace {
     };
 
     struct typed_state {
-        astia::u32 match_value        = 0;
-        astia::i64 probe_result       = 0;
-        astia::i64 start_result       = 0;
-        bool       publish_product    = false;
-        int        match_calls        = 0;
-        int        probe_calls        = 0;
-        int        start_calls        = 0;
-        int        stop_calls         = 0;
-        int        remove_calls       = 0;
-        int        publish_calls      = 0;
-        int        destroyed_products = 0;
+        astia::u32     match_value        = 0;
+        astia::i64     probe_result       = 0;
+        astia::i64     start_result       = 0;
+        bool           publish_product    = false;
+        int            match_calls        = 0;
+        int            probe_calls        = 0;
+        int            start_calls        = 0;
+        int            stop_calls         = 0;
+        int            remove_calls       = 0;
+        int            publish_calls      = 0;
+        int            destroyed_products = 0;
+        astia::error_t remove_error       = astia::error_t::enone;
     };
 
     class test_driver final : public astia::hw::driver {
@@ -103,7 +104,7 @@ namespace {
 
         astia::core::task<void> remove(const astia::hw::device_info&) override {
             ++state_.remove_calls;
-            co_return astia::error_t::enone;
+            co_return state_.remove_error;
         }
 
         astia::hw::product_handle publish(const astia::hw::device_info&) override {
@@ -401,6 +402,36 @@ ASTIA_TEST(driver_manager_unbind_owner_releases_only_that_owner) {
 
     ASTIA_CHECK(unbind_all_sync(manager) == 1);
     ASTIA_CHECK(second_state.remove_calls == 1);
+    ASTIA_CHECK(manager.device_count() == 0);
+}
+
+ASTIA_TEST(driver_manager_keeps_binding_when_remove_is_refused) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    test_driver     driver(state);
+
+    driver_handle registered{};
+
+    ASTIA_CHECK(manager.register_driver(driver, registered) == 0);
+
+    device_handle bound{};
+
+    ASTIA_CHECK(bind_sync(manager, typed_device(8), bound) == 0);
+
+    state.remove_error = astia::error_t::ebusy;
+
+    ASTIA_CHECK(unbind_sync(manager, bound) == -EBUSY);
+    ASTIA_CHECK(state.remove_calls == 1);
+    ASTIA_CHECK(manager.valid(bound));
+    ASTIA_CHECK(manager.device_count() == 1);
+
+    state.remove_error = astia::error_t::enone;
+
+    ASTIA_CHECK(unbind_sync(manager, bound) == 0);
+    ASTIA_CHECK(state.remove_calls == 2);
+    ASTIA_CHECK(!manager.valid(bound));
     ASTIA_CHECK(manager.device_count() == 0);
 }
 

@@ -30,6 +30,7 @@ add_custom_command(
                 -c ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139.cpp -o ${ASTIA_RTL8139_OBJECT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_teardown.hpp
                 ${ASTIA_RTL8139_ABI_HEADERS}
         COMMENT "Compiling RTL8139 loadable module"
         VERBATIM)
@@ -48,6 +49,7 @@ add_custom_command(
                 -o ${ASTIA_RTL8139_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rtl8139_protocol_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_protocol.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/rtl8139_teardown.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/bus.hpp
