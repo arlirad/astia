@@ -87,6 +87,16 @@ namespace astia::tcp {
 
         static constexpr u32 waiter_limit = 4;
 
+        static constexpr u16 retransmit_capacity = 1500;
+        static constexpr u8  max_retries         = 5;
+
+        u8  retransmit_data[retransmit_capacity]{};
+        u16 retransmit_length = 0;
+        u16 retransmit_flags  = 0;
+        u32 retransmit_seq    = 0;
+        u32 retransmit_ack    = 0;
+        u8  retries           = 0;
+
         u32 buffered() const {
             return receive_count;
         }
@@ -138,6 +148,8 @@ namespace astia::tcp {
 
         void close(connection& value);
 
+        void retransmit(connection& value);
+
         u32 connection_count() const;
 
         /// Await one of `events` on `value`; consumes the matching bit.
@@ -162,6 +174,8 @@ namespace astia::tcp {
 
         connection::waiter* acquire_waiter(connection& value);
         void                release_waiter(connection& value, connection::waiter* waiter);
+
+        static void retransmit_trampoline(void* context);
 
         connection _connections[max_connections]{};
         u32        _next_sequence = 0x1000;
