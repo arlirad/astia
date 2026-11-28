@@ -18,6 +18,57 @@ static int failures;
         }                                                                           \
     } while (0)
 
+static void sendto_null_destination_connected(void) {
+    int stream[2] = {-1, -1};
+    int dgram[2]  = {-1, -1};
+
+    static const char payload[] = "null-destination";
+    char              received[sizeof payload];
+
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, stream) == 0);
+    CHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, dgram) == 0);
+
+    if (stream[0] >= 0) {
+        CHECK(sendto(stream[0], payload, sizeof payload, 0, NULL, 0) ==
+              (long) sizeof payload);
+        CHECK(recv(stream[1], received, sizeof received, 0) == (long) sizeof payload);
+        CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+
+        close(stream[0]);
+        close(stream[1]);
+    }
+
+    if (dgram[0] >= 0) {
+        CHECK(sendto(dgram[0], payload, sizeof payload, 0, NULL, 0) ==
+              (long) sizeof payload);
+        CHECK(recv(dgram[1], received, sizeof received, 0) == (long) sizeof payload);
+        CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
+
+        close(dgram[0]);
+        close(dgram[1]);
+    }
+}
+
+static void sendto_null_destination_unconnected(void) {
+    static const int types[] = {SOCK_STREAM, SOCK_DGRAM};
+
+    for (int i = 0; i < 2; ++i) {
+        int fd = socket(AF_UNIX, types[i], 0);
+        if (fd < 0) {
+            CHECK(0);
+
+            continue;
+        }
+
+        errno = 0;
+
+        CHECK(sendto(fd, "x", 1, 0, NULL, 0) == -1);
+        CHECK(errno == ENOTCONN);
+
+        close(fd);
+    }
+}
+
 int main(void) {
     int fds[2] = {-1, -1};
     int value  = 0;
@@ -25,6 +76,9 @@ int main(void) {
     socklen_t length;
 
     int regular;
+
+    sendto_null_destination_connected();
+    sendto_null_destination_unconnected();
 
     CHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, fds) == 0);
 
