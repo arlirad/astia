@@ -702,6 +702,55 @@ void test_out_of_order_reassembly() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_reset_unknown_and_rst_abort() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    u8  segment[64]{};
+    usz length = build_segment(segment, 40000, 9999, 100, 0, astia::tcp::flag_syn,
+                               nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert((last_header(ipv4).flags() & astia::tcp::flag_rst) != 0);
+    assert((last_header(ipv4).flags() & astia::tcp::flag_ack) != 0);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == 101);
+
+    astia::tcp::route path{};
+
+    path.egress           = &link;
+    path.link_destination = astia::net::link_address::from_packet(peer_mac, 6);
+    path.source           = address_of(local_ip);
+    path.destination      = address_of(remote_ip);
+
+    auto* value =
+        protocol.connect(endpoint_of(local_ip, 40000), endpoint_of(remote_ip, 80), path);
+
+    assert(value != nullptr);
+
+    length = build_segment(segment, 80, 40000, 500, value->snd_nxt,
+                           astia::tcp::flag_syn | astia::tcp::flag_ack, nullptr, 0,
+                           remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(value->state == astia::tcp::connection_state::established);
+
+    length = build_segment(segment, 80, 40000, value->rcv_nxt, value->snd_nxt,
+                           astia::tcp::flag_rst, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(!value->used);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -714,6 +763,7 @@ int main() {
     test_retransmit_syn_and_data();
     test_active_close();
     test_out_of_order_reassembly();
+    test_reset_unknown_and_rst_abort();
 
     return 0;
 }

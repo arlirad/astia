@@ -219,8 +219,11 @@ namespace astia::tcp {
             return;
 
         connection* listener = find_listener(local);
-        if (listener == nullptr)
+        if (listener == nullptr) {
+            reset_unknown(packet, header);
+
             return;
+        }
 
         value = allocate();
         if (value == nullptr)
@@ -248,6 +251,41 @@ namespace astia::tcp {
         value->snd_nxt = value->snd_una + 1;
     }
 
+    void tcp_protocol::reset_unknown(const net::protocol_packet& packet,
+                                     const tcp_header&           header) {
+        const u16 flags = header.flags();
+
+        connection value{};
+
+        value.local  = {packet.destination, net::port{header.destination_port.value()}};
+        value.remote = {packet.source, net::port{header.source_port.value()}};
+
+        value.egress           = packet.egress;
+        value.link_destination = packet.link_source;
+        value.source           = packet.destination;
+        value.destination      = packet.source;
+
+        if ((flags & flag_ack) != 0) {
+            drive(send_segment(value, flag_rst, static_cast<u32>(header.acknowledgement),
+                               0, {}));
+
+            return;
+        }
+
+        const u32 data_length = packet.payload.length - header.data_offset();
+
+        u32 advance = data_length;
+
+        if ((flags & flag_syn) != 0)
+            ++advance;
+
+        if ((flags & flag_fin) != 0)
+            ++advance;
+
+        drive(send_segment(value, flag_rst | flag_ack, 0,
+                           static_cast<u32>(header.sequence) + advance, {}));
+    }
+
     void tcp_protocol::handle(connection& value, const net::protocol_packet& packet,
                               const tcp_header& header, net::packet_view payload) {
         (void) packet;
@@ -257,7 +295,7 @@ namespace astia::tcp {
         const u32 ack   = static_cast<u32>(header.acknowledgement);
 
         if (flags & flag_rst) {
-            close(value);
+            abort(value);
 
             return;
         }
