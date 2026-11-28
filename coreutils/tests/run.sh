@@ -120,6 +120,17 @@ rm -f "$out/host/rm_guard/rootlink"
 rmdir "$out/host/rm_guard"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
+# A source operand that starts with '-' is a file when such a file exists.
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/coreutils/src" "$root/coreutils/src/cp.c" -o "$out/host/cp"
+cp_dash_root=$(mktemp -d)
+mkdir -p "$cp_dash_root/dir"
+printf 'dash file\n' >"$cp_dash_root/-file"
+( cd "$cp_dash_root" && "$out/host/cp" -file dir )
+test -f "$cp_dash_root/dir/-file"
+grep -qxF 'dash file' "$cp_dash_root/dir/-file"
+rm -rf "$cp_dash_root"
+
 # mkdir -p must accept any path the host filesystem can represent up to
 # PATH_MAX; the QEMU guest cannot receive such arguments yet (issue #184
 # limits exec argv and AIO paths to 256 bytes).

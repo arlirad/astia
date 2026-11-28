@@ -278,6 +278,8 @@ int main(int argc, char** argv) {
 
     const char* value;
 
+    struct stat option_info;
+
     while ((value = cu_args_next(&args)) != 0) {
         if (cu_is_help(value))
             return cu_help(
@@ -293,7 +295,8 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (args.options && value[0] == '-' && __builtin_strcmp(value, "-") != 0)
+        if (args.options && value[0] == '-' && __builtin_strcmp(value, "-") != 0 &&
+            stat(value, &option_info) < 0)
             return cu_error("cp", "unknown option");
 
         if (source == 0)
@@ -309,7 +312,8 @@ int main(int argc, char** argv) {
 
     struct stat source_info;
 
-    int source_is_stdin = __builtin_strcmp(source, "-") == 0;
+    int source_is_stdin       = __builtin_strcmp(source, "-") == 0;
+    int destination_is_stdout = __builtin_strcmp(destination, "-") == 0;
 
     if (!source_is_stdin && stat(source, &source_info) < 0)
         return cu_error("cp", source);
@@ -321,7 +325,8 @@ int main(int argc, char** argv) {
     const char* target_path = destination;
     struct stat destination_info;
 
-    if (stat(destination, &destination_info) == 0 && S_ISDIR(destination_info.st_mode)) {
+    if (!destination_is_stdout && stat(destination, &destination_info) == 0 &&
+        S_ISDIR(destination_info.st_mode)) {
         target = cu_child_path(destination, base_name(source));
         if (target == 0)
             return cu_error("cp", "out of memory");
@@ -329,15 +334,15 @@ int main(int argc, char** argv) {
         target_path = target;
     }
 
-    if (__builtin_strcmp(source, "-") == 0 || __builtin_strcmp(destination, "-") == 0) {
+    if (source_is_stdin || destination_is_stdout) {
         int input  = CU_STDIN;
         int output = CU_STDOUT;
 
-        if (__builtin_strcmp(source, "-") != 0)
+        if (!source_is_stdin)
             input = open(source, O_RDONLY);
 
-        if (__builtin_strcmp(destination, "-") != 0)
-            output = open(destination, O_WRONLY | O_CREAT, 0666);
+        if (!destination_is_stdout)
+            output = open(target_path, O_WRONLY | O_CREAT, 0666);
 
         if (input < 0 || output < 0) {
             /* The failed open is the primary error; closing whichever
