@@ -335,7 +335,7 @@ static void test_fseeko_ftello(void) {
     CHECK(ftello(f) == 1);
     CHECK(fseeko(f, 0, SEEK_SET) == 0);
     CHECK(fwrite("X", 1, 1, f) == 1);
-    CHECK(ftello(f) == 1);
+    CHECK(ftello(f) == 5); /* appended at 4: pos follows the real offset */
     CHECK(fseeko(f, 0, SEEK_END) == 0);
     CHECK(ftello(f) == 5);
     CHECK(fclose(f) == 0);
@@ -464,6 +464,51 @@ static void test_append(void) {
     CHECK(fclose(f) == 0);
     CHECK(probe(P1, buf, sizeof buf) == 14);
     CHECK(memcmp(buf, "one\ntwo\nthree\n", 14) == 0);
+}
+
+/* Issue 812: "a+" writes go to the kernel's end of file, so the logical
+ * position must follow them instead of counting up from the initial 0. */
+static void test_append_update_position(void) {
+    unsigned char buf[16];
+
+    FILE* f;
+
+    f = fopen(P1, "w");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(fwrite("abc", 1, 3, f) == 3);
+    CHECK(fclose(f) == 0);
+
+    f = fopen(P1, "a+");
+
+    CHECK(f != NULL);
+
+    if (!f)
+        return;
+
+    CHECK(ftell(f) == 0); /* reads start at the beginning */
+    CHECK(fputc('d', f) == 'd');
+    CHECK(ftell(f) == 4); /* the byte landed at offset 3, not 0 */
+    CHECK(fflush(f) == 0);
+    CHECK(ftell(f) == 4);
+    CHECK(probe(P1, buf, sizeof buf) == 4);
+    CHECK(memcmp(buf, "abcd", 4) == 0);
+
+    rewind(f);
+    CHECK(ftell(f) == 0);
+    CHECK(fgetc(f) == 'a');
+
+    CHECK(fputc('e', f) == 'e'); /* a write after a read still appends */
+    CHECK(ftell(f) == 5);
+    CHECK(fflush(f) == 0);
+    CHECK(ftell(f) == 5);
+    CHECK(fclose(f) == 0);
+    CHECK(probe(P1, buf, sizeof buf) == 5);
+    CHECK(memcmp(buf, "abcde", 5) == 0);
 }
 
 static void test_read_write_switch(void) {
@@ -1187,6 +1232,7 @@ int main(void) {
     test_fseeko_ftello();
     test_unseekable_stream();
     test_append();
+    test_append_update_position();
     test_read_write_switch();
     test_errors();
     test_fdopen();
