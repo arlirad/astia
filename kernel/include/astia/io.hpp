@@ -172,6 +172,16 @@ namespace astia::io {
             _append_length_set = true;
         }
 
+        /// Concrete offset an append reservation was made at, so the
+        /// operation can release the unused tail once it completes.
+        u64 append_base() const {
+            return _append_base;
+        }
+
+        void append_base(u64 value) {
+            _append_base = value;
+        }
+
         void offset(u64 value) {
             _offset = value;
         }
@@ -350,6 +360,7 @@ namespace astia::io {
         bool                 _append_reserved         = false;
         u32                  _append_length           = 0;
         bool                 _append_length_set       = false;
+        u64                  _append_base             = 0;
         u8                   _stage                   = 0;
         bool                 _complete                = false;
         bool                 _timeout_set             = false;
@@ -501,6 +512,7 @@ namespace astia::io {
             _request._append_reserved   = false;
             _request._append_length     = 0;
             _request._append_length_set = false;
+            _request._append_base       = 0;
 
             mm::uptr<core::completion<i64>> completion;
 

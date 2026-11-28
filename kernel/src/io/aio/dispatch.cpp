@@ -681,6 +681,10 @@ namespace astia::io::aio::dispatch {
                 return true; // parked: a device resume completes it
             }
 
+            if (p->handle)
+                p->handle->commit_append(p->operation->request(),
+                                         static_cast<long>(p->moved));
+
             if (p->token.canceled())
                 result = -ECANCELED;
 
@@ -793,6 +797,10 @@ namespace astia::io::aio::dispatch {
 
                 return;
             }
+
+            if (op.handle)
+                op.handle->commit_append(op.operation->request(),
+                                         static_cast<long>(op.moved));
 
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.

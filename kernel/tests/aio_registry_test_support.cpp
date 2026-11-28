@@ -1195,6 +1195,8 @@ namespace astia::fs {
         return 0;
     }
 
+    void open_file::commit_append(u64, long) {}
+
     file_mode open_file::mode() const {
         return _parent ? _parent->mode() : _mode;
     }
