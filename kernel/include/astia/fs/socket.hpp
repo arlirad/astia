@@ -60,13 +60,15 @@ namespace astia::fs {
 
         virtual core::task<i64>     sendto(span<const u8>        data,
                                            const astia_sockaddr& destination,
-                                           core::cltoken         token = {})                  = 0;
+                                           core::cltoken         token    = {},
+                                           bool                  nonblock = false)                     = 0;
         virtual core::task<message> recvfrom(span<u8> data, core::cltoken token = {}) = 0;
 
         virtual core::task<i64>     sendmsg(span<const u8>                 data,
                                             const astia_sockaddr*          destination,
                                             const mm::shptr<unix_control>& control,
-                                            core::cltoken                  token = {})                = 0;
+                                            core::cltoken                  token = {},
+                                            bool nonblock = false)                   = 0;
         virtual core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) = 0;
     };
 

@@ -1,6 +1,7 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
 #include <astia/fs/socket.hpp>
+#include <astia/resource_limits.hpp>
 #include <astia/strings.hpp>
 
 #include "aio_registry_test_support.hpp"
@@ -17,6 +18,8 @@
 using namespace astia;
 
 namespace {
+    constexpr u32 dgram_queue_capacity = resource_limits::queue::unix_datagrams;
+
     template <typename T>
     T drive_task(core::task<T> task) {
         while (!task.done()) {
@@ -25,6 +28,38 @@ namespace {
 
         ASTIA_CHECK(!task.failed());
         ASTIA_CHECK(task.value() != nullptr);
+
+        return *task.value();
+    }
+
+    bool make_dgram_pair(mm::shptr<fs::open_file>& sender,
+                         mm::shptr<fs::open_file>& receiver) {
+        return fs::unix_socketpair(sender, receiver, SOCK_DGRAM) == 0 && sender &&
+               receiver;
+    }
+
+    i64 write_datagram(fs::open_file& socket, u8 value) {
+        auto task = socket.write(span<const u8>(&value, 1));
+
+        while (!task.done()) {
+            task.resume();
+        }
+
+        if (task.failed())
+            return -1;
+
+        return *task.value();
+    }
+
+    i64 read_datagram(fs::open_file& socket, u8& value) {
+        auto task = socket.read(span<u8>(&value, 1));
+
+        while (!task.done()) {
+            task.resume();
+        }
+
+        if (task.failed())
+            return -1;
 
         return *task.value();
     }
@@ -901,6 +936,91 @@ ASTIA_TEST(unix_dgram_sendto_recvfrom_roundtrip) {
     ASTIA_CHECK(output[0] == 'p' && output[1] == 'i' && output[2] == 'n' &&
                 output[3] == 'g');
     ASTIA_CHECK(message.source.family == AF_UNIX);
+}
+
+ASTIA_TEST(unix_dgram_nonblocking_full_queue_returns_eagain) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> sender;
+    mm::shptr<fs::open_file> receiver;
+
+    if (!make_dgram_pair(sender, receiver))
+        return;
+
+    sender->set_status_flags(static_cast<u32>(fs::open_file_status_flags::nonblock));
+
+    for (u32 i = 0; i < dgram_queue_capacity; ++i) {
+        ASTIA_CHECK(write_datagram(*sender, static_cast<u8>(i)) == 1);
+    }
+
+    const u8 overflow = 0xee;
+
+    auto rejected = sender->write(span<const u8>(&overflow, 1));
+
+    ASTIA_CHECK(rejected.resume());
+    ASTIA_CHECK(rejected.done());
+    ASTIA_CHECK(rejected.failed());
+    ASTIA_CHECK(rejected.error() == astia::error_t::eagain);
+
+    for (u32 i = 0; i < dgram_queue_capacity; ++i) {
+        u8 received = 0;
+
+        ASTIA_CHECK(read_datagram(*receiver, received) == 1);
+        ASTIA_CHECK(received == static_cast<u8>(i));
+    }
+
+    ASTIA_CHECK(write_datagram(*sender, 0x42) == 1);
+
+    u8 received = 0;
+
+    ASTIA_CHECK(read_datagram(*receiver, received) == 1);
+    ASTIA_CHECK(received == 0x42);
+}
+
+ASTIA_TEST(unix_dgram_blocking_full_queue_waits_for_space) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> sender;
+    mm::shptr<fs::open_file> receiver;
+
+    if (!make_dgram_pair(sender, receiver))
+        return;
+
+    for (u32 i = 0; i < dgram_queue_capacity; ++i) {
+        ASTIA_CHECK(write_datagram(*sender, static_cast<u8>(i)) == 1);
+    }
+
+    const u8 overflow = 0x7a;
+
+    auto blocked = sender->write(span<const u8>(&overflow, 1));
+
+    ASTIA_CHECK(blocked.resume());
+    ASTIA_CHECK(!blocked.done());
+
+    u8 received = 0;
+
+    ASTIA_CHECK(read_datagram(*receiver, received) == 1);
+    ASTIA_CHECK(received == 0);
+
+    sender->parent()->pending().service();
+
+    ASTIA_CHECK(blocked.done());
+    ASTIA_CHECK(!blocked.failed());
+    ASTIA_CHECK(*blocked.value() == 1);
+
+    for (u32 i = 1; i < dgram_queue_capacity; ++i) {
+        ASTIA_CHECK(read_datagram(*receiver, received) == 1);
+        ASTIA_CHECK(received == static_cast<u8>(i));
+    }
+
+    ASTIA_CHECK(read_datagram(*receiver, received) == 1);
+    ASTIA_CHECK(received == overflow);
 }
 
 ASTIA_TEST(unix_stream_sendmsg_recvmsg_roundtrip) {

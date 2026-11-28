@@ -59,7 +59,10 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
             }
 
-            const auto result = co_await socket->sendto(kernel, a, token);
+            const auto result = co_await socket->sendto(
+                kernel, a, token,
+                (handle->flags() &
+                 static_cast<u32>(fs::open_file_status_flags::nonblock)) != 0);
 
             mm::heap::free(storage.value);
 
