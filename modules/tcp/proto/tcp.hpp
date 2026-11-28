@@ -148,6 +148,8 @@ namespace astia::tcp {
 
         void close(connection& value);
 
+        void abort(connection& value);
+
         void retransmit(connection& value);
 
         u32 connection_count() const;
