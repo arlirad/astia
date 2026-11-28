@@ -2217,6 +2217,7 @@ if (ARCH STREQUAL "x86_64")
                     ${_libc_shared_so} -lgcc
                     DEPENDS ${_native_sources} ${_native_extra_objects}
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
                     ${_fix_dir}/crt0.o astia_userspace_libc_shared
@@ -2227,6 +2228,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c "")
         astia_add_native_program(native_daemond
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.c ""
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/stop.c)
         astia_add_native_program(native_daemondctl
                 ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
@@ -2257,21 +2259,21 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_stage/sbin/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_stage/bin/daemonctl
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_stage/bin/ps
-                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc ${_fix_dir}/native_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/etc/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_stage/bin/init_libc
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_stage ${_fix_dir}/native_boot_initrd.cpio
-                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/rc
+                ${_init_libc_image}
                 ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
-        # The stock rc has no service records.  daemond must stay resident
+        # An empty unit directory has no services.  daemond must stay resident
         # instead of exiting and taking PID 1 down, so the kernel never
         # finishes its lifecycle; the bounded timeout is the expected
         # outcome and the patterns pin the reason.
@@ -2303,17 +2305,18 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemond ${_fix_dir}/native_service_stage/sbin/daemond
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_true ${_fix_dir}/native_service_stage/bin/true
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_service_stage/bin/init_libc
-                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc ${_fix_dir}/native_service_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_service_stage/etc/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/service/true.yaml ${_fix_dir}/native_service_stage/etc/daemond/true.yaml
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_service_stage ${_fix_dir}/native_service_boot_initrd.cpio
-                sbin/init sbin/daemond bin/true bin/init_libc etc/rc
+                sbin/init sbin/daemond bin/true bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_true ${_init_libc_image}
                 ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
                 astia_userspace_libc_shared
-                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/service.rc
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/service/true.yaml
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native service supervision initrd")
         add_test(NAME astia_native_daemond_service
@@ -2322,7 +2325,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_service_boot_initrd.cpio
                 "init: daemond started"
                 "daemond: reaped service pid="
-                "daemond: restarting service: /bin/true attempt=1"
+                "daemond: restarting service: true attempt=1"
                 "daemond: clean shutdown"
                 "init: clean shutdown")
         set_tests_properties(astia_native_daemond_service PROPERTIES TIMEOUT 300)
@@ -2348,15 +2351,17 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_escalation_stage/bin/daemonctl
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_stop_client ${_fix_dir}/native_escalation_stage/bin/stop-client
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_escalation_stage/bin/init_libc
-                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/escalation.rc ${_fix_dir}/native_escalation_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_escalation_stage/etc/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/escalation/stop-client.yaml ${_fix_dir}/native_escalation_stage/etc/daemond/stop-client.yaml
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_escalation_stage ${_fix_dir}/native_escalation_boot_initrd.cpio
-                sbin/init sbin/daemond bin/daemonctl bin/stop-client bin/init_libc etc/rc
+                sbin/init sbin/daemond bin/daemonctl bin/stop-client bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_stop_client
-                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/escalation.rc
+                ${_init_libc_image}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/escalation/stop-client.yaml
                 ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
@@ -2389,15 +2394,17 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_failure_stage/bin/daemonctl
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_failure_stage/bin/ps
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_failure_stage/bin/init_libc
-                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc ${_fix_dir}/native_failure_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_failure_stage/etc/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/failure/malformed.yaml ${_fix_dir}/native_failure_stage/etc/daemond/malformed.yaml
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_failure_stage ${_fix_dir}/native_failure_boot_initrd.cpio
-                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/failure.rc
+                ${_init_libc_image}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/failure/malformed.yaml
                 ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
@@ -2410,7 +2417,7 @@ if (ARCH STREQUAL "x86_64")
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_boot_test.sh
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_failure_boot_initrd.cpio
-                "daemond: malformed service record"
+                "daemond: unit malformed:"
                 "init: daemond exited status="
                 "init: daemond failed")
         set_tests_properties(astia_native_daemond_failure PROPERTIES TIMEOUT 300)
@@ -2435,15 +2442,19 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_daemondctl ${_fix_dir}/native_visibility_stage/bin/daemonctl
                 COMMAND ${CMAKE_COMMAND} -E copy ${_fix_dir}/native_ps ${_fix_dir}/native_visibility_stage/bin/ps
                 COMMAND ${CMAKE_COMMAND} -E copy ${_init_libc_image} ${_fix_dir}/native_visibility_stage/bin/init_libc
-                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/visibility.rc ${_fix_dir}/native_visibility_stage/etc/rc
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_visibility_stage/etc/daemond
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/ps.yaml ${_fix_dir}/native_visibility_stage/etc/daemond/ps.yaml
+                COMMAND ${CMAKE_COMMAND} -E copy ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/daemonctl.yaml ${_fix_dir}/native_visibility_stage/etc/daemond/daemonctl.yaml
                 COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
                 sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 ${_fix_dir}/native_visibility_stage ${_fix_dir}/native_visibility_boot_initrd.cpio
-                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/rc
+                sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
                 DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
                 ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image} ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/visibility.rc
+                ${_init_libc_image}
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/ps.yaml
+                ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/daemonctl.yaml
                 ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
@@ -2457,13 +2468,13 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_visibility_boot_initrd.cpio
                 "PID    PPID   PGID   UID    GID    STAT CTTY       COMMAND"
                 "services=2"
-                "service=/bin/daemonctl state=running"
+                "service=daemonctl state=running"
                 "daemond: reaped service pid="
                 "daemond: clean shutdown"
                 "init: clean shutdown")
         set_tests_properties(astia_native_daemond_visibility PROPERTIES TIMEOUT 300)
 
-        # A missing rc must be reported with its errno and must not terminate
+        # A missing unit directory must be reported and must not terminate
         # the supervisor: PID 1 still has a live child.
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_missing_rc_boot_initrd.cpio
@@ -2496,7 +2507,7 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_QEMU} $<TARGET_FILE:astiakrn_test>
                 ${_fix_dir}/native_missing_rc_boot_initrd.cpio
                 "init: daemond started"
-                "daemond: open /etc/rc failed: errno=2; starting with no services"
+                "daemond: no unit directory /etc/daemond; starting with no services"
                 "daemond: no services configured; idling")
         set_tests_properties(astia_native_daemond_missing_rc PROPERTIES TIMEOUT 60)
 

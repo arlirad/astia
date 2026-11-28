@@ -15,6 +15,12 @@ $cc $cflags -I "$root/daemond" \
     -o "$out/stop_test"
 "$out/stop_test"
 
+# shellcheck disable=SC2086
+$cc $cflags -I "$root/daemond" \
+    "$root/daemond/tests/units_test.c" "$root/daemond/units.c" \
+    -o "$out/units_test"
+"$out/units_test"
+
 socket_path="${TMPDIR:-/tmp}/astia-daemond-$$.sock"
 fallback_path="${TMPDIR:-/tmp}/astia-daemond-$$-fallback.sock"
 trap 'rm -f "$socket_path" "$fallback_path"' EXIT INT TERM
@@ -31,11 +37,14 @@ $cc $cflags -I "$root/daemond" -idirafter "$root/libc/include" \
     -c "$root/daemond/daemond.c" -o "$out/daemond.o"
 # shellcheck disable=SC2086
 $cc $cflags -I "$root/daemond" -idirafter "$root/libc/include" \
+    -c "$root/daemond/units.c" -o "$out/units.o"
+# shellcheck disable=SC2086
+$cc $cflags -I "$root/daemond" -idirafter "$root/libc/include" \
     -DDAEMON_SOCKET_PATH="\"$socket_path\"" \
     -DDAEMON_SOCKET_FALLBACK="\"$fallback_path\"" \
     "$root/daemond/tests/daemond_stop_test.c" \
     "$root/daemond/tests/host_spawn.c" "$root/daemond/stop.c" \
-    "$out/daemond.o" -o "$out/daemond_stop_test"
+    "$out/daemond.o" "$out/units.o" -o "$out/daemond_stop_test"
 "$out/daemond_stop_test"
 
 echo "daemond tests ok"

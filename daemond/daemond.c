@@ -1,6 +1,7 @@
 #include "daemond.h"
 
 #include "stop.h"
+#include "units.h"
 #include <daemon_protocol.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -17,21 +18,15 @@
 #include <unistd.h>
 
 enum {
-    SERVICE_LINE               = 256,
     SERVICE_MAX                = 32,
-    SERVICE_ARG_MAX            = 16,
-    SERVICE_RESTART_MAX        = 16,
-    SERVICE_DEFAULT_RESTARTS   = 3,
     SERVICE_STOP_GRACE_MS      = 2000,
     SERVICE_STOP_KILL_MS       = 1000,
     CONTROL_REQUEST_TIMEOUT_MS = 5000
 };
 
 struct service {
-    char  line[SERVICE_LINE];
-    char* argv[SERVICE_ARG_MAX + 1];
-    int   argc, pid, pgid, restart, failure_only, restarts, max_restarts;
-    int   enabled, start_on_exit, last_error;
+    struct unit unit;
+    int         pid, pgid, restarts, enabled, start_on_exit, last_error;
 };
 
 enum command_kind {
@@ -55,154 +50,46 @@ static void terminate_signal(int signal_number) {
     shutdown_pending = 1;
 }
 
-static int decimal(const char* text, int* result) {
-    unsigned value = 0;
-    int      digit = 0;
-
-    while (*text >= '0' && *text <= '9') {
-        unsigned next = (unsigned) (*text - '0');
-
-        if (value > (SERVICE_RESTART_MAX - next) / 10u)
-            return -1;
-
-        value = value * 10u + next;
-
-        ++text;
-
-        digit = 1;
-    }
-
-    if (!digit || *text)
-        return -1;
-
-    *result = (int) value;
-
-    return 0;
-}
-
-static int option_value(const char* token, const char* name, int* value) {
-    size_t length = strlen(name);
-
-    if (strncmp(token, name, length) || token[length] != '=')
-        return 0;
-
-    return decimal(token + length + 1, value) == 0 ? 1 : -1;
-}
-
-/* Parse only the native record format.  In particular, policy words are not
- * passed to a shell and may only occur at the end of a record. */
-static int parse_line(struct service* service) {
-    char* cursor = service->line;
-    char* tokens[SERVICE_ARG_MAX + 3];
-
-    int token_count = 0;
-    int policy      = 0;
-
-    service->argc = service->restart = service->failure_only = 0;
-    service->restarts = service->max_restarts = service->start_on_exit = 0;
-
-    while (*cursor == ' ' || *cursor == '\t') {
-        ++cursor;
-    }
-
-    if (!*cursor || *cursor == '#')
-        return 0;
-
-    while (*cursor) {
-        char* token;
-
-        while (*cursor == ' ' || *cursor == '\t') {
-            ++cursor;
-        }
-
-        if (!*cursor || *cursor == '#')
-            break;
-
-        token = cursor;
-
-        while (*cursor && *cursor != ' ' && *cursor != '\t') {
-            ++cursor;
-        }
-
-        if (*cursor)
-            *cursor++ = '\0';
-
-        if (token_count == (int) (sizeof tokens / sizeof tokens[0]))
-            return -1;
-
-        tokens[token_count++] = token;
-    }
-
-    if (!token_count || tokens[0][0] != '/')
-        return -1;
-
-    /* A policy is a suffix, never an argument followed by another policy. */
-    if (!strcmp(tokens[token_count - 1], "respawn") ||
-        !strcmp(tokens[token_count - 1], "restart")) {
-        policy                = 1;
-        service->restart      = 1;
-        service->max_restarts = SERVICE_DEFAULT_RESTARTS;
-
-        --token_count;
-    }
-    else if (!strcmp(tokens[token_count - 1], "respawn-on-failure")) {
-        policy           = 1;
-        service->restart = service->failure_only = 1;
-        service->max_restarts                    = SERVICE_DEFAULT_RESTARTS;
-
-        --token_count;
-    }
-    else {
-        int limit = 0;
-        int found = 0;
-
-        const char* names[] = {"respawn", "restart", "max-restarts"};
-
-        for (unsigned i = 0; i < sizeof names / sizeof names[0]; ++i) {
-            int parsed = option_value(tokens[token_count - 1], names[i], &limit);
-            if (parsed < 0)
-                return -1;
-
-            if (parsed) {
-                found = 1;
-
-                break;
-            }
-        }
-
-        if (found) {
-            policy                = 1;
-            service->max_restarts = limit;
-            service->restart      = limit != 0;
-
-            --token_count;
-        }
-    }
-
-    if (policy && token_count == 0)
-        return -1;
-
-    if (token_count > SERVICE_ARG_MAX)
-        return -1;
-
-    for (int i = 0; i < token_count; ++i) {
-        service->argv[service->argc++] = tokens[i];
-    }
-
-    service->argv[service->argc] = 0;
-    service->pid = service->pgid = -1;
-    service->enabled             = 1;
-
-    return 1;
-}
-
 static int start_service(struct service* service) {
     if (service->pid >= 0)
         return 0;
 
-    service->pid        = spawnve(service->argv[0], service->argv, 0);
-    service->pgid       = service->pid;
+    struct unit* unit = &service->unit;
+
+    int directory = -1;
+
+    if (unit->working_directory[0]) {
+        directory = open(".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (directory < 0) {
+            service->last_error = errno;
+
+            return -1;
+        }
+
+        if (chdir(unit->working_directory) < 0) {
+            const int error = errno;
+
+            close(directory);
+
+            service->last_error = error;
+
+            errno = error;
+
+            return -1;
+        }
+    }
+
+    service->pid  = spawnve(unit->exec, unit->argv, unit->envp[0] ? unit->envp : NULL);
+    service->pgid = service->pid;
     service->last_error = service->pid < 0 ? errno : 0;
+
+    if (directory >= 0) {
+        if (fchdir(directory) < 0)
+            fprintf(stderr, "daemond: cannot restore working directory: errno=%d\n",
+                    errno);
+
+        close(directory);
+    }
 
     if (service->pid >= 0 && setpgid(service->pid, service->pid) < 0) {
         /* A child which exited in this small race is still reaped normally. */
@@ -225,7 +112,7 @@ static int start_service(struct service* service) {
 }
 
 static void report(const char* what, const struct service* service, int error) {
-    const char* name = service->argc ? service->argv[0] : "?";
+    const char* name = service->unit.name[0] ? service->unit.name : "?";
 
     if (error)
         fprintf(stderr, "daemond: %s: %s: errno=%d\n", what, name, error);
@@ -244,12 +131,13 @@ static void reap_child(struct service* services, int count, int pid, int status)
 
         if (services[i].enabled &&
             (services[i].start_on_exit ||
-             (services[i].restart && (!services[i].failure_only || !WIFEXITED(status) ||
-                                      WEXITSTATUS(status) != 0))) &&
-            services[i].restarts < services[i].max_restarts) {
+             (services[i].unit.restart &&
+              (!services[i].unit.failure_only || !WIFEXITED(status) ||
+               WEXITSTATUS(status) != 0))) &&
+            services[i].restarts < services[i].unit.max_restarts) {
             ++services[i].restarts;
             fprintf(stderr, "daemond: restarting service: %s attempt=%d\n",
-                    services[i].argc ? services[i].argv[0] : "?", services[i].restarts);
+                    services[i].unit.name, services[i].restarts);
 
             if (start_service(&services[i]) < 0) {
                 services[i].last_error = errno;
@@ -576,7 +464,7 @@ static void handle_client(int client, struct service* services, int count) {
         for (int i = 0; i < count; ++i) {
             snprintf(status_line, sizeof status_line,
                      "service=%s state=%s restart=%d pid=%d pgid=%d error=%d\n",
-                     services[i].argv[0],
+                     services[i].unit.name,
                      services[i].pid >= 0 && services[i].enabled ? "running" : "stopped",
                      services[i].restarts, services[i].pid, services[i].pgid,
                      services[i].last_error);
@@ -589,7 +477,7 @@ static void handle_client(int client, struct service* services, int count) {
         append_text(reply, &used, "OK ");
 
         for (int i = 0; i < count; ++i) {
-            append_text(reply, &used, services[i].argv[0]);
+            append_text(reply, &used, services[i].unit.name);
             append_text(reply, &used, "\n");
         }
     }
@@ -637,76 +525,30 @@ static void handle_client(int client, struct service* services, int count) {
         fprintf(stderr, "daemond: control reply failed: errno=%d\n", errno);
 }
 
-int astia_daemon_run(const char* rc_path) {
-    const char*    path = rc_path ? rc_path : "/etc/rc";
-    FILE*          file = fopen(path, "r");
-    struct service services[SERVICE_MAX];
+int astia_daemon_run(const char* unit_directory) {
+    const char* directory = unit_directory ? unit_directory : "/etc/daemond";
 
-    char line[SERVICE_LINE];
-    int  count = 0, failures = 0, control = -1, line_number = 0;
+    static struct unit    units[SERVICE_MAX];
+    static struct service services[SERVICE_MAX];
 
-    if (!file) {
-        const int error = errno;
-        if (error != ENOENT) {
-            fprintf(stderr, "daemond: open %s failed: errno=%d\n", path, error);
+    int count = 0, failures = 0, control = -1;
 
-            return -1;
-        }
+    memset(services, 0, sizeof services);
 
-        /* A missing rc is an empty configuration, not a reason to exit and
-         * take PID 1 down; stay resident so the control socket is usable. */
-        fprintf(stderr, "daemond: open %s failed: errno=%d; starting with no services\n",
-                path, error);
-    }
-
-    while (file && fgets(line, sizeof line, file)) {
-        size_t n = strlen(line);
-        int    parsed;
-
-        ++line_number;
-
-        if (n == sizeof line - 1 && line[n - 1] != '\n' && !feof(file)) {
-            int c;
-
-            while ((c = fgetc(file)) != '\n' && c != EOF) {
-            }
-
-            ++failures;
-            fprintf(stderr, "daemond: service record too long line=%d\n", line_number);
-            continue;
-        }
-
-        if (n && line[n - 1] == '\n')
-            line[--n] = '\0';
-
-        if (n && line[n - 1] == '\r')
-            line[--n] = '\0';
-
-        if (count == SERVICE_MAX) {
-            ++failures;
-            fprintf(stderr, "daemond: too many service records line=%d\n", line_number);
-            continue;
-        }
-
-        memset(&services[count], 0, sizeof services[count]);
-        memcpy(services[count].line, line, n + 1);
-
-        parsed = parse_line(&services[count]);
-        if (parsed < 0) {
-            ++failures;
-            fprintf(stderr, "daemond: malformed service record line=%d: %s\n",
-                    line_number, services[count].line);
-        }
-        else if (parsed > 0) {
-            ++count;
-        }
-    }
-
-    if (file)
-        fclose(file);
-
-    if (failures)
+    if (units_load(directory, units, SERVICE_MAX, &count) < 0)
         return -1;
+
+    for (int i = 0; i < count; ++i) {
+        services[i].unit          = units[i];
+        services[i].pid           = -1;
+        services[i].pgid          = -1;
+        services[i].enabled       = 1;
+        services[i].start_on_exit = 0;
+        services[i].last_error    = 0;
+        services[i].restarts      = 0;
+
+        unit_rebind(&services[i].unit);
+    }
 
     if (!count)
         fprintf(stderr, "daemond: no services configured; idling\n");
@@ -826,5 +668,5 @@ int astia_daemon_run(const char* rc_path) {
 }
 
 int main(void) {
-    return astia_daemon_run("/etc/rc") == 0 ? 0 : 1;
+    return astia_daemon_run("/etc/daemond") == 0 ? 0 : 1;
 }

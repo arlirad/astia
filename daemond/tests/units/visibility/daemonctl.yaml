@@ -1,0 +1,4 @@
+description: Ask the supervisor for its service status.
+exec: /bin/daemonctl
+args:
+  - status

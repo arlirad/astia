@@ -1,11 +1,19 @@
 #pragma once
 
-/* Native, non-shell /etc/rc policy.  A line is:
+/* Native, non-shell service units.  Each /etc/daemond/<name>.yaml file is a
+ * controlled YAML subset:
  *
- *   /absolute/program argv0 arg1 ... [respawn[=N]]
+ *   description: free text        # optional
+ *   exec: /absolute/program
+ *   args:
+ *     - argument
+ *   restart: no | always | on-failure
+ *   restart-limit: 0..16          # defaults to 3 when restart is enabled
+ *   working-directory: /absolute  # optional
+ *   environment:
+ *     NAME: value
  *
- * Tokens are separated by spaces or tabs; blank lines and lines beginning
- * with '#' are ignored.  respawn means at most three restarts; respawn=N,
- * restart=N, or max-restarts=N selects a limit (0..16).  There is no quote,
- * expansion, redirection, or pipeline syntax. */
-int astia_service_manager(const char* rc_path);
+ * Comments, single-quoted and double-quoted scalars are accepted.  Anchors,
+ * flow collections, multi-document streams and tabs are not.  Unknown keys,
+ * duplicate exec keys and non-absolute exec paths reject the whole unit. */
+int astia_service_manager(const char* unit_directory);

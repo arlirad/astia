@@ -1,0 +1,2 @@
+description: Service that ignores SIGTERM; its child asks daemonctl to stop.
+exec: /bin/stop-client

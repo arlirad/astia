@@ -6,7 +6,8 @@
 
 /* PID 1 is deliberately boring: kernel bootstrap has already mounted devfs
  * and installed the inherited console streams.  Daemond is the sole owner of
- * /etc/rc and of service children, so init never competes for their waits. */
+ * /etc/daemond units and of service children, so init never competes for
+ * their waits. */
 int main(void) {
     char* const argv[] = {(char*) "/sbin/daemond", NULL};
 
