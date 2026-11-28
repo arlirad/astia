@@ -435,6 +435,7 @@ if(ASTIA_BUILD_TESTS)
             astia_module_lifecycle_test
             virtio_blk_unit_target
             virtio_blk_teardown_target
+            virtio_blk_async_error_target
             nvme_teardown_target
             nvme_start_target
             usb_unit_target
@@ -458,6 +459,7 @@ if(ASTIA_BUILD_TESTS)
             astia_module_lifecycle_test
             virtio_blk_unit_target
             virtio_blk_teardown_target
+            virtio_blk_async_error_target
             nvme_teardown_target
             nvme_start_target
             usb_unit_target
