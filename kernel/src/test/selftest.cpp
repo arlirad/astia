@@ -143,7 +143,11 @@ namespace astia::test {
                 return false;
             }
 
-            proc::scheduler::yield();
+            for (u32 i = 0; i < 16 && astia::atomic_ref<u32>(scheduler_gate_result)
+                                              .load(astia::memory_order::acquire) == 0;
+                 ++i) {
+                proc::scheduler::yield();
+            }
 
             const u32 masked_result = astia::atomic_ref<u32>(scheduler_gate_result)
                                           .load(astia::memory_order::acquire);
