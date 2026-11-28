@@ -387,6 +387,27 @@ namespace astia::fs {
         return {};
     }
 
+    mm::shptr<open_file> mount::open_verified(const char* path, u32 flags, u64 inode,
+                                              long* error) {
+        auto result = open(path, flags, error);
+        if (!result)
+            return {};
+
+        // Backends whose file objects carry no inode (initrd, devfs) cannot
+        // prove the binding; they are either immutable or re-check access
+        // themselves, so an unavailable identity is not a mismatch.
+        const u64 actual = result->parent() ? result->parent()->inode() : 0;
+
+        if (inode != 0 && actual != 0 && actual != inode) {
+            if (error != nullptr)
+                *error = -EAGAIN;
+
+            return {};
+        }
+
+        return result;
+    }
+
     long mount::register_file(const char* path, const mm::shptr<file>& entry) {
         (void) path;
         (void) entry;
@@ -930,6 +951,84 @@ namespace astia::fs {
         return open_path(path, flags, error);
     }
 
+    mm::shptr<open_file> open_verified(const char* path, u32 flags,
+                                       const node_identity& expected, long* error) {
+        if (path == nullptr || path[0] != '/')
+            return {};
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return {};
+
+        if (expected.device != 0 && operation.instance()->device() != expected.device) {
+            if (error != nullptr)
+                *error = -EAGAIN;
+
+            return {};
+        }
+
+        mm::shptr<file> unix_endpoint;
+
+        if (lookup_unix_path(path, unix_endpoint) == 0) {
+            auto result = mm::share<open_file>(unix_endpoint, flags);
+            if (result) {
+                result->set_path(path);
+                result->attach_mount(operation.instance());
+            }
+
+            return result;
+        }
+
+        auto result = operation.instance()->open_verified(
+            relative_path(*operation.entry(), path), flags, expected.inode, error);
+        if (result) {
+            result->set_path(path);
+            result->attach_mount(operation.instance());
+        }
+
+        return result;
+    }
+
+    mm::shptr<open_file> open_directory_verified(const char*          path,
+                                                 const node_identity& expected) {
+        if (path == nullptr || path[0] != '/' || node_type(path) != directory_dir)
+            return {};
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return {};
+
+        if (expected.device != 0 && operation.instance()->device() != expected.device)
+            return {};
+
+        auto result = operation.instance()->open_verified(
+            relative_path(*operation.entry(), path), ASTIA_AIO_O_DIRECTORY,
+            expected.inode, nullptr);
+        if (!result) {
+            const node_identity current = node_identity_of(path);
+
+            if (expected.device != 0 && current.device != expected.device)
+                return {};
+
+            if (expected.inode != 0 && current.inode != expected.inode)
+                return {};
+
+            if (node_type(path) != directory_dir)
+                return {};
+
+            result = mm::share<open_file>(path, node_mode(path));
+        }
+
+        if (result) {
+            result->set_path(path);
+            result->attach_mount(operation.instance());
+        }
+
+        return result;
+    }
+
     bool read_only_path(const char* path) {
         if (path == nullptr || path[0] != '/')
             return false;
@@ -1269,6 +1368,16 @@ namespace astia::fs {
             operation.instance()->node_inode(relative_path(*operation.entry(), path));
 
         return inode != 0 ? inode : synthetic_inode(operation.instance()->device(), path);
+    }
+
+    u64 node_inode(const open_file& handle) {
+        const u64 inode = handle.parent() ? handle.parent()->inode() : 0;
+
+        return inode != 0 ? inode : node_inode(handle.path());
+    }
+
+    node_identity node_identity_of(const char* path) {
+        return {node_device(path), node_inode(path)};
     }
 
     bool directory_matches(const char* path, mount* owner, u64 inode) {

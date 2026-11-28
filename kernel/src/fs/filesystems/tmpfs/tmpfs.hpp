@@ -167,6 +167,8 @@ namespace astia::fs::filesystems {
 
         mm::shptr<open_file> open(const char* path, u32 flags,
                                   long* error = nullptr) override;
+        mm::shptr<open_file> open_verified(const char* path, u32 flags, u64 inode,
+                                           long* error = nullptr) override;
         long      open_shared(const char* path, u32 flags, file_mode mode, uid_t uid,
                               gid_t gid, uid_t euid, gid_t egid, bool privileged,
                               mm::shptr<open_file>& result);
@@ -190,7 +192,9 @@ namespace astia::fs::filesystems {
         long readlink(const char* path, char* buffer, u32 capacity) const override;
 
         private:
-        file_type node_type_unlocked(const char* path) const;
+        file_type            node_type_unlocked(const char* path) const;
+        mm::shptr<open_file> open_node(const char* path, u32 flags, u64 inode,
+                                       long* error);
 
         struct entry {
             bool                  used      = false;

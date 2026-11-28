@@ -14,6 +14,7 @@
 
 #include <astia/api/aio.h>
 
+#include <fs/events.hpp>
 #include <io/aio/dispatch.hpp>
 #include <io/aio/registry.hpp>
 #include <io/aio/ring.hpp>
@@ -320,6 +321,34 @@ namespace {
 
     void restore_credentials() {
         aio::test_support::set_process_credentials(uid_t{0}, gid_t{0});
+    }
+
+    bool swap_armed = false;
+
+    bool same_text(const char* left, const char* right) {
+        while (*left != '\0' && *left == *right) {
+            ++left;
+            ++right;
+        }
+
+        return *left == *right;
+    }
+
+    core::hook::outcome swap_open_target(const char* path) {
+        if (!swap_armed || path == nullptr || !same_text(path, "/tmp/slot"))
+            return core::hook::outcome::pass;
+
+        swap_armed = false;
+
+        aio::test_support::set_node_identity(path, 7, 99);
+
+        auto* substituted = new aio_test::fake_file;
+
+        substituted->inode_value = 99;
+
+        aio::test_support::set_open_file(aio_test::make_open_file(substituted));
+
+        return core::hook::outcome::pass;
     }
 } // namespace
 
@@ -753,6 +782,33 @@ ASTIA_TEST(aio_filesystem_openat_read_only_allows_read_permission) {
     char path[] = "/tmp/readable";
 
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDONLY) == 3);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_rejects_target_swapped_after_check) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/slot", 0644, uid_t{0}, gid_t{0});
+    set_node_identity("/tmp/slot", 7, 42);
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    swap_armed = true;
+
+    ASTIA_CHECK(fs::events::open_checked::add("issue933", core::hook::priority::normal,
+                                              &swap_open_target));
+
+    char path[] = "/tmp/slot";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDONLY) == -EAGAIN);
+    ASTIA_CHECK(!descriptor_present(3));
+
+    ASTIA_CHECK(fs::events::open_checked::remove("issue933"));
+
+    swap_armed = false;
 
     restore_credentials();
 }

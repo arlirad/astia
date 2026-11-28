@@ -1289,6 +1289,53 @@ namespace astia::fs {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
+    mm::shptr<open_file> open_verified(const char* path, u32 flags,
+                                       const node_identity& expected, long* error) {
+        const u32 device = node_device(path);
+
+        if (expected.device != 0 && device != 0 && device != expected.device) {
+            if (error != nullptr)
+                *error = -EAGAIN;
+
+            return {};
+        }
+
+        auto result = open(path, flags, error);
+        if (!result)
+            return {};
+
+        const u64 inode = node_inode(*result);
+
+        if (expected.inode != 0 && inode != 0 && inode != expected.inode) {
+            if (error != nullptr)
+                *error = -EAGAIN;
+
+            return {};
+        }
+
+        return result;
+    }
+
+    mm::shptr<open_file> open_directory_verified(const char*          path,
+                                                 const node_identity& expected) {
+        if (node_type(path) != file_type::directory)
+            return {};
+
+        auto result = open_directory(path);
+        if (!result)
+            return {};
+
+        const node_identity current = node_identity_of(path);
+
+        if (expected.device != 0 && current.device != expected.device)
+            return {};
+
+        if (expected.inode != 0 && current.inode != expected.inode)
+            return {};
+
+        return result;
+    }
+
     bool read_only_path(const char*) {
         return false;
     }
@@ -1359,6 +1406,16 @@ namespace astia::fs {
         auto* entry = ::astia::io::aio::test_support::detail::find_override(path, false);
 
         return entry != nullptr && entry->identity_set ? entry->inode : 0ull;
+    }
+
+    u64 node_inode(const open_file& handle) {
+        const u64 inode = handle.parent() ? handle.parent()->inode() : 0;
+
+        return inode != 0 ? inode : node_inode(handle.path());
+    }
+
+    node_identity node_identity_of(const char* path) {
+        return {node_device(path), node_inode(path)};
     }
 
     long chmod_path(const char* path, file_permissions permissions) {

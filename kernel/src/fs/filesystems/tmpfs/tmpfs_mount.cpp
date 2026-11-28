@@ -60,6 +60,16 @@ namespace astia::fs::filesystems {
     }
 
     mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags, long* error) {
+        return open_node(path, flags, 0, error);
+    }
+
+    mm::shptr<open_file> tmpfs_mount::open_verified(const char* path, u32 flags,
+                                                    u64 inode, long* error) {
+        return open_node(path, flags, inode, error);
+    }
+
+    mm::shptr<open_file> tmpfs_mount::open_node(const char* path, u32 flags, u64 inode,
+                                                long* error) {
         if (path == nullptr || path[0] != '/') {
             set_error(error, -EINVAL);
 
@@ -102,6 +112,12 @@ namespace astia::fs::filesystems {
         }
 
         if (existing) {
+            if (inode != 0 && existing->inode() != inode) {
+                set_error(error, -EAGAIN);
+
+                return {};
+            }
+
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
                 existing->truncate_ready(0);
 
@@ -200,6 +216,12 @@ namespace astia::fs::filesystems {
             return mm::share<open_file>(file, flags);
 
         if (existing) {
+            if (inode != 0 && existing->inode() != inode) {
+                set_error(error, -EAGAIN);
+
+                return {};
+            }
+
             if ((flags & oflag_trunc) != 0 && (flags & (oflag_write | oflag_rdwr)) != 0)
                 existing->truncate_ready(0);
 

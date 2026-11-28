@@ -1,7 +1,23 @@
 #include "../../io/aio/handler.hpp"
+#include "../events.hpp"
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
+    namespace {
+        bool access_allowed(const proc::process& cred, const fs::file_mode& mode,
+                            uid_t owner, gid_t group, u32 access) {
+            if ((access == ASTIA_AIO_O_WRONLY || access == ASTIA_AIO_O_RDWR) &&
+                !cred.can_access(mode, owner, group, fs::permission_bits::write))
+                return false;
+
+            if ((access == ASTIA_AIO_O_RDONLY || access == ASTIA_AIO_O_RDWR) &&
+                !cred.can_access(mode, owner, group, fs::permission_bits::read))
+                return false;
+
+            return true;
+        }
+    } // namespace
+
     struct openat : handler<openat, opcode::openat> {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
@@ -81,36 +97,50 @@ namespace astia::io::aio::operations {
                 !parent_writable(current, resolved))
                 co_return -EACCES;
 
-            if (existing_mode.exists()) {
-                auto*       cred  = proc::current_process();
-                const uid_t owner = fs::node_uid(resolved);
-                const gid_t group = fs::node_gid(resolved);
+            // The identity is captured once, from the resolution the checks
+            // above used.  The backend must bind this same node; a name that
+            // changed after the checks fails with -EAGAIN.
+            const fs::node_identity checked = existing_mode.exists()
+                                                  ? fs::node_identity_of(resolved)
+                                                  : fs::node_identity{};
 
-                const u32 access = sqe.op_flags & ASTIA_AIO_O_ACCMODE;
+            const uid_t existing_uid =
+                existing_mode.exists() ? fs::node_uid(resolved) : uid_t{};
+            const gid_t existing_gid =
+                existing_mode.exists() ? fs::node_gid(resolved) : gid_t{};
 
-                if ((access == ASTIA_AIO_O_WRONLY || access == ASTIA_AIO_O_RDWR) &&
-                    !cred->can_access(existing_mode, owner, group,
-                                      fs::permission_bits::write))
-                    co_return -EACCES;
+            const u32 access = sqe.op_flags & ASTIA_AIO_O_ACCMODE;
 
-                if ((access == ASTIA_AIO_O_RDONLY || access == ASTIA_AIO_O_RDWR) &&
-                    !cred->can_access(existing_mode, owner, group,
-                                      fs::permission_bits::read))
-                    co_return -EACCES;
-            }
+            if (existing_mode.exists() &&
+                !access_allowed(*current, existing_mode, existing_uid, existing_gid,
+                                access))
+                co_return -EACCES;
+
+            fs::events::open_checked::emit(resolved);
 
             long open_error = 0;
 
             mm::shptr<fs::open_file> handle =
                 existing_mode.is_directory()
-                    ? fs::open_directory(resolved)
-                    : fs::open(resolved, sqe.op_flags, &open_error);
+                    ? fs::open_directory_verified(resolved, checked)
+                    : fs::open_verified(resolved, sqe.op_flags, checked, &open_error);
             if (!handle) {
                 if (exclusive)
                     co_return -EEXIST;
 
                 co_return open_error != 0 ? open_error : -ENOENT;
             }
+
+            // The decisive check runs on the object that was actually bound,
+            // so a metadata read that raced the replacement cannot authorize
+            // a different node.
+            auto* cred = proc::current_process();
+            if (cred == nullptr)
+                co_return -ESRCH;
+
+            if (!access_allowed(*cred, handle->mode(), handle_uid(*handle),
+                                handle_gid(*handle), access))
+                co_return -EACCES;
 
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 const auto requested = mapper<fs::file_permissions>::from(
