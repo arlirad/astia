@@ -34,6 +34,31 @@ namespace {
     astia::vaddr_t kvirt(astia::vaddr_t offset) {
         return astia::arch::kernel_base + offset;
     }
+
+    // Full-recursion address: every level takes the recursive slot, so it
+    // aliases the root table page of whichever map the CPU is walking.
+    astia::vaddr_t recursive_self(astia::usz offset = 0) {
+        const astia::u64 slot = (astia::arch::recursive_base >> 39) & 0x1ff;
+
+        return astia::arch::recursive_base + (slot << 30) + (slot << 21) + (slot << 12) +
+               offset;
+    }
+
+    // Clears the simulated per-CPU root registers around a test: a leftover
+    // root could coincide with a frame a later map reuses and wrongly license
+    // the recursive window.
+    struct cpu_model_guard {
+        cpu_model_guard() {
+            astia::arch::host_page_map_reset();
+        }
+
+        ~cpu_model_guard() {
+            astia::arch::host_page_map_reset();
+        }
+
+        cpu_model_guard(const cpu_model_guard&)            = delete;
+        cpu_model_guard& operator=(const cpu_model_guard&) = delete;
+    };
 } // namespace
 
 ASTIA_TEST(page_map_create_allocates_empty_root) {
@@ -255,10 +280,8 @@ ASTIA_TEST(page_map_recursive_slot_points_at_own_root) {
     // reading the root page itself: PML4[slot] -> root -> ... -> root, so
     // the full-recursion address aliases the root table page. Each map's
     // alias must resolve to *its own* root, not the parent's.
-    const astia::u64 slot = (astia::arch::recursive_base >> 39) & 0x1ff;
     const astia::u64 off  = 0x123;
-    const astia::u64 self =
-        astia::arch::recursive_base + (slot << 30) + (slot << 21) + (slot << 12) + off;
+    const astia::u64 self = recursive_self(off);
 
     ASTIA_CHECK(parent.translate(self) == parent.root() + off);
     ASTIA_CHECK(child.translate(self) == child.root() + off);
@@ -266,19 +289,89 @@ ASTIA_TEST(page_map_recursive_slot_points_at_own_root) {
 }
 
 ASTIA_TEST(page_map_recursive_window_is_reserved) {
-    auto             pm   = make_map();
-    const astia::u64 slot = (astia::arch::recursive_base >> 39) & 0x1ff;
-    const astia::u64 full =
-        astia::arch::recursive_base + (slot << 30) + (slot << 21) + (slot << 12);
+    auto pm = make_map();
 
     // Nothing may be mapped on top of the self-referencing slot...
     ASTIA_CHECK(!pm.map_4k(astia::arch::recursive_base + 0x1000,
                            astia_test::arena_base + 0x200000, rw));
     ASTIA_CHECK(!pm.map_2m(astia::arch::recursive_base + 0x200000,
                            astia_test::arena_base + 0x400000, rw));
-    ASTIA_CHECK(!pm.unmap(full));
+    ASTIA_CHECK(!pm.unmap(recursive_self()));
 
     // ...but the window still translates through the self-entry: the
     // full-recursion address resolves to the root page at offset 0.
-    ASTIA_CHECK(pm.translate(full) == pm.root());
+    ASTIA_CHECK(pm.translate(recursive_self()) == pm.root());
+}
+
+ASTIA_TEST(page_map_recursive_window_is_per_cpu) {
+    cpu_model_guard model;
+    auto            a = make_map();
+    auto            b = make_map();
+
+    ASTIA_CHECK(a.root() != b.root());
+    ASTIA_CHECK(a.map_4k(0x400000, astia_test::arena_base + 0x200000, rw));
+    ASTIA_CHECK(b.map_4k(0x400000, astia_test::arena_base + 0x300000, rw));
+
+    // CPU 0 runs A while CPU 1 runs B, so the process-global "last activated"
+    // map can no longer stand in for the per-CPU root register.
+    astia::arch::host_page_map_run_on_cpu(0);
+    a.activate();
+    astia::arch::host_page_map_run_on_cpu(1);
+    b.activate();
+
+    astia::arch::host_page_map_run_on_cpu(0);
+    ASTIA_CHECK(astia::arch::host_page_map_installed_root() == a.root());
+
+    // Each CPU resolves the recursive window through its own root.
+    ASTIA_CHECK(a.translate(recursive_self(0x40)) == a.root() + 0x40);
+    // A map this CPU is not running is read through the direct map, never
+    // through CPU 0's window.
+    ASTIA_CHECK(b.translate(recursive_self(0x40)) == b.root() + 0x40);
+}
+
+ASTIA_TEST(page_map_switch_rebinds_recursive_window) {
+    cpu_model_guard model;
+    auto            a = make_map();
+    auto            b = make_map();
+
+    const astia::u64 a_phys = astia_test::arena_base + 0x500000;
+    const astia::u64 b_phys = astia_test::arena_base + 0x600000;
+
+    astia::arch::host_page_map_run_on_cpu(0);
+    a.activate();
+
+    ASTIA_CHECK(a.map_4k(0x500000, a_phys, rw));
+    ASTIA_CHECK(a.translate(0x500000) == a_phys);
+
+    // An address-space switch on this CPU rebinds the window: the new root's
+    // recursive slot is what the alias resolves through from now on.
+    b.activate();
+    ASTIA_CHECK(astia::arch::host_page_map_installed_root() == b.root());
+
+    ASTIA_CHECK(b.map_4k(0x500000, b_phys, rw));
+    ASTIA_CHECK(b.translate(0x500000) == b_phys);
+    ASTIA_CHECK(a.translate(0x500000) == a_phys);
+    ASTIA_CHECK(b.translate(recursive_self(0x80)) == b.root() + 0x80);
+    ASTIA_CHECK(a.translate(recursive_self(0x80)) == a.root() + 0x80);
+}
+
+ASTIA_TEST(page_map_foreign_map_write_uses_its_own_tables) {
+    cpu_model_guard model;
+    auto            a = make_map();
+    auto            b = make_map();
+
+    const astia::u64 phys = astia_test::arena_base + 0x700000;
+
+    astia::arch::host_page_map_run_on_cpu(0);
+    a.activate();
+    astia::arch::host_page_map_run_on_cpu(1);
+    b.activate();
+    astia::arch::host_page_map_run_on_cpu(0);
+
+    // CPU 0 runs A but some kernel path maps into B (fork/exec staging for
+    // an address space that is not current here). The write must land in B's
+    // tables, not be routed through CPU 0's A window.
+    ASTIA_CHECK(b.map_4k(0x600000, phys, rw));
+    ASTIA_CHECK(b.translate(0x600000) == phys);
+    ASTIA_CHECK(a.translate(0x600000) == page_map::invalid);
 }

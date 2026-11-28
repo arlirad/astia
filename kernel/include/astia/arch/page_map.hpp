@@ -125,4 +125,13 @@ namespace astia::arch {
     /// The kernel's own address space, installed by the arch paging init
     /// step; nullptr until then. Provided per arch.
     page_map* kernel_page_map();
+
+#ifdef ASTIA_HOST_TEST
+    /// Host-test model of the per-CPU root register. Tests run in user mode
+    /// where CR3 cannot be read or written, so they select the CPU they act
+    /// as and install roots through page_map::activate() instead.
+    void    host_page_map_run_on_cpu(u32 cpu);
+    paddr_t host_page_map_installed_root();
+    void    host_page_map_reset();
+#endif
 } // namespace astia::arch

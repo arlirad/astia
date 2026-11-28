@@ -1,6 +1,7 @@
 #include <astia/arch/layout.hpp>
 #include <astia/arch/page_map.hpp>
 #include <astia/arch/user_layout.hpp>
+#include <astia/atomic.hpp>
 #ifndef ASTIA_HOST_TEST
 #include <astia/arch/cpu.hpp>
 
@@ -21,11 +22,14 @@ extern "C" char boot_stack_top[];
 // and semantics are arch-neutral, the entry encoding is not.
 //
 // Table access does not lean on a 1:1 (identity) mapping:
-//   - the *active* map reaches its own tables through the recursive slot:
-//     every root reserves PML4[510] pointing back at itself, so each table
-//     on a walk to `virt` sits at a virtual address derived from `virt`
-//     alone (see alias());
-//   - any other map resolves table frames through the kernel direct map
+//   - a map reaches its own root through the recursive slot only while the
+//     root register of *this* CPU holds that map's root: every root reserves
+//     PML4[510] pointing back at itself, so the root page sits at an address
+//     derived from the window alone (see alias()). The licence is the CR3
+//     value read back from the register, not a global "last activated" cache:
+//     another CPU activating a map must never let this CPU walk that map
+//     through the window it opened for a different one;
+//   - every other table frame resolves through the kernel direct map
 //     (kernel_base + phys), which covers every frame no matter where in
 //     physical memory it sits;
 //   - only before the first activate() — early construction and host unit
@@ -84,11 +88,36 @@ namespace astia::arch {
             mm::kernel_frames().release(frame);
         }
 
-        // The map currently installed in the hardware root register — set by
-        // activate(). Null before the first activation and always null in
-        // host unit tests, which is exactly when table access has to use
-        // physical pointers instead of the recursive window.
-        const page_map* active_map = nullptr;
+#ifndef ASTIA_HOST_TEST
+        // True once any address space has been loaded: from then on the kernel
+        // direct map is what non-root tables are reached through. Stays false
+        // before the first activate(). Across CPUs only ever transitions
+        // false -> true, all of them storing the same value.
+        astia::atomic<bool> paging_ready{false};
+#else
+        constexpr u32 host_cpu_limit = 8;
+
+        // Host tests model the CR3 register, one slot per CPU. They select the
+        // CPU they are acting as and load roots through activate(); nothing
+        // here is compiled into the kernel.
+        paddr_t host_active_roots[host_cpu_limit]{};
+        u32     host_current_cpu = 0;
+#endif
+
+        /// The root this CPU is actually running (CR3). Comparing against it
+        /// is what confines the recursive window to the map it was opened for:
+        /// CR3 is per-CPU, so a switch on another CPU cannot change it here.
+        paddr_t installed_root() {
+#ifdef ASTIA_HOST_TEST
+            return host_active_roots[host_current_cpu];
+#else
+            u64 value;
+
+            asm volatile("mov %%cr3, %0" : "=r"(value) : : "memory");
+
+            return value & address_mask;
+#endif
+        }
 
         enum class table_level {
             root,
@@ -145,8 +174,9 @@ namespace astia::arch {
             return bits;
         }
 
+#ifndef ASTIA_HOST_TEST
         /// Virtual address of the table page at `level` on the path to
-        /// `virt` inside the *active* map — meaningful only while that path
+        /// `virt` inside the *running* map — meaningful only while that path
         /// is present, which every caller arranges (create, an already
         /// checked/created entry further up, or the self-entry). The first
         /// index must select the recursive slot — that is what enters the
@@ -178,22 +208,38 @@ namespace astia::arch {
 
             return recursive_base | (a2 << 30) | (a3 << 21) | (a4 << 12);
         }
+#endif
 
         /// A table *frame* as a pointer, for tables belonging to maps that
         /// are not active: through the kernel direct map once it runs (it is
         /// shared into every active map), through the identity window before
         /// that and in host tests.
         u64* phys_ptr(paddr_t phys) {
-            if (active_map != nullptr)
+#ifdef ASTIA_HOST_TEST
+            return reinterpret_cast<u64*>(phys);
+#else
+            if (paging_ready.load(astia::memory_order::relaxed))
                 return reinterpret_cast<u64*>(kernel_base + phys);
 
             return reinterpret_cast<u64*>(phys);
+#endif
         }
 
-        /// `owner`'s root-table page.
+        /// `owner`'s root-table page. The recursive alias is valid only when
+        /// this CPU's root register holds `owner` — then the window it walks
+        /// was opened by that map, on this CPU.
         u64* root_table(const page_map& owner) {
-            if (active_map == &owner)
+#ifdef ASTIA_HOST_TEST
+            if (owner.root() == installed_root()) {
+                // A user process cannot map recursive_base; model the window
+                // as the page the simulated root register points at.
+                return reinterpret_cast<u64*>(installed_root());
+            }
+#else
+            if (paging_ready.load(astia::memory_order::relaxed) &&
+                owner.root() == installed_root())
                 return reinterpret_cast<u64*>(alias(table_level::root, 0));
+#endif
 
             return phys_ptr(owner.root());
         }
@@ -227,12 +273,11 @@ namespace astia::arch {
 
         /// The next-level table on `virt`'s walk, given the entry pointing
         /// at it (which the caller has verified present or just created).
+        /// The table frame is reached through the direct map, which is valid
+        /// for every page_map, so a walk of a non-running map never touches
+        /// this CPU's recursive window.
         u64* next_table(const page_map& owner, vaddr_t virt, table_level level,
                         u64 entry) {
-            /* The active_map cache can lag a CR3 switch performed by the
-               scheduler or an exec staging path.  The recursive alias is
-               therefore unsafe as a write target here: use the direct map
-               of the table frame, which is valid for every page_map. */
             (void) owner;
             (void) virt;
             (void) level;
@@ -676,15 +721,24 @@ namespace astia::arch {
     }
 
     // Host-side unit tests (tests/) compile this file directly, but they run
-    // in user mode where `mov cr3` and `invlpg` are privileged — and there is
-    // no real paging to recurse through, so active_map must stay null there
-    // (its absence is what routes table access to physical pointers).
+    // in user mode where `mov cr3` and `invlpg` are privileged. There they
+    // record the root in the CPU-model slot instead, which is what the
+    // recursive-window comparison reads back.
     void page_map::activate() const {
-#ifndef ASTIA_HOST_TEST
-        active_map = this;
+#ifdef ASTIA_HOST_TEST
+        host_active_roots[host_current_cpu] = _root;
+#else
+        // Publish the new root only after the register holds it: a shootdown
+        // aimed at this CPU must not skip it while it still caches the old
+        // address space's user translations. Interrupts stay masked across
+        // the register write and the publication so an IPI cannot observe a
+        // half-done switch.
+        interrupt_guard gate;
 
-        x86_64::smp::note_active_root(_root);
+        paging_ready.store(true, astia::memory_order::relaxed);
+
         asm volatile("mov %0, %%cr3" : : "r"(_root) : "memory");
+        x86_64::smp::note_active_root(_root);
 #endif
     }
 
@@ -695,4 +749,22 @@ namespace astia::arch {
         (void) virt;
 #endif
     }
+
+#ifdef ASTIA_HOST_TEST
+    void host_page_map_run_on_cpu(u32 cpu) {
+        host_current_cpu = cpu < host_cpu_limit ? cpu : 0;
+    }
+
+    paddr_t host_page_map_installed_root() {
+        return host_active_roots[host_current_cpu];
+    }
+
+    void host_page_map_reset() {
+        for (usz cpu = 0; cpu < host_cpu_limit; ++cpu) {
+            host_active_roots[cpu] = 0;
+        }
+
+        host_current_cpu = 0;
+    }
+#endif
 } // namespace astia::arch
