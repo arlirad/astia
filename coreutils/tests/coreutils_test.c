@@ -1463,34 +1463,42 @@ int main(void) {
     char* grep_match[]           = {"grep", "beta", NULL};
     char* grep_numbered[]        = {"grep", "-n", "beta", NULL};
     char* grep_insensitive[]     = {"grep", "-i", "BETA", NULL};
-    char* grep_empty_insensitive[] = {"grep", "-i", "", NULL};
-    char* grep_inverted[]          = {"grep", "-v", "beta", NULL};
-    char* grep_none[]              = {"grep", "missing", NULL};
-    char* grep_missing[]           = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
-    char* grep_dot[]               = {"grep", "a.c", NULL};
-    char* grep_escaped_dot[]       = {"grep", "a\\.c", NULL};
-    char* grep_star[]              = {"grep", "ab*c", NULL};
-    char* grep_anchor_start[]      = {"grep", "^root", NULL};
-    char* grep_anchor_end[]        = {"grep", "root$", NULL};
-    char* grep_bracket[]           = {"grep", "[0-9]", NULL};
-    char* grep_interval[]          = {"grep", "a\\{2\\}", NULL};
-    char* grep_backref[]           = {"grep", "\\(ab\\)\\1", NULL};
-    char* grep_empty_line[]        = {"grep", "^$", NULL};
-    char* grep_invalid[]           = {"grep", "a\\", NULL};
-    char* grep_insensitive_dot[]   = {"grep", "-i", "A.C", NULL};
-    char* grep_help[]              = {"grep", "--help", NULL};
-    char* sort_stdin[]             = {"sort", NULL};
-    char* cut_fields[]             = {"cut", "-d", ":", "-f", "2", NULL};
-    char* cut_open_end[]           = {"cut", "-d", ":", "-f", "2-", NULL};
-    char* cut_open_start[]         = {"cut", "-d", ":", "-f", "-3", NULL};
-    char* cut_closed_range[]       = {"cut", "-d", ":", "-f", "2-4", NULL};
-    char* cut_combined_list[]      = {"cut", "-d", ":", "-f", "1,3-", NULL};
-    char* cut_reversed_range[]     = {"cut", "-d", ":", "-f", "4-2", NULL};
-    char* cut_dash_only[]          = {"cut", "-d", ":", "-f", "-", NULL};
-    char* cut_trailing_comma[]     = {"cut", "-d", ":", "-f", "2,", NULL};
-    char* tee_file[]               = {"tee", "/tmp/coreutils_tee", NULL};
-    char* whoami[]                 = {"whoami", NULL};
-    char* login[]                  = {"login", NULL};
+    char* grep_empty_insensitive[]  = {"grep", "-i", "", NULL};
+    char* grep_inverted[]           = {"grep", "-v", "beta", NULL};
+    char* grep_none[]               = {"grep", "missing", NULL};
+    char* grep_missing[]            = {"grep", "pattern", "/tmp/coreutils_missing", NULL};
+    char* grep_missing_then_match[] = {"grep", "beta", "/tmp/coreutils_missing",
+                                       "/tmp/coreutils_b", NULL};
+    char* grep_match_then_missing[] = {"grep", "beta", "/tmp/coreutils_b",
+                                       "/tmp/coreutils_missing", NULL};
+    char* grep_files_match[]        = {"grep", "beta", "/tmp/coreutils_lines",
+                                       "/tmp/coreutils_b", NULL};
+    char* grep_files_no_match[]     = {"grep", "missing", "/tmp/coreutils_lines",
+                                       "/tmp/coreutils_b", NULL};
+    char* grep_dot[]                = {"grep", "a.c", NULL};
+    char* grep_escaped_dot[]        = {"grep", "a\\.c", NULL};
+    char* grep_star[]               = {"grep", "ab*c", NULL};
+    char* grep_anchor_start[]       = {"grep", "^root", NULL};
+    char* grep_anchor_end[]         = {"grep", "root$", NULL};
+    char* grep_bracket[]            = {"grep", "[0-9]", NULL};
+    char* grep_interval[]           = {"grep", "a\\{2\\}", NULL};
+    char* grep_backref[]            = {"grep", "\\(ab\\)\\1", NULL};
+    char* grep_empty_line[]         = {"grep", "^$", NULL};
+    char* grep_invalid[]            = {"grep", "a\\", NULL};
+    char* grep_insensitive_dot[]    = {"grep", "-i", "A.C", NULL};
+    char* grep_help[]               = {"grep", "--help", NULL};
+    char* sort_stdin[]              = {"sort", NULL};
+    char* cut_fields[]              = {"cut", "-d", ":", "-f", "2", NULL};
+    char* cut_open_end[]            = {"cut", "-d", ":", "-f", "2-", NULL};
+    char* cut_open_start[]          = {"cut", "-d", ":", "-f", "-3", NULL};
+    char* cut_closed_range[]        = {"cut", "-d", ":", "-f", "2-4", NULL};
+    char* cut_combined_list[]       = {"cut", "-d", ":", "-f", "1,3-", NULL};
+    char* cut_reversed_range[]      = {"cut", "-d", ":", "-f", "4-2", NULL};
+    char* cut_dash_only[]           = {"cut", "-d", ":", "-f", "-", NULL};
+    char* cut_trailing_comma[]      = {"cut", "-d", ":", "-f", "2,", NULL};
+    char* tee_file[]                = {"tee", "/tmp/coreutils_tee", NULL};
+    char* whoami[]                  = {"whoami", NULL};
+    char* login[]                   = {"login", NULL};
 
     char* wc_lines_one[]   = {"wc", "-l", "/tmp/coreutils_a", NULL};
     char* wc_lines_files[] = {"wc", "-l", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
@@ -1710,6 +1718,13 @@ int main(void) {
         check("grep -v", grep_inverted, "alpha\nbeta\n", 0, NULL, 0) ||
         check("grep no match", grep_none, "alpha\nbeta\n", 1, NULL, 0) ||
         check("grep missing file", grep_missing, NULL, 2, NULL, 0) ||
+        check("grep missing then match", grep_missing_then_match, NULL, 2,
+              "/tmp/coreutils_b:beta\n", 1) ||
+        check("grep match then missing", grep_match_then_missing, NULL, 2,
+              "/tmp/coreutils_b:beta\n", 1) ||
+        check("grep files match", grep_files_match, NULL, 0, "/tmp/coreutils_b:beta\n",
+              1) ||
+        check("grep files no match", grep_files_no_match, NULL, 1, NULL, 0) ||
         check("grep dot", grep_dot, "abc\na.c\nxyz\n", 0, "abc\na.c\n", 1) ||
         check("grep escaped dot", grep_escaped_dot, "abc\na.c\nxyz\n", 0, "a.c\n", 1) ||
         check("grep star", grep_star, "ac\nabc\nabbbc\nadc\n", 0, "ac\nabc\nabbbc\n",
