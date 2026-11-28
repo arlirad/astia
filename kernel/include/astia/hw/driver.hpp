@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/common.hpp>
+#include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/mm/shptr.hpp>
 #include <astia/resource_limits.hpp>
@@ -146,17 +147,22 @@ namespace astia::hw {
         /// error.
         core::task<i64> bind_device(mm::shptr<device_info> device, device_handle& out);
 
-        /// Stop and remove one binding.  Returns 0 or -ENOENT (unknown
-        /// binding), or the driver's remove error when the binding stays
-        /// registered for a later retry.
+        /// Stop and remove one binding.  The caller that claims the binding
+        /// runs the teardown; a concurrent caller is refused with -EBUSY
+        /// while it is in progress.  Returns 0, -ENOENT (unknown or already
+        /// released binding), -EBUSY, or the driver's remove error when the
+        /// binding stays registered for a later retry.
         core::task<i64> unbind(device_handle value);
 
         /// Release every binding owned by `owner` in reverse bind order.
-        /// Returns the number released, or a negative error after the first
-        /// binding whose remove was refused; that binding stays registered.
+        /// A binding another caller is already detaching is skipped.  Returns
+        /// the number released, -EBUSY when a selected binding was claimed
+        /// concurrently, or another negative error after the first binding
+        /// whose remove was refused; that binding stays registered.
         core::task<i64> unbind_owner(owner_id owner);
 
-        /// Release every binding in reverse bind order; returns the number
+        /// Release every binding in reverse bind order, skipping bindings a
+        /// concurrent caller is already detaching; returns the number
         /// released, or a negative error after the first refused remove.
         core::task<i64> unbind_all();
 
@@ -178,6 +184,13 @@ namespace astia::hw {
         }
 
         private:
+        /// Binding lifecycle.  `detaching` is claimed by exactly one release
+        /// caller so the driver teardown body runs once; a refused remove
+        /// restores `bound` so a later call can retry.
+        enum class binding_state : u8 { free, bound, detaching };
+
+        enum class release_scope { all, owner };
+
         struct registration {
             driver*  value = nullptr;
             owner_id owner{};
@@ -191,7 +204,7 @@ namespace astia::hw {
             mm::shptr<device_info> device;
             product_handle         product;
             owner_id               owner{};
-            bool                   used = false;
+            binding_state          state = binding_state::free;
         };
 
         u32                 take_driver_slot();
@@ -200,12 +213,25 @@ namespace astia::hw {
         const registration* registration_for(driver_handle value) const;
         binding*            binding_for(device_handle value);
         const binding*      binding_for(device_handle value) const;
-        core::task<i64>     release_binding(binding& value);
+        bool                device_registered(const mm::shptr<device_info>& device) const;
+        bool                binding_is_bound(const binding& value) const;
+        bool binding_is_owned_by(const binding& value, owner_id owner) const;
+        bool attach_binding(driver_handle driver_slot, owner_id owner,
+                            mm::shptr<device_info>& device, product_handle& product,
+                            device_handle& out);
+        void finish_binding(binding& value, product_handle& product,
+                            mm::shptr<device_info>& device);
+        void restore_binding(binding& value);
 
-        registration _drivers[max_drivers]{};
-        binding      _bindings[max_devices]{};
-        u32          _driver_count = 0;
-        u32          _device_count = 0;
+        core::task<i64> release_binding(binding& value);
+        core::task<i64> release_bindings(release_scope scope,
+                                         owner_id      owner = kernel_owner);
+
+        registration           _drivers[max_drivers]{};
+        binding                _bindings[max_devices]{};
+        mutable core::spinlock _lock{};
+        u32                    _driver_count = 0;
+        u32                    _device_count = 0;
     };
 
     driver_registry& drivers();
