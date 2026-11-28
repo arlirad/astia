@@ -18,6 +18,7 @@ namespace astia::io::aio::operations {
     using ::astia::io::aio::dispatch::parent_writable;
     using ::astia::io::aio::dispatch::resolve_at;
     using ::astia::io::aio::dispatch::resolve_path_for;
+    using ::astia::io::aio::dispatch::sticky_directory_allows;
 
     /// Copy a caller string into fixed kernel storage.  A missing terminator
     /// is only ENAMETOOLONG when the bounded source range is actually mapped;

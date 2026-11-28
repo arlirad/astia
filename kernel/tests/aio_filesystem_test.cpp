@@ -115,6 +115,23 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_renameat(char* old_path, char* new_path) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_RENAMEAT);
+
+        sqe.address = reinterpret_cast<u64>(old_path);
+        sqe.offset  = reinterpret_cast<u64>(new_path);
+        sqe.length  = 0;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_mkdirat(char* path, u32 mode) {
         using namespace aio::test_support;
 
@@ -784,6 +801,171 @@ ASTIA_TEST(aio_filesystem_unlinkat_root_bypasses_writable_parent) {
     char path[] = "/root/victim";
 
     ASTIA_CHECK(submit_unlinkat(path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_sticky_directory_rejects_other_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/shared", 01777, uid_t{0}, gid_t{0});
+    set_file("/tmp/shared/victim", 0644, uid_t{2000}, gid_t{2000});
+
+    char path[] = "/tmp/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == -EPERM);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_sticky_directory_allows_file_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/shared", 01777, uid_t{0}, gid_t{0});
+    set_file("/tmp/shared/owned", 0644, uid_t{1000}, gid_t{1000});
+
+    char path[] = "/tmp/shared/owned";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_sticky_directory_allows_directory_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/shared", 01777, uid_t{1000}, gid_t{1000});
+    set_file("/tmp/shared/victim", 0644, uid_t{2000}, gid_t{2000});
+
+    char path[] = "/tmp/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_sticky_directory_allows_root) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/tmp/shared", 01777, uid_t{2000}, gid_t{2000});
+    set_file("/tmp/shared/victim", 0644, uid_t{2000}, gid_t{2000});
+
+    char path[] = "/tmp/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_non_sticky_directory_ignores_entry_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/tmp/shared/victim", 0644, uid_t{2000}, gid_t{2000});
+
+    char path[] = "/tmp/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_renameat_sticky_source_rejects_other_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/src", 01777, uid_t{0}, gid_t{0});
+    set_file("/tmp/src/victim", 0644, uid_t{2000}, gid_t{2000});
+    set_directory("/tmp/dst", 0777, uid_t{1000}, gid_t{1000});
+
+    char old_path[] = "/tmp/src/victim";
+    char new_path[] = "/tmp/dst/moved";
+
+    ASTIA_CHECK(submit_renameat(old_path, new_path) == -EPERM);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_renameat_sticky_destination_rejects_other_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/src", 0777, uid_t{1000}, gid_t{1000});
+    set_file("/tmp/src/mine", 0644, uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/dst", 01777, uid_t{0}, gid_t{0});
+    set_file("/tmp/dst/theirs", 0644, uid_t{2000}, gid_t{2000});
+
+    char old_path[] = "/tmp/src/mine";
+    char new_path[] = "/tmp/dst/theirs";
+
+    ASTIA_CHECK(submit_renameat(old_path, new_path) == -EPERM);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_renameat_sticky_source_allows_directory_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/src", 01777, uid_t{1000}, gid_t{1000});
+    set_file("/tmp/src/victim", 0644, uid_t{2000}, gid_t{2000});
+    set_directory("/tmp/dst", 0777, uid_t{1000}, gid_t{1000});
+
+    char old_path[] = "/tmp/src/victim";
+    char new_path[] = "/tmp/dst/moved";
+
+    ASTIA_CHECK(submit_renameat(old_path, new_path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_renameat_sticky_source_allows_root) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/tmp/src", 01777, uid_t{2000}, gid_t{2000});
+    set_file("/tmp/src/victim", 0644, uid_t{2000}, gid_t{2000});
+    set_directory("/tmp/dst", 0777, uid_t{2000}, gid_t{2000});
+
+    char old_path[] = "/tmp/src/victim";
+    char new_path[] = "/tmp/dst/moved";
+
+    ASTIA_CHECK(submit_renameat(old_path, new_path) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_renameat_non_sticky_directory_ignores_entry_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/src", 0777, uid_t{0}, gid_t{0});
+    set_file("/tmp/src/victim", 0644, uid_t{2000}, gid_t{2000});
+    set_directory("/tmp/dst", 0777, uid_t{0}, gid_t{0});
+
+    char old_path[] = "/tmp/src/victim";
+    char new_path[] = "/tmp/dst/moved";
+
+    ASTIA_CHECK(submit_renameat(old_path, new_path) == 0);
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_mkdirat_requires_writable_parent) {

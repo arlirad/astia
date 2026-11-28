@@ -94,6 +94,10 @@ namespace astia::fs {
             return (other() & static_cast<u8>(bits)) == static_cast<u8>(bits);
         }
 
+        constexpr bool is_sticky() const {
+            return (value_ & 01000u) != 0;
+        }
+
         constexpr file_permissions chmod_mask() const {
             return file_permissions(value_ & file_permissions_mask);
         }
@@ -195,6 +199,10 @@ namespace astia::fs {
 
         constexpr bool is_socket() const {
             return type_ == file_type::socket;
+        }
+
+        constexpr bool is_sticky() const {
+            return permissions_.is_sticky();
         }
 
         constexpr bool owner_allows(permission_bits bits) const {
