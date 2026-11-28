@@ -15,7 +15,10 @@ set(ASTIA_TCP_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/error.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/spinlock.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/address.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/builder.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/checksum.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/header.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/link.hpp
@@ -64,6 +67,49 @@ add_custom_command(
         VERBATIM)
 
 add_custom_target(tcp_module ALL DEPENDS ${ASTIA_TCP_OBJECT})
+
+
+set(ASTIA_TCP_UNIT ${CMAKE_CURRENT_BINARY_DIR}/tcp_unit)
+
+add_custom_command(
+        OUTPUT ${ASTIA_TCP_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -DASTIA_HOST_TEST=1
+                -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/tests
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/proto/tcp.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/net/protocol.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/core/rcu_runtime.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/cpu_relax_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_TCP_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/proto/tcp.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/net/protocol.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/core/rcu_runtime.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/cpu_relax_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+                ${ASTIA_TCP_LOCAL_HEADERS}
+                ${ASTIA_TCP_ABI_HEADERS}
+        VERBATIM)
+
+add_custom_target(tcp_unit_target ALL DEPENDS ${ASTIA_TCP_UNIT})
+
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME tcp_unit COMMAND ${ASTIA_TCP_UNIT})
+    astia_add_test_label(tcp_unit "sanitizer-host")
+endif()
 
 if(ASTIA_BUILD_TESTS)
     add_test(NAME tcp_qemu_module_load
