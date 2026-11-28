@@ -12,8 +12,11 @@ enum { INITGROUPS_MAX_GROUPS = 16 };
 static FILE*        group_file;
 static char         group_line[1024];
 static char         group_name[256], group_passwd[256];
-static char*        group_members[64];
+static char**       group_members;
+static size_t       group_members_capacity;
 static struct group group_result;
+
+enum group_parse_result { GROUP_PARSE_SKIP, GROUP_PARSE_OK, GROUP_PARSE_ERROR };
 
 __attribute__((weak, noinline)) const char* __astia_group_database_path(void) {
     return "/etc/group";
@@ -30,30 +33,51 @@ static int group_list_contains(const gid_t* groups, int count, gid_t gid) {
     return 0;
 }
 
-static struct group* parse_group(char* line) {
+static int group_members_reserve(size_t capacity) {
+    char** grown;
+
+    if (capacity <= group_members_capacity)
+        return 0;
+
+    grown = realloc(group_members, capacity * sizeof *grown);
+    if (grown == NULL) {
+        errno = ENOMEM;
+
+        return -1;
+    }
+
+    group_members          = grown;
+    group_members_capacity = capacity;
+
+    return 0;
+}
+
+static enum group_parse_result parse_group(char* line, struct group** result) {
     char* fields[4];
     char* end;
 
+    size_t capacity;
     size_t count;
+    size_t i;
     size_t members = 0;
 
     unsigned long id;
 
     if (line[0] == '#' || line[0] == '\n' || line[0] == '\0')
-        return NULL;
+        return GROUP_PARSE_SKIP;
 
     count = __astia_account_field_split(line, ':', fields, 4);
 
     if (count < 3 || count > 4)
-        return NULL;
+        return GROUP_PARSE_SKIP;
 
     if (fields[0][0] == '\0' || fields[2][0] == '\0')
-        return NULL;
+        return GROUP_PARSE_SKIP;
 
     id = strtoul(fields[2], &end, 10);
 
     if (*end != '\0')
-        return NULL;
+        return GROUP_PARSE_SKIP;
 
     strncpy(group_name, fields[0], sizeof group_name - 1);
 
@@ -63,24 +87,39 @@ static struct group* parse_group(char* line) {
 
     group_passwd[sizeof group_passwd - 1] = '\0';
 
-    group_result.gr_name   = group_name;
-    group_result.gr_passwd = group_passwd;
-    group_result.gr_gid    = (gid_t) id;
+    capacity = 1;
+
+    if (count == 4 && fields[3][0] != '\0') {
+        for (i = 0; fields[3][i] != '\0'; ++i) {
+            if (fields[3][i] == ',')
+                ++capacity;
+        }
+    }
+
+    ++capacity;
+
+    if (group_members_reserve(capacity) != 0)
+        return GROUP_PARSE_ERROR;
 
     if (count == 4 && fields[3][0] != '\0') {
         char* member = strtok(fields[3], ",");
 
-        while (member != NULL &&
-               members + 1 < sizeof group_members / sizeof group_members[0]) {
+        while (member != NULL) {
             group_members[members++] = member;
             member                   = strtok(NULL, ",");
         }
     }
 
     group_members[members] = NULL;
+
+    group_result.gr_name   = group_name;
+    group_result.gr_passwd = group_passwd;
+    group_result.gr_gid    = (gid_t) id;
     group_result.gr_mem    = group_members;
 
-    return &group_result;
+    *result = &group_result;
+
+    return GROUP_PARSE_OK;
 }
 
 void setgrent(void) {
@@ -104,8 +143,16 @@ struct group* getgrent(void) {
 
     while (group_file != NULL &&
            fgets(group_line, sizeof group_line, group_file) != NULL) {
-        struct group* result = parse_group(group_line);
-        if (result != NULL)
+        struct group*           result = NULL;
+        enum group_parse_result status = parse_group(group_line, &result);
+
+        if (status == GROUP_PARSE_ERROR) {
+            endgrent();
+
+            return NULL;
+        }
+
+        if (status == GROUP_PARSE_OK)
             return result;
     }
 
