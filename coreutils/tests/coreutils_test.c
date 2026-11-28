@@ -861,6 +861,36 @@ static int ls_symlink_checks(void) {
     return status;
 }
 
+static int ls_hidden_checks(void) {
+    char* ls_hidden_default[]  = {"ls", "/tmp/coreutils_ls_col", NULL};
+    char* ls_hidden_all[]      = {"ls", "-a", "/tmp/coreutils_ls_col", NULL};
+    char* ls_hidden_almost[]   = {"ls", "-A", "/tmp/coreutils_ls_col", NULL};
+    char* ls_hidden_long_all[] = {"ls", "-la", "/tmp/coreutils_ls_col", NULL};
+
+    (void) unlink("/tmp/coreutils_ls_col/.hidden");
+
+    if (put_file("/tmp/coreutils_ls_col/.hidden", "x\n") != 0)
+        return fail("ls hidden fixture setup");
+
+    int status = 0;
+
+    if (check("ls hides dotfiles by default", ls_hidden_default, NULL, 0,
+              "alpha\nbeta\ndelta\ngamma\n", 1) != 0 ||
+        check("ls -a lists dotfiles and dot entries", ls_hidden_all, NULL, 0,
+              ".\n..\n.hidden\nalpha\nbeta\ndelta\ngamma\n", 1) != 0 ||
+        check("ls -A lists dotfiles without dot entries", ls_hidden_almost, NULL, 0,
+              ".hidden\nalpha\nbeta\ndelta\ngamma\n", 1) != 0 ||
+        check("ls -la combined flags dot entry", ls_hidden_long_all, NULL, 0, " .\n",
+              0) != 0 ||
+        check("ls -la combined flags hidden entry", ls_hidden_long_all, NULL, 0,
+              " .hidden\n", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_ls_col/.hidden");
+
+    return status;
+}
+
 static int rm_directory_checks(void) {
     char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
 
@@ -1439,7 +1469,8 @@ int main(void) {
         check("ls file and directory", ls_file_dir, NULL, 0,
               "coreutils_a\n\n/tmp/coreutils_ls_empty:\n", 1) ||
         check("ls invalid", ls_bad, NULL, 1, NULL, 0) || ln_checks() != 0 ||
-        ls_symlink_checks() != 0 || symlink("missing", "/tmp/coreutils_dangling") != 0 ||
+        ls_symlink_checks() != 0 || ls_hidden_checks() != 0 ||
+        symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
         !S_ISLNK(dangling_stat.st_mode) ||
         stat("/tmp/coreutils_dangling", &dangling_stat) == 0 ||
