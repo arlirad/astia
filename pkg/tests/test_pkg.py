@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Arlirad
 
+import fcntl
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -241,6 +242,50 @@ class PackageManagerTest(unittest.TestCase):
         result = self.run_pkg("--arch", "x86_64", "-i", "hello")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("targets aarch64", result.stderr)
+
+    def test_architecture_configuration_waits_for_lock(self):
+        internal = self.root / ".pkg"
+        internal.mkdir(parents=True, mode=0o700)
+        os.chmod(internal, 0o700)
+        config = internal / "config.json"
+        process = None
+        try:
+            with open(internal / "lock", "a+") as held:
+                fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+                try:
+                    process = subprocess.Popen(
+                        [str(PKG), "--root", str(self.root), "--arch", "aarch64", "install", "hello"],
+                        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    )
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        process.wait(timeout=2)
+                    self.assertFalse(config.exists())
+                finally:
+                    fcntl.flock(held.fileno(), fcntl.LOCK_UN)
+            _, stderr = process.communicate(timeout=10)
+            self.assertNotEqual(process.returncode, 0)
+            self.assertIn("no synced repository", stderr)
+            self.assertEqual(json.loads(config.read_text())["architecture"], "aarch64")
+            self.assertFalse((self.root / ".pkg/state.json").exists())
+        finally:
+            if process is not None and process.poll() is None:
+                process.kill()
+                process.communicate()
+
+    def test_install_rejects_architecture_changed_under_lock(self):
+        module = load_pkg_module()
+        self.sync_package()
+        self.assertEqual(self.run_pkg("--arch", "x86_64", "install", "hello").returncode, 0)
+        config = self.root / ".pkg/config.json"
+        config.write_text(json.dumps({"schema": 1, "architecture": "aarch64"}))
+        state_before = (self.root / ".pkg/state.json").read_bytes()
+        state = module.State(self.root)
+        with state.lock():
+            with self.assertRaises(module.PkgError):
+                module.install_locked(state, "hello", None, "x86_64")
+        self.assertEqual(json.loads(config.read_text())["architecture"], "aarch64")
+        self.assertEqual((self.root / ".pkg/state.json").read_bytes(), state_before)
+        self.assertEqual((self.root / "bin/hello").read_text(), "hello 1.0.0\n")
 
     def test_incompatible_architecture_is_rejected(self):
         entry = package_entry(self.repo, "arm-only", "1.0.0", architecture="aarch64")
