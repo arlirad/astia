@@ -7,6 +7,8 @@
 
 #define GRE_MAX_GROUPS 10
 #define GRE_MAX_REPEAT 255
+#define GRE_MAX_MATCH_DEPTH 256
+#define GRE_MAX_MATCH_STEPS 10000000UL
 
 typedef enum {
     GRE_LITERAL,
@@ -46,10 +48,13 @@ typedef struct {
 } gre_capture;
 
 typedef struct {
-    gre_capture caps[GRE_MAX_GROUPS];
-    int         insensitive;
-    const char* line_start;
-    const char* line_end;
+    gre_capture   caps[GRE_MAX_GROUPS];
+    int           insensitive;
+    const char*   line_start;
+    const char*   line_end;
+    unsigned long steps;
+    int           depth;
+    int           limited;
 } gre_ctx;
 
 typedef struct {
@@ -554,16 +559,69 @@ static int gre_match_class(const gre_node* node, unsigned char value, int insens
     return node->class_negated != 0 ? present == 0 : present != 0;
 }
 
+static int gre_match_enter(gre_ctx* ctx) {
+    if (ctx->depth >= GRE_MAX_MATCH_DEPTH || ctx->steps >= GRE_MAX_MATCH_STEPS) {
+        ctx->limited = 1;
+
+        return 0;
+    }
+
+    ++ctx->depth;
+    ++ctx->steps;
+
+    return 1;
+}
+
+static void gre_match_leave(gre_ctx* ctx) {
+    --ctx->depth;
+}
+
+static int gre_match_simple_atom(const gre_node* node, const char* text, gre_ctx* ctx,
+                                 const char** next) {
+    if (text >= ctx->line_end)
+        return 0;
+
+    switch (node->type) {
+    case GRE_LITERAL:
+        if (gre_match_char((unsigned char) *text, node->literal, ctx->insensitive) == 0)
+            return 0;
+
+        break;
+    case GRE_ANY:
+        break;
+    case GRE_CLASS:
+        if (gre_match_class(node, (unsigned char) *text, ctx->insensitive) == 0)
+            return 0;
+
+        break;
+    default:
+        return -1;
+    }
+
+    *next = text + 1;
+
+    return 1;
+}
+
 static int gre_match_cont(const gre_cont* cont, const char* text, gre_ctx* ctx) {
     if (cont == 0)
         return 1;
 
+    if (gre_match_enter(ctx) == 0)
+        return 0;
+
+    int result = 0;
+
     switch (cont->kind) {
     case GRE_CONT_SEQUENCE:
-        return gre_match_sequence(cont->node, text, ctx, cont->up);
+        result = gre_match_sequence(cont->node, text, ctx, cont->up);
+
+        break;
     case GRE_CONT_REPEAT:
-        return gre_match_repeat(cont->node, text, ctx, cont->count, cont->previous,
-                                cont->up);
+        result = gre_match_repeat(cont->node, text, ctx, cont->count, cont->previous,
+                                  cont->up);
+
+        break;
     case GRE_CONT_GROUP: {
         gre_capture* capture = &ctx->caps[cont->node->group_index];
         gre_capture  saved   = *capture;
@@ -571,29 +629,56 @@ static int gre_match_cont(const gre_cont* cont, const char* text, gre_ctx* ctx) 
         capture->end = text;
 
         if (gre_match_cont(cont->up, text, ctx) != 0)
-            return 1;
+            result = 1;
+        else
+            *capture = saved;
 
-        *capture = saved;
-
-        return 0;
+        break;
     }
     }
 
-    return 0;
+    gre_match_leave(ctx);
+
+    return result;
 }
 
 static int gre_match_sequence(const gre_node* node, const char* text, gre_ctx* ctx,
                               const gre_cont* cont) {
+    while (node != 0) {
+        if (node->type == GRE_BOL) {
+            if (text != ctx->line_start)
+                return 0;
+
+            node = node->next;
+
+            continue;
+        }
+
+        if (node->type == GRE_EOL) {
+            if (text != ctx->line_end)
+                return 0;
+
+            node = node->next;
+
+            continue;
+        }
+
+        if (node->min != 1 || node->max != 1 ||
+            (node->type != GRE_LITERAL && node->type != GRE_ANY &&
+             node->type != GRE_CLASS))
+            break;
+
+        const char* next;
+
+        if (gre_match_simple_atom(node, text, ctx, &next) != 1)
+            return 0;
+
+        text = next;
+        node = node->next;
+    }
+
     if (node == 0)
         return gre_match_cont(cont, text, ctx);
-
-    if (node->type == GRE_BOL)
-        return text == ctx->line_start ? gre_match_sequence(node->next, text, ctx, cont)
-                                       : 0;
-
-    if (node->type == GRE_EOL)
-        return text == ctx->line_end ? gre_match_sequence(node->next, text, ctx, cont)
-                                     : 0;
 
     gre_cont next;
 
@@ -609,8 +694,40 @@ static int gre_match_sequence(const gre_node* node, const char* text, gre_ctx* c
     return gre_match_atom(node, text, ctx, &next);
 }
 
+static int gre_match_repeat_simple(const gre_node* node, const char* text, gre_ctx* ctx,
+                                   int count, const gre_cont* cont) {
+    int consumed = 0;
+
+    while (node->max < 0 || count + consumed < node->max) {
+        const char* next;
+
+        if (gre_match_simple_atom(node, text, ctx, &next) != 1)
+            break;
+
+        text = next;
+
+        ++consumed;
+    }
+
+    while (count + consumed >= node->min) {
+        if (gre_match_cont(cont, text, ctx) != 0)
+            return 1;
+
+        if (ctx->limited != 0 || consumed == 0)
+            break;
+
+        --consumed;
+        --text;
+    }
+
+    return 0;
+}
+
 static int gre_match_repeat(const gre_node* node, const char* text, gre_ctx* ctx,
                             int count, const char* previous, const gre_cont* cont) {
+    if (node->type == GRE_LITERAL || node->type == GRE_ANY || node->type == GRE_CLASS)
+        return gre_match_repeat_simple(node, text, ctx, count, cont);
+
     if (count < node->min) {
         if (node->max >= 0 && count >= node->max)
             return 0;
@@ -623,7 +740,12 @@ static int gre_match_repeat(const gre_node* node, const char* text, gre_ctx* ctx
         next.count    = count + 1;
         next.previous = text;
 
-        return gre_match_atom(node, text, ctx, &next);
+        int matched = gre_match_atom(node, text, ctx, &next);
+
+        if (ctx->limited != 0)
+            return 0;
+
+        return matched;
     }
 
     if ((node->max < 0 || count < node->max) && !(text == previous && count > 0)) {
@@ -637,6 +759,9 @@ static int gre_match_repeat(const gre_node* node, const char* text, gre_ctx* ctx
 
         if (gre_match_atom(node, text, ctx, &next) != 0)
             return 1;
+
+        if (ctx->limited != 0)
+            return 0;
     }
 
     return gre_match_cont(cont, text, ctx);
@@ -738,6 +863,9 @@ static int gre_match(const gre_regex* regex, const char* line, size_t length) {
 
         if (gre_match_sequence(regex->root, start, &ctx, 0) != 0)
             return 1;
+
+        if (ctx.limited != 0)
+            return -1;
     }
 
     return 0;

@@ -1,6 +1,8 @@
 #include "grep_regex.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     const char* pattern;
@@ -39,6 +41,43 @@ static int invalid_case(const char* pattern) {
         printf("grep regex: expected [%s] to be rejected\n", pattern);
 
         gre_free(&regex);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static int long_line_case(const char* pattern, size_t length, int expected) {
+    char* text = (char*) malloc(length + 1);
+    if (text == 0) {
+        printf("grep regex: out of memory for [%s] with %zu bytes\n", pattern, length);
+
+        return 1;
+    }
+
+    memset(text, 'a', length);
+
+    text[length] = '\0';
+
+    gre_regex regex;
+
+    if (gre_compile(&regex, pattern, 0) != 0) {
+        printf("grep regex: failed to compile [%s]\n", pattern);
+
+        free(text);
+
+        return 1;
+    }
+
+    int result = gre_match(&regex, text, length);
+
+    gre_free(&regex);
+    free(text);
+
+    if (result != expected) {
+        printf("grep regex: [%s] against %zu bytes returned %d, expected %d\n", pattern,
+               length, result, expected);
 
         return 1;
     }
@@ -114,6 +153,12 @@ int main(void) {
         if (invalid_case(invalid[i]) != 0)
             return 1;
     }
+
+    if (long_line_case("^a*$", 1024 * 1024, 1) != 0 ||
+        long_line_case("^.*$", 1024 * 1024, 1) != 0 ||
+        long_line_case("^\\(a*\\)*$", 1024 * 1024, 1) != 0 ||
+        long_line_case("^\\(a\\)*b$", 256 * 1024, -1) != 0)
+        return 1;
 
     printf("grep regex tests ok\n");
 
