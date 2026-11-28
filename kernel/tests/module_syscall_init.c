@@ -82,8 +82,8 @@ void c_main(const long* frame) {
             long        error;
         } failures[] = {
             {"/mod/missing.km", -ENOENT}, {"/mod", -ENOEXEC},
-            {"/etc/passwd", -ENOEXEC},   {"/mod/truncated.elf", -ENOEXEC},
-            {"/mod/huge.bin", -E2BIG},   {"/mod/bad-dependency.km", -ENOEXEC},
+            {"/etc/passwd", -ENOEXEC},    {"/mod/truncated.elf", -ENOEXEC},
+            {"/mod/huge.bin", -E2BIG},    {"/mod/bad-dependency.km", -ENOEXEC},
         };
 
         for (i = 0; i < sizeof failures / sizeof failures[0]; ++i) {
