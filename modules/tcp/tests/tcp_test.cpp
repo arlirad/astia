@@ -904,6 +904,80 @@ void test_peer_window_blocks_send() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_retransmit_queue_and_backoff() {
+    astia::test::timer_reset();
+
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    u8  segment[128]{};
+    usz length = build_syn_with_mss(segment, 40000, 80, 100, 4, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    auto* child = protocol.accept(*listener);
+
+    assert(child != nullptr);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->state == astia::tcp::connection_state::established);
+
+    const u32 first_seq = child->snd_nxt;
+    const u8  payload[] = {'0', '1', '2', '3', '4', '5', '6', '7'};
+
+    assert(protocol.try_send(*child, astia::span<const u8>(payload, sizeof payload)) ==
+           8);
+    assert(ipv4.sends == 3);
+
+    astia::test::timer_advance(1000);
+
+    assert(ipv4.sends == 4);
+    assert(static_cast<u32>(last_header(ipv4).sequence) == first_seq);
+
+    astia::test::timer_advance(1500);
+
+    assert(ipv4.sends == 4);
+
+    astia::test::timer_advance(500);
+
+    assert(ipv4.sends == 5);
+    assert(static_cast<u32>(last_header(ipv4).sequence) == first_seq);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, first_seq + 4,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    astia::test::timer_advance(1000);
+
+    assert(ipv4.sends == 6);
+    assert(static_cast<u32>(last_header(ipv4).sequence) == first_seq + 4);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, first_seq + 8,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    astia::test::timer_advance(5000);
+
+    assert(ipv4.sends == 6);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -919,6 +993,7 @@ int main() {
     test_reset_unknown_and_rst_abort();
     test_mss_negotiation();
     test_peer_window_blocks_send();
+    test_retransmit_queue_and_backoff();
 
     return 0;
 }

@@ -356,11 +356,37 @@ namespace astia::tcp {
 
             notify(value, event_window);
 
-            if (!after(value.snd_nxt, value.snd_una)) {
+            bool removed = false;
+
+            for (connection::unacked_segment& segment : value.unacked) {
+                if (!segment.used)
+                    continue;
+
+                const u32 end = segment.seq + segment_advance(segment);
+
+                if (!after(end, ack)) {
+                    segment.used = false;
+                    removed      = true;
+                }
+            }
+
+            if (removed) {
                 core::detail::disarm_timer(&value);
 
-                value.retries           = 0;
-                value.retransmit_length = 0;
+                value.timer_armed = false;
+                value.retries     = 0;
+                value.rto_ticks   = 1000;
+
+                for (const connection::unacked_segment& segment : value.unacked) {
+                    if (!segment.used)
+                        continue;
+
+                    if (core::detail::arm_timer_callback(&value, retransmit_trampoline,
+                                                         value.rto_ticks))
+                        value.timer_armed = true;
+
+                    break;
+                }
             }
         }
 
@@ -614,6 +640,8 @@ namespace astia::tcp {
     void tcp_protocol::abort(connection& value) {
         core::detail::disarm_timer(&value);
 
+        value.timer_armed = false;
+
         notify(value, event_closed);
 
         value.state = connection_state::closed;
@@ -627,12 +655,38 @@ namespace astia::tcp {
             value->owner->retransmit(*value);
     }
 
+    u32 tcp_protocol::segment_advance(const connection::unacked_segment& value) {
+        u32 advance = value.length;
+
+        if ((value.flags & flag_syn) != 0)
+            ++advance;
+
+        if ((value.flags & flag_fin) != 0)
+            ++advance;
+
+        return advance;
+    }
+
     void tcp_protocol::retransmit(connection& value) {
         if (!value.used || value.state == connection_state::closed)
             return;
 
-        if (!after(value.snd_nxt, value.snd_una))
+        connection::unacked_segment* oldest = nullptr;
+
+        for (connection::unacked_segment& segment : value.unacked) {
+            if (!segment.used)
+                continue;
+
+            oldest = &segment;
+
+            break;
+        }
+
+        if (oldest == nullptr) {
+            value.timer_armed = false;
+
             return;
+        }
 
         if (value.retries >= connection::max_retries) {
             abort(value);
@@ -642,9 +696,14 @@ namespace astia::tcp {
 
         ++value.retries;
 
-        drive(send_segment(
-            value, value.retransmit_flags, value.retransmit_seq, value.retransmit_ack,
-            span<const u8>(value.retransmit_data, value.retransmit_length)));
+        drive(send_segment(value, oldest->flags, oldest->seq, value.rcv_nxt,
+                           span<const u8>(oldest->data, oldest->length), false));
+
+        value.rto_ticks = value.rto_ticks < 8000 ? value.rto_ticks * 2 : 8000;
+
+        if (core::detail::arm_timer_callback(&value, retransmit_trampoline,
+                                             value.rto_ticks))
+            value.timer_armed = true;
     }
 
     connection::waiter* tcp_protocol::acquire_waiter(connection& value) {
@@ -861,7 +920,8 @@ namespace astia::tcp {
     }
 
     core::task<void> tcp_protocol::send_segment(connection& value, u16 flags, u32 seq,
-                                                u32 ack, span<const u8> payload) {
+                                                u32 ack, span<const u8> payload,
+                                                bool track) {
         struct storage_guard {
             u8* data = nullptr;
 
@@ -933,19 +993,26 @@ namespace astia::tcp {
 
         co_await net::tx(net::protocol_id::ipv4, request);
 
-        if ((flags & (flag_syn | flag_fin)) != 0 || !payload.empty()) {
-            core::detail::disarm_timer(&value);
+        if (track && ((flags & (flag_syn | flag_fin)) != 0 || !payload.empty())) {
+            for (connection::unacked_segment& segment : value.unacked) {
+                if (segment.used)
+                    continue;
 
-            value.retransmit_flags  = flags;
-            value.retransmit_seq    = seq;
-            value.retransmit_ack    = ack;
-            value.retransmit_length = static_cast<u16>(payload.size());
+                segment.used   = true;
+                segment.seq    = seq;
+                segment.flags  = flags;
+                segment.length = static_cast<u16>(payload.size());
 
-            for (usz index = 0; index < payload.size(); ++index) {
-                value.retransmit_data[index] = payload.data()[index];
+                for (usz index = 0; index < payload.size(); ++index) {
+                    segment.data[index] = payload.data()[index];
+                }
+
+                break;
             }
 
-            (void) core::detail::arm_timer_callback(&value, retransmit_trampoline, 1000);
+            if (!value.timer_armed && core::detail::arm_timer_callback(
+                                          &value, retransmit_trampoline, value.rto_ticks))
+                value.timer_armed = true;
         }
 
         co_return error_t::enone;

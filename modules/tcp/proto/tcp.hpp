@@ -90,7 +90,18 @@ namespace astia::tcp {
         static constexpr u32 waiter_limit = 4;
 
         static constexpr u16 retransmit_capacity = 1500;
+        static constexpr u32 unacked_limit       = 4;
         static constexpr u32 pending_limit       = 4;
+
+        struct unacked_segment {
+            bool used   = false;
+            u32  seq    = 0;
+            u16  length = 0;
+            u16  flags  = 0;
+            u8   data[retransmit_capacity]{};
+        };
+
+        unacked_segment unacked[unacked_limit]{};
 
         struct pending_segment {
             bool used   = false;
@@ -102,12 +113,9 @@ namespace astia::tcp {
         pending_segment     pending[pending_limit]{};
         static constexpr u8 max_retries = 5;
 
-        u8  retransmit_data[retransmit_capacity]{};
-        u16 retransmit_length = 0;
-        u16 retransmit_flags  = 0;
-        u32 retransmit_seq    = 0;
-        u32 retransmit_ack    = 0;
-        u8  retries           = 0;
+        u8   retries     = 0;
+        u64  rto_ticks   = 1000;
+        bool timer_armed = false;
 
         u32 buffered() const {
             return rx_count;
@@ -165,6 +173,8 @@ namespace astia::tcp {
 
         void retransmit(connection& value);
 
+        static u32 segment_advance(const connection::unacked_segment& value);
+
         u32 connection_count() const;
 
         /// Await one of `events` on `value`; consumes the matching bit.
@@ -190,7 +200,7 @@ namespace astia::tcp {
         void drain_pending(connection& value);
 
         core::task<void> send_segment(connection& value, u16 flags, u32 seq, u32 ack,
-                                      span<const u8> payload);
+                                      span<const u8> payload, bool track = true);
 
         connection::waiter* acquire_waiter(connection& value);
         void                release_waiter(connection& value, connection::waiter* waiter);
