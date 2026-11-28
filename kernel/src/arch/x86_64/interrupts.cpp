@@ -408,7 +408,7 @@ namespace astia::arch {
     }
 
     namespace {
-        constexpr u64 ioapic_physical = 0xFEC00000;
+        constexpr u64 ioapic_fallback = 0xFEC00000;
         constexpr u32 ioapic_selector = 0x00;
         constexpr u32 ioapic_window   = 0x10;
         constexpr u32 ioapic_version  = 0x01;
@@ -434,16 +434,22 @@ namespace astia::arch {
             *reinterpret_cast<volatile u32*>(ioapic + ioapic_window) = value;
         }
 
-        bool ioapic_ready() {
-            if (ioapic != nullptr)
+        u64 ioapic_mapped_base = 0;
+
+        bool ioapic_ready(u64 physical) {
+            if (ioapic != nullptr && ioapic_mapped_base == physical)
                 return true;
 
-            auto mapping = astia::hw::mmio_mapping::map(ioapic_physical, 0x20);
+            ioapic_mapping = {};
+            ioapic         = nullptr;
+
+            auto mapping = astia::hw::mmio_mapping::map(physical, 0x20);
             if (!mapping)
                 return false;
 
-            ioapic_mapping = static_cast<astia::hw::mmio_mapping&&>(mapping.value);
-            ioapic         = static_cast<volatile u8*>(ioapic_mapping.base());
+            ioapic_mapping     = static_cast<astia::hw::mmio_mapping&&>(mapping.value);
+            ioapic             = static_cast<volatile u8*>(ioapic_mapping.base());
+            ioapic_mapped_base = physical;
 
             const u32 version = ioapic_read(ioapic_version);
 
@@ -453,17 +459,22 @@ namespace astia::arch {
         }
     } // namespace
 
-    bool route_irq(u8 irq) {
-        if (irq >= 16 || !ioapic_ready() || irq >= ioapic_entries)
+    bool route_gsi(u8 irq, u64 ioapic_base, u8 gsi) {
+        if (irq >= 16 || gsi >= 0xff)
             return false;
 
-        // Physical destination, fixed delivery, level-triggered (PCI INTx),
-        // unmasked.
+        const u64 physical = ioapic_base != 0 ? ioapic_base : ioapic_fallback;
+
+        if (!ioapic_ready(physical) || gsi >= ioapic_entries)
+            return false;
+
+        // Physical destination, fixed delivery, level-triggered active-low
+        // (PCI INTx), unmasked.
         const u32 low =
             static_cast<u32>(x86_64::pic::irq_base + irq) | (1u << 15) | (1u << 13);
 
-        ioapic_write(ioapic_redir + 2u * irq, low);
-        ioapic_write(ioapic_redir + 2u * irq + 1u, 0);
+        ioapic_write(ioapic_redir + 2u * gsi, low);
+        ioapic_write(ioapic_redir + 2u * gsi + 1u, 0);
 
         // The same line must not arrive through the PIC as well.
         x86_64::pic::mask(irq);

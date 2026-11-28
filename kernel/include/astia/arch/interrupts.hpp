@@ -83,10 +83,10 @@ namespace astia::arch {
     bool register_irq_handler(u8 irq, irq_handler handler, irq_callback_enter enter,
                               irq_callback_leave leave, void* context);
 
-    /// Route a legacy PCI line through the IOAPIC: programs the redirection
-    /// entry to the same vector the PIC dispatch uses and masks the PIC line.
-    /// Used by drivers whose device has INTx but no MSI/MSI-X.
-    bool route_irq(u8 irq);
+    /// Route a legacy PCI line through the IOAPIC: program redirection entry
+    /// `gsi` to the vector PIC dispatch uses for `irq` and mask the PIC line.
+    /// `ioapic_base` 0 selects the QEMU-compatible fallback.
+    bool route_gsi(u8 irq, u64 ioapic_base, u8 gsi);
 
     /// Mask one claimed line at the PIC while keeping the claim. Safe in
     /// callback context.
