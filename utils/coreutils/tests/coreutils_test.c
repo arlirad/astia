@@ -1,5 +1,7 @@
 #include <astia/version.h>
 
+#include "../src/ls_mode.h"
+#include "ls_mode_cases.h"
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -1085,6 +1087,63 @@ static int ls_hidden_checks(void) {
     return status;
 }
 
+static int ls_mode_checks(void) {
+    int status = 0;
+
+    for (size_t index = 0; index < sizeof ls_mode_cases / sizeof ls_mode_cases[0];
+         ++index) {
+        char actual[11];
+
+        cu_ls_mode_string(ls_mode_cases[index].mode, actual);
+
+        if (strcmp(actual, ls_mode_cases[index].expected) != 0) {
+            printf("ls mode test failed: %s: got %s expected %s\n",
+                   ls_mode_cases[index].label, actual, ls_mode_cases[index].expected);
+
+            status = 1;
+        }
+    }
+
+    char* ls_file[] = {"ls", "-l", "/tmp/coreutils_ls_mode", NULL};
+    char* ls_link[] = {"ls", "-l", "/tmp/coreutils_ls_link", NULL};
+
+    (void) unlink("/tmp/coreutils_ls_mode");
+    (void) unlink("/tmp/coreutils_ls_link");
+
+    if (put_file("/tmp/coreutils_ls_mode", "x\n") != 0)
+        return fail("ls mode fixture setup");
+
+    if (chmod("/tmp/coreutils_ls_mode", 0644) != 0 ||
+        check("ls -l regular type", ls_file, NULL, 0, "-rw-r--r--", 0) != 0)
+        status = 1;
+
+    const struct {
+        mode_t      mode;
+        const char* expected;
+    } special[] = {
+        {04755, "-rwsr-xr-x"}, {04644, "-rwSr--r--"}, {02755, "-rwxr-sr-x"},
+        {02644, "-rw-r-Sr--"}, {06755, "-rwsr-sr-x"}, {07777, "-rwsrwsrwt"},
+        {07666, "-rwSrwSrwT"},
+    };
+
+    for (size_t index = 0; index < sizeof special / sizeof special[0]; ++index) {
+        if (chmod("/tmp/coreutils_ls_mode", special[index].mode) != 0 ||
+            check("ls -l special bits", ls_file, NULL, 0, special[index].expected, 0) !=
+                0)
+            status = 1;
+    }
+
+    (void) unlink("/tmp/coreutils_ls_mode");
+
+    if (symlink("missing", "/tmp/coreutils_ls_link") != 0 ||
+        check("ls -l symlink type", ls_link, NULL, 0, "lrwxrwxrwx", 0) != 0)
+        status = 1;
+
+    (void) unlink("/tmp/coreutils_ls_link");
+
+    return status;
+}
+
 static int rm_directory_checks(void) {
     char* rm_multi[] = {"rm", "-r", "/tmp/coreutils_rm_multi", NULL};
 
@@ -1889,7 +1948,7 @@ int main(void) {
         check("ls file and directory", ls_file_dir, NULL, 0,
               "coreutils_a\n\n/tmp/coreutils_ls_empty:\n", 1) ||
         check("ls invalid", ls_bad, NULL, 1, NULL, 0) || ln_checks() != 0 ||
-        ls_symlink_checks() != 0 || ls_hidden_checks() != 0 ||
+        ls_symlink_checks() != 0 || ls_hidden_checks() != 0 || ls_mode_checks() != 0 ||
         symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
         !S_ISLNK(dangling_stat.st_mode) ||

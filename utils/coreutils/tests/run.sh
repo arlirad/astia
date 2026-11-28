@@ -36,6 +36,10 @@ mkdir -p "$out/host"
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
     "$root/utils/coreutils/tests/ls_layout_test.c" -o "$out/host/ls_layout_test"
 "$out/host/ls_layout_test"
+$clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/ls_mode_test.c" \
+    -o "$out/host/ls_mode_test"
+"$out/host/ls_mode_test"
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
     "$root/utils/coreutils/tests/grep_regex_test.c" -o "$out/host/grep_regex_test"
 "$out/host/grep_regex_test"
