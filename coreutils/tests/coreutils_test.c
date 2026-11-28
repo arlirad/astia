@@ -849,8 +849,7 @@ static int ls_symlink_checks(void) {
     if (check("ls symlink to file", ls_symlink_file, NULL, 0, "coreutils_link\n", 1) !=
             0 ||
         check("ls -l symlink", ls_long, NULL, 0, " -> coreutils_a\n", 0) != 0 ||
-        check("ls symlink to directory", ls_symlink_dir, NULL, 0,
-              "/tmp/coreutils_ls_link:\nsample\n", 1) != 0 ||
+        check("ls symlink to directory", ls_symlink_dir, NULL, 0, "sample\n", 1) != 0 ||
         check("ls -l symlink to directory", ls_symlink_dir_long, NULL, 0,
               " -> /tmp/coreutils_ls_target\n", 0) != 0)
         status = 1;
@@ -1185,28 +1184,31 @@ int main(void) {
     if (fork_cow_checks() != 0)
         return 1;
 
-    char* cat_stdin[]         = {"cat", NULL};
-    char* cat_stdin_dash[]    = {"cat", "-", NULL};
-    char* cat_file_stdin[]    = {"cat", "/tmp/coreutils_a", "-", NULL};
-    char* cat_files[]         = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
-    char* cat_missing[]       = {"cat", "/tmp/coreutils_missing", NULL};
-    char* head_lines[]        = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
-    char* head_bad[]          = {"head", "-n", NULL};
-    char* head_bad_text[]     = {"head", "-n", "not-a-number", NULL};
-    char* wc_files[]          = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
-    char* wc_bad[]            = {"wc", "--bad", NULL};
-    char* ls_dir[]            = {"ls", "/bin", NULL};
-    char* ls_multi[]          = {"ls", "/bin", "/sbin", NULL};
-    char* ls_bad[]            = {"ls", "--bad", NULL};
-    char* pwd[]               = {"pwd", NULL};
-    char* pwd_bad[]           = {"pwd", "extra", NULL};
-    char* echo[]              = {"echo", "hello", "Astia", NULL};
-    char* echo_n[]            = {"echo", "-n", "hello", NULL};
-    char* env[]               = {"env", NULL};
-    char* env_bad[]           = {"env", "extra", NULL};
-    char* env_sorted[]        = {"env", "-s", NULL};
-    char* env_sorted_long[]   = {"env", "--sorted", NULL};
-    char* env_assign[]        = {"env", "A=1", "B=2", "A=3", NULL};
+    char* cat_stdin[]       = {"cat", NULL};
+    char* cat_stdin_dash[]  = {"cat", "-", NULL};
+    char* cat_file_stdin[]  = {"cat", "/tmp/coreutils_a", "-", NULL};
+    char* cat_files[]       = {"cat", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* cat_missing[]     = {"cat", "/tmp/coreutils_missing", NULL};
+    char* head_lines[]      = {"head", "-n", "2", "/tmp/coreutils_lines", NULL};
+    char* head_bad[]        = {"head", "-n", NULL};
+    char* head_bad_text[]   = {"head", "-n", "not-a-number", NULL};
+    char* wc_files[]        = {"wc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
+    char* wc_bad[]          = {"wc", "--bad", NULL};
+    char* ls_dir[]          = {"ls", "/bin", NULL};
+    char* ls_multi[]        = {"ls", "/bin", "/sbin", NULL};
+    char* ls_two_dirs[]     = {"ls", "/tmp/coreutils_ls_col", "/tmp/coreutils_ls_color",
+                               NULL};
+    char* ls_file_dir[]     = {"ls", "/tmp/coreutils_a", "/tmp/coreutils_ls_empty", NULL};
+    char* ls_bad[]          = {"ls", "--bad", NULL};
+    char* pwd[]             = {"pwd", NULL};
+    char* pwd_bad[]         = {"pwd", "extra", NULL};
+    char* echo[]            = {"echo", "hello", "Astia", NULL};
+    char* echo_n[]          = {"echo", "-n", "hello", NULL};
+    char* env[]             = {"env", NULL};
+    char* env_bad[]         = {"env", "extra", NULL};
+    char* env_sorted[]      = {"env", "-s", NULL};
+    char* env_sorted_long[] = {"env", "--sorted", NULL};
+    char* env_assign[]      = {"env", "A=1", "B=2", "A=3", NULL};
     char* env_assign_sorted[] = {"env", "-s", "A=1", "B=2", "A=3", NULL};
     char* env_invalid_name[]  = {"env", "=x", NULL};
     char* env_exec[]          = {"env", "PATH=/bin", "true", NULL};
@@ -1398,6 +1400,12 @@ int main(void) {
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
         check("ls directory", ls_dir, NULL, 0, "cat\n", 0) ||
         check("ls multiple", ls_multi, NULL, 0, "/bin:\n", 0) ||
+        check("ls two directories", ls_two_dirs, NULL, 0,
+              "/tmp/coreutils_ls_col:\nalpha\nbeta\ndelta\ngamma\n\n"
+              "/tmp/coreutils_ls_color:\nsub\n",
+              1) ||
+        check("ls file and directory", ls_file_dir, NULL, 0,
+              "coreutils_a\n\n/tmp/coreutils_ls_empty:\n", 1) ||
         check("ls invalid", ls_bad, NULL, 1, NULL, 0) || ln_checks() != 0 ||
         ls_symlink_checks() != 0 || symlink("missing", "/tmp/coreutils_dangling") != 0 ||
         lstat("/tmp/coreutils_dangling", &dangling_stat) != 0 ||
@@ -1462,22 +1470,19 @@ int main(void) {
         (!mode_is("/tmp/coreutils_mode_copy", 0640) && fail("cp preserves file mode")) ||
         check("cp directory without -r", cp_directory_bad, NULL, 1, NULL, 0) ||
         check("ls recursive fixture", ls_tree, NULL, 0, "nested\n", 0) ||
-        check("ls sorted pipe", ls_col_dir, NULL, 0,
-              "/tmp/coreutils_ls_col:\nalpha\nbeta\ndelta\ngamma\n", 1) ||
+        check("ls sorted pipe", ls_col_dir, NULL, 0, "alpha\nbeta\ndelta\ngamma\n", 1) ||
         check_pty("ls tty columns", ls_col_dir, ls_plain_env, 16,
-                  "/tmp/coreutils_ls_col:\nalpha  delta\nbeta   gamma\n") ||
+                  "alpha  delta\nbeta   gamma\n") ||
         check_pty("ls tty zero width fallback", ls_col_dir, ls_plain_env, 0,
-                  "/tmp/coreutils_ls_col:\nalpha\nbeta\ndelta\ngamma\n") ||
+                  "alpha\nbeta\ndelta\ngamma\n") ||
         check_pty("ls tty long name", ls_wide_dir, ls_plain_env, 20,
-                  "/tmp/coreutils_ls_wide:\nabcdefghijklmnopqrstuvwxyz0123\n") ||
+                  "abcdefghijklmnopqrstuvwxyz0123\n") ||
         check_pty("ls tty color", ls_color_dir, ls_plain_env, 80,
-                  "/tmp/coreutils_ls_color:\n\033[34msub\033[0m\n") ||
-        check_pty("ls tty no_color", ls_color_dir, ls_no_color_env, 80,
-                  "/tmp/coreutils_ls_color:\nsub\n") ||
-        check_env("ls pipe no color", ls_color_dir, ls_plain_env, 0,
-                  "/tmp/coreutils_ls_color:\nsub\n", 1) ||
-        check("ls empty directory", ls_empty_dir, NULL, 0, "/tmp/coreutils_ls_empty:\n",
-              1) ||
+                  "\033[34msub\033[0m\n") ||
+        check_pty("ls tty no_color", ls_color_dir, ls_no_color_env, 80, "sub\n") ||
+        check_env("ls pipe no color", ls_color_dir, ls_plain_env, 0, "sub\n", 1) ||
+        check_output_excludes("ls empty directory", ls_empty_dir, 0, "",
+                              "/tmp/coreutils_ls_empty:") ||
         check("cp -r directory", cp_directory, NULL, 0, NULL, 0) ||
         (!is_directory("/tmp/coreutils_tree_copy/nested") &&
          fail("cp -r nested directory")) ||

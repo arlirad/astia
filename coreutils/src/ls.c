@@ -421,6 +421,21 @@ static int list_directory(const char* path, int headers, const ls_options* optio
     return status;
 }
 
+static int is_directory_operand(const char* path, const ls_options* options) {
+    struct stat info;
+
+    if (lstat(path, &info) != 0)
+        return 0;
+
+    if (!options->detailed && S_ISLNK(info.st_mode)) {
+        struct stat target;
+
+        return stat(path, &target) == 0 && S_ISDIR(target.st_mode);
+    }
+
+    return S_ISDIR(info.st_mode);
+}
+
 static int list_one(const char* path, int headers, const ls_options* options) {
     struct stat single;
 
@@ -444,6 +459,38 @@ static int list_one(const char* path, int headers, const ls_options* options) {
     }
 
     return list_directory(path, headers, options);
+}
+
+static int list_operands(const char* const* operands, size_t count,
+                         const ls_options* options) {
+    int headers = count > 1;
+    int printed = 0;
+    int status  = 0;
+
+    for (size_t index = 0; index < count; ++index) {
+        if (is_directory_operand(operands[index], options))
+            continue;
+
+        if (list_one(operands[index], 0, options) == 0)
+            printed = 1;
+        else
+            status = 1;
+    }
+
+    for (size_t index = 0; index < count; ++index) {
+        if (!is_directory_operand(operands[index], options))
+            continue;
+
+        if (printed && cu_puts("\n") < 0)
+            status = 1;
+
+        if (list_one(operands[index], headers, options) == 0)
+            printed = 1;
+        else
+            status = 1;
+    }
+
+    return status;
 }
 
 static void options_init(ls_options* options) {
@@ -472,22 +519,30 @@ int main(int argc, char** argv) {
     cu_args_init(&args, argc, argv);
     options_init(&options);
 
-    int status   = 0;
-    int headers  = 0;
-    int operands = 0;
-
     const char* path;
 
     if (argc == 1)
         return list_one(".", 0, &options);
 
+    const char** operands = malloc((size_t) argc * sizeof *operands);
+    if (operands == 0)
+        return cu_error("ls", "out of memory");
+
+    size_t operand_count = 0;
+
     while ((path = cu_args_next(&args)) != 0) {
-        if (cu_is_help(path))
+        if (cu_is_help(path)) {
+            free(operands);
+
             return cu_help("ls", "[OPTION]... [FILE]...",
                            "List directory contents.  -a and -l are supported.");
+        }
 
-        if (cu_is_version(path))
+        if (cu_is_version(path)) {
+            free(operands);
+
             return cu_version("ls");
+        }
 
         if (cu_arg_is(path, "-a", "--all"))
             continue;
@@ -498,18 +553,19 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (path[0] == '-')
+        if (path[0] == '-') {
+            free(operands);
+
             return cu_error("ls", "unknown option");
+        }
 
-        headers = 1;
-
-        ++operands;
-
-        status |= list_one(path, headers, &options);
+        operands[operand_count++] = path;
     }
 
-    if (operands == 0)
-        return list_one(".", 0, &options);
+    int status = operand_count == 0 ? list_one(".", 0, &options)
+                                    : list_operands(operands, operand_count, &options);
+
+    free(operands);
 
     return status;
 }
