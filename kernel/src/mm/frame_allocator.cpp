@@ -157,7 +157,7 @@ namespace astia::mm {
         }
     }
 
-    u64 frame_allocator::alloc(usz count, frame_flags flags) {
+    u64 frame_allocator::alloc(usz count, frame_flags flags, u64 physical_limit) {
         if (count == 0)
             return invalid_frame;
 
@@ -166,7 +166,8 @@ namespace astia::mm {
         if (!_ready || count > _free_count)
             return invalid_frame;
 
-        // Find the first run of `count` free frames.
+        // Find the first run of `count` free frames whose end stays within
+        // the caller's physical address limit.
         usz  found = 0;
         usz  run   = 0;
         bool have  = false;
@@ -182,9 +183,14 @@ namespace astia::mm {
                 found = index;
 
             if (++run == count) {
-                have = true;
+                const u64 end = (static_cast<u64>(found) + count) * frame_size;
+                if (end <= physical_limit) {
+                    have = true;
 
-                break;
+                    break;
+                }
+
+                run = 0;
             }
         }
 

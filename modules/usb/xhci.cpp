@@ -42,6 +42,7 @@ namespace astia::usb::xhci {
         constexpr unsigned endpoint_type_control       = 4u << 3;
         constexpr unsigned endpoint_error_count        = 3u << 1;
         constexpr unsigned address_bsr                 = 1u << 9;
+        constexpr uint64_t dma_32bit_limit             = uint64_t{1} << 32;
 
         using dma = astia::mm::dma_buffer;
 
@@ -203,11 +204,33 @@ namespace astia::usb::xhci {
                 return true;
             }
 
-            bool allocate_memory() {
-                if (!dcbaa_.allocate(1) || !command_memory_.allocate(1) ||
-                    !event_memory_.allocate(1) || !erst_memory_.allocate(1) ||
-                    !input_memory_.allocate(1) || !device_context_.allocate(1) ||
-                    !transfer_memory_.allocate(2))
+            bool allocation_below(uint64_t physical_limit) const {
+                if (physical_limit == dma::no_physical_limit)
+                    return true;
+
+                return dcbaa_.physical() + astia::mm::page_size <= physical_limit &&
+                       command_memory_.physical() + astia::mm::page_size <=
+                           physical_limit &&
+                       event_memory_.physical() + astia::mm::page_size <=
+                           physical_limit &&
+                       erst_memory_.physical() + astia::mm::page_size <= physical_limit &&
+                       input_memory_.physical() + astia::mm::page_size <=
+                           physical_limit &&
+                       device_context_.physical() + astia::mm::page_size <=
+                           physical_limit &&
+                       transfer_memory_.physical() + astia::mm::page_size * 2 <=
+                           physical_limit;
+            }
+
+            bool allocate_memory(uint64_t physical_limit) {
+                if (!dcbaa_.allocate(1, true, physical_limit) ||
+                    !command_memory_.allocate(1, true, physical_limit) ||
+                    !event_memory_.allocate(1, true, physical_limit) ||
+                    !erst_memory_.allocate(1, true, physical_limit) ||
+                    !input_memory_.allocate(1, true, physical_limit) ||
+                    !device_context_.allocate(1, true, physical_limit) ||
+                    !transfer_memory_.allocate(2, true, physical_limit) ||
+                    !allocation_below(physical_limit))
                     return false;
 
                 clear_bytes(dcbaa_.data(), astia::mm::page_size);
@@ -644,6 +667,9 @@ namespace astia::usb::xhci {
 
                 capabilities_ = checked.capabilities;
 
+                const uint64_t physical_limit =
+                    capabilities_.address_64 ? dma::no_physical_limit : dma_32bit_limit;
+
                 astia::module::log("usb", "xhci probe ok");
 
                 common_    = mmio{reinterpret_cast<volatile void*>(mapped)};
@@ -661,7 +687,7 @@ namespace astia::usb::xhci {
 
                 astia::module::log("usb", "xhci reset ok");
 
-                if (!allocate_memory()) {
+                if (!allocate_memory(physical_limit)) {
                     astia::module::log("usb", "xhci dma failed");
                     (void) stop();
 

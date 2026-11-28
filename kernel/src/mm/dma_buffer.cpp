@@ -29,7 +29,7 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usz pages, bool zero) {
+    bool dma_buffer::allocate(usz pages, bool zero, u64 physical_limit) {
         release();
 
         if (pages == 0)
@@ -38,7 +38,7 @@ namespace astia::mm {
         const frame_flags flags =
             frame_flags::contiguous | (zero ? frame_flags::zeroed : frame_flags::none);
 
-        const u64 physical = kernel_frames().alloc(pages, flags);
+        const u64 physical = kernel_frames().alloc(pages, flags, physical_limit);
 
         if (physical == frame_allocator::invalid_frame)
             return false;

@@ -67,5 +67,9 @@ namespace astia::usb::xhci {
         volatile void* base_ = nullptr;
     };
 
+#ifdef ASTIA_USB_TEST_MMIO
+    using mmio = mmio_access<ASTIA_USB_TEST_MMIO>;
+#else
     using mmio = mmio_access<system_mmio>;
+#endif
 }

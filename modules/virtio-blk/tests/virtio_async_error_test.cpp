@@ -31,7 +31,7 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usz pages, bool zero) {
+    bool dma_buffer::allocate(usz pages, bool zero, u64) {
         void* memory = std::aligned_alloc(page_size, pages * page_size);
         if (memory == nullptr)
             return false;
