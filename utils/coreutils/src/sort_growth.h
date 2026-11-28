@@ -7,6 +7,11 @@
 typedef void* (*cu_sort_grow_fn)(void* block, size_t bytes);
 
 typedef struct {
+    char*  data;
+    size_t length;
+} cu_sort_line;
+
+typedef struct {
     size_t capacity;
     size_t bytes;
 } cu_sort_growth;
@@ -21,23 +26,23 @@ static inline int cu_sort_plan_growth(size_t capacity, cu_sort_growth* growth) {
         next = capacity * 2;
     }
 
-    if (next > ((size_t) -1) / sizeof(char*))
+    if (next > ((size_t) -1) / sizeof(cu_sort_line))
         return -1;
 
     growth->capacity = next;
-    growth->bytes    = next * sizeof(char*);
+    growth->bytes    = next * sizeof(cu_sort_line);
 
     return 0;
 }
 
-static inline int cu_sort_grow_lines(char*** lines, size_t* capacity,
+static inline int cu_sort_grow_lines(cu_sort_line** lines, size_t* capacity,
                                      cu_sort_grow_fn grow) {
     cu_sort_growth growth;
 
     if (cu_sort_plan_growth(*capacity, &growth) != 0)
         return -1;
 
-    char** grown = (char**) grow(*lines, growth.bytes);
+    cu_sort_line* grown = (cu_sort_line*) grow(*lines, growth.bytes);
     if (grown == 0)
         return -1;
 

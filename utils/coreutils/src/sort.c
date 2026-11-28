@@ -8,21 +8,48 @@
 static int reverse_order;
 static int unique_lines;
 
-static void free_lines(char** lines, size_t count) {
+static void free_lines(cu_sort_line* lines, size_t count) {
     for (size_t i = 0; i < count; ++i) {
-        free(lines[i]);
+        free(lines[i].data);
     }
 
     free(lines);
 }
 
+static size_t line_key_length(const cu_sort_line* line) {
+    if (line->length != 0 && line->data[line->length - 1] == '\n')
+        return line->length - 1;
+
+    return line->length;
+}
+
+static int compare_line_keys(const cu_sort_line* left, const cu_sort_line* right) {
+    size_t left_length  = line_key_length(left);
+    size_t right_length = line_key_length(right);
+    size_t common       = left_length < right_length ? left_length : right_length;
+
+    int result = memcmp(left->data, right->data, common);
+
+    if (result != 0)
+        return result;
+
+    if (left_length < right_length)
+        return -1;
+
+    if (left_length > right_length)
+        return 1;
+
+    return 0;
+}
+
 static int compare_lines(const void* left, const void* right) {
-    int result = strcmp(*(const char* const*) left, *(const char* const*) right);
+    int result =
+        compare_line_keys((const cu_sort_line*) left, (const cu_sort_line*) right);
 
     return reverse_order ? -result : result;
 }
 
-static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
+static int sort_fd(int fd, const char* name, cu_sort_line** lines, size_t* count,
                    size_t* capacity) {
     cu_line_reader reader;
 
@@ -40,18 +67,22 @@ static int sort_fd(int fd, const char* name, char*** lines, size_t* count,
                                 : cu_error("sort", name);
         }
 
-        char* line = (char*) malloc(reader.line_length + 1);
-        if (line == 0) {
+        cu_sort_line line;
+
+        line.length = reader.line_length;
+        line.data   = (char*) malloc(line.length + 1);
+
+        if (line.data == 0) {
             cu_line_reader_destroy(&reader);
 
             return cu_error("sort", "out of memory");
         }
 
-        memcpy(line, reader.line, reader.line_length + 1);
+        memcpy(line.data, reader.line, line.length + 1);
 
         if (*count == *capacity) {
             if (cu_sort_grow_lines(lines, capacity, realloc) != 0) {
-                free(line);
+                free(line.data);
                 cu_line_reader_destroy(&reader);
 
                 return cu_error("sort", "out of memory");
@@ -71,7 +102,7 @@ int main(int argc, char** argv) {
 
     cu_args_init(&args, argc, argv);
 
-    char** lines = 0;
+    cu_sort_line* lines = 0;
 
     size_t count = 0, capacity = 0, operands = 0;
 
@@ -134,36 +165,30 @@ int main(int argc, char** argv) {
     }
 
     if (count > 1)
-        qsort(lines, count, sizeof(char*), compare_lines);
+        qsort(lines, count, sizeof(cu_sort_line), compare_lines);
 
-    char* previous = 0;
+    cu_sort_line* previous = 0;
 
     for (size_t i = 0; i < count; ++i) {
-        if (unique_lines && previous != 0 && strcmp(lines[i], previous) == 0) {
-            free(lines[i]);
+        if (unique_lines && previous != 0 &&
+            compare_line_keys(&lines[i], previous) == 0) {
+            free(lines[i].data);
+
+            lines[i].data = 0;
+
             continue;
         }
 
-        if (cu_write_all(CU_STDOUT, lines[i], strlen(lines[i])) < 0) {
-            free(previous);
-            free(lines[i]);
-
-            for (size_t j = i + 1; j < count; ++j) {
-                free(lines[j]);
-            }
-
-            free(lines);
+        if (cu_write_all(CU_STDOUT, lines[i].data, lines[i].length) < 0) {
+            free_lines(lines, count);
 
             return 1;
         }
 
-        free(previous);
-
-        previous = lines[i];
+        previous = &lines[i];
     }
 
-    free(previous);
-    free(lines);
+    free_lines(lines, count);
 
     return status;
 }
