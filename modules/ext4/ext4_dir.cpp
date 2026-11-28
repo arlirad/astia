@@ -304,6 +304,105 @@ namespace astia::ext4 {
         return true;
     }
 
+    bool directory::parent_inode(volume& v, const inode_record& dir,
+                                 u32& inode) {
+        inode = 0;
+
+        if (!dir.is_directory())
+            return false;
+
+        if ((dir.flags() & (inode_inline_data | inode_extents)) != inode_extents)
+            return false;
+
+        u64 physical = 0;
+
+        if (!extent::map(v, dir, 0, physical) || physical == 0)
+            return false;
+
+        u8 block[4096]{};
+
+        if (!v.read_block(physical, block))
+            return false;
+
+        bool valid = false;
+
+        if ((dir.flags() & inode_index) != 0) {
+            // The HTree root stores "." and ".." in the first two dirents and
+            // a dx_tail checksum (8 bytes) instead of a dirent tail.
+            const u32 block_size = v.block_size();
+
+            valid = block_size >= 0x40 && load32(block) == dir.number &&
+                    load16(block + 4) == 12 && block[6] == 1 &&
+                    block[8] == '.' && load32(block + 0x0C) != 0 &&
+                    load16(block + 0x10) == block_size - 12 &&
+                    block[0x12] == 2 && block[0x14] == '.';
+
+            if (valid && v.metadata_csum()) {
+                const u32 limit        = load16(block + 0x20);
+                const u32 count        = load16(block + 0x22);
+                const u32 count_offset = 0x20;
+
+                valid = count >= 1 && count <= limit &&
+                        limit <= (block_size - count_offset - 8) / 8 &&
+                        count_offset + limit * 8 + 8 == block_size;
+
+                if (valid) {
+                    const u32 tail_offset = count_offset + limit * 8;
+                    u8        tail[8]{};
+
+                    for (u32 i = 0; i < 8; ++i) {
+                        tail[i] = block[tail_offset + i];
+                    }
+
+                    const u32 expected = load32(tail + 4);
+
+                    for (u32 i = 4; i < 8; ++i) {
+                        tail[i] = 0;
+                    }
+
+                    u8 number[4];
+                    u8 generation[4];
+
+                    store32(number, dir.number);
+                    store32(generation, dir.generation());
+
+                    u32 value = crc32c(v.checksum_seed(), number, sizeof number);
+
+                    value = crc32c(value, generation, sizeof generation);
+                    value = crc32c(value, block, count_offset + count * 8);
+                    value = crc32c(value, tail, sizeof tail);
+
+                    valid = value == expected;
+                }
+            }
+        }
+        else {
+            valid = verify_block(v, dir, block);
+        }
+
+        if (!valid)
+            return false;
+
+        const u32 scan_bytes =
+            (dir.flags() & inode_index) != 0 ? v.block_size()
+                                             : usable_bytes(v);
+        walker      scan(block, scan_bytes);
+        dirent_view entry{};
+
+        while (scan.next(entry)) {
+            if (name_is_parent(entry)) {
+                if (entry.inode == 0)
+                    return false;
+
+                inode = entry.inode;
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     long directory::add(volume& v, space& alloc, inode_record& dir,
                         const char* name, u32 inode, u8 type) {
         u8 length = 0;
@@ -313,6 +412,11 @@ namespace astia::ext4 {
 
         if (!dir.is_directory() || inode == 0 || !measure_name(name, length))
             return -EINVAL;
+
+        // HTree directories keep a hash index that a linear append cannot
+        // update; Linux and debugfs would not see the new entry.
+        if (is_indexed(dir))
+            return -ENOSYS;
 
         if ((dir.flags() & (inode_inline_data | inode_extents)) != inode_extents)
             return -EOPNOTSUPP;

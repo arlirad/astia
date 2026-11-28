@@ -21,6 +21,8 @@ namespace astia::ext4 {
                             void* context);
         static bool find(volume& v, const inode_record& dir, const char* name,
                          u32& inode, u8& type);
+        static bool parent_inode(volume& v, const inode_record& dir,
+                                 u32& inode);
         static long add(volume& v, space& alloc, inode_record& dir,
                         const char* name, u32 inode, u8 type);
         static long remove(volume& v, space& alloc, inode_record& dir,

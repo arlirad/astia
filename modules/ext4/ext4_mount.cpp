@@ -151,49 +151,6 @@ namespace astia::ext4 {
             return false;
         }
 
-        bool read_parent_inode(volume& v, const inode_record& dir,
-                               u32& parent) {
-            if (!dir.is_directory() || (dir.flags() & inode_extents) == 0)
-                return false;
-
-            u64 physical = 0;
-
-            if (!extent::map(v, dir, 0, physical) || physical == 0)
-                return false;
-
-            u8 block[4096]{};
-
-            if (!v.read_block(physical, block))
-                return false;
-
-            u32 usable = v.block_size();
-
-            if (v.metadata_csum() && usable > 12)
-                usable -= 12;
-
-            u32 offset = 0;
-
-            while (offset + 8 <= usable) {
-                const u32 inode    = load32(block + offset);
-                const u16 rec_len  = load16(block + offset + 4);
-                const u8  name_len = block[offset + 6];
-
-                if (rec_len < 8 || (rec_len & 3) != 0 ||
-                    rec_len > usable - offset)
-                    return false;
-
-                if (inode != 0 && name_len == 2 && block[offset + 8] == '.' &&
-                    block[offset + 9] == '.') {
-                    parent = inode;
-
-                    return true;
-                }
-
-                offset += rec_len;
-            }
-
-            return false;
-        }
     } // namespace
 
     bool mount::read_source(void* context, u64 offset, void* buffer,
@@ -482,7 +439,7 @@ namespace astia::ext4 {
                 inode_record parent;
 
                 if ((current.flags() & inode_index) != 0) {
-                    if (!read_parent_inode(_volume, current, parent_number))
+                    if (!directory::parent_inode(_volume, current, parent_number))
                         return false;
                 }
                 else if (!directory::find(_volume, current, "..",
@@ -745,6 +702,26 @@ namespace astia::ext4 {
         return 0;
     }
 
+    bool mount::refresh_inode(inode_record& node) {
+        if (node.number == 0)
+            return false;
+
+        core::spinlock_guard guard(_lock);
+
+        return _volume.read_inode(node.number, node);
+    }
+
+    u64 mount::inode_size(u32 number) const {
+        if (number == 0)
+            return 0;
+
+        core::spinlock_guard guard(_lock);
+
+        inode_record node;
+
+        return _volume.read_inode(number, node) ? node.size() : 0;
+    }
+
     long mount::read_file(const inode_record& node, void* buffer, u32 length,
                           u64 offset) {
         core::spinlock_guard guard(_lock);
@@ -926,7 +903,7 @@ namespace astia::ext4 {
 
                 u32 dot_inode = node.number;
 
-                if (index == 1 && !read_parent_inode(_volume, node, dot_inode))
+                if (index == 1 && !directory::parent_inode(_volume, node, dot_inode))
                     return -EIO;
 
                 for (u32 i = 0; i < dot_size; ++i) {
@@ -1077,6 +1054,9 @@ namespace astia::ext4 {
         if (directory::find(_volume, parent, name, existing, type))
             return -EEXIST;
 
+        if (parent.links_count() == 0xFFFF)
+            return -EMLINK;
+
         inode_record directory_node;
 
         if (!_space.alloc_inode(ext4::node_type::directory, directory_node))
@@ -1113,18 +1093,7 @@ namespace astia::ext4 {
         return 0;
     }
 
-    long mount::remove_entry(inode_record& parent, const char* name,
-                             inode_record& node) {
-        u32        removed = 0;
-        const long rc      = directory::remove(_volume, _space, parent, name,
-                                               removed);
-
-        if (rc < 0)
-            return rc;
-
-        if (removed != node.number)
-            return -EIO;
-
+    long mount::release_node(inode_record& parent, inode_record& node) {
         if (node.is_directory()) {
             if (parent.links_count() != 0)
                 parent.set_links_count(
@@ -1148,6 +1117,21 @@ namespace astia::ext4 {
         }
 
         return _volume.write_inode(node) ? 0 : -EIO;
+    }
+
+    long mount::remove_entry(inode_record& parent, const char* name,
+                             inode_record& node) {
+        u32        removed = 0;
+        const long rc      = directory::remove(_volume, _space, parent, name,
+                                               removed);
+
+        if (rc < 0)
+            return rc;
+
+        if (removed != node.number)
+            return -EIO;
+
+        return release_node(parent, node);
     }
 
     long mount::unlink(const char* path, bool directory) {
@@ -1209,11 +1193,10 @@ namespace astia::ext4 {
             if (!current.is_directory())
                 return false;
 
-            u32 parent_number = 0;
-            u8  type          = 0;
+            u32         parent_number = 0;
             inode_record parent;
 
-            if (!directory::find(_volume, current, "..", parent_number, type) ||
+            if (!directory::parent_inode(_volume, current, parent_number) ||
                 !_volume.read_inode(parent_number, parent))
                 return false;
 
@@ -1223,7 +1206,7 @@ namespace astia::ext4 {
             current = parent;
         }
 
-        return true;
+        return false;
     }
 
     long mount::rewrite_parent_entry(inode_record& directory_node, u32 parent) {
@@ -1299,6 +1282,9 @@ namespace astia::ext4 {
         if (rc < 0)
             return rc;
 
+        if ((new_parent.flags() & inode_index) != 0)
+            return -ENOSYS;
+
         u32 old_inode = 0;
         u8  old_type  = 0;
 
@@ -1313,18 +1299,18 @@ namespace astia::ext4 {
         if (node.is_directory() && descends_from(node, new_parent))
             return -EINVAL;
 
-        const bool same_parent = old_parent.number == new_parent.number;
+        const bool    same_parent = old_parent.number == new_parent.number;
         inode_record& source_parent = same_parent ? new_parent : old_parent;
 
-        u32 target_inode = 0;
-        u8  target_type  = 0;
+        u32  target_inode   = 0;
+        u8   target_type    = 0;
+        bool target_present = directory::find(_volume, new_parent, new_name,
+                                              target_inode, target_type);
+        inode_record target;
 
-        if (directory::find(_volume, new_parent, new_name, target_inode,
-                            target_type)) {
+        if (target_present) {
             if (target_inode == node.number)
                 return 0;
-
-            inode_record target;
 
             if (!_volume.read_inode(target_inode, target))
                 return -EIO;
@@ -1337,28 +1323,59 @@ namespace astia::ext4 {
 
             if (target.is_directory() && !directory::is_empty(_volume, target))
                 return -ENOTEMPTY;
+        }
 
-            rc = remove_entry(new_parent, new_name, target);
+        if (node.is_directory() && !same_parent) {
+            const u32 target_links =
+                target_present && target.is_directory() ? 1u : 0u;
+            const u32 projected =
+                static_cast<u32>(new_parent.links_count()) + 1 - target_links;
+
+            if (projected > 0xFFFFu)
+                return -EMLINK;
+        }
+
+        // Remove only the destination name first; its inode and blocks are
+        // released after the new name exists.
+        if (target_present) {
+            u32 removed = 0;
+
+            rc = directory::remove(_volume, _space, new_parent, new_name, removed);
 
             if (rc < 0)
                 return rc;
+
+            if (removed != target_inode)
+                return -EIO;
         }
 
         rc = directory::add(_volume, _space, new_parent, new_name, node.number,
                             dirent_for(node.type()));
 
-        if (rc < 0)
+        if (rc < 0) {
+            if (target_present &&
+                directory::add(_volume, _space, new_parent, new_name,
+                               target_inode, target_type) < 0)
+                return -EIO;
+
             return rc;
+        }
 
         u32 removed = 0;
 
         rc = directory::remove(_volume, _space, source_parent, old_name, removed);
 
         if (rc < 0) {
-            u32 rollback = 0;
+            u32 discard = 0;
 
-            (void) directory::remove(_volume, _space, new_parent, new_name,
-                                     rollback);
+            if (directory::remove(_volume, _space, new_parent, new_name,
+                                  discard) < 0)
+                return -EIO;
+
+            if (target_present &&
+                directory::add(_volume, _space, new_parent, new_name,
+                               target_inode, target_type) < 0)
+                return -EIO;
 
             return rc;
         }
@@ -1366,20 +1383,29 @@ namespace astia::ext4 {
         if (removed != node.number)
             return -EIO;
 
+        if (target_present) {
+            rc = release_node(new_parent, target);
+
+            if (rc < 0)
+                return rc;
+        }
+
         if (node.is_directory()) {
             rc = rewrite_parent_entry(node, new_parent.number);
 
             if (rc < 0)
                 return rc;
 
-            if (!same_parent) {
-                if (old_parent.links_count() != 0)
-                    old_parent.set_links_count(
-                        static_cast<u16>(old_parent.links_count() - 1));
-
-                new_parent.set_links_count(
-                    static_cast<u16>(new_parent.links_count() + 1));
+            if (!same_parent && old_parent.links_count() != 0) {
+                old_parent.set_links_count(
+                    static_cast<u16>(old_parent.links_count() - 1));
             }
+
+            if (new_parent.links_count() == 0xFFFF)
+                return -EMLINK;
+
+            new_parent.set_links_count(
+                static_cast<u16>(new_parent.links_count() + 1));
         }
 
         stamp_now(source_parent, false, true, true);
@@ -1429,6 +1455,9 @@ namespace astia::ext4 {
 
         if (directory::find(_volume, parent, name, existing, type))
             return -EEXIST;
+
+        if (node.links_count() == 0xFFFF)
+            return -EMLINK;
 
         rc = directory::add(_volume, _space, parent, name, node.number,
                             dirent_for(node.type()));

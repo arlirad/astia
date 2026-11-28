@@ -17,6 +17,9 @@ namespace astia::ext4 {
         if (_owner == nullptr)
             return -EIO;
 
+        if (!_owner->refresh_inode(_node))
+            return -EIO;
+
         if (!_node.is_regular())
             return _node.is_directory() ? -EISDIR : -EINVAL;
 
@@ -25,6 +28,9 @@ namespace astia::ext4 {
 
     long file::write_ready(const void* buffer, u32 length, u64 offset) {
         if (_owner == nullptr)
+            return -EIO;
+
+        if (!_owner->refresh_inode(_node))
             return -EIO;
 
         if (_owner->read_only())
@@ -37,9 +43,14 @@ namespace astia::ext4 {
     }
 
     long file::size() const {
-        return _node.size() > static_cast<u64>(~i64{0} >> 1)
+        if (_owner == nullptr)
+            return -EIO;
+
+        const u64 on_disk = _owner->inode_size(_node.number);
+
+        return on_disk > static_cast<u64>(~i64{0} >> 1)
                    ? -EOVERFLOW
-                   : static_cast<long>(_node.size());
+                   : static_cast<long>(on_disk);
     }
 
     fs::file_mode file::mode() const {
@@ -50,6 +61,9 @@ namespace astia::ext4 {
         (void) token;
 
         if (_owner == nullptr)
+            co_return -EIO;
+
+        if (!_owner->refresh_inode(_node))
             co_return -EIO;
 
         co_return _owner->truncate_file(_node, length);
@@ -71,6 +85,9 @@ namespace astia::ext4 {
         if (_owner == nullptr)
             return -EIO;
 
+        if (!_owner->refresh_inode(_node))
+            return -EIO;
+
         return _owner->chmod_node(_node, permissions);
     }
 
@@ -78,11 +95,17 @@ namespace astia::ext4 {
         if (_owner == nullptr)
             return -EIO;
 
+        if (!_owner->refresh_inode(_node))
+            return -EIO;
+
         return _owner->chown_node(_node, uid, gid);
     }
 
     long file::touch(const fs::file_timestamps& times) {
         if (_owner == nullptr)
+            return -EIO;
+
+        if (!_owner->refresh_inode(_node))
             return -EIO;
 
         return _owner->touch_node(_node, times);

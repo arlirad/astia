@@ -235,6 +235,32 @@ int main(int argc, char** argv) {
 
     reopened = {};
 
+    auto grow  = astia::fs::open("/tmp/ext4/hello", ASTIA_AIO_O_RDWR);
+    auto stale = astia::fs::open("/tmp/ext4/hello", ASTIA_AIO_O_RDWR);
+
+    if (!check_handle(grow, "open hello for growth") ||
+        !check_handle(stale, "open hello second handle") ||
+        !check(grow->truncate(200000) == 0,
+               "grow hello through first handle"))
+        return 1;
+
+    const u8 marker = 0x5A;
+
+    if (!check(stale->write(&marker, 1, 150000) == 1,
+               "write through second handle") ||
+        !check(grow->size() == 200000, "first handle sees grown size") ||
+        !check(stale->size() == 200000, "second handle keeps grown size"))
+        return 1;
+
+    u8 seen = 0;
+
+    if (!check(grow->read(&seen, 1, 150000) == 1, "read marker byte") ||
+        !check(seen == marker, "marker byte landed"))
+        return 1;
+
+    grow  = {};
+    stale = {};
+
     if (!check(astia::fs::make_directory(
                    "/tmp/ext4/sub",
                    astia::fs::file_mode(astia::fs::directory_dir,
@@ -384,3 +410,10 @@ namespace astia::log::detail {
 
     void emit(level, const char*, astia::u32) {}
 }
+
+namespace astia::module {
+    bool make_resident() {
+        return true;
+    }
+} // namespace astia::module
+

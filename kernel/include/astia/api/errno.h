@@ -48,6 +48,7 @@ enum {
     ENOSPC          = 28,
     ESPIPE          = 29,
     EROFS           = 30,
+    EMLINK          = 31,
     EPIPE           = 32,
     EDOM            = 33,
     ERANGE          = 34,

@@ -831,7 +831,9 @@ namespace astia::ext4 {
             const u32 length  = extent_length(encoded);
             const u64 start   = extent_start(entry);
 
-            if (encoded > extent_max_length || start == 0 || from >= length)
+            // Unwritten (preallocated) extents own their physical blocks too;
+            // only their read semantics differ, so free them like any other.
+            if (start == 0 || from >= length)
                 return true;
 
             return free_range(alloc, start + from, length - from, freed);

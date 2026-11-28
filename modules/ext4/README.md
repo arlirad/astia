@@ -33,8 +33,10 @@ mounts read-only because this chunk does not replay journals yet.
 ## Limits
 
 - No journal replay and no journal writing.
-- No HTree (indexed directory) insertion: indexed directories are read, but
-  new entries go into the linear dirent area.
+- No HTree insertion or conversion: existing indexed directories are read and
+  can have entries removed, but creation/mutation inside one returns `-ENOSYS`
+  until HTree insertion exists, so Linux and `debugfs` never miss an entry
+  that Astia's linear scan found.
 - No inline data, xattrs, ACLs, or encryption.
 - Extent trees only (the extents feature is required); no indirect-block files.
 - The mount lock assumes a synchronous block device: the module's device path

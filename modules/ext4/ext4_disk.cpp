@@ -6,7 +6,7 @@ namespace astia::ext4 {
         constexpr u32 crc32c_polynomial      = 0x82F63B78u;
         constexpr u32 superblock_block    = 1024;
         constexpr u32 superblock_checksum = 0x3FC;
-        constexpr u32 group_count_limit   = 0xFFFFFFFFu;
+        constexpr u32 group_count_limit   = 1u << 24;
 
         void copy_bytes(u8* destination, const u8* source, usz length) {
             for (usz i = 0; i < length; ++i) {
@@ -1090,10 +1090,46 @@ namespace astia::ext4 {
         if ((incompat & incompat_64bit) != 0 && _sb.blocks_count() > 0xFFFFFFFFu)
             return false;
 
-        const u64 groups = _sb.blocks_count() / _sb.blocks_per_group() +
-                           (_sb.blocks_count() % _sb.blocks_per_group() != 0 ? 1 : 0);
+        const u32 first_data_block_value = _sb.first_data_block();
+        const u32 expected_first =
+            block_size_value == 1024 ? 1u : 0u;
+
+        if (first_data_block_value != expected_first)
+            return false;
+
+        const u64 blocks = _sb.blocks_count();
+
+        if (blocks <= first_data_block_value)
+            return false;
+
+        u64 group_bytes = 0;
+
+        if (mul_overflow(_sb.blocks_per_group(), block_size_value, group_bytes))
+            return false;
+
+        u64 volume_bytes = 0;
+
+        if (mul_overflow(blocks, static_cast<u64>(block_size_value),
+                         volume_bytes) ||
+            volume_bytes > _io.size)
+            return false;
+
+        const u64 groups =
+            (blocks - first_data_block_value + _sb.blocks_per_group() - 1) /
+            _sb.blocks_per_group();
 
         if (groups == 0 || groups > group_count_limit)
+            return false;
+
+        const u64 descriptor_base =
+            block_size_value == 1024 ? 2048u : block_size_value;
+        u64 last_descriptor = 0;
+        u64 group_offset    = 0;
+
+        if (mul_overflow(groups - 1, descriptor_size, group_offset) ||
+            add_overflow(descriptor_base, group_offset, last_descriptor) ||
+            add_overflow(last_descriptor, descriptor_size, last_descriptor) ||
+            last_descriptor > _io.size)
             return false;
 
         _group_count = static_cast<u32>(groups);

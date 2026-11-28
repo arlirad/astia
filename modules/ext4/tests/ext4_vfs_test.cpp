@@ -96,6 +96,7 @@ namespace {
             std::memset(_image, 0, sizeof _image);
             put32(1024 + 0x00, 16);
             put32(1024 + 0x04, 32);
+            put32(1024 + 0x14, 1);
             put32(1024 + 0x18, 0);
             put32(1024 + 0x20, 32);
             put32(1024 + 0x28, 16);
@@ -504,3 +505,10 @@ namespace astia::log::detail {
 
     void emit(level, const char*, astia::u32) {}
 }
+
+namespace astia::module {
+    bool make_resident() {
+        return true;
+    }
+} // namespace astia::module
+

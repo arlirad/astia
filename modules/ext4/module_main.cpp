@@ -1,8 +1,10 @@
 #include "ext4.hpp"
 
+#include <astia/api/errno.h>
 #include <astia/core/task.hpp>
 #include <astia/error.hpp>
 #include <astia/log.hpp>
+#include <astia/module.hpp>
 
 namespace astia::ext4 {
     using logs = astia::log::context<"ext4">;
@@ -20,10 +22,21 @@ namespace astia::ext4 {
     }
 
     void unregister_filesystem() {
-        if (registration.valid())
-            (void) fs::unregister_type(registration);
+        if (!registration.valid())
+            return;
 
-        registration = {};
+        const long rc = fs::unregister_type(registration);
+
+        if (rc == 0 || rc == -ENOENT) {
+            registration = {};
+
+            return;
+        }
+
+        // A live mount still points at this module's code and mount vtables;
+        // never let the loader unmap it.
+        logs::error("filesystem unregister failed; staying resident");
+        (void) astia::module::make_resident();
     }
 
     [[gnu::destructor]] void ext4_module_fini() {

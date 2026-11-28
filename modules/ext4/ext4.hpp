@@ -145,8 +145,11 @@ namespace astia::ext4 {
         long do_chmod_node(inode_record& node, fs::file_permissions permissions);
         long do_chown_node(inode_record& node, uid_t uid, gid_t gid);
         long do_touch_node(inode_record& node, const fs::file_timestamps& times);
+        bool refresh_inode(inode_record& node);
+        u64  inode_size(u32 number) const;
         long remove_entry(inode_record& parent, const char* name,
                           inode_record& node);
+        long release_node(inode_record& parent, inode_record& node);
         long rewrite_parent_entry(inode_record& directory, u32 parent);
         bool descends_from(const inode_record& ancestor,
                            const inode_record& node) const;
