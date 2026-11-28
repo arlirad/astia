@@ -568,3 +568,104 @@ ASTIA_TEST(unix_socket_accept_rejects_unmapped_address_without_consuming) {
 
     release_parked(slot);
 }
+
+namespace {
+    template <typename T>
+    T drive_task(astia::core::task<T> task) {
+        while (!task.done()) {
+            ASTIA_CHECK(task.resume());
+        }
+
+        ASTIA_CHECK(!task.failed());
+        ASTIA_CHECK(task.value() != nullptr);
+
+        return *task.value();
+    }
+} // namespace
+
+ASTIA_TEST(unix_dgram_sendto_recvfrom_roundtrip) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> sender;
+    mm::shptr<fs::open_file> receiver;
+
+    ASTIA_CHECK(fs::create_unix_socket(sender, SOCK_DGRAM) == 0);
+    ASTIA_CHECK(fs::create_unix_socket(receiver, SOCK_DGRAM) == 0);
+
+    if (!sender || !receiver)
+        return;
+
+    auto sender_sock   = sender->parent()->as_dgram_sock();
+    auto receiver_sock = receiver->parent()->as_dgram_sock();
+
+    ASTIA_CHECK(sender_sock.has_value);
+    ASTIA_CHECK(receiver_sock.has_value);
+
+    if (!sender_sock || !receiver_sock)
+        return;
+
+    ASTIA_CHECK(sender_sock->bind(socket_address("/tmp/msg-a")) == 0);
+    ASTIA_CHECK(receiver_sock->bind(socket_address("/tmp/msg-b")) == 0);
+
+    set_unix_lookup_endpoint(receiver->parent());
+
+    const u8 payload[] = {'p', 'i', 'n', 'g'};
+
+    const i64 sent = drive_task(sender_sock->sendto(
+        astia::span<const u8>(payload, sizeof payload), socket_address("/tmp/msg-b")));
+
+    ASTIA_CHECK(sent == 4);
+
+    u8 output[8]{};
+
+    const fs::message message =
+        drive_task(receiver_sock->recvfrom(astia::span<u8>(output, sizeof output)));
+
+    ASTIA_CHECK(message.length == 4);
+    ASTIA_CHECK(output[0] == 'p' && output[1] == 'i' && output[2] == 'n' &&
+                output[3] == 'g');
+    ASTIA_CHECK(message.source.family == AF_UNIX);
+}
+
+ASTIA_TEST(unix_stream_sendmsg_recvmsg_roundtrip) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    ASTIA_CHECK(fs::unix_socketpair(left, right, SOCK_STREAM) == 0);
+
+    if (!left || !right)
+        return;
+
+    auto left_sock  = left->parent()->as_stream_sock();
+    auto right_sock = right->parent()->as_stream_sock();
+
+    ASTIA_CHECK(left_sock.has_value);
+    ASTIA_CHECK(right_sock.has_value);
+
+    if (!left_sock || !right_sock)
+        return;
+
+    const u8 payload[] = {'s', 't', 'r', 'e', 'a', 'm'};
+
+    const i64 sent = drive_task(
+        left_sock->sendmsg(astia::span<const u8>(payload, sizeof payload), {}));
+
+    ASTIA_CHECK(sent == 6);
+
+    u8 output[8]{};
+
+    const fs::message message =
+        drive_task(right_sock->recvmsg(astia::span<u8>(output, sizeof output)));
+
+    ASTIA_CHECK(message.length == 6);
+    ASTIA_CHECK(output[0] == 's' && output[5] == 'm');
+}

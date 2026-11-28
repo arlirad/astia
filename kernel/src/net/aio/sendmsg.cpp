@@ -1,3 +1,5 @@
+#include <astia/mm/heap.hpp>
+
 #include "../../io/aio/handler.hpp"
 #include "common.hpp"
 
@@ -52,7 +54,7 @@ namespace astia::io::aio::operations {
                 if (!memory::copy_in(control_bytes, user_control))
                     co_return -EFAULT;
 
-                proc::process* current = proc::current_process();
+                auto* current = proc::current_process();
                 if (!current)
                     co_return -ESRCH;
 
@@ -62,19 +64,34 @@ namespace astia::io::aio::operations {
                     co_return static_cast<i32>(parsed);
             }
 
-            const long prepared = dgram != nullptr ? dgram->set_send_control(control)
-                                                   : stream->set_send_control(control);
-            if (prepared < 0)
-                co_return static_cast<i32>(prepared);
-
             if (sqe.length == 0)
                 co_return control ? -EOPNOTSUPP : 0;
 
-            co_return submit_socket_request(slot, ring, sqe, handle, &data, 1,
-                                            ::astia::io::direction::output, true, false,
-                                            token)
-                ? aio_result::pending
-                : aio_result::retry;
+            auto storage = mm::heap::alloc(sqe.length);
+            if (!storage)
+                co_return -ENOMEM;
+
+            span<u8> kernel(storage.value, sqe.length);
+
+            if (!memory::copy_in(kernel.data(), data)) {
+                mm::heap::free(storage.value);
+
+                co_return -EFAULT;
+            }
+
+            optional<i64> result;
+
+            if (dgram)
+                result = co_await dgram->sendmsg(kernel, nullptr, control, token);
+            else
+                result = co_await stream->sendmsg(kernel, control, token);
+
+            mm::heap::free(storage.value);
+
+            if (!result)
+                co_return static_cast<i32>(error_errno(result.error));
+
+            co_return static_cast<i32>(result.value);
         }
     };
 

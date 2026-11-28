@@ -1,3 +1,5 @@
+#include <astia/mm/heap.hpp>
+
 #include "../../io/aio/handler.hpp"
 #include "common.hpp"
 
@@ -45,18 +47,31 @@ namespace astia::io::aio::operations {
             }
 
             auto* socket = dgram_for(handle);
+            if (socket == nullptr)
+                co_return -EOPNOTSUPP;
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->set_destination(&a);
-            if (rc < 0)
-                co_return static_cast<i32>(rc);
+            auto storage = mm::heap::alloc(sqe.length == 0 ? 1 : sqe.length);
+            if (!storage)
+                co_return -ENOMEM;
 
-            span<u8> range = span<u8>::bytes(sqe.address, sqe.length);
+            span<u8> kernel(storage.value, sqe.length);
 
-            co_return submit_socket_request(slot, ring, sqe, handle, &range, 1,
-                                            ::astia::io::direction::output, false, false,
-                                            token)
-                ? aio_result::pending
-                : aio_result::retry;
+            if (sqe.length != 0 &&
+                !memory::copy_in(kernel.data(),
+                                 span<u8>::bytes(sqe.address, sqe.length))) {
+                mm::heap::free(storage.value);
+
+                co_return -EFAULT;
+            }
+
+            const auto result = co_await socket->sendto(kernel, a, token);
+
+            mm::heap::free(storage.value);
+
+            if (!result)
+                co_return static_cast<i32>(error_errno(result.error));
+
+            co_return static_cast<i32>(result.value);
         }
     };
 

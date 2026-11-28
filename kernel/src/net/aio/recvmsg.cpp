@@ -1,3 +1,5 @@
+#include <astia/mm/heap.hpp>
+
 #include "../../io/aio/handler.hpp"
 #include "common.hpp"
 
@@ -14,7 +16,7 @@ namespace astia::io::aio::operations {
             if (sqe.length > max_operation_bytes)
                 co_return -EINVAL;
 
-            proc::process* current = proc::current_process();
+            auto* current = proc::current_process();
             if (!current)
                 co_return -ESRCH;
 
@@ -44,28 +46,85 @@ namespace astia::io::aio::operations {
                     co_return -EFAULT;
             }
 
-            if (sqe.length == 0 && header.controllen != 0)
-                co_return -EOPNOTSUPP;
-
-            if ((header.flags & ASTIA_MSG_DONTWAIT) != 0 && handle->poll(POLLIN) == 0)
-                co_return -EAGAIN;
-
             auto* dgram  = dgram_for(handle);
             auto* stream = stream_for(handle);
 
             if (dgram == nullptr && stream == nullptr)
                 co_return -EOPNOTSUPP;
 
-            const long prepared =
-                dgram != nullptr ? dgram->recvmsg_prepare() : stream->recvmsg_prepare();
-            if (prepared < 0)
-                co_return static_cast<i32>(prepared);
+            if (sqe.length == 0)
+                co_return header.controllen != 0 ? -EOPNOTSUPP : 0;
 
-            co_return submit_socket_request(slot, ring, sqe, handle, &data, 1,
-                                            ::astia::io::direction::input, true, false,
-                                            token)
-                ? aio_result::pending
-                : aio_result::retry;
+            auto storage = mm::heap::alloc(sqe.length);
+            if (!storage)
+                co_return -ENOMEM;
+
+            span<u8> kernel(storage.value, sqe.length);
+
+            optional<fs::message> received;
+
+            if (dgram)
+                received = co_await dgram->recvmsg(kernel, token);
+            else
+                received = co_await stream->recvmsg(kernel, token);
+
+            if (!received) {
+                mm::heap::free(storage.value);
+
+                co_return static_cast<i32>(error_errno(received.error));
+            }
+
+            fs::message message = received.value;
+
+            if (message.length < 0) {
+                mm::heap::free(storage.value);
+
+                co_return static_cast<i32>(message.length);
+            }
+
+            const usz moved = message.length < static_cast<i64>(kernel.size())
+                                  ? static_cast<usz>(message.length)
+                                  : kernel.size();
+
+            if (!memory::copy_out_for(current, span<u8>(data.data(), moved),
+                                      storage.value)) {
+                mm::heap::free(storage.value);
+
+                co_return -EFAULT;
+            }
+
+            mm::heap::free(storage.value);
+
+            u8  control[fs::unix_control_max_bytes]{};
+            u32 control_used  = 0;
+            u32 message_flags = 0;
+
+            if (message.control && header.controllen != 0) {
+                u32 capacity = header.controllen;
+
+                if (capacity > fs::unix_control_max_bytes)
+                    capacity = fs::unix_control_max_bytes;
+
+                const long built = fs::build_unix_control(
+                    *current, *message.control, header.flags, span<u8>(control, capacity),
+                    control_used, message_flags);
+                if (built < 0)
+                    co_return static_cast<i32>(built);
+
+                if (control_used != 0 &&
+                    !memory::copy_out_for(
+                        current, span<u8>(static_cast<u8*>(header.control), control_used),
+                        control))
+                    co_return -EFAULT;
+            }
+
+            header.controllen = control_used;
+            header.msg_flags  = message_flags;
+
+            if (!memory::copy_out_for(current, header_ptr.value.bytes(), &header))
+                co_return -EFAULT;
+
+            co_return static_cast<i32>(message.length);
         }
     };
 

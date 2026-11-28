@@ -401,17 +401,6 @@ namespace astia::io::aio::dispatch {
 
                     n = !socket ? -EOPNOTSUPP : socket->accept(op.operation->request());
                 }
-                else if (op.socket_sendmsg) {
-                    auto dgram  = op.handle->parent()->as_dgram_sock();
-                    auto stream = op.handle->parent()->as_stream_sock();
-
-                    if (dgram)
-                        n = dgram->sendmsg(op.operation->request());
-                    else if (stream)
-                        n = stream->sendmsg(op.operation->request());
-                    else
-                        n = -EOPNOTSUPP;
-                }
                 else {
                     n = op.handle->submit(op.operation->request());
                 }
@@ -495,21 +484,6 @@ namespace astia::io::aio::dispatch {
             }
         }
 
-        void complete_recvfrom_address(proc::process* owner, parked_op& op,
-                                       long& result) {
-            if (op.recvfrom_address && result >= 0) {
-                astia_sockaddr address{};
-                auto           socket = op.handle->parent()->as_dgram_sock();
-                const auto     destination =
-                    memory::user_ptr<astia_sockaddr>(op.recvfrom_address_user)
-                        .validate_for(owner);
-
-                if (!socket || !socket->take_source(address) || !destination ||
-                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
-                    result = -EFAULT;
-            }
-        }
-
         void complete_accept_address(proc::process* owner, parked_op& op, long& result) {
             if (op.accept_address && op.accept_address_user != 0 && result >= 0) {
                 astia_sockaddr address{};
@@ -522,75 +496,6 @@ namespace astia::io::aio::dispatch {
                     !memory::copy_out_for(owner, destination.value.bytes(), &address))
                     result = -EFAULT;
             }
-        }
-
-        void complete_recvmsg(proc::process* owner, parked_op& op, long& result) {
-            if (!op.recvmsg || result < 0)
-                return;
-
-            const auto destination =
-                memory::user_ptr<astia_msghdr>(op.recvmsg_user).validate_for(owner);
-            if (!destination) {
-                result = -EFAULT;
-
-                return;
-            }
-
-            astia_msghdr header{};
-
-            if (!memory::copy_in(owner, &header, destination.value.bytes())) {
-                result = -EFAULT;
-
-                return;
-            }
-
-            auto dgram  = op.handle->parent()->as_dgram_sock();
-            auto stream = op.handle->parent()->as_stream_sock();
-
-            if (!dgram && !stream) {
-                result = -EOPNOTSUPP;
-
-                return;
-            }
-
-            u32 capacity = header.controllen;
-
-            if (capacity > fs::unix_control_max_bytes)
-                capacity = fs::unix_control_max_bytes;
-
-            u8  control[fs::unix_control_max_bytes]{};
-            u32 used      = 0;
-            u32 msg_flags = 0;
-
-            const long rc = dgram ? dgram->recvmsg_complete(owner, header.flags,
-                                                            span<u8>(control, capacity),
-                                                            used, msg_flags)
-                                  : stream->recvmsg_complete(owner, header.flags,
-                                                             span<u8>(control, capacity),
-                                                             used, msg_flags);
-            if (rc < 0) {
-                result = rc;
-
-                return;
-            }
-
-            if (used != 0) {
-                const span<u8> control_span(static_cast<u8*>(header.control), used);
-
-                if (header.control == nullptr ||
-                    !memory::user_span_writable_ok_for(owner, control_span) ||
-                    !memory::copy_out_for(owner, control_span, control)) {
-                    result = -EFAULT;
-
-                    return;
-                }
-            }
-
-            header.controllen = used;
-            header.msg_flags  = msg_flags;
-
-            if (!memory::copy_out_for(owner, destination.value.bytes(), &header))
-                result = -EFAULT;
         }
 
         void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
@@ -798,9 +703,7 @@ namespace astia::io::aio::dispatch {
             if (p->token.canceled())
                 result = -ECANCELED;
 
-            complete_recvfrom_address(slot.owner.get(), *p, result);
             complete_accept_address(slot.owner.get(), *p, result);
-            complete_recvmsg(slot.owner.get(), *p, result);
 
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
@@ -910,9 +813,7 @@ namespace astia::io::aio::dispatch {
                 return;
             }
 
-            complete_recvfrom_address(owner, op, result);
             complete_accept_address(owner, op, result);
-            complete_recvmsg(owner, op, result);
 
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.

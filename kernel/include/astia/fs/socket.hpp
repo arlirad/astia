@@ -18,6 +18,15 @@ namespace astia::io {
 namespace astia::fs {
     struct unix_control;
 
+    /// Result of one receive: data length (negative errno on failure), the
+    /// sender/peer address, and any passed control message.
+    struct message {
+        i64                     length = 0;
+        astia_sockaddr          source{};
+        mm::shptr<unix_control> control{};
+        u32                     flags = 0;
+    };
+
     /// Common socket identity.  Both concrete bases below derive from
     /// `file`, so an `open_file` can hand out a socket through the stable
     /// `as_dgram_sock()` / `as_stream_sock()` capability without RTTI.
@@ -29,30 +38,31 @@ namespace astia::fs {
         virtual long getsockopt(u32 level, u32 name, u32* value) = 0;
     };
 
-    /// Datagram contract: message boundaries are preserved, bind/connect are
-    /// address operations and send/recv carry one datagram per call.
+    /// Datagram contract.  Every data operation is one task: the caller
+    /// awaits the method instead of preparing state and submitting later.
     class dgram_sock : public socket {
         public:
         optional<dgram_sock&> as_dgram_sock() override {
             return *this;
         }
 
-        virtual long bind(const astia_sockaddr& address)                = 0;
-        virtual long connect(const astia_sockaddr& address)             = 0;
-        virtual long set_destination(const astia_sockaddr* destination) = 0;
-        virtual long prepare_receive()                                  = 0;
-        virtual bool take_source(astia_sockaddr& source)                = 0;
+        virtual long bind(const astia_sockaddr& address)    = 0;
+        virtual long connect(const astia_sockaddr& address) = 0;
 
-        virtual long set_send_control(const mm::shptr<unix_control>& control) = 0;
-        virtual long sendmsg(io::request& request)                            = 0;
-        virtual long recvmsg_prepare()                                        = 0;
-        virtual long recvmsg_complete(proc::process* receiver, u32 flags,
-                                      span<u8> destination, u32& used,
-                                      u32& message_flags)                     = 0;
+        virtual core::task<i64>     sendto(span<const u8>        data,
+                                           const astia_sockaddr& destination,
+                                           core::cltoken         token = {})                  = 0;
+        virtual core::task<message> recvfrom(span<u8> data, core::cltoken token = {}) = 0;
+
+        virtual core::task<i64>     sendmsg(span<const u8>                 data,
+                                            const astia_sockaddr*          destination,
+                                            const mm::shptr<unix_control>& control,
+                                            core::cltoken                  token = {})                = 0;
+        virtual core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) = 0;
     };
 
     /// Stream contract: connect/listen/accept plus a byte stream, half-close
-    /// and the inherited stream control-message path.
+    /// and control messages.
     class stream_sock : public socket {
         public:
         optional<stream_sock&> as_stream_sock() override {
@@ -66,11 +76,9 @@ namespace astia::fs {
         virtual long connect(const astia_sockaddr& address) = 0;
         virtual long shutdown(u32 how)                      = 0;
 
-        virtual long set_send_control(const mm::shptr<unix_control>& control) = 0;
-        virtual long sendmsg(io::request& request)                            = 0;
-        virtual long recvmsg_prepare()                                        = 0;
-        virtual long recvmsg_complete(proc::process* receiver, u32 flags,
-                                      span<u8> destination, u32& used,
-                                      u32& message_flags)                     = 0;
+        virtual core::task<i64>     sendmsg(span<const u8>                 data,
+                                            const mm::shptr<unix_control>& control,
+                                            core::cltoken                  token = {})                = 0;
+        virtual core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) = 0;
     };
 } // namespace astia::fs
