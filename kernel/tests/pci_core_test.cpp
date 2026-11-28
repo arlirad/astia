@@ -12,16 +12,21 @@
 #include <astia/dev/device.hpp>
 #include <astia/dev/driver.hpp>
 #include <astia/hw/pci.hpp>
+#include <astia/log.hpp>
 
 #include <cstring>
 
 namespace {
-    astia::u8  config[32][8][1024]{};
-    astia::u8  bar_probe[8][6]{};
-    astia::u64 mapped_physical = 0;
-    astia::u64 mapped_size     = 0;
-    astia::u32 map_count       = 0;
-    astia::u32 unmap_count     = 0;
+    enum class bar_restore_fault : astia::u8 { none, drop_write, corrupt_readback };
+
+    astia::u8         config[32][8][1024]{};
+    astia::u8         bar_probe[8][6]{};
+    bool              bar_restored[8][6]{};
+    bar_restore_fault restore_fault   = bar_restore_fault::none;
+    astia::u64        mapped_physical = 0;
+    astia::u64        mapped_size     = 0;
+    astia::u32        map_count       = 0;
+    astia::u32        unmap_count     = 0;
 
     bool present(astia::hw::pci_bdf address) {
         return address.bus == 0 && address.device == 3 && address.function < 2;
@@ -48,6 +53,10 @@ namespace {
         std::memcpy(&value, &config[address.device][address.function][offset],
                     sizeof(value));
 
+        if (offset >= 0x10 && offset < 0x28 &&
+            bar_restored[address.function][(offset - 0x10) / 4])
+            value ^= 0x1000u;
+
         return value;
     }
 
@@ -55,14 +64,22 @@ namespace {
         if (!present(address) || offset > 0xffc || (offset & 3u) != 0)
             return;
 
-        if (offset >= 0x10 && offset < 0x28 && value == ~astia::u32{0}) {
-            bar_probe[address.function][(offset - 0x10) / 4] = 1;
+        if (offset >= 0x10 && offset < 0x28) {
+            const astia::u8 bar = static_cast<astia::u8>((offset - 0x10) / 4);
 
-            return;
+            if (value == ~astia::u32{0}) {
+                bar_probe[address.function][bar] = 1;
+
+                return;
+            }
+
+            if (restore_fault == bar_restore_fault::drop_write)
+                return;
+
+            bar_probe[address.function][bar] = 0;
+            bar_restored[address.function][bar] =
+                restore_fault == bar_restore_fault::corrupt_readback;
         }
-
-        if (offset >= 0x10 && offset < 0x28)
-            bar_probe[address.function][(offset - 0x10) / 4] = 0;
 
         if (offset == 0x04) {
             astia::u32 previous = 0;
@@ -90,9 +107,11 @@ namespace {
     void reset_fixture() {
         std::memset(config, 0, sizeof(config));
         std::memset(bar_probe, 0, sizeof(bar_probe));
+        std::memset(bar_restored, 0, sizeof(bar_restored));
 
-        map_count   = 0;
-        unmap_count = 0;
+        restore_fault = bar_restore_fault::none;
+        map_count     = 0;
+        unmap_count   = 0;
 
         const astia::hw::pci_bdf first{0, 3, 0};
         const astia::hw::pci_bdf second{0, 3, 1};
@@ -213,6 +232,12 @@ namespace astia::arch {
     void pci_config_write32(pci_bdf address, u16 offset, u32 value) {
         config_write(address, offset, value);
     }
+}
+
+namespace astia::log::detail {
+    void prefix(record_builder&, level, const char*, astia::u32) {}
+
+    void emit(level, const char*, astia::u32) {}
 }
 
 ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
@@ -380,4 +405,42 @@ ASTIA_TEST(pci_registry_accepts_exact_capacity_only) {
 
     ASTIA_CHECK(registry.add(extra) == nullptr);
     ASTIA_CHECK(registry.count() == astia::hw::pci_registry::max_devices);
+}
+
+namespace {
+    void check_bar_restore_failure(bar_restore_fault fault) {
+        reset_fixture();
+
+        restore_fault = fault;
+
+        const astia::hw::pci_bdf address{0, 3, 0};
+
+        put32(address, 0x04, 0x00000003u);
+
+        ASTIA_CHECK(astia::hw::pci_set_config_backend({config_read, config_write}));
+
+        astia::hw::pci_device device{};
+
+        device.bdf       = address;
+        device.bar_count = 6;
+        device.command   = 3;
+
+        ASTIA_CHECK(!astia::hw::pci_probe_bar(device, 0));
+        ASTIA_CHECK(device.bars[0].probe_failed);
+        ASTIA_CHECK(!device.bars[0].present);
+        ASTIA_CHECK(device.bars[0].size == 0);
+        ASTIA_CHECK(device.bars[0].address == 0);
+        ASTIA_CHECK(!astia::hw::pci_map_bar(device, 0));
+        ASTIA_CHECK((config_read(address, 0x04) & 0x3u) == 0);
+
+        astia::hw::pci_reset_config_backend();
+    }
+}
+
+ASTIA_TEST(pci_probe_bar_restore_write_failure_marks_bar_unusable) {
+    check_bar_restore_failure(bar_restore_fault::drop_write);
+}
+
+ASTIA_TEST(pci_probe_bar_restore_readback_mismatch_marks_bar_unusable) {
+    check_bar_restore_failure(bar_restore_fault::corrupt_readback);
 }
