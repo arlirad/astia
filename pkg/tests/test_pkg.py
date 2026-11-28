@@ -22,6 +22,11 @@ from pathlib import Path
 PKG = Path(__file__).resolve().parents[1] / "pkg"
 ARCH = "x86_64"
 ABI = "linux-gnu"
+LOCALES = ("C", "de_DE.UTF-8", "fr_FR.UTF-8")
+
+
+def locale_env(locale):
+    return {"LC_ALL": locale, "LANG": locale}
 
 
 def make_archive(repo, name, version, files, bad_manifest_path=None, archive_name=None):
@@ -215,6 +220,76 @@ class PackageManagerTest(unittest.TestCase):
         result = self.run_pkg("-s", "--repo", str(self.repo))
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(cached.read_bytes(), old)
+
+    def test_missing_state_and_cache_initialise_across_locales(self):
+        self.sync_package()
+        for locale in LOCALES:
+            with self.subTest(locale=locale):
+                root = Path(self.temp.name) / f"missing-{locale.split('.')[0]}"
+                result = self.run_pkg_at(root, "list", env=locale_env(locale))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), "")
+                result = self.run_pkg_at(root, "sync", "--repo", str(self.repo), env=locale_env(locale))
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_state_file_content_is_classified_structurally(self):
+        internal = self.root / ".pkg"
+        internal.mkdir(parents=True, mode=0o700)
+        os.chmod(internal, 0o700)
+        state_file = internal / "state.json"
+        valid = json.dumps({"schema": 1, "installed": {}, "owners": {}})
+        cases = (
+            ("empty", "", "malformed package state"),
+            ("malformed", "{", "malformed package state"),
+            ("invalid", json.dumps({"schema": 2, "installed": {}, "owners": {}}), "malformed package state"),
+            ("valid", valid, None),
+        )
+        for name, content, error in cases:
+            for locale in LOCALES:
+                with self.subTest(case=name, locale=locale):
+                    state_file.write_text(content)
+                    result = self.run_pkg("list", env=locale_env(locale))
+                    if error is None:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(result.stdout.strip(), "")
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn(error, result.stderr)
+
+    def test_unreadable_state_file_fails_closed(self):
+        internal = self.root / ".pkg"
+        internal.mkdir(parents=True, mode=0o700)
+        os.chmod(internal, 0o700)
+        state_file = internal / "state.json"
+        state_file.mkdir()
+        result = self.run_pkg("list")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("package state is not a regular file", result.stderr)
+        state_file.rmdir()
+        state_file.write_text(json.dumps({"schema": 1, "installed": {}, "owners": {}}))
+        state_file.chmod(0o000)
+        if os.geteuid() != 0:
+            result = self.run_pkg("list")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("cannot read package state", result.stderr)
+
+    def test_state_loader_does_not_match_error_text(self):
+        module = load_pkg_module()
+        self.root.mkdir(parents=True)
+        state = module.State(self.root)
+        original = module.read_file_at
+
+        def raise_with_missing_text(*_args, **_kwargs):
+            raise module.PkgError("cannot read package state: No such file or directory")
+
+        module.read_file_at = raise_with_missing_text
+        try:
+            with self.assertRaises(module.PkgError):
+                state.load()
+            with self.assertRaises(module.PkgError):
+                state.load_optional("cache.json", "package cache")
+        finally:
+            module.read_file_at = original
 
     def test_immutable_version_and_dependencies_deferred(self):
         self.sync_package()
