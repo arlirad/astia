@@ -75,6 +75,10 @@ $clang $close_host_flags "$root/coreutils/tests/close_error_test.c" \
     "$out/host/sort_close.o" "$out/host/cp_close.o" "$out/host/mv_close.o" \
     -Wl,--wrap=close -o "$out/host/close_error_test"
 "$out/host/close_error_test"
+$clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
+    "$root/coreutils/tests/mv_symlink_test.c" "$out/host/mv_close.o" \
+    -o "$out/host/mv_symlink_test"
+"$out/host/mv_symlink_test"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
     -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
     "$root/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"
