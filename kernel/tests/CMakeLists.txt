@@ -444,6 +444,8 @@ astia_add_host_test(astia_fd_table_test
 target_link_libraries(astia_fd_table_test PRIVATE Threads::Threads)
 astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
+astia_add_host_test(astia_rlimit_policy_test rlimit_policy_test.cpp)
+astia_add_test_label(astia_rlimit_policy_test "deterministic;proc")
 set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
