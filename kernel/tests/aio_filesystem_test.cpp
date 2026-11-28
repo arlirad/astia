@@ -797,6 +797,20 @@ ASTIA_TEST(aio_filesystem_mkdirat_root_bypasses_writable_parent) {
     ASTIA_CHECK(submit_mkdirat(path, 0755) == 0);
 }
 
+ASTIA_TEST(aio_filesystem_mkdirat_does_not_follow_final_symlink) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_node_mode(fs::file_mode(fs::file_type::symlink, fs::default_symlink_permissions));
+
+    char path[] = "/shared/link";
+
+    ASTIA_CHECK(submit_mkdirat(path, 0755) == -EEXIST);
+    ASTIA_CHECK(!last_resolve_follow_final());
+}
+
 ASTIA_TEST(aio_filesystem_symlinkat_requires_writable_parent) {
     using namespace aio::test_support;
 

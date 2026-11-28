@@ -12,6 +12,16 @@ namespace astia::io::aio::operations {
                                         memory::user_ptr<char>(sqe.address)))
                 co_return -EFAULT;
 
+            usz length = 0;
+
+            while (path[length] != '\0') {
+                ++length;
+            }
+
+            while (length > 1 && path[length - 1] == '/') {
+                path[--length] = '\0';
+            }
+
             auto* current = proc::current_process();
 
             char resolved[256];
@@ -20,9 +30,12 @@ namespace astia::io::aio::operations {
                 co_return -ESRCH;
 
             long resolve_rc =
-                resolve_at(current, sqe.fd, path, resolved, sizeof resolved, true);
+                resolve_at(current, sqe.fd, path, resolved, sizeof resolved, false);
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
+
+            if (fs::node_type(resolved) == fs::directory_lnk)
+                co_return -EEXIST;
 
             if (!parent_writable(current, resolved))
                 co_return -EACCES;

@@ -65,7 +65,8 @@ namespace astia::io::aio::test_support {
         node_override_entry node_overrides[node_override_capacity];
 
         touch_record touch_value;
-        bool         touch_value_valid = false;
+        bool         touch_value_valid          = false;
+        bool         resolve_follow_final_value = true;
 
         bool same_path(const char* left, const char* right) {
             while (*left != '\0' && *left == *right) {
@@ -269,17 +270,18 @@ namespace astia::io::aio::test_support {
             entry = {};
         }
 
-        touch_value            = {};
-        touch_value_valid      = false;
-        last_symlink_record    = {};
-        readlink_target[0]     = '\0';
-        readlink_target_length = 0;
-        open_file_value        = {};
-        pipe_read_value        = {};
-        pipe_write_value       = {};
-        socket_value           = {};
-        socketpair_first       = {};
-        socketpair_second      = {};
+        touch_value                = {};
+        touch_value_valid          = false;
+        resolve_follow_final_value = true;
+        last_symlink_record        = {};
+        readlink_target[0]         = '\0';
+        readlink_target_length     = 0;
+        open_file_value            = {};
+        pipe_read_value            = {};
+        pipe_write_value           = {};
+        socket_value               = {};
+        socketpair_first           = {};
+        socketpair_second          = {};
         node_mode = file_mode(file_type::regular, fs::default_file_permissions);
 
         set_node_mode("/tmp",
@@ -301,6 +303,10 @@ namespace astia::io::aio::test_support {
 
     const symlink_record& last_symlink() {
         return detail::last_symlink_record;
+    }
+
+    bool last_resolve_follow_final() {
+        return detail::resolve_follow_final_value;
     }
 
     void set_readlink_target(const char* target) {
@@ -941,14 +947,19 @@ namespace astia::proc {
         return static_cast<i64>(length + suffix);
     }
 
-    i64 process::resolve_path(const char* path, span<char> buffer, bool) const {
+    i64 process::resolve_path(const char* path, span<char> buffer,
+                              bool follow_final) const {
+        ::astia::io::aio::test_support::detail::resolve_follow_final_value = follow_final;
+
         return compose_path(path, buffer);
     }
 
     i64 process::resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
-                                 bool) const {
+                                 bool follow_final) const {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
+
+        ::astia::io::aio::test_support::detail::resolve_follow_final_value = follow_final;
 
         if (path[0] == '/' || dirfd.value == AT_FDCWD)
             return compose_path(path, buffer);

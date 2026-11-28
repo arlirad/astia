@@ -202,6 +202,25 @@ ASTIA_TEST(tmpfs_readdir_reports_stable_inode_identity) {
                 0);
 }
 
+ASTIA_TEST(tmpfs_mkdir_rejects_symlink_entries_without_following) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs_mount mount;
+
+    ASTIA_CHECK(mount.mkdir("/dir", directory_mode()) == 0);
+    ASTIA_CHECK(mount.symlink("/does/not/exist", "/dangling") == 0);
+    ASTIA_CHECK(mount.mkdir("/dangling", directory_mode()) == -EEXIST);
+    ASTIA_CHECK(mount.node_type("/dangling") == astia::fs::directory_lnk);
+    ASTIA_CHECK(mount.node_type("/does/not/exist") == astia::fs::directory_unknown);
+
+    ASTIA_CHECK(mount.symlink("/dir", "/dirlink") == 0);
+    ASTIA_CHECK(mount.mkdir("/dirlink", directory_mode()) == -EEXIST);
+    ASTIA_CHECK(mount.node_type("/dirlink") == astia::fs::directory_lnk);
+
+    ASTIA_CHECK(mount.mkdir("/plain", directory_mode()) == 0);
+    ASTIA_CHECK(mount.node_type("/plain") == astia::fs::directory_dir);
+}
+
 ASTIA_TEST(tmpfs_node_path_follows_a_directory_rename) {
     initialize_runtime();
 
