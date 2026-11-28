@@ -55,10 +55,14 @@ the attached journal. A cleanup failure refuses the mount; a read-only source
 mounts read-only and logs that orphans were not processed.
 
 Unlink follows POSIX deferred-free semantics: while an open handle still
-references the inode, `unlink` clears `links_count`, records `dtime` and keeps
-the bitmap bit and data blocks allocated. The last handle close frees the
-extents (when the inode uses them) and the inode. The mount keeps a bounded
-table of 64 open inodes; opening another inode when it is full fails.
+references the inode, `unlink` registers the inode in the orphan file (or the
+legacy `s_last_orphan` list when the orphan-file feature is absent), clears
+`links_count`, records `dtime` and keeps the bitmap bit and data blocks
+allocated. If the kernel crashes before the last close, the next read-write
+mount replays the journal and frees the registered orphan. The last handle
+close removes the orphan entry, frees the extents (when the inode uses them)
+and the inode, and commits. The mount keeps a bounded table of 64 open inodes;
+opening another inode when it is full fails.
 
 ## Limits
 

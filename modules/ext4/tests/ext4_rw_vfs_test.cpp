@@ -502,6 +502,78 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (std::strcmp(mode, "crash-orphan") == 0) {
+        u8 crash_data[4096];
+
+        for (u32 i = 0; i < sizeof crash_data; ++i) {
+            crash_data[i] = pattern_byte(i);
+        }
+
+        auto victim = astia::fs::open("/tmp/ext4/crashdir/victim",
+                                      ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
+
+        if (!check_handle(victim, "create crashdir/victim") ||
+            !check(victim.get() != nullptr &&
+                       victim->write(crash_data, sizeof crash_data) ==
+                           static_cast<long>(sizeof crash_data),
+                   "write crashdir/victim"))
+            return 1;
+
+        astia::ext4::journal::test_set_crash_after_commit(true);
+
+        if (!check(astia::fs::remove_path("/tmp/ext4/crashdir/victim",
+                                          false) == 0,
+                   "deferred unlink of crashdir/victim"))
+            return 1;
+
+        if (!check(fake_device.store(output), "store crashed orphan image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
+    if (std::strcmp(mode, "recover-orphan") == 0) {
+        auto victim = astia::fs::open("/tmp/ext4/crashdir/victim",
+                                      ASTIA_AIO_O_RDONLY);
+
+        if (!check(victim.get() == nullptr,
+                   "unlinked orphan is gone after recovery"))
+            return 1;
+
+        bool seen = false;
+
+        for (u64 index = 0; index < 64; ++index) {
+            char                 entry_name[256]{};
+            astia::fs::file_type entry_type{};
+            const long           rc = astia::fs::read_directory(
+                "/tmp/ext4/crashdir", index, entry_name, sizeof entry_name,
+                &entry_type, nullptr);
+
+            if (rc == 0)
+                break;
+
+            if (!check(rc > 0, "enumerate crashdir after recovery"))
+                return 1;
+
+            if (std::strcmp(entry_name, "victim") == 0)
+                seen = true;
+        }
+
+        if (!check(!seen, "orphan name absent from crashdir after recovery"))
+            return 1;
+
+        if (!check(astia::fs::unmount_type("/tmp/ext4") == 0,
+                   "unmount recovered orphan ext4") ||
+            !check(fake_device.store(output), "store recovered orphan image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
     if (std::strcmp(mode, "indexed") == 0) {
         if (!check(astia::fs::make_directory(
                        "/tmp/ext4/other",

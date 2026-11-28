@@ -110,6 +110,20 @@ namespace astia::ext4 {
             return now != 0 ? now : 1u;
         }
 
+        void refresh_orphan_checksum(volume& v, u32 inode_number, u32 generation,
+                                     u64 physical, u8* block) {
+            if (!v.metadata_csum())
+                return;
+
+            const u32 block_size = v.block_size();
+
+            store32(block + block_size - 4, 0);
+            store32(block + block_size - 4,
+                    orphan_block_checksum(v.checksum_seed(), inode_number,
+                                          generation, physical, block,
+                                          block_size));
+        }
+
         struct directory_context {
             u64            wanted;
             u64            ordinal = 0;
@@ -501,17 +515,191 @@ namespace astia::ext4 {
                 store32(block + offset, 0);
             }
 
-            store32(block + block_size - 4, 0);
-            store32(block + block_size - 4,
-                    orphan_block_checksum(_volume.checksum_seed(), number,
-                                          node.generation(), physical, block,
-                                          block_size));
+            refresh_orphan_checksum(_volume, number, node.generation(), physical,
+                                    block);
 
             if (!_volume.write_block(physical, block))
                 return false;
         }
 
         return true;
+    }
+
+    bool mount::orphan_add(inode_record& node) {
+        const u32 number = _volume.sb().orphan_file_inum();
+
+        if ((_volume.feature_compat() & compat_orphan_file) != 0 &&
+            number != 0) {
+            inode_record file;
+
+            if (!_volume.read_inode(number, file))
+                return false;
+
+            const u32 block_size = _volume.block_size();
+
+            if (block_size < 12 || block_size > sector_size_max)
+                return false;
+
+            const u64 blocks = file.size() / block_size;
+
+            if (blocks > _volume.blocks_count() || blocks > ~u32{0})
+                return false;
+
+            for (u64 logical = 0; logical < blocks; ++logical) {
+                u64 physical = 0;
+
+                if (!extent::map(_volume, file, static_cast<u32>(logical),
+                                 physical))
+                    return false;
+
+                u8 block[sector_size_max];
+
+                if (!_volume.read_block(physical, block))
+                    return false;
+
+                if (load32(block + block_size - 8) != orphan_file_magic)
+                    return false;
+
+                if (_volume.metadata_csum() &&
+                    orphan_block_checksum(_volume.checksum_seed(), number,
+                                          file.generation(), physical, block,
+                                          block_size) !=
+                        load32(block + block_size - 4))
+                    return false;
+
+                for (u32 offset = 0; offset + 4 <= block_size - 8;
+                     offset += 4) {
+                    if (load32(block + offset) != 0)
+                        continue;
+
+                    store32(block + offset, node.number);
+                    refresh_orphan_checksum(_volume, number, file.generation(),
+                                            physical, block);
+
+                    if (!_volume.write_block(physical, block))
+                        return false;
+
+                    _volume.sb().set_feature_ro_compat(
+                        _volume.feature_ro_compat() | ro_orphan_present);
+
+                    if (!_volume.write_superblock_home())
+                        return false;
+
+                    _volume.mark_superblock_dirty();
+                    node.set_dtime(deletion_time());
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        node.set_dtime(_volume.sb().last_orphan());
+        _volume.sb().set_last_orphan(node.number);
+        _volume.mark_superblock_dirty();
+
+        return true;
+    }
+
+    bool mount::orphan_remove(inode_record& node) {
+        const u32 number = _volume.sb().orphan_file_inum();
+
+        if ((_volume.feature_compat() & compat_orphan_file) != 0 &&
+            number != 0) {
+            inode_record file;
+
+            if (!_volume.read_inode(number, file))
+                return false;
+
+            const u32 block_size = _volume.block_size();
+
+            if (block_size < 12 || block_size > sector_size_max)
+                return false;
+
+            const u64 blocks = file.size() / block_size;
+
+            if (blocks > _volume.blocks_count() || blocks > ~u32{0})
+                return false;
+
+            for (u64 logical = 0; logical < blocks; ++logical) {
+                u64 physical = 0;
+
+                if (!extent::map(_volume, file, static_cast<u32>(logical),
+                                 physical))
+                    return false;
+
+                u8 block[sector_size_max];
+
+                if (!_volume.read_block(physical, block))
+                    return false;
+
+                if (load32(block + block_size - 8) != orphan_file_magic)
+                    return false;
+
+                if (_volume.metadata_csum() &&
+                    orphan_block_checksum(_volume.checksum_seed(), number,
+                                          file.generation(), physical, block,
+                                          block_size) !=
+                        load32(block + block_size - 4))
+                    return false;
+
+                for (u32 offset = 0; offset + 4 <= block_size - 8;
+                     offset += 4) {
+                    if (load32(block + offset) != node.number)
+                        continue;
+
+                    store32(block + offset, 0);
+                    refresh_orphan_checksum(_volume, number, file.generation(),
+                                            physical, block);
+
+                    return _volume.write_block(physical, block);
+                }
+            }
+
+            return false;
+        }
+
+        const u32 head = _volume.sb().last_orphan();
+
+        if (head == 0)
+            return false;
+
+        if (head == node.number) {
+            _volume.sb().set_last_orphan(node.dtime());
+            _volume.mark_superblock_dirty();
+
+            return true;
+        }
+
+        const u64 limit = static_cast<u64>(_volume.inodes_count()) + 1;
+        u32       previous = head;
+        u64       walked   = 0;
+
+        while (previous != 0) {
+            if (++walked > limit)
+                return false;
+
+            inode_record current;
+
+            if (!_volume.read_inode(previous, current))
+                return false;
+
+            const u32 following = current.dtime();
+
+            if (following == node.number) {
+                current.set_dtime(node.dtime());
+
+                return _volume.write_inode(current);
+            }
+
+            if (following == 0 || following == previous)
+                return false;
+
+            previous = following;
+        }
+
+        return false;
     }
 
     bool mount::process_orphans() {
@@ -1012,8 +1200,14 @@ namespace astia::ext4 {
             if (!_volume.read_inode(inode, node))
                 return false;
 
-            if (node.links_count() != 0 || node.dtime() == 0)
+            if (node.links_count() != 0)
                 return false;
+
+            if (!orphan_remove(node)) {
+                logs::error("orphan removal failed; deferring inode free");
+
+                return false;
+            }
 
             if ((node.flags() & inode_extents) != 0) {
                 if (!extent::free_all(_volume, _space, node))
@@ -1028,6 +1222,9 @@ namespace astia::ext4 {
 
     void mount::release_inode_reference(u32 inode) {
         core::spinlock_guard guard(_lock);
+
+        if (_journal.crashed())
+            return;
 
         if (!release_inode(inode)) {
             (void) _volume.abort_transaction();
@@ -1470,7 +1667,9 @@ namespace astia::ext4 {
 
             if (referenced) {
                 node.set_links_count(0);
-                node.set_dtime(deletion_time());
+
+                if (!orphan_add(node))
+                    return -EIO;
 
                 return _volume.write_inode(node) ? 0 : -EIO;
             }
@@ -1486,7 +1685,8 @@ namespace astia::ext4 {
 
         if (node.links_count() == 0) {
             if (referenced) {
-                node.set_dtime(deletion_time());
+                if (!orphan_add(node))
+                    return -EIO;
 
                 return _volume.write_inode(node) ? 0 : -EIO;
             }

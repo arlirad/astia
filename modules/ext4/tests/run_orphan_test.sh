@@ -12,6 +12,7 @@ trap 'rm -rf "$root"' EXIT
 
 printf 'orphan victim payload\n' >"$root/victim"
 printf 'second orphan payload\n' >"$root/second"
+mkdir -p "$root/crashdir"
 
 fixture=${work}/orphan-base.img
 
@@ -267,6 +268,78 @@ chain_listing=$(debugfs -R 'ls -l /' "${work}/orphan-chain-out.img" 2>/dev/null)
 if printf '%s\n' "$chain_listing" | grep -qw 'victim' ||
     printf '%s\n' "$chain_listing" | grep -qw 'second'; then
     echo "chain phase: an orphan inode still has a directory entry" >&2
+    exit 1
+fi
+
+# Phase 5: an inode unlinked while still open is registered as an orphan so a
+# crash before the final close reclaims it on the next mount.
+crash_baseline=$(free_inodes "$fixture")
+crash_image=${work}/orphan-crash.img
+recovered_image=${work}/orphan-crash-recovered.img
+
+echo "crash phase: free inodes baseline: ${crash_baseline}"
+
+run_tool "$fixture" "$crash_image" crash-orphan \
+    >"${work}/crash-orphan.log" 2>&1
+cat "${work}/crash-orphan.log"
+
+if ! grep -qx 'OK' "${work}/crash-orphan.log"; then
+    echo "crash-orphan did not report OK" >&2
+    exit 1
+fi
+
+dumpe2fs -h "$crash_image" >"${work}/crash-orphan.dumpe2fs" 2>/dev/null || true
+
+if ! grep -q 'needs_recovery' "${work}/crash-orphan.dumpe2fs"; then
+    echo "crash phase: crash image is missing needs_recovery" >&2
+    exit 1
+fi
+
+if ! grep -q 'orphan_present' "${work}/crash-orphan.dumpe2fs"; then
+    echo "crash phase: crash image is missing orphan_present" >&2
+    exit 1
+fi
+
+echo "crash phase: crash image has needs_recovery and orphan_present"
+
+run_tool "$crash_image" "$recovered_image" recover-orphan \
+    >"${work}/recover-orphan.log" 2>&1
+cat "${work}/recover-orphan.log"
+
+if ! grep -qx 'OK' "${work}/recover-orphan.log"; then
+    echo "recover-orphan did not report OK" >&2
+    exit 1
+fi
+
+status=0
+e2fsck -fn "$recovered_image" >"${work}/recover-orphan-fsck.log" 2>&1 || status=$?
+cat "${work}/recover-orphan-fsck.log"
+
+echo "crash phase: e2fsck -fn exited ${status}"
+
+if [ "$status" -ne 0 ]; then
+    echo "crash phase: e2fsck rejected the recovered image" >&2
+    exit 1
+fi
+
+if ! grep -q 'Pass 5: Checking group summary information' \
+    "${work}/recover-orphan-fsck.log"; then
+    echo "crash phase: e2fsck did not complete directory checking (no pass 5)" >&2
+    exit 1
+fi
+
+recovered_free=$(free_inodes "$recovered_image")
+
+echo "crash phase: free inodes ${crash_baseline} -> ${recovered_free}"
+
+if [ "$recovered_free" -ne "$crash_baseline" ]; then
+    echo "crash phase: recovered free inode count leaked inodes" >&2
+    exit 1
+fi
+
+if debugfs -R 'stat /crashdir/victim' "$recovered_image" 2>/dev/null |
+    grep -q '^Inode:'; then
+    echo "crash phase: unlinked victim survived recovery" >&2
     exit 1
 fi
 

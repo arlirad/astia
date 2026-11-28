@@ -92,11 +92,13 @@ journal remain writable through the direct block path.
 read-only-compatible features `sparse_super`, `large_file`, `huge_file`,
 `gdt_csum`, `dir_nlink`, `extra_isize`, `metadata_csum` and `orphan_present`.
 `csum_seed` requires `metadata_csum`, as does `gdt_csum`; `metadata_csum`
-requires checksum type 1. The `64bit` bit is accepted only while the block
-count still fits in 32 bits; 64-byte group descriptors are parsed and
-checksummed in full. `orphan_present` is accepted: the orphan list and orphan
-file are processed before a read-write mount becomes usable, and the bit is
-cleared on success.
+requires checksum type 1. The `64bit` bit requires 64-byte group descriptors,
+which are parsed and checksummed in full. `orphan_present` is accepted: the
+orphan list and orphan file are processed before a read-write mount becomes
+usable, and the bit is cleared on success. An inode unlinked while still open
+is registered in the orphan file (or legacy list) before `links_count` reaches
+zero, so a crash before the final close is reclaimed at the next mount instead
+of leaking until fsck.
 
 Everything else is refused at open: inline data, bigalloc, encryption, quota,
 external journal devices, unknown feature bits, and the read-only flag. The
@@ -150,7 +152,9 @@ at most 64 open inodes; opening another inode when it is full fails.
 - `ext4_orphan_test` plants an unlinked file on the old orphan list and in the
   orphan file, mounts read-write through the RW tool, and checks with
   `e2fsck -fn`, `dumpe2fs` and `debugfs` that the inode was freed exactly once
-  and `orphan_present` was cleared.
+  and `orphan_present` was cleared. It also crashes after a deferred unlink,
+  verifies `needs_recovery` and `orphan_present`, then recovers and checks that
+  the open-unlinked inode was reclaimed with no free-inode leak.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log for a successful load.
 
