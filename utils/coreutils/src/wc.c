@@ -54,6 +54,10 @@ static int write_counts(const wc_counts* counts, const wc_fields* fields,
     return cu_write_all(CU_STDOUT, "\n", 1) < 0;
 }
 
+static int wc_is_space(unsigned char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+}
+
 static int count_fd(int fd, const char* name, const wc_fields* fields,
                     wc_counts* counts) {
     char          buffer[4096];
@@ -75,7 +79,7 @@ static int count_fd(int fd, const char* name, const wc_fields* fields,
             if (c == '\n')
                 ++lines;
 
-            if (c == ' ' || c == '\n' || c == '\t' || c == '\r') {
+            if (wc_is_space((unsigned char) c)) {
                 in_word = 0;
             }
             else if (!in_word) {

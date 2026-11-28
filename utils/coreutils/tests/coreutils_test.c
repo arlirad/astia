@@ -1622,6 +1622,7 @@ int main(void) {
     char* wc_lines_files[] = {"wc", "-l", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* wc_lines_stdin[] = {"wc", "-l", NULL};
     char* wc_words_file[]  = {"wc", "-w", "/tmp/coreutils_a", NULL};
+    char* wc_words_stdin[] = {"wc", "-w", NULL};
     char* wc_lines_bytes[] = {"wc", "-lc", "/tmp/coreutils_a", "/tmp/coreutils_b", NULL};
     char* wc_one_char[]    = {"wc", "a", NULL};
     char* wc_dash[]        = {"wc", "-", NULL};
@@ -1718,6 +1719,12 @@ int main(void) {
               "1 /tmp/coreutils_a\n2 /tmp/coreutils_b\n3 total\n", 1) ||
         check("wc -l stdin", wc_lines_stdin, "alpha\nbeta\n", 0, "2\n", 1) ||
         check("wc -w file", wc_words_file, NULL, 0, "1 /tmp/coreutils_a\n", 1) ||
+        check("wc -w vertical tab", wc_words_stdin, "a\vb\n", 0, "2\n", 1) ||
+        check("wc -w form feed", wc_words_stdin, "a\fb\n", 0, "2\n", 1) ||
+        check("wc -w carriage return", wc_words_stdin, "a\rb\n", 0, "2\n", 1) ||
+        check("wc -w issue separators", wc_words_stdin, "a\vb\f c\n", 0, "3\n", 1) ||
+        check("wc -w all separators", wc_stdin_bare, "a\vb\fc\rd e\tf\ng\n", 0,
+              "2 7 14\n", 1) ||
         check("wc -lc files", wc_lines_bytes, NULL, 0,
               "1 6 /tmp/coreutils_a\n2 11 /tmp/coreutils_b\n3 17 total\n", 1) ||
         check("wc invalid", wc_bad, NULL, 1, NULL, 0) ||
