@@ -2641,6 +2641,34 @@ if (ARCH STREQUAL "x86_64")
                 astia_native_missing_rc_boot_initrd
                 astia_native_launch_failure_boot_initrd)
 
+        function(astia_add_power_syscall_fixture name operation)
+            add_custom_command(
+                    OUTPUT ${_fix_dir}/${name}_initrd.cpio
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                    ${_fix_dir}/${name}_stage/sbin
+                    COMMAND ${CMAKE_C_COMPILER} -c -ffreestanding -fno-pic -fno-pie
+                    -fno-builtin -fno-stack-protector -fno-asynchronous-unwind-tables
+                    -mno-red-zone -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                    -DASTIA_POWER_FIXTURE_OPERATION=${operation}
+                    -o ${_fix_dir}/${name}.o
+                    ${CMAKE_CURRENT_SOURCE_DIR}/power_syscall_qemu_fixture.c
+                    COMMAND ${CMAKE_C_COMPILER} -nostdlib -static -Wl,-no-pie
+                    -Wl,-e,_start -Wl,-Ttext-segment=0x40000000
+                    -o ${_fix_dir}/${name}_stage/sbin/init ${_fix_dir}/${name}.o
+                    COMMAND ${CMAKE_COMMAND} -E env ASTIA_CPIO=${ASTIA_CPIO}
+                    sh ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                    ${_fix_dir}/${name}_stage ${_fix_dir}/${name}_initrd.cpio sbin/init
+                    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/power_syscall_qemu_fixture.c
+                    ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
+                    COMMENT "Building ${name} userspace power fixture")
+        endfunction()
+        astia_add_power_syscall_fixture(power_reboot ASTIA_POWER_REBOOT)
+        astia_add_power_syscall_fixture(power_shutdown ASTIA_POWER_SHUTDOWN)
+
+        add_custom_target(astia_power_syscall_fixtures ALL
+                DEPENDS ${_fix_dir}/power_reboot_initrd.cpio
+                ${_fix_dir}/power_shutdown_initrd.cpio)
+
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL
                     COMMAND BUILD=${CMAKE_BINARY_DIR}/grub ISO=${CMAKE_BINARY_DIR}/astia-grub.iso
@@ -2710,6 +2738,53 @@ if (ARCH STREQUAL "x86_64")
                     $<TARGET_FILE:astiakrn_acpi_reject>)
             set_tests_properties(acpi_q35_malformed_aml PROPERTIES
                     TIMEOUT 40
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            function(astia_add_power_syscall_iso target fixture iso_name)
+                add_custom_target(${target}
+                        COMMAND ${CMAKE_COMMAND} -E make_directory
+                                ${CMAKE_BINARY_DIR}/${fixture}-iso/boot/grub
+                        COMMAND ${CMAKE_COMMAND} -E copy
+                                $<TARGET_FILE:astiakrn_test>
+                                ${CMAKE_BINARY_DIR}/${fixture}-iso/boot/astiakrn
+                        COMMAND ${CMAKE_COMMAND} -E copy
+                                ${_fix_dir}/${fixture}_initrd.cpio
+                                ${CMAKE_BINARY_DIR}/${fixture}-iso/boot/initrd.cpio
+                        COMMAND ${CMAKE_COMMAND} -E copy
+                                ${CMAKE_CURRENT_SOURCE_DIR}/integration/power-grub.cfg
+                                ${CMAKE_BINARY_DIR}/${fixture}-iso/boot/grub/grub.cfg
+                        COMMAND ${GRUB_FILE} --is-x86-multiboot2
+                                $<TARGET_FILE:astiakrn_test>
+                        COMMAND ${GRUB_MKRESCUE} -o ${CMAKE_BINARY_DIR}/${iso_name}
+                                ${CMAKE_BINARY_DIR}/${fixture}-iso
+                        BYPRODUCTS ${CMAKE_BINARY_DIR}/${iso_name}
+                        DEPENDS astiakrn_test ${_fix_dir}/${fixture}_initrd.cpio
+                                ${CMAKE_CURRENT_SOURCE_DIR}/integration/power-grub.cfg
+                        COMMENT "Building ${fixture} power-syscall GRUB ISO")
+            endfunction()
+            astia_add_power_syscall_iso(astia_power_reboot_iso power_reboot
+                    astia-power-reboot.iso)
+            astia_add_power_syscall_iso(astia_power_shutdown_iso power_shutdown
+                    astia-power-shutdown.iso)
+
+            add_test(NAME acpi_q35_power_reboot
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    syscall-reboot ${ASTIA_QEMU}
+                    ${CMAKE_BINARY_DIR}/astia-power-reboot.iso)
+            set_tests_properties(acpi_q35_power_reboot PROPERTIES
+                    TIMEOUT 300
+                    LABELS "acpi;qemu;deterministic"
+                    RESOURCE_LOCK astia-qemu
+                    RUN_SERIAL TRUE)
+
+            add_test(NAME acpi_q35_power_shutdown
+                    COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/run_acpi_q35.sh
+                    syscall-shutdown ${ASTIA_QEMU}
+                    ${CMAKE_BINARY_DIR}/astia-power-shutdown.iso)
+            set_tests_properties(acpi_q35_power_shutdown PROPERTIES
+                    TIMEOUT 300
                     LABELS "acpi;qemu;deterministic"
                     RESOURCE_LOCK astia-qemu
                     RUN_SERIAL TRUE)

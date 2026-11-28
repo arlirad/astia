@@ -204,6 +204,10 @@ claimed. Unsupported platforms must not assume ACPI shutdown works.
   and link `_PRS` templates without End Tags.
 - `acpi_q35_shutdown`: GRUB Multiboot2 q35 boot; requires QEMU to exit normally
   with status 0 after the S5 write, plus inventory/S5/platform-handler markers.
+- `acpi_q35_power_reboot`, `acpi_q35_power_shutdown`: direct-boot q35 images
+  whose `/sbin/init` issues `SYS_POWER` from ring 3; require QEMU to exit with
+  status 0 through the FADT reset register (reboot) or the S5 write (shutdown),
+  and forbid the marker belonging to the other path.
 - `acpi_q35_malformed_rsdp`, `acpi_q35_malformed_aml`: synthetic corrupt RSDP
   and malformed AML boot regressions; must reject, log, and still reach the boot
   marker.
