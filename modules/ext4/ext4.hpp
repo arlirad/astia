@@ -175,6 +175,10 @@ namespace astia::ext4 {
         bool descends_from(const inode_record& ancestor,
                            const inode_record& node) const;
 
+        bool cleanup_orphan_inode(inode_record& node);
+        bool cleanup_orphan_file();
+        bool process_orphans();
+
         static fs::file_type vfs_type(ext4::node_type type);
         static fs::file_mode vfs_mode(const inode_record& node);
 

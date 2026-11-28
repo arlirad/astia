@@ -53,6 +53,24 @@ namespace astia::ext4 {
         return crc;
     }
 
+    u32 orphan_block_checksum(u32 seed, u32 inode_number, u32 generation,
+                              u64 physical, const void* block, u32 block_size) {
+        if (block == nullptr || block_size < 12)
+            return 0;
+
+        u8 header[16];
+
+        store32(header, inode_number);
+        store32(header + 4, generation);
+        store64(header + 8, physical);
+
+        u32 crc = crc32c(seed, header, 8);
+
+        crc = crc32c(crc, header + 8, 8);
+
+        return crc32c(crc, block, block_size - 8);
+    }
+
     bool superblock::parse(const u8* bytes) {
         if (bytes == nullptr)
             return false;
@@ -331,6 +349,22 @@ namespace astia::ext4 {
 
     void superblock::set_journal_dev(u32 value) {
         set32(0xE4, value);
+    }
+
+    u32 superblock::last_orphan() const {
+        return get32(0xE8);
+    }
+
+    void superblock::set_last_orphan(u32 value) {
+        set32(0xE8, value);
+    }
+
+    u32 superblock::orphan_file_inum() const {
+        return get32(0x280);
+    }
+
+    void superblock::set_orphan_file_inum(u32 value) {
+        set32(0x280, value);
     }
 
     const u8* superblock::journal_uuid() const {
@@ -1144,8 +1178,7 @@ namespace astia::ext4 {
         }
 
         _metadata_csum = (ro & ro_metadata_csum) != 0;
-        _writable      = writable && _io.write != nullptr &&
-                         (ro & ro_orphan_present) == 0;
+        _writable      = writable && _io.write != nullptr;
         _dirty         = false;
 
         return true;
@@ -1229,6 +1262,10 @@ namespace astia::ext4 {
         // INCOMPAT_RECOVER is set while the journal still holds transactions
         // that were not checkpointed; a later chunk replays it.
         return (_sb.feature_incompat() & incompat_recover) == 0;
+    }
+
+    bool volume::orphan_present() const {
+        return (_sb.feature_ro_compat() & ro_orphan_present) != 0;
     }
 
     bool volume::read_sector(u64 aligned, u32 length, u8* scratch) {

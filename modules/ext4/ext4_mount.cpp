@@ -10,6 +10,7 @@ namespace astia::ext4 {
     namespace {
         constexpr u32 inline_symlink_max = 60;
         constexpr u32 max_name_length    = 255;
+        constexpr u32 orphan_walk_limit  = 1024;
 
         u32 text_length(const char* text) {
             u32 length = 0;
@@ -319,9 +320,6 @@ namespace astia::ext4 {
         if (!_volume.open(io, requested_writable))
             return false;
 
-        if ((_volume.feature_ro_compat() & ro_orphan_present) != 0)
-            logs::warning("orphan file present; mounting read-only");
-
         const bool has_journal = _volume.has_journal();
         bool       journal_ready = false;
 
@@ -367,9 +365,11 @@ namespace astia::ext4 {
             }
         }
 
+        bool writable = false;
+
         if (_volume.writable()) {
             if (!has_journal) {
-                _writable = true;
+                writable = true;
             }
             else if (journal_ready) {
                 if (!_journal.enable_checksums(_volume)) {
@@ -377,10 +377,26 @@ namespace astia::ext4 {
                 }
                 else {
                     _volume.attach_journal(&_journal);
-                    _writable = true;
+                    writable = true;
                 }
             }
         }
+
+        if (_volume.sb().last_orphan() != 0 || _volume.orphan_present()) {
+            if (writable) {
+                if (!process_orphans()) {
+                    logs::error("orphan cleanup failed; refusing mount");
+                    _volume.attach_journal(nullptr);
+
+                    return false;
+                }
+            }
+            else {
+                logs::warning("orphans not processed on a read-only mount");
+            }
+        }
+
+        _writable = writable;
 
         if ((_volume.feature_incompat() & incompat_extents) == 0)
             return false;
@@ -396,6 +412,134 @@ namespace astia::ext4 {
             return false;
 
         return root.is_directory();
+    }
+
+    bool mount::cleanup_orphan_inode(inode_record& node) {
+        if (node.links_count() == 0) {
+            if ((node.flags() & inode_extents) == 0) {
+                if (node.blocks() != 0) {
+                    logs::error("orphan inode without extents still owns blocks");
+
+                    return false;
+                }
+            }
+            else if (!extent::free_all(_volume, _space, node)) {
+                return false;
+            }
+
+            return _space.free_inode(node);
+        }
+
+        node.set_dtime(0);
+
+        return _volume.write_inode(node);
+    }
+
+    bool mount::cleanup_orphan_file() {
+        const u32 number = _volume.sb().orphan_file_inum();
+
+        if (number == 0)
+            return true;
+
+        inode_record node;
+
+        if (!_volume.read_inode(number, node))
+            return false;
+
+        const u32 block_size = _volume.block_size();
+
+        if (block_size < 12 || block_size > sector_size_max)
+            return false;
+
+        const u64 blocks = node.size() / block_size;
+
+        if (blocks > _volume.blocks_count() || blocks > ~u32{0})
+            return false;
+
+        for (u64 logical = 0; logical < blocks; ++logical) {
+            u64 physical = 0;
+
+            if (!extent::map(_volume, node, static_cast<u32>(logical),
+                             physical))
+                return false;
+
+            u8 block[sector_size_max];
+
+            if (!_volume.read_block(physical, block))
+                return false;
+
+            if (load32(block + block_size - 8) != orphan_file_magic) {
+                logs::error("orphan file block magic is invalid");
+
+                return false;
+            }
+
+            for (u32 offset = 0; offset + 4 <= block_size - 8; offset += 4) {
+                const u32 orphan_number = load32(block + offset);
+
+                if (orphan_number == 0)
+                    continue;
+
+                inode_record orphan;
+
+                if (!_volume.read_inode(orphan_number, orphan) ||
+                    !cleanup_orphan_inode(orphan))
+                    return false;
+
+                store32(block + offset, 0);
+            }
+
+            store32(block + block_size - 4, 0);
+            store32(block + block_size - 4,
+                    orphan_block_checksum(_volume.checksum_seed(), number,
+                                          node.generation(), physical, block,
+                                          block_size));
+
+            if (!_volume.write_block(physical, block))
+                return false;
+        }
+
+        return true;
+    }
+
+    bool mount::process_orphans() {
+        if (!_volume.writable())
+            return false;
+
+        u32 next  = _volume.sb().last_orphan();
+        u32 walked = 0;
+
+        while (next != 0) {
+            if (++walked > orphan_walk_limit) {
+                logs::error("orphan list exceeds the walk limit");
+
+                return false;
+            }
+
+            inode_record node;
+
+            if (!_volume.read_inode(next, node))
+                return false;
+
+            const u32 following = node.dtime();
+
+            if (!cleanup_orphan_inode(node))
+                return false;
+
+            next = following;
+        }
+
+        _volume.sb().set_last_orphan(0);
+
+        if (_volume.orphan_present() && !cleanup_orphan_file())
+            return false;
+
+        _volume.sb().set_feature_ro_compat(_volume.feature_ro_compat() &
+                                           ~ro_orphan_present);
+        _volume.sb().set_state(1);
+        _volume.mark_superblock_dirty();
+
+        return _volume.commit();
     }
 
     long mount::finish(long result) {

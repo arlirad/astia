@@ -43,6 +43,8 @@ namespace astia::ext4 {
     inline constexpr u32 ro_readonly             = 0x1000;
     inline constexpr u32 ro_orphan_present       = 0x10000;
 
+    inline constexpr u32 orphan_file_magic = 0x0B10CA04;
+
     inline constexpr u32 inode_extents     = 0x00080000;
     inline constexpr u32 inode_index       = 0x00001000;
     inline constexpr u32 inode_inline_data = 0x10000000;
@@ -94,6 +96,9 @@ namespace astia::ext4 {
     }
 
     u32 crc32c(u32 seed, const void* data, usz length);
+
+    u32 orphan_block_checksum(u32 seed, u32 inode_number, u32 generation,
+                              u64 physical, const void* block, u32 block_size);
 
     struct device_io {
         bool (*read)(void* context, u64 offset, void* buffer, usz length);
@@ -170,6 +175,10 @@ namespace astia::ext4 {
         void set_journal_inum(u32 value);
         u32 journal_dev() const;
         void set_journal_dev(u32 value);
+        u32 last_orphan() const;
+        void set_last_orphan(u32 value);
+        u32 orphan_file_inum() const;
+        void set_orphan_file_inum(u32 value);
         const u8* journal_uuid() const;
         void set_journal_uuid(const u8* value);
         u32 hash_seed(u32 index) const;
@@ -364,6 +373,8 @@ namespace astia::ext4 {
         u32  journal_inum() const;
         const u8* journal_uuid() const;
         bool journal_clean() const;
+
+        bool orphan_present() const;
 
         bool read_bytes(u64 offset, void* buffer, usz length);
         bool write_bytes(u64 offset, const void* buffer, usz length);

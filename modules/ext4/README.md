@@ -44,6 +44,16 @@ writes, and a single operation may span multiple transactions if it exceeds the
 journal to the volume. A journal that cannot be opened or upgraded makes the
 mount read-only (or fails when replay is required).
 
+Before a read-write mount is usable, `initialize()` processes the old-style
+orphan list (`s_last_orphan`, which overloads `i_dtime` as the next inode
+number) and, when `RO_COMPAT_ORPHAN_PRESENT` is set, the orphan file
+(`s_orphan_file_inum`). Unlinked orphans are freed (extents, then the inode);
+inodes still linked are treated as interrupted truncates and have `dtime`
+cleared. Entries are rewritten with a fresh `ob_checksum`, `orphan_present` is
+cleared, the superblock is marked clean, and the whole cleanup commits through
+the attached journal. A cleanup failure refuses the mount; a read-only source
+mounts read-only and logs that orphans were not processed.
+
 Unlink follows POSIX deferred-free semantics: while an open handle still
 references the inode, `unlink` clears `links_count`, records `dtime` and keeps
 the bitmap bit and data blocks allocated. The last handle close frees the
@@ -59,8 +69,8 @@ table of 64 open inodes; opening another inode when it is full fails.
 - Extent trees only (the extents feature is required); no indirect-block files.
 - Stock `mke2fs` layouts mount read-write: `flex_bg` allocation, 64-byte group
   descriptors with the `64bit` feature, and `metadata_csum_seed` are supported.
-  Images with `RO_COMPAT_ORPHAN_PRESENT` mount read-only until orphan-file
-  processing lands.
+  `RO_COMPAT_ORPHAN_PRESENT` is accepted and its pending orphans are cleaned up
+  before the mount is usable.
 - The mount lock assumes a synchronous block device: the module's device path
   is task context and `dv_sync`, so a spinlock is sufficient. An asynchronous
   device would need a sleeping lock and a different I/O submission path.
@@ -82,6 +92,10 @@ table of 64 open inodes; opening another inode when it is full fails.
 - `ext4_stock_test` mounts stock `mke2fs` images (1 KiB and 4 KiB blocks,
   default features) through the same tool in `normal` mode and checks the
   output with `e2fsck -fn`, `dumpe2fs` and `debugfs`.
+- `ext4_orphan_test` builds an unlinked `/victim` fixture, plants it on the old
+  orphan list and in the orphan file, then mounts read-write through the same
+  tool and checks with `e2fsck -fn` and `dumpe2fs` that exactly one inode was
+  freed and `orphan_present` is cleared.
 - `ext4_indexed_test` builds an `e2fsck -D` HTree-indexed `/big` directory,
   inserts two files through the same tool in `indexed` mode, and checks with
   `e2fsck -fn` and `debugfs` that every entry survived the one-time conversion

@@ -94,8 +94,9 @@ read-only-compatible features `sparse_super`, `large_file`, `huge_file`,
 `csum_seed` requires `metadata_csum`, as does `gdt_csum`; `metadata_csum`
 requires checksum type 1. The `64bit` bit is accepted only while the block
 count still fits in 32 bits; 64-byte group descriptors are parsed and
-checksummed in full. `orphan_present` forces a read-only mount (with a log
-message) because the orphan file is not processed yet.
+checksummed in full. `orphan_present` is accepted: the orphan list and orphan
+file are processed before a read-write mount becomes usable, and the bit is
+cleared on success.
 
 Everything else is refused at open: inline data, bigalloc, encryption, quota,
 external journal devices, unknown feature bits, and the read-only flag. The
@@ -108,7 +109,7 @@ linear directory: the dx_root becomes a classic `.`/`..` block, interior
 dx_nodes become empty dirent blocks, leaf blocks are kept, and every entry is
 preserved. Insertion then follows the normal linear path; the hash index is
 not rebuilt, and `e2fsck -D` can re-index the directory. No xattr, ACL,
-inline-data, encryption, or orphan-list cleanup path exists.
+inline-data, or encryption support exists.
 
 ## Concurrency and lifetime
 
@@ -146,6 +147,10 @@ at most 64 open inodes; opening another inode when it is full fails.
 - `ext4_stock_test` mounts stock `mke2fs` images with 1 KiB and 4 KiB blocks
   and default features through the RW tool, then checks the outputs with
   `e2fsck -fn`, `dumpe2fs` and `debugfs`.
+- `ext4_orphan_test` plants an unlinked file on the old orphan list and in the
+  orphan file, mounts read-write through the RW tool, and checks with
+  `e2fsck -fn`, `dumpe2fs` and `debugfs` that the inode was freed exactly once
+  and `orphan_present` was cleared.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log for a successful load.
 
@@ -161,7 +166,6 @@ that a real VFS replay recovers the committed file contents.
 - bigalloc.
 - 64-bit high block numbers and volumes larger than 16 TiB.
 - External journal devices.
-- The orphan inode list and orphan-file cleanup.
 - Quota.
 - fsck-time-only fields such as MMP.
 - Parallel journal transactions; the journal commits one transaction at a time.

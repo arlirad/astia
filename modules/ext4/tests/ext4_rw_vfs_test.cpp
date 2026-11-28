@@ -149,6 +149,98 @@ namespace {
     fake_blkdev             fake_device;
     astia::dev::device_file fake_file(&fake_device);
 
+    bool image_read(void*, u64 offset, void* buffer, usz length) {
+        if (length > 0xFFFFFFFFu)
+            return false;
+
+        return fake_device.read(buffer, static_cast<u32>(length), offset) ==
+               static_cast<long>(length);
+    }
+
+    bool image_write(void*, u64 offset, const void* buffer, usz length) {
+        if (length > 0xFFFFFFFFu)
+            return false;
+
+        return fake_device.write(buffer, static_cast<u32>(length), offset) ==
+               static_cast<long>(length);
+    }
+
+    bool open_volume(astia::ext4::volume& v, bool writable) {
+        astia::ext4::device_io io{image_read, image_write, nullptr,
+                                  fake_device.size(), sector_size};
+
+        return v.open(io, writable);
+    }
+
+    bool make_orphan_list(astia::ext4::volume& v, u32 inode_number) {
+        astia::ext4::inode_record node;
+
+        if (!v.read_inode(inode_number, node))
+            return false;
+
+        node.set_dtime(0);
+        node.set_links_count(0);
+
+        if (!v.write_inode(node))
+            return false;
+
+        v.sb().set_last_orphan(inode_number);
+
+        return v.write_superblock();
+    }
+
+    bool make_orphan_file(astia::ext4::volume& v, u32 inode_number) {
+        const u32 file_inode = v.sb().orphan_file_inum();
+
+        if (file_inode == 0)
+            return false;
+
+        astia::ext4::inode_record file;
+
+        if (!v.read_inode(file_inode, file))
+            return false;
+
+        u64 physical = 0;
+
+        if (!astia::ext4::extent::map(v, file, 0, physical))
+            return false;
+
+        const u32 block_size = v.block_size();
+        u8        block[astia::ext4::sector_size_max];
+
+        if (!v.read_block(physical, block))
+            return false;
+
+        astia::ext4::store32(block, inode_number);
+        astia::ext4::store32(block + block_size - 8,
+                             astia::ext4::orphan_file_magic);
+        astia::ext4::store32(block + block_size - 4, 0);
+        astia::ext4::store32(
+            block + block_size - 4,
+            astia::ext4::orphan_block_checksum(
+                v.checksum_seed(), file_inode, file.generation(), physical,
+                block, block_size));
+
+        if (!v.write_block(physical, block))
+            return false;
+
+        astia::ext4::inode_record victim;
+
+        if (!v.read_inode(inode_number, victim))
+            return false;
+
+        victim.set_dtime(0);
+        victim.set_links_count(0);
+
+        if (!v.write_inode(victim))
+            return false;
+
+        v.sb().set_feature_ro_compat(v.sb().feature_ro_compat() |
+                                     astia::ext4::ro_orphan_present);
+
+        return v.write_superblock();
+    }
+
     bool no_mapping(u64, u64) {
         return true;
     }
@@ -215,6 +307,49 @@ int main(int argc, char** argv) {
 
     if (!check(fake_device.load(input), "load input image"))
         return 1;
+
+    if (std::strcmp(mode, "orphan-make-list") == 0 ||
+        std::strcmp(mode, "orphan-make-file") == 0) {
+        if (argc < 5) {
+            std::printf("usage: %s INPUT OUTPUT %s INODE\n", argv[0], mode);
+
+            return 2;
+        }
+
+        const u32 inode_number =
+            static_cast<u32>(std::strtoul(argv[4], nullptr, 10));
+        astia::ext4::volume volume;
+
+        if (!check(inode_number != 0 && open_volume(volume, true),
+                   "open volume for orphan fixture"))
+            return 1;
+
+        const bool built = std::strcmp(mode, "orphan-make-list") == 0
+                               ? make_orphan_list(volume, inode_number)
+                               : make_orphan_file(volume, inode_number);
+
+        if (!check(built, "build orphan fixture") ||
+            !check(fake_device.store(output), "store orphan fixture"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
+    if (std::strcmp(mode, "orphan-mount") == 0) {
+        if (!initialize_runtime())
+            return 1;
+
+        if (!check(astia::fs::unmount_type("/tmp/ext4") == 0,
+                   "unmount orphan-cleaned ext4") ||
+            !check(fake_device.store(output), "store orphan-cleaned image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
 
     if (!initialize_runtime())
         return 1;
