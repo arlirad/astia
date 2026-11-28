@@ -3,7 +3,7 @@
 #include <astia/common.hpp>
 #include <astia/core/endian.hpp>
 
-namespace astia::ip {
+namespace astia::net {
     /// Transport-layer port in network byte order.
     struct port {
         core::be<u16> storage{};
@@ -28,4 +28,4 @@ namespace astia::ip {
     };
 
     static_assert(sizeof(port) == 2);
-} // namespace astia::ip
+} // namespace astia::net

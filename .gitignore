@@ -4,6 +4,8 @@ build-grub/
 build-nvme/
 build-ip/
 build-rtl8139/
+build-udp/
+build-tcp/
 build-virtio-blk/
 cmake-build-*/
 Testing/

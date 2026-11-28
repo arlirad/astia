@@ -14,7 +14,8 @@ facade headers or compatibility aliases.
 
 The `tests/` subtree contains small C++ ET_REL fixtures used by the kernel ELF
 loader tests. Hardware drivers use one directory per driver, such as
-`modules/nvme`.
+`modules/nvme`. Transport protocol scaffolds live in `modules/udp` and
+`modules/tcp`; both own a `net::protocol` handler and are unloadable.
 
 The `usb/` subtree is a bounded C++ USB protocol foundation and a read-only
 xHCI PCI capability-probe ET_REL skeleton. It intentionally does not provide

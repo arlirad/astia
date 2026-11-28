@@ -15,12 +15,9 @@ set(ASTIA_IP_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/headers/arp.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/headers/ipv4.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/headers/icmp.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/headers/tcp.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/headers/udp.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/types/address.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/types/arp.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/types/icmp.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/types/port.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/types/protocol.hpp)
 
 set(ASTIA_IP_ABI_HEADERS
