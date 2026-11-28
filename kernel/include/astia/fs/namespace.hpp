@@ -65,7 +65,13 @@ namespace astia::fs {
     /// retained mount/inode pair.  A renamed, unlinked, or recycled name
     /// no longer matches, so callers can reject it instead of silently
     /// using a different directory.
-    bool  directory_matches(const char* path, mount* owner, u64 inode);
+    bool directory_matches(const char* path, mount* owner, u64 inode);
+    /// Retain the mount backing a directory and capture its inode, so a
+    /// caller can keep resolving relative paths after the name moves.
+    bool directory_identity(const char* path, mm::shptr<mount>& owner, u64& inode);
+    /// Current pathname of the directory identified by `owner`/`inode`.
+    /// Returns -ENOENT when the filesystem no longer has a live name.
+    long  directory_path(mount* owner, u64 inode, char* buffer, u32 capacity);
     uid_t node_uid(const char* path);
     gid_t node_gid(const char* path);
     /// Timestamps the mount records for this node, all zero when it records

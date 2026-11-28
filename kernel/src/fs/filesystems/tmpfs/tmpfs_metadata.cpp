@@ -56,6 +56,48 @@ namespace astia::fs::filesystems {
         return 0;
     }
 
+    long tmpfs_mount::node_path(u64 inode, char* buffer, u32 capacity) const {
+        if (buffer == nullptr || capacity == 0)
+            return -EINVAL;
+
+        core::spinlock_guard guard(_namespace_lock);
+
+        if (inode == 0) {
+            if (capacity < 2)
+                return -ENAMETOOLONG;
+
+            buffer[0] = '/';
+            buffer[1] = '\0';
+
+            return 0;
+        }
+
+        for (u32 i = 0; i < tmpfs_max_entries; ++i) {
+            if (!_entries[i].used || !_entries[i].directory || !_entries[i].target)
+                continue;
+
+            if (_entries[i].target->inode() != inode)
+                continue;
+
+            u32 length = 0;
+
+            while (_entries[i].path[length] != '\0') {
+                ++length;
+            }
+
+            if (length + 1 > capacity)
+                return -ENAMETOOLONG;
+
+            for (u32 j = 0; j <= length; ++j) {
+                buffer[j] = _entries[i].path[j];
+            }
+
+            return 0;
+        }
+
+        return -ENOENT;
+    }
+
     uid_t tmpfs_mount::node_uid(const char* path) const {
         core::spinlock_guard guard(_namespace_lock);
 

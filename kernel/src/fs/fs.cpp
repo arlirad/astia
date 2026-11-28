@@ -436,6 +436,10 @@ namespace astia::fs {
         return 0;
     }
 
+    long mount::node_path(u64, char*, u32) const {
+        return -ENOENT;
+    }
+
     uid_t mount::node_uid(const char*) const {
         return {};
     }
@@ -1263,6 +1267,102 @@ namespace astia::fs {
 
         return operation.instance()->node_inode(
                    relative_path(*operation.entry(), path)) == inode;
+    }
+
+    bool directory_identity(const char* path, mm::shptr<mount>& owner, u64& inode) {
+        if (path == nullptr || path[0] != '/')
+            return false;
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return false;
+
+        const u64 value =
+            operation.instance()->node_inode(relative_path(*operation.entry(), path));
+
+        operation.instance()->retain_open();
+
+        owner = mm::shptr<mount>::adopt(operation.instance(), [](void* value) {
+            release_mount_reference(static_cast<mount*>(value));
+        });
+        inode = value;
+
+        return true;
+    }
+
+    long directory_path(mount* owner, u64 inode, char* buffer, u32 capacity) {
+        if (owner == nullptr || buffer == nullptr || capacity == 0)
+            return -EINVAL;
+
+        char relative[path_max]{};
+
+        const long rc = owner->node_path(inode, relative, sizeof relative);
+        if (rc < 0)
+            return rc;
+
+        char target[path_max]{};
+
+        bool found = false;
+
+        {
+            core::spinlock_guard guard(mount_registry_lock);
+
+            for (u32 i = 0; i < max_mounts; ++i) {
+                if (!mounts[i].used || mounts[i].instance != owner)
+                    continue;
+
+                if (!copy_path(target, mounts[i].target))
+                    continue;
+
+                found = true;
+
+                break;
+            }
+        }
+
+        if (!found)
+            return -ENOENT;
+
+        char joined[path_max]{};
+        usz  at = 0;
+
+        if (!string_equal(target, "/")) {
+            for (; target[at] != '\0' && at + 1 < sizeof joined; ++at) {
+                joined[at] = target[at];
+            }
+
+            if (target[at] != '\0')
+                return -ENAMETOOLONG;
+        }
+
+        if (string_equal(relative, "/")) {
+            if (!string_equal(target, "/"))
+                relative[0] = '\0';
+        }
+
+        for (usz i = 0; relative[i] != '\0'; ++i) {
+            if (at + 1 >= sizeof joined)
+                return -ENAMETOOLONG;
+
+            joined[at++] = relative[i];
+        }
+
+        if (at == 0) {
+            joined[0] = '/';
+            at        = 1;
+        }
+
+        joined[at] = '\0';
+
+        if (at + 1 > capacity)
+            return -ENAMETOOLONG;
+
+        for (usz i = 0; i <= at; ++i) {
+            buffer[i] = joined[i];
+        }
+
+        return 0;
     }
 
     uid_t node_uid(const char* path) {

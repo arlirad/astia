@@ -160,7 +160,7 @@ namespace astia::proc {
         return compose_from_locked(directory, path, buffer);
     }
 
-    i64 cwd_context::store_path_locked(const char* path) {
+    i64 cwd_context::store_path_locked(const char* path) const {
         usz length = 0;
 
         while (path[length] != '\0') {
@@ -224,8 +224,33 @@ namespace astia::proc {
             return -ENOENT;
 
         if (anchor.bound() &&
-            !fs::directory_matches(workspace->cwd, anchor.mount.get(), anchor.inode))
-            return -ENOENT;
+            !fs::directory_matches(workspace->cwd, anchor.mount.get(), anchor.inode)) {
+            const long path_rc =
+                fs::directory_path(anchor.mount.get(), anchor.inode, workspace->full,
+                                   sizeof workspace->full);
+            if (path_rc == 0) {
+                if (!fs::path_service::within_root(workspace->root, workspace->full))
+                    return -ENOENT;
+
+                {
+                    arch::interrupt_spinlock_guard guard(_lock);
+
+                    if (_anchor.mount.get() == anchor.mount.get() &&
+                        _anchor.inode == anchor.inode)
+                        (void) store_path_locked(workspace->full);
+                }
+
+                (void) copy_path(workspace->cwd, workspace->full);
+            }
+            else if (fs::node_type(workspace->cwd) != fs::directory_unknown) {
+                // The recorded name now denotes some other node, so following
+                // it would leave the process in an unrelated directory.
+                return -ENOENT;
+            }
+
+            // No live name: the directory was unlinked.  Keep the recorded
+            // path as the base so parent traversal still leaves it.
+        }
 
         const i64 composed = fs::path_service::compose(
             workspace->cwd, path, span<char>(workspace->full, sizeof workspace->full));
@@ -312,6 +337,10 @@ namespace astia::proc {
         if (search_rc < 0)
             co_return search_rc;
 
+        directory_anchor resolved_anchor;
+
+        (void) fs::directory_identity(full, resolved_anchor.mount, resolved_anchor.inode);
+
         {
             arch::interrupt_spinlock_guard guard(_lock);
 
@@ -319,7 +348,7 @@ namespace astia::proc {
             if (store_rc < 0)
                 co_return store_rc;
 
-            _anchor = directory_anchor{};
+            _anchor = resolved_anchor;
         }
 
         co_return 0;

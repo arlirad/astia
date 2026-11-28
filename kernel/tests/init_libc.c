@@ -2624,6 +2624,67 @@ int main(int argc, char** argv) {
                 rmdir(moved) != 0)
                 return 212;
         }
+
+        /* Relative resolution follows the directory identity, so a renamed
+           or removed cwd still anchors relative lookups. */
+        {
+            char moved_cwd[64];
+            int  relative_fd;
+
+            (void) unlink("/tmp/relative-moved/child");
+            (void) rmdir("/tmp/relative-moved");
+            (void) rmdir("/tmp/relative-src");
+            (void) rmdir("/tmp/relative-gone");
+
+            if (mkdir("/tmp/relative-src", 0755) != 0 ||
+                direct_chdir("/tmp/relative-src") != 0)
+                return 273;
+
+            relative_fd = open("child", O_CREAT | O_RDWR, 0644);
+            if (relative_fd < 0)
+                return 274;
+
+            close(relative_fd);
+
+            if (rename("/tmp/relative-src", "/tmp/relative-moved") != 0)
+                return 275;
+
+            relative_fd = open("child", O_RDONLY);
+            if (relative_fd < 0)
+                return 276;
+
+            close(relative_fd);
+
+            if (getcwd(moved_cwd, sizeof(moved_cwd)) == NULL ||
+                strcmp(moved_cwd, "/tmp/relative-moved") != 0)
+                return 277;
+
+            if (unlink("/tmp/relative-moved/child") != 0 || direct_chdir("/") != 0)
+                return 278;
+
+            if (rmdir("/tmp/relative-moved") != 0)
+                return 279;
+
+            if (mkdir("/tmp/relative-gone", 0755) != 0 ||
+                direct_chdir("/tmp/relative-gone") != 0)
+                return 280;
+
+            if (rmdir("/tmp/relative-gone") != 0)
+                return 281;
+
+            relative_fd = open("..", O_RDONLY | O_DIRECTORY);
+            if (relative_fd < 0)
+                return 282;
+
+            close(relative_fd);
+
+            if (direct_chdir("..") != 0 || getcwd(moved_cwd, sizeof(moved_cwd)) == NULL ||
+                strcmp(moved_cwd, "/tmp") != 0)
+                return 283;
+
+            if (direct_chdir("/") != 0)
+                return 284;
+        }
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
