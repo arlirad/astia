@@ -262,6 +262,11 @@ static int root_operand(const char* path) {
     if (end == 0)
         return path[0] == '/';
 
+    struct stat info;
+
+    if (lstat(path, &info) < 0 || !S_ISDIR(info.st_mode))
+        return 0;
+
     char* resolved = realpath(path, 0);
     if (resolved == 0)
         return 0;

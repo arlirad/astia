@@ -48,6 +48,34 @@ static int create_file(const char* path) {
     return close(fd);
 }
 
+static void expect_absent(const char* path) {
+    struct stat info;
+
+    if (lstat(path, &info) == 0) {
+        fprintf(stderr, "expected removal of: %s\n", path);
+
+        failures = 1;
+    }
+}
+
+static void expect_root_intact(void) {
+    struct stat info;
+
+    if (lstat("/", &info) < 0 || !S_ISDIR(info.st_mode)) {
+        fprintf(stderr, "filesystem root is no longer intact\n");
+
+        failures = 1;
+    }
+}
+
+static void expect_status(const char* path, int status, int expected) {
+    if (status != expected) {
+        fprintf(stderr, "rm %s: exit status %d, expected %d\n", path, status, expected);
+
+        failures = 1;
+    }
+}
+
 int main(void) {
     expect_root("/");
     expect_root("//");
@@ -102,7 +130,7 @@ int main(void) {
         return 1;
     }
 
-    expect_root(link);
+    expect_not_root(link);
     expect_root(link_slash);
     expect_not_root(directory);
     expect_not_dot(link);
@@ -128,6 +156,35 @@ int main(void) {
 
         failures = 1;
     }
+
+    char* remove_link[] = {"rm", link, 0};
+
+    expect_status(link, rm_program_main(2, remove_link), 0);
+    expect_absent(link);
+    expect_root_intact();
+
+    if (symlink("/", link) != 0) {
+        fprintf(stderr, "could not recreate symlink: %s\n", link);
+
+        failures = 1;
+    }
+    else {
+        char* remove_link_recursive[] = {"rm", "-r", link, 0};
+
+        expect_status(link, rm_program_main(3, remove_link_recursive), 0);
+        expect_absent(link);
+        expect_root_intact();
+    }
+
+    char* remove_root[] = {"rm", "/", 0};
+
+    expect_status("/", rm_program_main(2, remove_root), 1);
+    expect_root_intact();
+
+    char* remove_root_recursive[] = {"rm", "-r", "/", 0};
+
+    expect_status("/", rm_program_main(3, remove_root_recursive), 1);
+    expect_root_intact();
 
     (void) unlink(link);
     (void) rmdir(directory);
