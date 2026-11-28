@@ -56,12 +56,11 @@ pinned nano git endpoint is unavailable, the initializer verifies the official
 GNU nano 8.6 archive with SHA-256
 `f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619`.
 
-The initializer also fetches the pinned curl and wget release archives, verifying
-curl 8.23.0 against SHA-256
-`e3de77cfa6367083c776a26647fc9f633b538c06c3baa73d931a252ac8f72b49` and
-GNU wget 1.25.0 against
-`766e48423e79359ea31e41db9e5c289675947a7fcf2efdcedb726ac9d0da3784`.
-The extracted trees live at `user/curl` and `user/wget`.
+The same initializer checks out curl `curl-8_23_0`
+(`3163ec065643ba20709f190111f42c3e1fe95273`) and GNU wget `v1.25.0`
+(`abb989138731341e5cfd285d272b24afb60fd1a9`) as pinned submodules. Their
+build scripts run `autoreconf`/`bootstrap` in a build-tree copy, so the
+submodules stay clean; wget reuses the pinned `user/gnulib` checkout.
 
 ## Build zsh
 
