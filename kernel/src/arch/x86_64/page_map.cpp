@@ -3,6 +3,8 @@
 #include <astia/arch/user_layout.hpp>
 #ifndef ASTIA_HOST_TEST
 #include <astia/arch/cpu.hpp>
+
+#include "smp.hpp"
 #endif
 #include <astia/mm/frame_allocator.hpp>
 
@@ -30,6 +32,13 @@ extern "C" char boot_stack_top[];
 //     tests, where `phys` is a real pointer — does access fall back to the
 //     identity window.
 namespace astia::arch {
+#ifdef ASTIA_HOST_TEST
+    // Host tests model the other CPUs' TLBs by defining this symbol; the
+    // weak default makes the production invalidation paths link unchanged.
+    extern "C" void astia_host_tlb_invalidate(paddr_t root, vaddr_t virt)
+        __attribute__((weak));
+#endif
+
     namespace {
         constexpr u64 entry_present       = 1ull << 0;
         constexpr u64 entry_writable      = 1ull << 1;
@@ -282,6 +291,25 @@ namespace astia::arch {
 
             return true;
         }
+
+        /// Other CPUs only need to act when a translation they may have
+        /// cached stops being valid: the entry was present before the write,
+        /// or a 2 MiB entry covering it was just split. A fresh mapping has
+        /// no cached translation to drop.
+        void commit_leaf_change(const page_map& owner, vaddr_t virt, bool was_cached) {
+            page_map::invalidate(virt);
+
+            if (!was_cached)
+                return;
+
+#ifdef ASTIA_HOST_TEST
+            if (astia_host_tlb_invalidate != nullptr)
+                astia_host_tlb_invalidate(owner.root(), virt);
+#else
+            x86_64::smp::shootdown_tlb(owner.root(), virt,
+                                       pml4_index(virt) >= kernel_slot);
+#endif
+        }
     } // namespace
 
     page_map::page_map(page_map&& other) noexcept
@@ -380,18 +408,28 @@ namespace astia::arch {
 
         u64& pde = pd[pd_index(virt)];
 
+        bool split = false;
+
         if ((pde & (entry_present | entry_huge)) == (entry_present | entry_huge)) {
             if (!split_2m(*this, virt, pde))
                 return false;
+
+            split = true;
         }
 
         u64* pt = ensure_table(*this, virt, table_level::pt, pde, flags);
         if (pt == nullptr)
             return false;
 
-        pt[pt_index(virt)] = (phys & address_mask) | to_leaf(flags);
+        u64& pte = pt[pt_index(virt)];
 
-        invalidate(virt);
+        const u64 previous = pte;
+        const u64 leaf     = (phys & address_mask) | to_leaf(flags);
+
+        pte = leaf;
+
+        commit_leaf_change(
+            *this, virt, split || ((previous & entry_present) != 0 && previous != leaf));
 
         return true;
     }
@@ -425,13 +463,17 @@ namespace astia::arch {
 
         u64& pde = pd[pd_index(virt)];
 
-        if ((pde & entry_present) != 0 && (pde & entry_huge) == 0) {
+        const u64 previous = pde;
+        const u64 leaf     = (phys & (~0ull << 21)) | to_leaf(flags) | entry_huge;
+
+        if ((previous & entry_present) != 0 && (previous & entry_huge) == 0) {
             return false; // a 4 KiB table already covers this 2 MiB slot.
         }
 
-        pde = (phys & (~0ull << 21)) | to_leaf(flags) | entry_huge;
+        pde = leaf;
 
-        invalidate(virt);
+        commit_leaf_change(*this, virt,
+                           (previous & entry_present) != 0 && previous != leaf);
 
         return true;
     }
@@ -467,7 +509,7 @@ namespace astia::arch {
 
         pte = 0;
 
-        invalidate(virt);
+        commit_leaf_change(*this, virt, true);
 
         return true;
     }
@@ -497,12 +539,16 @@ namespace astia::arch {
 
         u64& pte = next_table(*this, virt, table_level::pt, pde)[pt_index(virt)];
 
-        if ((pte & entry_present) == 0)
+        const u64 previous = pte;
+
+        if ((previous & entry_present) == 0)
             return false;
 
-        pte = (pte & address_mask) | to_leaf(flags);
+        const u64 leaf = (previous & address_mask) | to_leaf(flags);
 
-        invalidate(virt);
+        pte = leaf;
+
+        commit_leaf_change(*this, virt, previous != leaf);
 
         return true;
     }
@@ -637,6 +683,7 @@ namespace astia::arch {
 #ifndef ASTIA_HOST_TEST
         active_map = this;
 
+        x86_64::smp::note_active_root(_root);
         asm volatile("mov %0, %%cr3" : : "r"(_root) : "memory");
 #endif
     }

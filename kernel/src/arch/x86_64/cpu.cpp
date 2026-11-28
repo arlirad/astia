@@ -10,6 +10,7 @@ namespace astia::arch {
     }
 
     void cpu::relax() noexcept {
+        x86_64::smp::drain_tlb_shootdown();
         asm volatile("pause" ::: "memory");
     }
 

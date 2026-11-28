@@ -110,8 +110,11 @@ namespace astia::arch {
         irq_binding    irq_handlers[16]{};
         core::spinlock irq_lock;
 
-        constexpr u32 first_device_vector = 50;
+        constexpr u32 first_device_vector = 51;
         constexpr u32 last_device_vector  = 254;
+
+        static_assert(x86_64::lapic::tlb_vector < first_device_vector,
+                      "device vectors must not overlap the TLB shootdown vector");
 
         struct vector_slot {
             interrupt_vector_handler handler     = nullptr;
@@ -252,6 +255,13 @@ namespace astia::arch {
 
         if (vector == lapic::reschedule_vector) {
             x86_64::smp::request_local_reschedule_from_interrupt();
+            lapic::eoi();
+
+            return;
+        }
+
+        if (vector == lapic::tlb_vector) {
+            x86_64::smp::drain_tlb_shootdown();
             lapic::eoi();
 
             return;

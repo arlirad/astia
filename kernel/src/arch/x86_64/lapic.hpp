@@ -12,6 +12,7 @@ namespace astia::arch::x86_64 {
         public:
         static constexpr u32 timer_vector      = 48; // past the PIC's 32..47
         static constexpr u32 reschedule_vector = 49;
+        static constexpr u32 tlb_vector        = 50;
 
         /// Bring the LAPIC up as the tick source at `hz`: map the MMIO
         /// window, software-enable the APIC, measure the timer against a
