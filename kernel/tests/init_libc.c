@@ -1694,6 +1694,60 @@ static int copy_image_file(const char* source, const char* target, mode_t mode) 
     return 0;
 }
 
+/* The boot initrd stages a fixture below a 293-byte absolute path (built by
+   kernel/tests/CMakeLists.txt); execve must accept what the VFS accepts. */
+static void exec_long_path(char* path) {
+    static const char prefix[] = "/bin/exec-long-path/";
+    static const char leaf[]   = "/interp_main";
+
+    size_t length = sizeof prefix - 1;
+
+    memcpy(path, prefix, sizeof prefix);
+    memset(path + length, 'a', 130);
+
+    length += 130;
+    path[length] = '/';
+
+    ++length;
+    memset(path + length, 'b', 130);
+
+    length += 130;
+
+    memcpy(path + length, leaf, sizeof leaf);
+}
+
+/* 0 when the long path ran, ENOENT when this initrd does not carry it, and
+   -1 for every other exec failure.  ENOENT has to stay distinct: a staging
+   regression in execve reports EFAULT and must not look like a missing
+   fixture. */
+static int exec_long_path_check(const char* path) {
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) path, NULL};
+
+        execv(path, child_argv);
+        _Exit(errno);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status))
+        return -1;
+
+    if (WEXITSTATUS(status) == 0)
+        return 0;
+
+    if (WEXITSTATUS(status) == ENOENT)
+        return ENOENT;
+
+    printf("astia: exec long path failed errno=%d\n", WEXITSTATUS(status));
+
+    return -1;
+}
+
 static int drop_to_unprivileged_user(void) {
     if (setgroups(0, NULL) != 0)
         return -1;
@@ -6373,6 +6427,47 @@ int main(int argc, char** argv) {
             return 287;
 
         printf("astia: execvp search ok\n");
+    }
+
+    /* execve stages the pathname at PATH_MAX instead of a 256-byte buffer:
+       the boot initrd carries a fixture at a 293-byte absolute path, while a
+       path that does not terminate within PATH_MAX is ENAMETOOLONG.  Not
+       every initrd stages the fixture, so an absent one skips. */
+    {
+        char long_path[320];
+
+        exec_long_path(long_path);
+
+        const int long_path_result = exec_long_path_check(long_path);
+        if (long_path_result < 0)
+            return 315;
+
+        if (long_path_result == 0)
+            printf("astia: exec long path ok\n");
+    }
+
+    {
+        static char overlong[PATH_MAX + 2];
+
+        char* exec_argv[] = {overlong, NULL};
+        char* exec_envp[] = {NULL};
+
+        memset(overlong, 'a', sizeof overlong - 1);
+
+        overlong[sizeof overlong - 1] = '\0';
+
+        errno = 0;
+
+        if (execve(overlong, exec_argv, exec_envp) != -1 || errno != ENAMETOOLONG)
+            return 316;
+
+        const long unreadable =
+            astia_raw6(SYS_EXECVE, 1, (long) exec_argv, (long) exec_envp, 0, 0, 0);
+
+        if (unreadable != -EFAULT)
+            return 317;
+
+        printf("astia: exec path limit ok\n");
     }
 
     /* execve must enforce the interpreter image's execute bit too: the same

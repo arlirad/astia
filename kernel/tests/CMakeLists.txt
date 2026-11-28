@@ -454,6 +454,8 @@ astia_add_test_label(astia_fd_table_test "deterministic;proc")
 astia_add_host_test(astia_process_group_test process_group_test.cpp)
 astia_add_host_test(astia_rlimit_policy_test rlimit_policy_test.cpp)
 astia_add_test_label(astia_rlimit_policy_test "deterministic;proc")
+astia_add_host_test(astia_process_path_staging_test process_path_staging_test.cpp)
+astia_add_test_label(astia_process_path_staging_test "deterministic;proc")
 set(ASTIA_HOST_TEST_LAUNCHER ${ASTIA_ARENA_TEST_LAUNCHER})
 astia_add_host_test(astia_cwd_context_test
         cwd_context_test.cpp
@@ -1682,6 +1684,13 @@ if (ARCH STREQUAL "x86_64")
             set(_init_libc_image ${_fix_dir}/init_libc)
         endif ()
 
+    # The exec long-path test runs a fixture from an absolute path well past
+    # the old 256-byte staging buffer.  Two 130-byte components keep the path
+    # valid on every filesystem that carries it.
+    string(REPEAT "a" 130 _exec_long_a)
+    string(REPEAT "b" 130 _exec_long_b)
+    set(_exec_long_rel "bin/exec-long-path/${_exec_long_a}/${_exec_long_b}")
+
     add_custom_command(
             OUTPUT ${_fix_dir}/boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage
@@ -1734,6 +1743,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/ld.stub.so ${_fix_dir}/boot_stage/lib/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_main ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                ${_fix_dir}/boot_stage/${_exec_long_rel}
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_main
+                ${_fix_dir}/boot_stage/${_exec_long_rel}/interp_main
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_exec_perm ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E copy
@@ -2036,6 +2050,7 @@ if (ARCH STREQUAL "x86_64")
                 mod sbin/init sbin/truncated-elf bin/init_libc
                 bin/exec_argv_probe
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
+                ${_exec_long_rel}/interp_main
                 bin/interp_exec_perm bin/interp_exec_search
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
@@ -2238,6 +2253,8 @@ if (ARCH STREQUAL "x86_64")
                 "astia: exit parked waiters start"
                 "astia: exec permission ok"
                 "astia: execvp search ok"
+                "astia: exec long path ok"
+                "astia: exec path limit ok"
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: interp exec permission ok"
