@@ -713,7 +713,7 @@ namespace astia::proc {
         for (u32 i = 0; i < value_count; ++i) {
             process* target = targets[i].get();
 
-            if (!is_live(target) || target->pid() == exclude)
+            if (!signal_all_target_eligible(is_live(target), target->pid(), exclude))
                 continue;
 
             if (!audience.admit(sender.uid, sender.euid, target->uid(), target->euid()))

@@ -257,6 +257,24 @@ ASTIA_TEST(signal_permission_matches_process_credentials) {
     ASTIA_CHECK(astia::proc::signal_permission(1, 0, 0, 0));
 }
 
+ASTIA_TEST(signal_all_skips_init_and_caller_but_reaches_siblings) {
+    using astia::proc::signal_all_target_eligible;
+
+    const auto caller  = astia::pid_from_raw(7);
+    const auto init    = astia::pid_from_raw(1);
+    const auto sibling = astia::pid_from_raw(8);
+
+    ASTIA_CHECK(!signal_all_target_eligible(true, init, caller));
+    ASTIA_CHECK(!signal_all_target_eligible(true, caller, caller));
+    ASTIA_CHECK(signal_all_target_eligible(true, sibling, caller));
+    ASTIA_CHECK(!signal_all_target_eligible(false, sibling, caller));
+}
+
+ASTIA_TEST(signal_explicit_pid_one_keeps_permission_result) {
+    ASTIA_CHECK(astia::proc::signal_permission(0, 0, 0, 0));
+    ASTIA_CHECK(!astia::proc::signal_permission(1, 1, 0, 0));
+}
+
 ASTIA_TEST(signal_audience_filters_group_members) {
     using astia::proc::signal_audience;
     using astia::proc::signal_audience_status;

@@ -10,6 +10,10 @@ namespace astia::proc {
                sender_euid == target_euid;
     }
 
+    constexpr bool signal_all_target_eligible(bool live, pid_t target, pid_t exclude) {
+        return live && target != exclude && raw_id(target) != 1;
+    }
+
     /// Aggregate permission decision for a signal addressed at a group or at
     /// "all processes". Only permitted members are signalled; a non-empty
     /// audience with no permitted member is EPERM, an empty one is ESRCH.
