@@ -1016,14 +1016,14 @@ namespace astia::fs {
             u32                     _opens{1};
         };
 
-        long socket_bind(open_file& o, const astia_sockaddr& a);
+        long socket_bind(open_file& o, const astia_sockaddr& a, const char* canonical);
         long socket_listen(open_file& o, u32 b);
         long socket_accept(open_file& o, io::request& r);
         bool socket_accept_address(open_file& o, astia_sockaddr& out);
-        long socket_connect(open_file& o, const astia_sockaddr& a);
+        long socket_connect(open_file& o, const astia_sockaddr& a, const char* canonical);
         long socket_shutdown(open_file& o, u32 how);
         long socket_getsockopt(open_file& o, u32 level, u32 name, u32* value);
-        long socket_sendto(open_file& o, const astia_sockaddr* a);
+        long socket_sendto(open_file& o, const char* canonical);
         long socket_recvfrom(open_file& o);
         bool socket_recvfrom_address(open_file& o, astia_sockaddr& out);
         long socket_set_send_control(open_file&                     o,
@@ -1052,21 +1052,24 @@ namespace astia::fs {
             return &socket_operations;
         }
 
-        bool path(const astia_sockaddr& a, char* out) {
-            if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
+        bool valid_address(const astia_sockaddr& a) {
+            return a.family == AF_UNIX && a.len >= 3 && a.len <= sizeof(a.data) + 2;
+        }
+
+        bool canonical_path(const char* path) {
+            if (path == nullptr || path[0] != '/')
                 return false;
 
-            u32 n = a.len - 2;
-            if (n >= path_max)
-                return false;
+            u32 length = 0;
 
-            for (u32 i = 0; i < n; ++i) {
-                out[i] = static_cast<char>(a.data[i]);
+            while (path[length] != '\0') {
+                if (length + 1 >= path_max)
+                    return false;
+
+                ++length;
             }
 
-            out[n] = '\0';
-
-            return out[0] == '/';
+            return true;
         }
     }
 
@@ -1087,34 +1090,31 @@ namespace astia::fs {
     }
 
     namespace {
-        long socket_bind(open_file& o, const astia_sockaddr& a) {
+        long socket_bind(open_file& o, const astia_sockaddr& a, const char* canonical) {
             auto* f = static_cast<unix_file*>(o.parent().get());
 
-            char n[path_max];
-
-            if (!f || !path(a, n))
+            if (!f || !valid_address(a) || !canonical_path(canonical))
                 return -EINVAL;
 
             auto* current = proc::current_process();
             if (!current)
                 return -ESRCH;
 
-            long rc = f->reserve_bind(a, n);
+            long rc = f->reserve_bind(a, canonical);
             if (rc < 0)
                 return rc;
 
             mm::shptr<file> node = o.parent();
 
-            rc = register_unix_path(n, node, uid_t{current->euid()},
-                                    gid_t{current->egid()},
-                                    astia::span<char>(n, sizeof n));
+            rc = register_unix_path(canonical, node, uid_t{current->euid()},
+                                    gid_t{current->egid()});
             if (rc < 0) {
                 f->abort_bind();
 
                 return rc;
             }
 
-            f->commit_bind(n);
+            f->commit_bind(canonical);
 
             return 0;
         }
@@ -1132,12 +1132,11 @@ namespace astia::fs {
             return 0;
         }
 
-        long socket_connect(open_file& o, const astia_sockaddr& a) {
+        long socket_connect(open_file& o, const astia_sockaddr& a,
+                            const char* canonical) {
             auto* c = static_cast<unix_file*>(o.parent().get());
 
-            char n[path_max];
-
-            if (!c || !path(a, n))
+            if (!c || !valid_address(a) || !canonical_path(canonical))
                 return -EINVAL;
 
             long rc = c->reserve_connect();
@@ -1147,7 +1146,7 @@ namespace astia::fs {
             mm::shptr<unix_file> c_owner(o.parent());
             mm::shptr<file>      endpoint;
 
-            if (lookup_unix_path(n, endpoint) < 0) {
+            if (lookup_unix_path(canonical, endpoint) < 0) {
                 c->abort_connect();
 
                 return -ECONNREFUSED;
@@ -1276,20 +1275,18 @@ namespace astia::fs {
             return 0;
         }
 
-        long socket_sendto(open_file& o, const astia_sockaddr* a) {
+        long socket_sendto(open_file& o, const char* canonical) {
             auto* f = static_cast<unix_file*>(o.parent().get());
 
             if (!f || f->kind() != unix_file::state::dgram)
                 return -EOPNOTSUPP;
 
-            char n[path_max];
-
-            if (!a || !path(*a, n))
+            if (!canonical_path(canonical))
                 return -EINVAL;
 
             mm::shptr<file> endpoint;
 
-            if (lookup_unix_path(n, endpoint) < 0)
+            if (lookup_unix_path(canonical, endpoint) < 0)
                 return -ECONNREFUSED;
 
             auto* t = static_cast<unix_file*>(endpoint.get());
