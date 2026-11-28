@@ -2,6 +2,7 @@
 #include <astia/arch/interrupts.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/crypto/csprng.hpp>
+#include <astia/crypto/entropy_pool.hpp>
 #include <astia/crypto/random.hpp>
 
 namespace astia::crypto {
@@ -9,30 +10,22 @@ namespace astia::crypto {
         core::spinlock lock;
         csprng         generator;
 
-        struct seed_material {
-            static constexpr u32 capacity = 24;
+        constexpr u32 hardware_capacity = 24;
 
-            u64 words[capacity]{};
-            u32 count = 0;
-        };
+        /// Collect the platform sources and mix them through the pool.
+        ///
+        /// Policy: only a strong source makes the pool ready.  A hardware
+        /// RNG, a bootloader seed, or a platform clock is strong; cycle
+        /// counter deltas, timer ticks, and addresses are weak by
+        /// construction.  Weak material is still mixed so it adds variance,
+        /// but a platform that offers only weak material stays unseeded and
+        /// callers get EAGAIN instead of predictable keys.
+        bool gather(entropy_pool& pool) {
+            u64 words[hardware_capacity]{};
 
-        void add(seed_material& material, u64 value) {
-            if (material.count < seed_material::capacity)
-                material.words[material.count++] = value;
-        }
+            const u32 hardware = arch::hardware_random(words, hardware_capacity);
 
-        /// Gather what the platform offers.  A single changing source is
-        /// enough to key the generator, but the sources are combined so a
-        /// weak one never decides the key on its own.
-        bool gather(seed_material& material) {
-            const u32 hardware =
-                arch::hardware_random(material.words, seed_material::capacity);
-
-            material.count += hardware;
-
-            // Deterministic words below are extra mixing, never the reason
-            // to consider the pool seeded.
-            bool available = hardware != 0;
+            pool.add_words(entropy_quality::strong, words, hardware);
 
             const u64 start = arch::cycle_counter();
             u64       delta = 0;
@@ -45,39 +38,41 @@ namespace astia::crypto {
                 prior = current;
             }
 
-            if (start != 0)
-                available = true;
-
-            add(material, start);
-            add(material, delta);
-
-            add(material, arch::timer_ticks());
-            add(material, arch::timer_hz());
+            pool.add_word(entropy_quality::weak, start);
+            pool.add_word(entropy_quality::weak, delta);
+            pool.add_word(entropy_quality::weak, arch::timer_ticks());
+            pool.add_word(entropy_quality::weak, arch::timer_hz());
 
             u64 stamp = 0;
 
-            if (arch::wall_clock(stamp)) {
-                available = true;
+            if (arch::wall_clock(stamp))
+                pool.add_word(entropy_quality::strong, stamp);
 
-                add(material, stamp);
-            }
+            pool.add_word(entropy_quality::weak, reinterpret_cast<u64>(&pool));
+            pool.add_word(entropy_quality::weak, reinterpret_cast<u64>(&generator));
 
-            add(material, reinterpret_cast<u64>(&material));
-            add(material, reinterpret_cast<u64>(&generator));
-
-            return available;
+            return pool.ready();
         }
 
         bool ensure_seeded_locked() {
             if (generator.seeded())
                 return true;
 
-            seed_material material;
+            entropy_pool pool;
 
-            if (!gather(material))
+            if (!gather(pool))
                 return false;
 
-            generator.reseed(material.words, material.count * sizeof(u64));
+            u8 seed[entropy_pool::seed_size];
+
+            if (!pool.copy(seed))
+                return false;
+
+            generator.reseed(seed, sizeof seed);
+
+            for (u32 i = 0; i < sizeof seed; ++i) {
+                seed[i] = 0;
+            }
 
             return generator.seeded();
         }

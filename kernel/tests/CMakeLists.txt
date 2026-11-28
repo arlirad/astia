@@ -131,6 +131,18 @@ target_compile_definitions(astia_aarch64_page_map_test PRIVATE ASTIA_HOST_TEST=1
 astia_add_host_test(astia_csprng_test
         csprng_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp)
+astia_add_host_test(astia_entropy_pool_test
+        entropy_pool_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/entropy_pool.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp)
+astia_add_test_label(astia_entropy_pool_test "crypto;host;deterministic")
+astia_add_host_test(astia_random_seed_test
+        random_seed_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/entropy_pool.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/random.cpp
+        support/entropy_weak_host.cpp)
+astia_add_test_label(astia_random_seed_test "crypto;host;deterministic")
 astia_add_host_test(astia_aarch64_exception_frame_test
         aarch64_exception_frame_test.cpp)
 target_include_directories(astia_aarch64_exception_frame_test PRIVATE
@@ -433,6 +445,7 @@ astia_add_host_test(astia_pseudo_test
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/pseudo.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/csprng.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/entropy_pool.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/crypto/random.cpp
         support/entropy_host.cpp
 )
