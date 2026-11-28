@@ -164,7 +164,10 @@ static inline uint32_t __astia_bswap32(uint32_t value) {
            ((value & 0x0000ff00u) << 8) | ((value & 0x000000ffu) << 24);
 }
 
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if !defined(__BYTE_ORDER__) || !defined(__ORDER_BIG_ENDIAN__) || \
+    !defined(__ORDER_LITTLE_ENDIAN__)
+#error "netinet/in.h requires the compiler's __BYTE_ORDER__ macros"
+#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 static inline uint16_t htons(uint16_t value) {
     return value;
 }
@@ -179,23 +182,25 @@ static inline uint32_t htonl(uint32_t value) {
 
 static inline uint32_t ntohl(uint32_t value) {
     return value;
+}
+#elif __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+static inline uint16_t htons(uint16_t value) {
+    return __astia_bswap16(value);
+}
+
+static inline uint16_t ntohs(uint16_t value) {
+    return __astia_bswap16(value);
+}
+
+static inline uint32_t htonl(uint32_t value) {
+    return __astia_bswap32(value);
+}
+
+static inline uint32_t ntohl(uint32_t value) {
+    return __astia_bswap32(value);
 }
 #else
-static inline uint16_t htons(uint16_t value) {
-    return __astia_bswap16(value);
-}
-
-static inline uint16_t ntohs(uint16_t value) {
-    return __astia_bswap16(value);
-}
-
-static inline uint32_t htonl(uint32_t value) {
-    return __astia_bswap32(value);
-}
-
-static inline uint32_t ntohl(uint32_t value) {
-    return __astia_bswap32(value);
-}
+#error "netinet/in.h: unsupported byte order"
 #endif
 
 #ifdef __cplusplus
