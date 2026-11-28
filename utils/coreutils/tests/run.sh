@@ -103,6 +103,18 @@ printf 'bare\n' | "$out/host/wc" >"$out/host/wc_bare.out"
 printf '1 1 5\n' >"$out/host/wc_bare.expected"
 cmp "$out/host/wc_bare.expected" "$out/host/wc_bare.out"
 
+# wc -w: the C locale counts vertical tab and form feed as white space, just
+# like space, tab, newline, and carriage return.
+printf 'a\vb\f c\n' | "$out/host/wc" -w >"$out/host/wc_words_issue.out"
+printf '3\n' >"$out/host/wc_words_issue.expected"
+cmp "$out/host/wc_words_issue.expected" "$out/host/wc_words_issue.out"
+for wc_separator in 'a\vb:1 2 4' 'a\fb:1 2 4' 'a\rb:1 2 4' \
+    'a\vb\fc\rd e\tf\ng:2 7 14'; do
+    printf '%b\n' "${wc_separator%%:*}" | "$out/host/wc" >"$out/host/wc_separator.out"
+    printf '%s\n' "${wc_separator#*:}" >"$out/host/wc_separator.expected"
+    cmp "$out/host/wc_separator.expected" "$out/host/wc_separator.out"
+done
+
 # close() failure injection: link each tool with its main renamed and fail a
 # chosen close() call through the linker's --wrap hook.
 close_host_flags="-std=c11 -Wall -Wextra -Werror -Wno-unused-function \
