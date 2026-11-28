@@ -12,3 +12,13 @@ clock_t times(struct tms* result) {
 
     return 0;
 }
+
+clock_t clock(void) {
+    struct timespec value;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &value) < 0)
+        return (clock_t) -1;
+
+    return (clock_t) value.tv_sec * CLOCKS_PER_SEC +
+           (clock_t) (value.tv_nsec / (1000000000L / CLOCKS_PER_SEC));
+}

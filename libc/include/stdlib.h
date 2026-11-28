@@ -1,9 +1,10 @@
 #pragma once
 
-char* getenv(const char* name);
-int   setenv(const char* name, const char* value, int overwrite);
-int   unsetenv(const char* name);
-int   putenv(char* string);
+char*       getenv(const char* name);
+int         setenv(const char* name, const char* value, int overwrite);
+int         unsetenv(const char* name);
+const char* getprogname(void);
+int         putenv(char* string);
 
 /*
  * astia libc — <stdlib.h>
@@ -82,6 +83,7 @@ __UINT32_TYPE__ arc4random(void);
 void            arc4random_buf(void* buffer, size_t length);
 __UINT32_TYPE__ arc4random_uniform(__UINT32_TYPE__ upper_bound);
 
+#define MB_CUR_MAX 1
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

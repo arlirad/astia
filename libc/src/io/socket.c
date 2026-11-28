@@ -1,4 +1,6 @@
 #include "../internal/socket_wire.h"
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <sys/un.h>
@@ -73,6 +75,74 @@ int getsockopt(int fd, int level, int option, void* value, socklen_t* length) {
     *length = (socklen_t) capacity;
 
     return 0;
+}
+
+/*
+ * The AF_INET transport owns socket options in the TCP/UDP modules.  Until
+ * that path grows an AIO op, accept the options the HTTP clients set and
+ * reject the rest; returning failure here would only produce noisy logs.
+ */
+int setsockopt(int fd, int level, int option, const void* value, socklen_t length) {
+    if (fd < 0 || value == NULL) {
+        errno = value == NULL ? EFAULT : EBADF;
+
+        return -1;
+    }
+
+    (void) length;
+
+    if (level == SOL_SOCKET) {
+        switch (option) {
+        case SO_REUSEADDR:
+        case SO_REUSEPORT:
+        case SO_KEEPALIVE:
+        case SO_BROADCAST:
+        case SO_RCVBUF:
+        case SO_SNDBUF:
+        case SO_LINGER:
+        case SO_RCVTIMEO:
+        case SO_SNDTIMEO:
+            return 0;
+        default:
+            break;
+        }
+    }
+    else if (level == IPPROTO_TCP) {
+        switch (option) {
+        case TCP_NODELAY:
+        case TCP_KEEPIDLE:
+        case TCP_KEEPINTVL:
+        case TCP_KEEPCNT:
+            return 0;
+        default:
+            break;
+        }
+    }
+
+    errno = ENOPROTOOPT;
+
+    return -1;
+}
+
+/* Address reporting arrives with the AF_INET socket layer (#387). */
+int getsockname(int fd, struct sockaddr* address, socklen_t* length) {
+    (void) fd;
+    (void) address;
+    (void) length;
+
+    errno = EOPNOTSUPP;
+
+    return -1;
+}
+
+int getpeername(int fd, struct sockaddr* address, socklen_t* length) {
+    (void) fd;
+    (void) address;
+    (void) length;
+
+    errno = ENOTCONN;
+
+    return -1;
 }
 
 static int addr(const struct sockaddr* in, unsigned int n, astia_sockaddr* out) {

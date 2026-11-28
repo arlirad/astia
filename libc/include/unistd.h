@@ -15,6 +15,8 @@
 extern "C" {
 #endif
 
+#define _POSIX_VERSION 200809L
+
 int           getpid(void);
 int           getppid(void);
 int           gettid(void);
@@ -87,6 +89,14 @@ int  symlink(const char* target, const char* link_path);
 long readlink(const char* path, char* buffer, unsigned long capacity);
 int  unlink(const char* path);
 int  unlinkat(int dirfd, const char* path, int flags);
+int  rmdir(const char* path);
+#define _PC_LINK_MAX 0
+#define _PC_NAME_MAX 3
+#define _PC_PATH_MAX 4
+#define _PC_PIPE_BUF 5
+
+long pathconf(const char* path, int name);
+long fpathconf(int fd, int name);
 #define AT_REMOVEDIR 0x200
 int  getgroups(int count, gid_t groups[]);
 int  setgroups(int count, const gid_t groups[]);

@@ -10,6 +10,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/fs/account_fields.c
   src/fs/dirent.c
   src/fs/group.c
+  src/fs/flock.c
   src/fs/path.c
   src/fs/pwd.c
   src/fs/realpath.c
@@ -25,6 +26,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/locale/locale.c
   src/math/math.c
   src/net/inet.c
+  src/net/netdb.c
   src/process/atfork.c
   src/process/prctl.c
   src/process/process.c

@@ -1188,3 +1188,36 @@ void _exit(int status) {
     __astia_process_exit(status);
     __builtin_unreachable();
 }
+
+long pathconf(const char* path, int name) {
+    if (path == NULL) {
+        errno = EFAULT;
+
+        return -1;
+    }
+
+    switch (name) {
+    case _PC_LINK_MAX:
+        return 65000;
+    case _PC_NAME_MAX:
+        return 255;
+    case _PC_PATH_MAX:
+        return PATH_MAX;
+    case _PC_PIPE_BUF:
+        return 4096;
+    default:
+        errno = EINVAL;
+
+        return -1;
+    }
+}
+
+long fpathconf(int fd, int name) {
+    if (fd < 0) {
+        errno = EBADF;
+
+        return -1;
+    }
+
+    return pathconf("/", name);
+}

@@ -930,3 +930,9 @@ void abort(void) {
 
     _Exit(127);
 }
+
+/* The freestanding CRT does not retain argv[0]; ports only use this for
+ * diagnostics, so a stable name is better than an uninitialised pointer. */
+const char* getprogname(void) {
+    return "astia";
+}
