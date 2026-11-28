@@ -144,10 +144,56 @@ namespace {
         uint16_t used_index        = 0;
         uint16_t notify_offset     = 0;
         bool     enabled           = false;
+        bool     descriptor_in_use[queue_limit]{};
 
         descriptor* descriptors() const {
             return reinterpret_cast<descriptor*>(
                 static_cast<unsigned char*>(memory.data()) + descriptor_offset);
+        }
+
+        bool allocate_descriptors(unsigned count, unsigned& head) {
+            if (count == 0 || count > size)
+                return false;
+
+            for (unsigned start = 0; start + count <= size; ++start) {
+                bool available = true;
+
+                for (unsigned index = 0; index < count; ++index) {
+                    if (descriptor_in_use[start + index]) {
+                        available = false;
+
+                        break;
+                    }
+                }
+
+                if (!available)
+                    continue;
+
+                for (unsigned index = 0; index < count; ++index) {
+                    descriptor_in_use[start + index] = true;
+                }
+
+                head = start;
+
+                return true;
+            }
+
+            return false;
+        }
+
+        void release_descriptors(unsigned head, unsigned count) {
+            for (unsigned index = 0; index < count && head + index < size; ++index) {
+                descriptor_in_use[head + index] = false;
+            }
+        }
+
+        bool descriptors_available() const {
+            for (unsigned index = 0; index < size; ++index) {
+                if (descriptor_in_use[index])
+                    return false;
+            }
+
+            return true;
         }
 
         available_ring* available() const {
@@ -169,6 +215,10 @@ namespace {
 
             available_index = 0;
             used_index      = 0;
+
+            for (unsigned index = 0; index < queue_limit; ++index) {
+                descriptor_in_use[index] = false;
+            }
         }
     };
 
@@ -178,6 +228,10 @@ namespace {
 
     long device_status_error(unsigned status) {
         return status == status_unsupp ? -95 : -5;
+    }
+
+    constexpr unsigned chain_descriptors(unsigned data_length) {
+        return data_length == 0 ? 2u : 3u;
     }
 
     uint8_t pci_byte(const astia::hw::pci_device* pci, uint16_t offset) {
@@ -542,6 +596,7 @@ namespace {
             }
             else {
                 pending.request.release();
+                _requestqueue.release_descriptors(pending.head, pending.count);
 
                 pending = {};
             }
@@ -617,16 +672,22 @@ namespace {
             dma                 request{};
             astia::io::request* io            = nullptr;
             long                result        = 0;
-            bool                completed     = false;
+            unsigned            head          = 0;
+            unsigned            count         = 0;
             unsigned            length        = 0;
             unsigned            data_offset   = 64;
             unsigned            status_offset = 0;
+            uint32_t            used_length   = 0;
             bool                write         = false;
             bool                flush         = false;
             bool                canceled      = false;
             bool                active        = false;
+            bool                device_done   = false;
+            bool                completed     = false;
             bool                hardware_done = false;
-        } pending{};
+        } pending{}, sync{};
+
+        bool unexpected_completion = false;
 
         bool valid_transfer(unsigned length, uint64_t offset, bool write) const {
             if (!started || failed || length > astia_virtio_blk::max_transfer ||
@@ -636,8 +697,9 @@ namespace {
             return !write || write_supported;
         }
 
-        bool enqueue(dma& request, unsigned data_offset, unsigned data_length, bool write,
-                     unsigned status_offset, unsigned type, uint64_t offset) {
+        bool enqueue(dma& request, unsigned head, unsigned data_offset,
+                     unsigned data_length, bool write, unsigned status_offset,
+                     unsigned type, uint64_t offset) {
             auto* bytes  = static_cast<unsigned char*>(request.data());
             auto* header = reinterpret_cast<uint32_t*>(bytes);
 
@@ -649,25 +711,26 @@ namespace {
 
             descriptor* descriptors = _requestqueue.descriptors();
 
-            descriptors[0] = descriptor{request.physical(), 16, descriptor_next, 1};
+            descriptors[head] = descriptor{request.physical(), 16, descriptor_next,
+                                           static_cast<uint16_t>(head + 1)};
 
             if (data_length != 0) {
-                descriptors[1] =
+                descriptors[head + 1] =
                     descriptor{request.physical() + data_offset, data_length,
                                static_cast<uint16_t>(descriptor_next |
                                                      (write ? 0 : descriptor_write)),
-                               2};
-                descriptors[2] = descriptor{request.physical() + status_offset, 1,
-                                            descriptor_write, 0};
+                               static_cast<uint16_t>(head + 2)};
+                descriptors[head + 2] = descriptor{request.physical() + status_offset, 1,
+                                                   descriptor_write, 0};
             }
             else {
-                descriptors[1] = descriptor{request.physical() + status_offset, 1,
-                                            descriptor_write, 0};
+                descriptors[head + 1] = descriptor{request.physical() + status_offset, 1,
+                                                   descriptor_write, 0};
             }
 
             available_ring* available = _requestqueue.available();
 
-            available->ring[_requestqueue.available_index % _requestqueue.size] = 0;
+            available->ring[_requestqueue.available_index % _requestqueue.size] = head;
 
             memory_barrier();
             ++_requestqueue.available_index;
@@ -716,80 +779,178 @@ namespace {
             return complete_with_error(-5);
         }
 
-        long wait(dma& request, unsigned data_length, unsigned status_offset,
-                  void* buffer, bool write) {
+        void reap_used() {
             volatile used_ring* used = _requestqueue.used();
 
-            bool completed = false;
-            bool observed  = false;
+            while (used->index != _requestqueue.used_index) {
+                const volatile used_element& element =
+                    used->ring[_requestqueue.used_index % _requestqueue.size];
+
+                ++_requestqueue.used_index;
+
+                const uint32_t id     = element.id;
+                const uint32_t length = element.length;
+
+                bool known = false;
+
+                if (pending.active && id == pending.head) {
+                    pending.used_length = length;
+                    pending.device_done = true;
+                    known               = true;
+                }
+
+                if (sync.active && id == sync.head) {
+                    sync.used_length = length;
+                    sync.device_done = true;
+                    known            = true;
+                }
+
+                if (!known)
+                    unexpected_completion = true;
+            }
+        }
+
+        long begin_sync(dma& request, const void* buffer, unsigned length,
+                        uint64_t offset, bool write) {
+            const unsigned status_offset = 64 + length;
+            const unsigned count         = chain_descriptors(length);
+            unsigned       head          = 0;
+
+            if (!_requestqueue.allocate_descriptors(count, head))
+                return -16;
+
+            const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
+
+            if (!request.allocate(pages)) {
+                _requestqueue.release_descriptors(head, count);
+
+                return -12;
+            }
+
+            if (write)
+                copy_bytes(static_cast<unsigned char*>(request.data()) + 64, buffer,
+                           length);
+
+            sync               = {};
+            sync.head          = head;
+            sync.count         = count;
+            sync.length        = length;
+            sync.status_offset = status_offset;
+            sync.write         = write;
+            sync.active        = true;
+
+            if (!enqueue(request, head, 64, length, write, status_offset,
+                         write ? _requestout : _requestin, offset)) {
+                request.release();
+                _requestqueue.release_descriptors(head, count);
+
+                sync = {};
+
+                return -5;
+            }
+
+            return 0;
+        }
+
+        long begin_flush(dma& request) {
+            const unsigned count = chain_descriptors(0);
+            unsigned       head  = 0;
+
+            if (!_requestqueue.allocate_descriptors(count, head))
+                return -16;
+
+            if (!request.allocate(1)) {
+                _requestqueue.release_descriptors(head, count);
+
+                return -12;
+            }
+
+            sync               = {};
+            sync.head          = head;
+            sync.count         = count;
+            sync.status_offset = 16;
+            sync.flush         = true;
+            sync.active        = true;
+
+            if (!enqueue(request, head, 0, 0, false, 16, _requestflush, 0)) {
+                request.release();
+                _requestqueue.release_descriptors(head, count);
+
+                sync = {};
+
+                return -5;
+            }
+
+            return 0;
+        }
+
+        long wait_sync(dma& request, void* buffer) {
+            bool observed = false;
 
             for (unsigned spin = 0; spin < timeout_spins; ++spin) {
                 memory_barrier();
+                reap_used();
 
-                if (used->index != _requestqueue.used_index) {
-                    const volatile used_element& element =
-                        used->ring[_requestqueue.used_index % _requestqueue.size];
-
-                    ++_requestqueue.used_index;
-
-                    observed  = true;
-                    completed = element.id == 0 && astia_virtio_blk::completion_length_ok(
-                                                       write ? _requestout : _requestin,
-                                                       data_length, element.length);
+                if (sync.device_done) {
+                    observed = true;
 
                     break;
+                }
+
+                if (unexpected_completion) {
+                    unexpected_completion = false;
+
+                    return -5;
                 }
 
                 asm volatile("pause");
             }
 
-            if (!completed) {
-                if (!observed && !reset_queue_after_timeout())
+            if (!observed) {
+                if (!reset_queue_after_timeout())
                     failed = true;
 
-                return observed ? -5 : -110;
+                return -110;
             }
 
+            const bool length_ok = astia_virtio_blk::completion_length_ok(
+                sync.write ? _requestout : _requestin, sync.length, sync.used_length);
+            if (!length_ok)
+                return -5;
+
             const uint8_t status =
-                static_cast<unsigned char*>(request.data())[status_offset];
+                static_cast<unsigned char*>(request.data())[sync.status_offset];
             if (status != status_ok)
                 return device_status_error(status);
 
-            if (!write && buffer != nullptr)
+            if (!sync.write && buffer != nullptr)
                 copy_bytes(buffer, static_cast<unsigned char*>(request.data()) + 64,
-                           data_length);
+                           sync.length);
 
-            return static_cast<long>(data_length);
+            return static_cast<long>(sync.length);
+        }
+
+        void finish_sync(dma& request) {
+            request.release();
+            _requestqueue.release_descriptors(sync.head, sync.count);
+
+            sync = {};
         }
 
         long transfer(const void* buffer, unsigned length, uint64_t offset, bool write) {
             if (!valid_transfer(length, offset, write) || (write && !flush_supported))
                 return write ? -30 : -22;
 
-            const unsigned data_offset   = 64;
-            const unsigned status_offset = data_offset + length;
-            const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
-
             dma request;
 
-            if (!request.allocate(pages))
-                return -12;
+            const long started = begin_sync(request, buffer, length, offset, write);
+            if (started < 0)
+                return started;
 
-            if (write)
-                copy_bytes(static_cast<unsigned char*>(request.data()) + data_offset,
-                           buffer, length);
+            const long result =
+                wait_sync(request, write ? nullptr : const_cast<void*>(buffer));
 
-            if (!enqueue(request, data_offset, length, write, status_offset,
-                         write ? _requestout : _requestin, offset)) {
-                request.release();
-
-                return -5;
-            }
-
-            const long result = wait(request, length, status_offset,
-                                     write ? nullptr : const_cast<void*>(buffer), write);
-
-            request.release();
+            finish_sync(request);
 
             if (result < 0 || !write)
                 return result;
@@ -805,13 +966,13 @@ namespace {
 
             dma request;
 
-            if (!request.allocate(1))
-                return -12;
+            const long started = begin_flush(request);
+            if (started < 0)
+                return started;
 
-            const bool queued = enqueue(request, 0, 0, false, 16, _requestflush, 0);
-            const long result = queued ? wait(request, 0, 16, nullptr, false) : -5;
+            const long result = wait_sync(request, nullptr);
 
-            request.release();
+            finish_sync(request);
 
             return result < 0 ? result : 0;
         }
@@ -831,14 +992,24 @@ namespace {
                 return -22;
 
             const unsigned status_offset = 64 + io.length();
+            const unsigned count         = chain_descriptors(io.length());
             const unsigned pages = astia_virtio_blk::page_count(status_offset + 1);
+            unsigned       head  = 0;
+
+            if (!_requestqueue.allocate_descriptors(count, head))
+                return -16;
 
             pending = {};
 
-            if (!pending.request.allocate(pages))
+            if (!pending.request.allocate(pages)) {
+                _requestqueue.release_descriptors(head, count);
+
                 return -12;
+            }
 
             pending.io            = &io;
+            pending.head          = head;
+            pending.count         = count;
             pending.length        = io.length();
             pending.status_offset = status_offset;
             pending.write         = write;
@@ -849,9 +1020,10 @@ namespace {
                 copy_bytes(static_cast<unsigned char*>(pending.request.data()) + 64,
                            io.buffer(), io.length());
 
-            if (!enqueue(pending.request, 64, io.length(), write, status_offset,
+            if (!enqueue(pending.request, head, 64, io.length(), write, status_offset,
                          write ? _requestout : _requestin, io.offset())) {
                 pending.request.release();
+                _requestqueue.release_descriptors(head, count);
 
                 pending = {};
 
@@ -870,11 +1042,12 @@ namespace {
 
             if (pending.completed) {
                 if (!pending.hardware_done) {
-                    volatile used_ring* used = _requestqueue.used();
+                    reap_used();
 
-                    if (used->index != _requestqueue.used_index) {
-                        ++_requestqueue.used_index;
+                    unexpected_completion = false;
 
+                    if (pending.device_done) {
+                        pending.device_done   = false;
                         pending.hardware_done = true;
 
                         if (pending.io != nullptr &&
@@ -885,6 +1058,7 @@ namespace {
 
                 if (pending.io == nullptr && pending.hardware_done) {
                     pending.request.release();
+                    _requestqueue.release_descriptors(pending.head, pending.count);
 
                     pending = {};
                 }
@@ -913,19 +1087,23 @@ namespace {
             if (device_lost())
                 return fail_device();
 
-            volatile used_ring* used = _requestqueue.used();
+            reap_used();
 
-            if (used->index == _requestqueue.used_index)
-                return 0;
+            if (!pending.device_done) {
+                if (!unexpected_completion)
+                    return 0;
 
-            const volatile used_element& element =
-                used->ring[_requestqueue.used_index % _requestqueue.size];
+                unexpected_completion = false;
 
-            ++_requestqueue.used_index;
+                return complete_with_error(-5);
+            }
+
+            unexpected_completion = false;
+            pending.device_done   = false;
 
             const unsigned expected_length = pending.flush ? 0 : pending.length;
 
-            if (element.id != 0 || element.length < expected_length + 1)
+            if (pending.used_length < expected_length + 1)
                 return complete_with_error(-5);
 
             auto* bytes = static_cast<unsigned char*>(pending.request.data());
@@ -954,7 +1132,8 @@ namespace {
                 pending.flush         = true;
                 pending.status_offset = 16;
 
-                if (!enqueue(pending.request, 0, 0, false, 16, _requestflush, 0))
+                if (!enqueue(pending.request, pending.head, 0, 0, false, 16,
+                             _requestflush, 0))
                     return complete_with_error(-5);
 
                 return 0;
@@ -998,6 +1177,7 @@ namespace {
             result = pending.result;
 
             pending.request.release();
+            _requestqueue.release_descriptors(pending.head, pending.count);
 
             pending = {};
 
