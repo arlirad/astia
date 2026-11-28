@@ -114,7 +114,55 @@ static int copy_fd(int input, int output, const char* name) {
     }
 }
 
-static int copy_node(const char* source, const char* destination, cu_stack* frames);
+static int copy_node(const char* source, const char* destination, cu_stack* frames,
+                     int dereference);
+
+static int copy_symlink(const char* source, const char* destination) {
+    size_t capacity = 256;
+
+    char* target = 0;
+
+    for (;;) {
+        char* grown = realloc(target, capacity);
+        if (grown == 0) {
+            free(target);
+
+            return cu_error("cp", "out of memory");
+        }
+
+        target = grown;
+
+        long length = readlink(source, target, capacity);
+        if (length < 0) {
+            free(target);
+
+            return cu_error("cp", source);
+        }
+
+        if ((size_t) length < capacity) {
+            target[length] = '\0';
+
+            break;
+        }
+
+        capacity *= 2;
+    }
+
+    int status = 0;
+
+    if (symlink(target, destination) < 0) {
+        struct stat existing;
+
+        if (errno != EEXIST || lstat(destination, &existing) < 0 ||
+            S_ISDIR(existing.st_mode) || unlink(destination) < 0 ||
+            symlink(target, destination) < 0)
+            status = cu_error("cp", destination);
+    }
+
+    free(target);
+
+    return status;
+}
 
 static void close_cp_frame(cp_frame* frame) {
     closedir(frame->directory);
@@ -169,15 +217,19 @@ static int copy_directory_node(const char* source, const char* destination, mode
     return 0;
 }
 
-static int copy_node(const char* source, const char* destination, cu_stack* frames) {
+static int copy_node(const char* source, const char* destination, cu_stack* frames,
+                     int dereference) {
     struct stat info;
 
     int input;
     int output;
     int status;
 
-    if (stat(source, &info) < 0)
+    if ((dereference ? stat(source, &info) : lstat(source, &info)) < 0)
         return cu_error("cp", source);
+
+    if (S_ISLNK(info.st_mode))
+        return copy_symlink(source, destination);
 
     if (S_ISDIR(info.st_mode))
         return copy_directory_node(source, destination, info.st_mode, frames);
@@ -208,12 +260,12 @@ static int copy_node(const char* source, const char* destination, cu_stack* fram
     return status;
 }
 
-static int copy_tree(const char* source, const char* destination) {
+static int copy_tree(const char* source, const char* destination, int dereference_root) {
     cu_stack frames;
 
     cu_stack_init(&frames, sizeof(cp_frame));
 
-    int status = copy_node(source, destination, &frames);
+    int status = copy_node(source, destination, &frames, dereference_root);
 
     while (frames.count != 0) {
         cp_frame* frame = (cp_frame*) cu_stack_top(&frames);
@@ -248,7 +300,7 @@ static int copy_tree(const char* source, const char* destination) {
             break;
         }
 
-        status |= copy_node(from, to, &frames);
+        status |= copy_node(from, to, &frames, 0);
 
         free(from);
         free(to);
@@ -377,7 +429,7 @@ int main(int argc, char** argv) {
         return status;
     }
 
-    int status = copy_tree(source, target_path);
+    int status = copy_tree(source, target_path, !recursive);
 
     free(target);
 

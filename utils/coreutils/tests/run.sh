@@ -182,6 +182,30 @@ test -f "$cp_dash_root/dir/-file"
 grep -qxF 'dash file' "$cp_dash_root/dir/-file"
 rm -rf "$cp_dash_root"
 
+# cp -r copies symlinks found inside the tree as symlinks instead of following
+# them, so a link back to an ancestor terminates (issue #799).
+cp_link_root="$out/host/cp_links"
+mkdir -p "$cp_link_root/tree/sub"
+printf 'leaf\n' >"$cp_link_root/tree/file"
+ln -s file "$cp_link_root/tree/link"
+ln -s .. "$cp_link_root/tree/sub/up"
+timeout 60 "$out/host/cp" -r "$cp_link_root/tree" "$cp_link_root/copy"
+test -L "$cp_link_root/copy/link"
+test "$(readlink "$cp_link_root/copy/link")" = "file"
+test -L "$cp_link_root/copy/sub/up"
+test "$(readlink "$cp_link_root/copy/sub/up")" = ".."
+test -f "$cp_link_root/copy/file"
+grep -qxF 'leaf' "$cp_link_root/copy/file"
+
+# A symlink named on the command line keeps its non-recursive cp semantics:
+# the target is copied, not the link.
+printf 'target\n' >"$cp_link_root/source"
+ln -s source "$cp_link_root/source_link"
+"$out/host/cp" "$cp_link_root/source_link" "$cp_link_root/source_copy"
+test -f "$cp_link_root/source_copy"
+test ! -L "$cp_link_root/source_copy"
+grep -qxF 'target' "$cp_link_root/source_copy"
+
 # mkdir -p must accept any path the host filesystem can represent up to
 # PATH_MAX; the QEMU guest cannot receive such arguments yet (issue #184
 # limits exec argv and AIO paths to 256 bytes).
