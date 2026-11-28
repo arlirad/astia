@@ -182,8 +182,9 @@ namespace astia::fs {
     } // namespace
 
     core::task<i64> file::submit_readv(span<const buffer> buffers, u64 offset,
-                                       core::cltoken token) {
-        return submit_vector(this, buffers, offset, io::direction::input, false, token);
+                                       core::cltoken token, bool nonblock) {
+        return submit_vector(this, buffers, offset, io::direction::input, nonblock,
+                             token);
     }
 
     core::task<i64> file::submit_writev(span<const buffer> buffers, u64 offset,
@@ -211,8 +212,10 @@ namespace astia::fs {
 
         const bool current = offset == offset_current;
         const u64  actual  = current ? current_position() : offset;
+        const bool nonblock =
+            (_flags & static_cast<u32>(open_file_status_flags::nonblock)) != 0;
 
-        auto result = co_await contract->readv(buffers, actual, token);
+        auto result = co_await contract->readv(buffers, actual, token, nonblock);
         if (!result)
             co_return result.error;
 

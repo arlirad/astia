@@ -47,9 +47,9 @@ namespace {
         }
 
         astia::core::task<astia::i64> readv(astia::span<const astia::fs::buffer> buffers,
-                                            astia::u64                           offset,
-                                            astia::core::cltoken token) override {
-            return submit_readv(buffers, offset, token);
+                                            astia::u64 offset, astia::core::cltoken token,
+                                            bool nonblock) override {
+            return submit_readv(buffers, offset, token, nonblock);
         }
 
         astia::core::task<astia::i64> writev(astia::span<const astia::fs::buffer> buffers,
@@ -238,8 +238,9 @@ ASTIA_TEST(device_file_services_a_parked_completion) {
 
     astia::u8                     buffer[4]{};
     const astia::fs::buffer       entry{buffer, sizeof buffer};
-    astia::core::task<astia::i64> task = file.readv(
-        astia::span<const astia::fs::buffer>(&entry, 1), 0, astia::core::cltoken{});
+    astia::core::task<astia::i64> task =
+        file.readv(astia::span<const astia::fs::buffer>(&entry, 1), 0,
+                   astia::core::cltoken{}, false);
 
     ASTIA_CHECK(task.resume());
     ASTIA_CHECK(!task.done());

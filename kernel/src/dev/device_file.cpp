@@ -202,8 +202,8 @@ namespace astia::dev {
     }
 
     core::task<i64> device_file::readv(span<const fs::buffer> buffers, u64 offset,
-                                       core::cltoken token) {
-        return submit_readv(buffers, offset, token);
+                                       core::cltoken token, bool nonblock) {
+        return submit_readv(buffers, offset, token, nonblock);
     }
 
     core::task<i64> device_file::writev(span<const fs::buffer> buffers, u64 offset,

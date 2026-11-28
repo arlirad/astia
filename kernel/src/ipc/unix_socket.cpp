@@ -232,8 +232,8 @@ namespace astia::fs {
             }
 
             core::task<i64> readv(span<const buffer> buffers, u64 offset,
-                                  core::cltoken token) override {
-                return submit_readv(buffers, offset, token);
+                                  core::cltoken token, bool nonblock) override {
+                return submit_readv(buffers, offset, token, nonblock);
             }
 
             core::task<i64> writev(span<const buffer> buffers, u64 offset,
@@ -579,19 +579,27 @@ namespace astia::fs {
 
                     return n;
                 }
-                long n           = r.direction() == io::direction::input
-                                       ? read_ready(r.buffer(), r.length(), 0)
-                                       : write_ready(r.buffer(), r.length(), 0);
-                bool peer_closed = false;
+                if (r.length() == 0) {
+                    r.complete(true);
+
+                    return 0;
+                }
+                const bool input    = r.direction() == io::direction::input;
+                long       n        = input ? read_ready(r.buffer(), r.length(), 0)
+                                            : write_ready(r.buffer(), r.length(), 0);
+                bool       read_eof = false;
                 if (channel) {
                     core::spinlock_guard channel_guard(channel->lock);
 
                     const u32 peer = socket_peer_side(side);
 
-                    peer_closed = channel->closed[peer] || channel->shut_wr[peer];
+                    read_eof = channel->closed[peer] || channel->shut_wr[peer] ||
+                               channel->shut_rd[side];
                 }
-                if (n == 0 && r.direction() == io::direction::input && peer_closed)
+                if (n == 0 && input && read_eof)
                     r.complete(true);
+                else if (n == 0 && r.nonblock())
+                    return -EAGAIN;
                 else if (n == 0)
                     r.stage(1);
                 return n;
@@ -956,7 +964,7 @@ namespace astia::fs {
 
                 buffer     entry{data.data(), data.size()};
                 const auto received =
-                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token, false);
 
                 if (!received) {
                     result.length = error_errno(received.error);
@@ -1013,7 +1021,7 @@ namespace astia::fs {
 
                 buffer     entry{data.data(), data.size()};
                 const auto received =
-                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token);
+                    co_await submit_readv(span<const buffer>(&entry, 1), 0, token, false);
 
                 if (!received) {
                     result.length = error_errno(received.error);

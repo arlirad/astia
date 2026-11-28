@@ -46,8 +46,8 @@ namespace astia::fs::filesystems {
             return *this;
         }
 
-        core::task<i64> readv(span<const buffer> buffers, u64 offset,
-                              core::cltoken token) override;
+        core::task<i64> readv(span<const buffer> buffers, u64 offset, core::cltoken token,
+                              bool nonblock) override;
         core::task<i64> writev(span<const buffer> buffers, u64 offset,
                                core::cltoken token, bool nonblock) override;
         core::task<i64> sync(core::cltoken token) override;
