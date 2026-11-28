@@ -537,6 +537,8 @@ target_include_directories(astia_driver_manager_test PRIVATE ${ASTIA_KERNEL_SOUR
 
 astia_add_host_test(astia_net_test
         net_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/driver.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/net/events.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/net.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/net/neighbour.cpp
         support/timer_host.cpp)
