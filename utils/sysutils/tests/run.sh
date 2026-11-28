@@ -3,8 +3,8 @@
 # list/stat/open/close paths over the serial console.
 set -eu
 
-root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-build=${SYSUTILS_TEST_BUILD:-$root/sysutils/tests/build}
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+build=${SYSUTILS_TEST_BUILD:-$root/utils/sysutils/tests/build}
 sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_test}
@@ -31,13 +31,13 @@ rm -rf "$build"
 mkdir -p "$build/root/bin" "$build/root/sbin" "$build/output"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" SYSUTILS_BUILD="$build/output" \
-    "$root/sysutils/build.sh"
+    "$root/utils/sysutils/build.sh"
 
 common="--target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie \
     -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
 $clang $common -nostdinc -isystem "$resource/include" -isystem "$sysroot/include" \
-    -c "$root/sysutils/tests/runner.c" -o "$build/runner.o"
+    -c "$root/utils/sysutils/tests/runner.c" -o "$build/runner.o"
 # shellcheck disable=SC2086
 $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
     -Wl,-e,_start -Wl,-Ttext-segment=0x40000000 -o "$build/runner" \

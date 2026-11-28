@@ -2244,7 +2244,7 @@ if (ARCH STREQUAL "x86_64")
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
-                    ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/common.h
                     ${_fix_dir}/crt0.o astia_userspace_libc_shared
                     ${_libc_shared_so}
                     COMMENT "Building native ${name} image")
@@ -2256,14 +2256,14 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/stop.c)
         astia_add_native_program(native_daemondctl
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/daemonctl.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_ps
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/ps.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_true
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/true.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_stop_client
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/stop_client.c "")
         add_custom_target(astia_native_programs

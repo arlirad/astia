@@ -1,4 +1,4 @@
-#include "../../kernel/include/astia/api/syscalls.h"
+#include "../../../kernel/include/astia/api/syscalls.h"
 #include "common.h"
 #include "ps_state.h"
 

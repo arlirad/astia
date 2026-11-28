@@ -34,7 +34,7 @@ mkdir -p "$work/root/sbin" "$work/root/bin"
 (cd "$work/root" && "$cpio" -id --quiet --no-absolute-filenames) <"$base_initrd"
 cp "$build/output/zsh" "$work/root/bin/zsh"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$build/astia/image/crt0.o" \
-    COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
+    COREUTILS_BUILD="$work/coreutils" "$root/utils/coreutils/build.sh"
 cp "$work/coreutils/bin/"* "$work/root/bin/"
 
 $clang --target=$target -ffreestanding -fno-builtin -fno-pic -fno-pie \

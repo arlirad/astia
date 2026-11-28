@@ -261,8 +261,8 @@ file(GLOB_RECURSE _astia_dev_initrd_sources CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/user/zsh/*"
     "${CMAKE_SOURCE_DIR}/user/nano/*"
     "${CMAKE_SOURCE_DIR}/user/gnulib/*"
-    "${CMAKE_SOURCE_DIR}/coreutils/src/*"
-    "${CMAKE_SOURCE_DIR}/sysutils/src/*"
+    "${CMAKE_SOURCE_DIR}/utils/coreutils/src/*"
+    "${CMAKE_SOURCE_DIR}/utils/sysutils/src/*"
     "${CMAKE_SOURCE_DIR}/libc/*"
     "${CMAKE_SOURCE_DIR}/toolchain/nano-astia/*")
 list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
@@ -305,8 +305,8 @@ add_custom_command(
         "${CMAKE_SOURCE_DIR}/kernel/tests/init_libc.c"
         "${CMAKE_BINARY_DIR}/kernel/tests/fixtures/boot_initrd.cpio"
         ${_astia_dev_initrd_modules}
-        "${CMAKE_SOURCE_DIR}/coreutils/build.sh"
-        "${CMAKE_SOURCE_DIR}/sysutils/build.sh"
+        "${CMAKE_SOURCE_DIR}/utils/coreutils/build.sh"
+        "${CMAKE_SOURCE_DIR}/utils/sysutils/build.sh"
         ${_astia_dev_initrd_sources}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL
@@ -584,7 +584,7 @@ if(ASTIA_BUILD_TESTS)
 
     astia_register_script_test(astia_coreutils_qemu
             "coreutils;qemu;deterministic"
-            ${CMAKE_CURRENT_SOURCE_DIR}/coreutils/tests/run.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/utils/coreutils/tests/run.sh
             TIMEOUT 720
             ENV
                 QEMU=${_astia_qemu}
@@ -607,7 +607,7 @@ if(ASTIA_BUILD_TESTS)
 
     astia_register_script_test(astia_sysutils_qemu
             "sysutils;qemu;deterministic"
-            ${CMAKE_CURRENT_SOURCE_DIR}/sysutils/tests/run.sh
+            ${CMAKE_CURRENT_SOURCE_DIR}/utils/sysutils/tests/run.sh
             TIMEOUT 180
             ENV
                 QEMU=${_astia_qemu}
