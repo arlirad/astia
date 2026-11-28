@@ -13,6 +13,7 @@ set(ASTIA_UDP_LOCAL_HEADERS
 set(ASTIA_UDP_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/common.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/cancellation.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/completion.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/endian.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/spinlock.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/task.hpp

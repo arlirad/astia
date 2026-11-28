@@ -30,6 +30,19 @@ namespace {
     constexpr u8 local_ip[4]  = {10, 0, 0, 2};
     constexpr u8 peer_mac[6]  = {0x52, 0x54, 0x00, 0x12, 0x34, 0x56};
 
+    /// Drive a task to completion in the test's single-threaded context.
+    template <typename T>
+    T drive(astia::core::task<T> task) {
+        while (!task.done()) {
+            task.resume();
+        }
+
+        assert(!task.failed());
+        assert(task.value() != nullptr);
+
+        return *task.value();
+    }
+
     void put16(u8* data, u16 value) {
         data[0] = static_cast<u8>(value >> 8);
         data[1] = static_cast<u8>(value & 0xff);
@@ -186,7 +199,7 @@ namespace {
         astia::udp::socket* socket = protocol.create();
 
         assert(socket != nullptr);
-        assert(socket->bind(endpoint_of(local_ip, 4000)) == 0);
+        assert(drive(socket->bind(endpoint_of(local_ip, 4000))) == 0);
 
         alignas(8) u8 packet[64]{};
 
@@ -202,14 +215,14 @@ namespace {
         astia::udp::endpoint source{};
 
         const astia::i64 received =
-            socket->receive(span<u8>(payload, sizeof payload), source);
+            socket->try_receive(span<u8>(payload, sizeof payload), source);
 
         assert(received == 5);
         assert(std::memcmp(payload, "hello", 5) == 0);
         assert(source.host == address_of(source_ip));
         assert(source.port.value() == 1234);
 
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // A different destination port is not ours.
         const usz other =
@@ -224,9 +237,57 @@ namespace {
 
         receive(protocol, link, packet, unchecked);
         assert(socket->readable());
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == 6);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == 6);
+
+        // A receive task parks until RX queues the next datagram.
+        u8 async_payload[8]{};
+
+        astia::udp::endpoint async_source{};
+
+        auto pending =
+            socket->receive(span<u8>(async_payload, sizeof async_payload), async_source);
+
+        assert(pending.resume());
+        assert(!pending.done());
+
+        const usz late =
+            build_datagram(packet, source_ip, local_ip, 4321, 4000, "later", 5, true);
+
+        receive(protocol, link, packet, late);
+
+        while (!pending.done()) {
+            pending.resume();
+        }
+
+        assert(!pending.failed());
+        assert(pending.value() != nullptr);
+        assert(*pending.value() == 5);
+        assert(std::memcmp(async_payload, "later", 5) == 0);
+        assert(async_source.port.value() == 4321);
 
         protocol.destroy(socket);
+    }
+
+    void test_receive_cancel(astia::udp::udp_protocol& protocol) {
+        astia::udp::socket* socket = protocol.create();
+
+        assert(socket != nullptr);
+        assert(drive(socket->bind(endpoint_of(local_ip, 4500))) == 0);
+
+        u8 payload[8]{};
+
+        astia::udp::endpoint source{};
+
+        auto pending = socket->receive(span<u8>(payload, sizeof payload), source);
+
+        assert(pending.resume());
+        assert(!pending.done());
+
+        protocol.destroy(socket);
+
+        assert(pending.done());
+        assert(pending.value() != nullptr);
+        assert(*pending.value() == -ECANCELED);
     }
 
     void test_receive_rejects(astia::udp::udp_protocol& protocol) {
@@ -235,7 +296,7 @@ namespace {
         astia::udp::socket* socket = protocol.create();
 
         assert(socket != nullptr);
-        assert(socket->bind(endpoint_of(local_ip, 4100)) == 0);
+        assert(drive(socket->bind(endpoint_of(local_ip, 4100))) == 0);
 
         alignas(8) u8 packet[64]{};
 
@@ -250,14 +311,14 @@ namespace {
         packet[astia::udp::header_bytes] ^= 0xff;
 
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // Length shorter than the header.
         length = build_datagram(packet, source_ip, local_ip, 1234, 4100, "", 0, true);
 
         put16(packet + 4, 4);
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // Length longer than the received payload.
         length =
@@ -265,7 +326,7 @@ namespace {
 
         put16(packet + 4, static_cast<u16>(length + 8));
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // Destination port zero is invalid.
         length =
@@ -273,29 +334,29 @@ namespace {
 
         put16(packet + 2, 0);
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // Wrong local address for an address-specific bind.
         length =
             build_datagram(packet, source_ip, source_ip, 1234, 4100, "hello", 5, true);
 
         receive(protocol, link, packet, length, source_ip, source_ip);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // A connected socket only accepts its peer.
-        assert(socket->connect(endpoint_of(source_ip, 1234)) == 0);
+        assert(drive(socket->connect(endpoint_of(source_ip, 1234))) == 0);
 
         length =
             build_datagram(packet, source_ip, local_ip, 9999, 4100, "hello", 5, true);
 
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         length =
             build_datagram(packet, source_ip, local_ip, 1234, 4100, "hello", 5, true);
 
         receive(protocol, link, packet, length);
-        assert(socket->receive(span<u8>(payload, sizeof payload), source) == 5);
+        assert(socket->try_receive(span<u8>(payload, sizeof payload), source) == 5);
 
         protocol.destroy(socket);
     }
@@ -306,17 +367,17 @@ namespace {
 
         assert(first != nullptr && second != nullptr);
 
-        assert(first->bind(endpoint_of(local_ip, 4200)) == 0);
-        assert(second->bind(endpoint_of(local_ip, 4200)) == -EADDRINUSE);
+        assert(drive(first->bind(endpoint_of(local_ip, 4200))) == 0);
+        assert(drive(second->bind(endpoint_of(local_ip, 4200))) == -EADDRINUSE);
 
         // Port 0 picks an ephemeral port, and binding twice fails.
         astia::udp::endpoint wildcard{};
 
         wildcard.port = 0;
 
-        assert(second->bind(wildcard) == 0);
+        assert(drive(second->bind(wildcard)) == 0);
         assert(second->local().port.value() >= astia::udp::udp_protocol::ephemeral_first);
-        assert(second->bind(wildcard) == -EINVAL);
+        assert(drive(second->bind(wildcard)) == -EINVAL);
 
         // Destroying the first socket releases its port.
         protocol.destroy(first);
@@ -324,7 +385,7 @@ namespace {
         astia::udp::socket* third = protocol.create();
 
         assert(third != nullptr);
-        assert(third->bind(endpoint_of(local_ip, 4200)) == 0);
+        assert(drive(third->bind(endpoint_of(local_ip, 4200))) == 0);
 
         // Malformed addresses are rejected.
         astia::udp::endpoint malformed{};
@@ -332,7 +393,7 @@ namespace {
         malformed.host = astia::net::link_address::from_packet(peer_mac, 6);
         malformed.port = 4300;
 
-        assert(third->bind(malformed) == -EINVAL);
+        assert(drive(third->bind(malformed)) == -EINVAL);
 
         protocol.destroy(second);
         protocol.destroy(third);
@@ -344,7 +405,7 @@ namespace {
         astia::udp::socket* socket = protocol.create();
 
         assert(socket != nullptr);
-        assert(socket->bind(endpoint_of(local_ip, 4400)) == 0);
+        assert(drive(socket->bind(endpoint_of(local_ip, 4400))) == 0);
 
         u8 storage[64]{};
 
@@ -419,6 +480,7 @@ int main() {
 
     test_checksum_vector();
     test_receive_demux(protocol);
+    test_receive_cancel(protocol);
     test_receive_rejects(protocol);
     test_bind_and_ports(protocol);
     test_transmit(protocol, ipv4);
