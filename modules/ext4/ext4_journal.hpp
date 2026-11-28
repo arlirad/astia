@@ -45,10 +45,12 @@ namespace astia::ext4 {
         bool abort(volume& v);
         bool active() const;
         bool read_staged(volume& v, u64 fs_block, void* out) const;
+        bool has_staged(u64 fs_block) const;
         bool crashed() const;
         bool crash_pending() const;
 
         static bool test_set_crash_after_commit(bool enabled);
+        static bool test_set_crash_after_checkpoint(bool enabled);
 
         private:
         struct tag {
@@ -58,11 +60,16 @@ namespace astia::ext4 {
             u16 flags;
         };
 
+        struct revoke {
+            u64 block;
+            u32 sequence;
+        };
+
         static constexpr u32 max_tags          = 48;
         static constexpr u32 max_recovery_tags = 256;
-        static constexpr u32 max_revokes       = 64;
-        static constexpr u32 max_scan_blocks   = 4096;
+        static constexpr u32 max_revokes       = 256;
 
+        static u32 sequence_after(u32 value);
         void reset();
         u32  next(u32 position) const;
         u32  tag_size() const;
@@ -76,8 +83,8 @@ namespace astia::ext4 {
         u32  tag_checksum(u32 sequence, const void* data) const;
         bool parse_tags(const u8* block, tag* tags, u32 capacity, u32& count,
                         u32& next_position) const;
-        bool parse_revokes(const u8* block);
-        bool revoked(u64 block) const;
+        bool parse_revokes(const u8* block, u32 sequence);
+        bool revoked(u64 block, u32 sequence) const;
         void serialize_tag(u8* destination, const tag& value, u16 extra) const;
         bool write_descriptor(volume& v);
         bool write_commit(volume& v);
@@ -105,10 +112,12 @@ namespace astia::ext4 {
         bool         _wide         = false;
         bool         _active       = false;
         bool         _set_recover  = false;
+        superblock   _snapshot{};
+        bool         _snapshot_valid = false;
         u8           _sb[4096]{};
         u8           _block[4096]{};
         tag          _tags[max_tags]{};
         tag          _recovery[max_recovery_tags]{};
-        u64          _revokes[max_revokes]{};
+        revoke       _revokes[max_revokes]{};
     };
 } // namespace astia::ext4

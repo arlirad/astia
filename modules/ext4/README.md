@@ -32,6 +32,12 @@ superblock free counts. File data blocks are written directly to their home
 blocks before the metadata transaction commits (data=ordered). A mounted image
 without a journal stays writable through the direct block path.
 
+Transactions are published to the journal superblock before their home blocks
+are checkpointed; file data is written before the metadata commit and there is
+no explicit cache-flush primitive, so the module assumes durable synchronous
+writes, and a single operation may span multiple transactions if it exceeds the
+48-tag staging bound (partial progress is preserved).
+
 `initialize()` opens the journal, replays it when `needs_recovery`
 (`INCOMPAT_RECOVER` / a nonzero journal `s_start`) is set, then enables
 `CSUM_V3` on journals created without checksum features before attaching the

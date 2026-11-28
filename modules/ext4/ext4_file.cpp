@@ -15,7 +15,7 @@ namespace astia::ext4 {
         auto handle = mm::share<file>(owner, node);
 
         if (!handle)
-            owner->release_inode(node.number);
+            (void) owner->release_inode(node.number);
 
         return handle;
     }

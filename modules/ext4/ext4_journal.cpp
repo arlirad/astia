@@ -17,8 +17,9 @@ namespace astia::ext4 {
             journal_incompat_async | journal_incompat_csum_v2 |
             journal_incompat_csum_v3 | journal_incompat_fast_commit;
 
-        bool crash_after_commit = false;
-        bool crash_observed     = false;
+        bool crash_after_commit     = false;
+        bool crash_after_checkpoint = false;
+        bool crash_observed         = false;
 
         u16 load_be16(const void* source) {
             return core::be<u16>::load(source);
@@ -57,6 +58,10 @@ namespace astia::ext4 {
         }
     } // namespace
 
+    u32 journal::sequence_after(u32 value) {
+        return value + 1 == 0 ? 1 : value + 1;
+    }
+
     void journal::reset() {
         _inode        = inode_record{};
         _block_size   = 0;
@@ -76,6 +81,8 @@ namespace astia::ext4 {
         _wide         = false;
         _active       = false;
         _set_recover  = false;
+        _snapshot     = superblock{};
+        _snapshot_valid = false;
 
         reset_transaction();
     }
@@ -166,6 +173,9 @@ namespace astia::ext4 {
         _sequence = load_be32(_sb + super_sequence);
         _start    = load_be32(_sb + super_start);
         _head     = load_be32(_sb + super_head);
+
+        if (_sequence == 0)
+            _sequence = 1;
 
         if (_maxlen == 0 || _first == 0 || _first >= _maxlen ||
             _maxlen > _inode.size() / _block_size || _sequence == 0)
@@ -346,7 +356,7 @@ namespace astia::ext4 {
         return last;
     }
 
-    bool journal::parse_revokes(const u8* block) {
+    bool journal::parse_revokes(const u8* block, u32 sequence) {
         const u32 used = load_be32(block + 12);
         const u32 end  = _block_size - (_csum ? 4 : 0);
         const u32 size = revoke_size();
@@ -361,15 +371,20 @@ namespace astia::ext4 {
             if (_revoke_count >= max_revokes)
                 return false;
 
-            _revokes[_revoke_count++] = revoked_block;
+            _revokes[_revoke_count].block    = revoked_block;
+            _revokes[_revoke_count].sequence = sequence;
+            ++_revoke_count;
         }
 
         return true;
     }
 
-    bool journal::revoked(u64 block) const {
+    bool journal::revoked(u64 block, u32 sequence) const {
         for (u32 i = 0; i < _revoke_count; ++i) {
-            if (_revokes[i] == block)
+            if (_revokes[i].block != block)
+                continue;
+
+            if (static_cast<i32>(sequence - _revokes[i].sequence) >= 0)
                 return true;
         }
 
@@ -383,16 +398,18 @@ namespace astia::ext4 {
         if (_start == 0)
             return true;
 
-        u32 expected = _sequence;
-        u32 position = _start;
-        u32 head     = _start;
-        u32 scanned  = 0;
+        const u32 first_sequence = _sequence;
+        u32       expected       = first_sequence;
+        u32       position       = _start;
+        u32       scanned        = 0;
+        u32       end            = _start;
 
+        _revoke_count = 0;
         reset_transaction();
 
         for (;;) {
-            if (scanned >= max_scan_blocks)
-                return false;
+            if (scanned >= _maxlen)
+                break;
 
             if (!read_journal_block(v, position, _block))
                 return false;
@@ -408,9 +425,9 @@ namespace astia::ext4 {
 
             if (type == journal_revoke) {
                 if (_csum && !verify_tail(_block))
-                    return false;
+                    break;
 
-                if (!parse_revokes(_block))
+                if (!parse_revokes(_block, expected))
                     return false;
 
                 position = next(position);
@@ -421,48 +438,91 @@ namespace astia::ext4 {
 
             if (type == journal_descriptor) {
                 if (_csum && !verify_tail(_block))
-                    return false;
+                    break;
 
-                const u32 first = _tag_count;
-                u32       after = next(position);
+                u32 count = 0;
+                u32 after = next(position);
 
-                if (!parse_tags(_block, _recovery, max_recovery_tags,
-                                _tag_count, after))
-                    return false;
+                if (!parse_tags(_block, _recovery, max_recovery_tags, count,
+                                after))
+                    break;
 
-                for (u32 i = first; i < _tag_count; ++i) {
+                bool valid = true;
+
+                for (u32 i = 0; i < count && valid; ++i) {
                     if (!read_journal_block(v, _recovery[i].position, _block))
                         return false;
 
-                    if (_csum) {
-                        const u32 actual =
-                            tag_checksum(expected, _block);
+                    if (!_csum)
+                        continue;
 
-                        if (_csum_v3) {
-                            if (actual != _recovery[i].checksum)
-                                return false;
-                        }
-                        else if ((actual & 0xFFFFu) !=
-                                 (_recovery[i].checksum & 0xFFFFu)) {
-                            return false;
-                        }
-                    }
+                    const u32 actual = tag_checksum(expected, _block);
+
+                    valid = _csum_v3
+                                ? actual == _recovery[i].checksum
+                                : (actual & 0xFFFFu) ==
+                                      (_recovery[i].checksum & 0xFFFFu);
                 }
 
+                if (!valid)
+                    break;
+
                 position = after;
-                scanned += 1 + (_tag_count - first);
+                scanned += 1 + count;
 
                 continue;
             }
 
             if (type == journal_commit) {
                 if (_csum && !verify_commit(_block))
+                    break;
+
+                position = next(position);
+                ++scanned;
+                end = position;
+
+                expected = sequence_after(expected);
+
+                continue;
+            }
+
+            break;
+        }
+
+        u32 replay_expected = first_sequence;
+        u32 replay_position = _start;
+
+        reset_transaction();
+
+        while (replay_position != end) {
+            if (!read_journal_block(v, replay_position, _block))
+                return false;
+
+            const u32 type = load_be32(_block + 4);
+
+            if (type == journal_revoke) {
+                replay_position = next(replay_position);
+
+                continue;
+            }
+
+            if (type == journal_descriptor) {
+                u32 after = next(replay_position);
+
+                if (!parse_tags(_block, _recovery, max_recovery_tags,
+                                _tag_count, after))
                     return false;
 
+                replay_position = after;
+
+                continue;
+            }
+
+            if (type == journal_commit) {
                 for (u32 i = 0; i < _tag_count; ++i) {
                     const tag& item = _recovery[i];
 
-                    if (revoked(item.block))
+                    if (revoked(item.block, replay_expected))
                         continue;
 
                     if (!read_journal_block(v, item.position, _block))
@@ -475,12 +535,10 @@ namespace astia::ext4 {
                         return false;
                 }
 
-                ++expected;
-                head = next(position);
-                position = next(position);
-                ++scanned;
-
                 reset_transaction();
+
+                replay_expected = sequence_after(replay_expected);
+                replay_position = next(replay_position);
 
                 continue;
             }
@@ -489,8 +547,8 @@ namespace astia::ext4 {
         }
 
         _start    = 0;
-        _sequence = expected;
-        _head     = head;
+        _sequence = replay_expected;
+        _head     = end;
 
         if (!write_superblock(v))
             return false;
@@ -546,6 +604,8 @@ namespace astia::ext4 {
         _descriptor = _first;
         _head       = next(_first);
         _set_recover = false;
+        _snapshot   = v.sb();
+        _snapshot_valid = true;
 
         reset_transaction();
 
@@ -553,8 +613,11 @@ namespace astia::ext4 {
             v.sb().set_feature_incompat(v.sb().feature_incompat() |
                                         incompat_recover);
 
-            if (!v.write_superblock_home())
+            if (!v.write_superblock_home()) {
+                _snapshot_valid = false;
+
                 return false;
+            }
 
             _set_recover = true;
         }
@@ -707,9 +770,13 @@ namespace astia::ext4 {
             return false;
 
         if (_tag_count == 0) {
-            _active = false;
+            const bool had_recover = _set_recover;
 
-            return _set_recover ? clear_recover(v, false) : true;
+            _active         = false;
+            _snapshot_valid = false;
+            _set_recover    = false;
+
+            return had_recover ? clear_recover(v, false) : true;
         }
 
         if (!write_descriptor(v))
@@ -720,46 +787,82 @@ namespace astia::ext4 {
         if (!write_commit(v))
             return false;
 
-        if (crash_after_commit) {
-            _start    = _descriptor;
-            _sequence = _expected;
-            _head     = next(commit_position);
-            _active   = false;
-
-            const bool written = write_superblock(v);
-
-            crash_observed = true;
-
-            return written;
-        }
-
-        if (!checkpoint(v))
-            return false;
-
-        _start    = 0;
-        _sequence = _expected + 1;
+        _start    = _descriptor;
+        _sequence = _expected;
         _head     = next(commit_position);
 
         if (!write_superblock(v))
             return false;
 
-        _active = false;
+        _active         = false;
+        _snapshot_valid = false;
+
+        if (crash_after_commit) {
+            crash_observed = true;
+
+            return true;
+        }
+
+        if (!checkpoint(v))
+            return false;
+
+        if (crash_after_checkpoint) {
+            crash_observed = true;
+
+            return true;
+        }
+
+        _start    = 0;
+        _sequence = sequence_after(_expected);
+        _head     = next(commit_position);
+
+        if (!write_superblock(v))
+            return false;
+
+        _set_recover = false;
 
         return clear_recover(v, false);
     }
 
     bool journal::abort(volume& v) {
-        (void) v;
-
         if (crashed())
             return false;
 
         reset_transaction();
 
         _descriptor = 0;
-        _active     = false;
 
-        return true;
+        if (!_active || !_snapshot_valid) {
+            _active         = false;
+            _snapshot_valid = false;
+            _set_recover    = false;
+
+            return true;
+        }
+
+        v.restore_superblock(_snapshot);
+
+        _active         = false;
+        _snapshot_valid = false;
+
+        if (!_set_recover) {
+            _set_recover = false;
+
+            return true;
+        }
+
+        _set_recover = false;
+
+        return v.write_superblock_home();
+    }
+
+    bool journal::has_staged(u64 fs_block) const {
+        for (u32 i = 0; i < _tag_count; ++i) {
+            if (_tags[i].block == fs_block)
+                return true;
+        }
+
+        return false;
     }
 
     bool journal::read_staged(volume& v, u64 fs_block, void* out) const {
@@ -799,6 +902,9 @@ namespace astia::ext4 {
         _hooks.stage = [](void* context, volume& v, u64 block, const void* data) {
             return static_cast<journal*>(context)->stage(v, block, data);
         };
+        _hooks.has_staged = [](const void* context, u64 block) {
+            return static_cast<const journal*>(context)->has_staged(block);
+        };
         _hooks.read_staged =
             [](const void* context, volume& v, u64 block, void* output) {
                 return static_cast<const journal*>(context)->read_staged(
@@ -816,6 +922,17 @@ namespace astia::ext4 {
         const bool previous = crash_after_commit;
 
         crash_after_commit = enabled;
+
+        if (!enabled)
+            crash_observed = false;
+
+        return previous;
+    }
+
+    bool journal::test_set_crash_after_checkpoint(bool enabled) {
+        const bool previous = crash_after_checkpoint;
+
+        crash_after_checkpoint = enabled;
 
         if (!enabled)
             crash_observed = false;

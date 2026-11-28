@@ -1390,8 +1390,10 @@ namespace astia::ext4 {
 
     bool volume::read_block(u64 block, void* output) {
         if (_hooks.active != nullptr && _hooks.active(_hooks.context) &&
-            _hooks.read_staged(_hooks.context, *this, block, output))
-            return true;
+            _hooks.has_staged != nullptr &&
+            _hooks.has_staged(_hooks.context, block)) {
+            return _hooks.read_staged(_hooks.context, *this, block, output);
+        }
 
         return read_home_block(block, output);
     }
@@ -1432,6 +1434,9 @@ namespace astia::ext4 {
     }
 
     bool volume::write_data_block(u64 block, const void* input) {
+        if (_hooks.crashed != nullptr && _hooks.crashed(_hooks.context))
+            return false;
+
         return write_home_block(block, input);
     }
 
@@ -1645,6 +1650,15 @@ namespace astia::ext4 {
 
     void volume::mark_superblock_dirty() {
         _dirty = true;
+    }
+
+    bool volume::superblock_dirty() const {
+        return _dirty;
+    }
+
+    void volume::restore_superblock(const superblock& value) {
+        _sb    = value;
+        _dirty = false;
     }
 
     bool volume::read_thunk(void* context, u64 offset, void* buffer, usz length) {

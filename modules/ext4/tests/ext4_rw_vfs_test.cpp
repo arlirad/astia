@@ -211,7 +211,8 @@ int main(int argc, char** argv) {
         payload[i] = pattern_byte(i);
     }
 
-    if (std::strcmp(mode, "crash") == 0) {
+    if (std::strcmp(mode, "crash") == 0 ||
+        std::strcmp(mode, "crash-checkpoint") == 0) {
         if (!check(astia::fs::make_directory(
                        "/tmp/ext4/crash",
                        astia::fs::file_mode(astia::fs::directory_dir,
@@ -229,7 +230,10 @@ int main(int argc, char** argv) {
                    "write crash/keep.txt seed byte"))
             return 1;
 
-        astia::ext4::journal::test_set_crash_after_commit(true);
+        if (std::strcmp(mode, "crash-checkpoint") == 0)
+            astia::ext4::journal::test_set_crash_after_checkpoint(true);
+        else
+            astia::ext4::journal::test_set_crash_after_commit(true);
 
         u8 crash_data[8192];
 

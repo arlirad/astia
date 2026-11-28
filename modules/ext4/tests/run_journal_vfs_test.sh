@@ -20,6 +20,9 @@ E2FSPROGS_FAKE_TIME=1700000000 mke2fs -q -F -t ext4 -b 1024 -I 256 \
     -J size=4 -d "$root" "$fixture" 16M
 e2fsck -fn "$fixture"
 
+LC_ALL=C awk 'BEGIN { for (i = 0; i < 8192; ++i) printf "%c", (i * 37 + 11) % 256 }' \
+    >"${work}/expected.bin"
+
 launcher=${EXT4_JOURNAL_VFS_LAUNCHER:-}
 if [ -z "$launcher" ] && command -v setarch >/dev/null 2>&1; then
     launcher='setarch -R'
@@ -48,6 +51,41 @@ expect_ok() {
     fi
 }
 
+needs_recovery() {
+    dumpe=$(dumpe2fs -h "$1" 2>/dev/null || true)
+    printf '%s\n' "$dumpe" | grep -q 'needs_recovery'
+}
+
+check_recovered() {
+    image=$1
+
+    e2fsck -fn "$image"
+
+    if needs_recovery "$image"; then
+        echo "recovered image ${image} still needs recovery" >&2
+        exit 1
+    fi
+
+    stat=$(debugfs -R 'stat /crash/keep.txt' "$image" 2>/dev/null || true)
+    printf '%s\n' "$stat"
+
+    size=$(printf '%s\n' "$stat" |
+        sed -n 's/^.*Size: \([0-9][0-9]*\).*$/\1/p' | head -n 1)
+
+    if [ "$size" != "8192" ]; then
+        echo "unexpected recovered /crash/keep.txt size in ${image}: ${size:-missing}" >&2
+        exit 1
+    fi
+
+    debugfs -R 'cat /crash/keep.txt' "$image" 2>/dev/null \
+        >"${work}/recovered.bin" || true
+
+    if ! cmp "${work}/expected.bin" "${work}/recovered.bin"; then
+        echo "recovered /crash/keep.txt content does not match in ${image}" >&2
+        exit 1
+    fi
+}
+
 cp "$fixture" "${work}/normal.img"
 run_tool normal "${work}/normal.img" "${work}/normal-out.img" \
     >"${work}/normal.log" 2>&1
@@ -64,9 +102,7 @@ if ! printf '%s\n' "$content" | grep -q 'persisted through ext4 module'; then
     exit 1
 fi
 
-dumpe=$(dumpe2fs -h "${work}/normal-out.img" 2>/dev/null || true)
-
-if printf '%s\n' "$dumpe" | grep -q 'needs_recovery'; then
+if needs_recovery "${work}/normal-out.img"; then
     echo "mounted journal image still needs recovery" >&2
     exit 1
 fi
@@ -76,9 +112,7 @@ run_tool crash "${work}/crash.img" "${work}/crash.img" \
     >"${work}/crash.log" 2>&1
 expect_ok "${work}/crash.log"
 
-dumpe=$(dumpe2fs -h "${work}/crash.img" 2>/dev/null || true)
-
-if ! printf '%s\n' "$dumpe" | grep -q 'needs_recovery'; then
+if ! needs_recovery "${work}/crash.img"; then
     echo "crash image is missing needs_recovery" >&2
     exit 1
 fi
@@ -88,35 +122,24 @@ run_tool recover "${work}/recovered.img" "${work}/recovered.img" \
     >"${work}/recovered.log" 2>&1
 expect_ok "${work}/recovered.log"
 
-e2fsck -fn "${work}/recovered.img"
+check_recovered "${work}/recovered.img"
 
-dumpe=$(dumpe2fs -h "${work}/recovered.img" 2>/dev/null || true)
+cp "$fixture" "${work}/crash-checkpoint.img"
+run_tool crash-checkpoint "${work}/crash-checkpoint.img" \
+    "${work}/crash-checkpoint.img" >"${work}/crash-checkpoint.log" 2>&1
+expect_ok "${work}/crash-checkpoint.log"
 
-if printf '%s\n' "$dumpe" | grep -q 'needs_recovery'; then
-    echo "recovered image still needs recovery" >&2
+if ! needs_recovery "${work}/crash-checkpoint.img"; then
+    echo "checkpoint crash image is missing needs_recovery" >&2
     exit 1
 fi
 
-stat=$(debugfs -R 'stat /crash/keep.txt' "${work}/recovered.img" \
-    2>/dev/null || true)
-printf '%s\n' "$stat"
+cp "${work}/crash-checkpoint.img" "${work}/recovered-checkpoint.img"
+run_tool recover "${work}/recovered-checkpoint.img" \
+    "${work}/recovered-checkpoint.img" \
+    >"${work}/recovered-checkpoint.log" 2>&1
+expect_ok "${work}/recovered-checkpoint.log"
 
-size=$(printf '%s\n' "$stat" |
-    sed -n 's/^.*Size: \([0-9][0-9]*\).*$/\1/p' | head -n 1)
-
-if [ "$size" != "8192" ]; then
-    echo "unexpected recovered /crash/keep.txt size: ${size:-missing}" >&2
-    exit 1
-fi
-
-LC_ALL=C awk 'BEGIN { for (i = 0; i < 8192; ++i) printf "%c", (i * 37 + 11) % 256 }' \
-    >"${work}/expected.bin"
-debugfs -R 'cat /crash/keep.txt' "${work}/recovered.img" 2>/dev/null \
-    >"${work}/recovered.bin" || true
-
-if ! cmp "${work}/expected.bin" "${work}/recovered.bin"; then
-    echo "recovered /crash/keep.txt content does not match" >&2
-    exit 1
-fi
+check_recovered "${work}/recovered-checkpoint.img"
 
 printf 'ext4 journal VFS test passed\n'

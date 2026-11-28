@@ -68,11 +68,16 @@ honours the `ESCAPE` flag for metadata blocks that begin with the journal magic,
 and tracks sequence numbers and ring wrap. A journal with fast commit, unknown
 incompatible bits, or any compat/ro-compat bits is unsupported.
 
-Each VFS mutation stages its metadata in one transaction and checkpoints it
-immediately at `finish()`. A transaction begins by setting the filesystem
-`needs_recovery` flag (`INCOMPAT_RECOVER`) and writing the superblock; a
-successful commit checkpoints the staged blocks, clears the flag and sets the
-superblock state to clean.
+Each VFS mutation stages its metadata in one transaction that is checkpointed
+at `finish()`; the journal superblock is published before the home blocks are
+checkpointed, so a power loss during checkpoint leaves a replayable
+transaction. A transaction begins by setting the filesystem `needs_recovery`
+flag (`INCOMPAT_RECOVER`) and writing the superblock; a successful commit
+checkpoints the staged blocks, clears the flag and sets the superblock state to
+clean. File data is written before the metadata commit, and there is no
+explicit cache-flush primitive, so the module assumes durable synchronous
+writes; a single operation may span multiple transactions if it exceeds the
+48-tag staging bound, and partial progress is preserved.
 Replay runs before the mount is usable. A journal without checksum features is
 upgraded to `CSUM_V3` on the first read-write mount; if that upgrade fails, the
 mount falls back to read-only. An unsupported journal also mounts read-only,

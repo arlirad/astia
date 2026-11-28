@@ -350,6 +350,20 @@ namespace astia::ext4 {
             }
         }
 
+        if (_volume.writable() && journal_ready &&
+            !_journal.requires_recovery() &&
+            (_volume.feature_incompat() & incompat_recover) != 0) {
+            _volume.sb().set_feature_incompat(_volume.feature_incompat() &
+                                              ~incompat_recover);
+            _volume.sb().set_state(1);
+
+            if (!_volume.write_superblock_home()) {
+                logs::error("stale recovery marker could not be cleared");
+
+                return false;
+            }
+        }
+
         if (_volume.writable()) {
             if (!has_journal) {
                 _writable = true;
@@ -816,9 +830,9 @@ namespace astia::ext4 {
         return true;
     }
 
-    void mount::release_inode(u32 inode) {
+    bool mount::release_inode(u32 inode) {
         if (inode == 0)
-            return;
+            return false;
 
         for (u32 i = 0; i < open_reference_capacity; ++i) {
             if (_open_refs[i].inode != inode)
@@ -827,7 +841,7 @@ namespace astia::ext4 {
             if (_open_refs[i].count > 1) {
                 --_open_refs[i].count;
 
-                return;
+                return false;
             }
 
             _open_refs[i] = {};
@@ -835,26 +849,35 @@ namespace astia::ext4 {
             inode_record node;
 
             if (!_volume.read_inode(inode, node))
-                return;
+                return false;
 
             if (node.links_count() != 0 || node.dtime() == 0)
-                return;
+                return false;
 
             if ((node.flags() & inode_extents) != 0) {
                 if (!extent::free_all(_volume, _space, node))
-                    return;
+                    return false;
             }
 
-            (void) _space.free_inode(node);
-
-            return;
+            return _space.free_inode(node);
         }
+
+        return false;
     }
 
     void mount::release_inode_reference(u32 inode) {
         core::spinlock_guard guard(_lock);
 
-        release_inode(inode);
+        if (!release_inode(inode)) {
+            (void) _volume.abort_transaction();
+
+            return;
+        }
+
+        if (!_volume.commit()) {
+            (void) _volume.abort_transaction();
+            logs::error("deferred inode free commit failed");
+        }
     }
 
     u16 mount::open_count_for(u32 inode) const {

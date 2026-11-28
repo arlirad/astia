@@ -164,7 +164,7 @@ namespace astia::ext4 {
         };
 
         bool acquire_inode(u32 inode);
-        void release_inode(u32 inode);
+        bool release_inode(u32 inode);
         void release_inode_reference(u32 inode);
         u16  open_count_for(u32 inode) const;
 

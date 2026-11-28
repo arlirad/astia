@@ -13,6 +13,7 @@ namespace astia::ext4 {
         bool (*active)(const void*) = nullptr;
         bool (*crashed)(const void*) = nullptr;
         bool (*stage)(void*, volume&, u64, const void*) = nullptr;
+        bool (*has_staged)(const void*, u64) = nullptr;
         bool (*read_staged)(const void*, volume&, u64, void*) = nullptr;
         bool (*commit)(void*, volume&) = nullptr;
         bool (*abort)(void*, volume&) = nullptr;
@@ -390,7 +391,9 @@ namespace astia::ext4 {
         bool write_superblock_home();
         bool sync();
 
-        void mark_superblock_dirty();
+        void             mark_superblock_dirty();
+        bool             superblock_dirty() const;
+        void             restore_superblock(const superblock& value);
 
         superblock& sb() {
             return _sb;
