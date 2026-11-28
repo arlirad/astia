@@ -367,6 +367,41 @@ namespace {
 
         return core::hook::outcome::pass;
     }
+
+    void check_device_access_mode(astia::fs::file_type type) {
+        using namespace aio::test_support;
+
+        reset_environment();
+        install_current_process();
+
+        auto* ro_node = new aio_test::fake_file(type);
+        auto* wo_node = new aio_test::fake_file(type);
+        auto* rw_node = new aio_test::fake_file(type);
+
+        ro_node->submit_result = 1;
+        wo_node->submit_result = 1;
+        rw_node->submit_result = 1;
+
+        const i32 ro =
+            install_descriptor(aio_test::make_open_file(ro_node, ASTIA_AIO_O_RDONLY));
+        const i32 wo =
+            install_descriptor(aio_test::make_open_file(wo_node, ASTIA_AIO_O_WRONLY));
+        const i32 rw =
+            install_descriptor(aio_test::make_open_file(rw_node, ASTIA_AIO_O_RDWR));
+
+        char byte = 0;
+
+        ASTIA_CHECK(submit_data(OP_READ, ro, &byte, 1) == 1);
+        ASTIA_CHECK(submit_data(OP_WRITE, ro, &byte, 1) == -EBADF);
+        ASTIA_CHECK(submit_data(OP_READ, wo, &byte, 1) == -EBADF);
+        ASTIA_CHECK(submit_data(OP_WRITE, wo, &byte, 1) == 1);
+        ASTIA_CHECK(submit_data(OP_READ, rw, &byte, 1) == 1);
+        ASTIA_CHECK(submit_data(OP_WRITE, rw, &byte, 1) == 1);
+
+        clear_descriptor(ro);
+        clear_descriptor(wo);
+        clear_descriptor(rw);
+    }
 } // namespace
 
 ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
@@ -395,38 +430,11 @@ ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
 }
 
 ASTIA_TEST(aio_filesystem_character_device_access_mode_matches_open) {
-    using namespace aio::test_support;
+    check_device_access_mode(astia::fs::file_type::character);
+}
 
-    reset_environment();
-    install_current_process();
-
-    auto* ro_node = new aio_test::fake_file(astia::fs::file_type::character);
-    auto* wo_node = new aio_test::fake_file(astia::fs::file_type::character);
-    auto* rw_node = new aio_test::fake_file(astia::fs::file_type::character);
-
-    ro_node->submit_result = 1;
-    wo_node->submit_result = 1;
-    rw_node->submit_result = 1;
-
-    const i32 ro =
-        install_descriptor(aio_test::make_open_file(ro_node, ASTIA_AIO_O_RDONLY));
-    const i32 wo =
-        install_descriptor(aio_test::make_open_file(wo_node, ASTIA_AIO_O_WRONLY));
-    const i32 rw =
-        install_descriptor(aio_test::make_open_file(rw_node, ASTIA_AIO_O_RDWR));
-
-    char byte = 0;
-
-    ASTIA_CHECK(submit_data(OP_READ, ro, &byte, 1) == 1);
-    ASTIA_CHECK(submit_data(OP_WRITE, ro, &byte, 1) == -EBADF);
-    ASTIA_CHECK(submit_data(OP_READ, wo, &byte, 1) == -EBADF);
-    ASTIA_CHECK(submit_data(OP_WRITE, wo, &byte, 1) == 1);
-    ASTIA_CHECK(submit_data(OP_READ, rw, &byte, 1) == 1);
-    ASTIA_CHECK(submit_data(OP_WRITE, rw, &byte, 1) == 1);
-
-    clear_descriptor(ro);
-    clear_descriptor(wo);
-    clear_descriptor(rw);
+ASTIA_TEST(aio_filesystem_block_device_access_mode_matches_open) {
+    check_device_access_mode(astia::fs::file_type::block);
 }
 
 ASTIA_TEST(aio_filesystem_openat_tty_without_controlling_terminal_is_enxio) {

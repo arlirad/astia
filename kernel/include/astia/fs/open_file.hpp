@@ -200,7 +200,12 @@ namespace astia::fs {
         long reserve_append(u32 length, u64* offset);
 
         bool access_allows(io::direction direction) const {
-            if (!_parent || !_parent->mode().is_character_device())
+            if (!_parent)
+                return true;
+
+            const file_mode mode = _parent->mode();
+
+            if (!mode.is_character_device() && !mode.is_block_device())
                 return true;
 
             return direction == io::direction::input ? open_file_readable(_flags)
