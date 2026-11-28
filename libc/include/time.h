@@ -81,6 +81,8 @@ char*      ctime(const time_t* timer);
 size_t     strftime(char* dst, size_t cap, const char* format, const struct tm* value);
 char*      strptime(const char* input, const char* format, struct tm* value);
 
+clock_t clock(void);
+void    tzset(void);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

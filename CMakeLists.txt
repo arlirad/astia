@@ -281,6 +281,10 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E env
         "ASTIA_ZSH_BUILD_ONLY=1"
         "ASTIA_NANO=1"
+        "ASTIA_CURL=1"
+        "ASTIA_WGET=1"
+        "ASTIA_CURL_BUILD=${CMAKE_BINARY_DIR}/curl"
+        "ASTIA_WGET_BUILD=${CMAKE_BINARY_DIR}/wget"
         "ASTIA_DEV_INITRD_BUILD_ROOT=${CMAKE_BINARY_DIR}"
         "ASTIA_DEV_INITRD_RUN=${_astia_dev_initrd_run}"
         "ASTIA_ZSH_RUN=${_astia_dev_initrd_run}"
@@ -307,6 +311,9 @@ add_custom_command(
         ${_astia_dev_initrd_modules}
         "${CMAKE_SOURCE_DIR}/utils/coreutils/build.sh"
         "${CMAKE_SOURCE_DIR}/utils/sysutils/build.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/build-curl.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/build-wget.sh"
+        "${CMAKE_SOURCE_DIR}/toolchain/astia-ports/errno-macros.h"
         ${_astia_dev_initrd_sources}
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     USES_TERMINAL

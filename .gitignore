@@ -52,3 +52,5 @@ __pycache__/
 .cache/
 *~
 .DS_Store
+user/curl/
+user/wget/

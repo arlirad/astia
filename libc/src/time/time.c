@@ -668,3 +668,5 @@ size_t strftime(char* dst, size_t cap, const char* format, const struct tm* valu
 
     return at;
 }
+
+void tzset(void) {}

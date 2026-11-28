@@ -14,3 +14,6 @@ struct timezone {
 
 int gettimeofday(struct timeval* value, struct timezone* timezone);
 int settimeofday(const struct timeval* value, const struct timezone* timezone);
+int utimes(const char* path, const struct timeval times[2]);
+
+#include <sys/select.h>

@@ -778,6 +778,61 @@ FILE* fopen(const char* path, const char* mode) {
     return f;
 }
 
+int fpurge(FILE* stream) {
+    if (stream == NULL) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    stream->len          = 0;
+    stream->cur          = 0;
+    stream->pushback_len = 0;
+
+    return 0;
+}
+
+int __freading(FILE* stream) {
+    return freading(stream);
+}
+
+int __fwriting(FILE* stream) {
+    return fwriting(stream);
+}
+
+int freading(FILE* stream) {
+    return stream != NULL && stream->reading != 0;
+}
+
+int fwriting(FILE* stream) {
+    return stream != NULL && stream->reading == 0 && stream->len != 0;
+}
+
+FILE* freopen(const char* path, const char* mode, FILE* stream) {
+    if (stream == NULL || path == NULL) {
+        errno = EINVAL;
+
+        return NULL;
+    }
+
+    FILE* opened = fopen(path, mode);
+    if (opened == NULL)
+        return NULL;
+
+    const int target = fileno(stream);
+    const int source = fileno(opened);
+
+    if (target < 0 || source < 0 || __astia_stdio_dup2(source, target) < 0) {
+        fclose(opened);
+
+        return NULL;
+    }
+
+    fclose(opened);
+
+    return stream;
+}
+
 int fclose(FILE* f) {
     int rc;
     int crc;

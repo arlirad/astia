@@ -1,5 +1,6 @@
 #include "internal/file_port.h"
 #include <sys/stat.h>
+#include <sys/time.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -191,6 +192,18 @@ int utime(const char* path, const struct utimbuf* value) {
     };
 
     return utimensat(AT_FDCWD, path, times, 0);
+}
+
+int utimes(const char* path, const struct timeval times[2]) {
+    if (times == NULL)
+        return utimensat(AT_FDCWD, path, NULL, 0);
+
+    struct timespec value[2] = {
+        {times[0].tv_sec, times[0].tv_usec * 1000},
+        {times[1].tv_sec, times[1].tv_usec * 1000},
+    };
+
+    return utimensat(AT_FDCWD, path, value, 0);
 }
 
 int mkdir(const char* path, mode_t mode) {

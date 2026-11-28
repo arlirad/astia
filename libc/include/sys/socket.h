@@ -158,6 +158,9 @@ struct msghdr {
 
 int  socket(int, int, int);
 int  getsockopt(int, int, int, void*, socklen_t*);
+int  setsockopt(int, int, int, const void*, socklen_t);
+int  getsockname(int, struct sockaddr*, socklen_t*);
+int  getpeername(int, struct sockaddr*, socklen_t*);
 int  bind(int, const struct sockaddr*, socklen_t);
 int  listen(int, int);
 int  accept(int, struct sockaddr*, socklen_t*);

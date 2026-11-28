@@ -1,4 +1,5 @@
-#pragma once
+/* Deliberately unguarded: <assert.h> is required to define assert on every
+ * inclusion, and gnulib-based ports rely on that. */
 
 /*
  * astia libc — <assert.h>

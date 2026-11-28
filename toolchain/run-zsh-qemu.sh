@@ -15,6 +15,10 @@ nano_binary=${ASTIA_NANO_BINARY:-}
 nano_enabled=${ASTIA_NANO:-0}
 nano_harness=${ASTIA_NANO_HARNESS:-0}
 nano_iterations=${ASTIA_NANO_ITERATIONS:-3}
+curl_binary=${ASTIA_CURL_BINARY:-}
+curl_enabled=${ASTIA_CURL:-0}
+wget_binary=${ASTIA_WGET_BINARY:-}
+wget_enabled=${ASTIA_WGET:-0}
 build_only=${ASTIA_ZSH_BUILD_ONLY:-0}
 clang=${CLANG:-clang}
 qemu=${QEMU:-qemu-system-x86_64}
@@ -121,6 +125,22 @@ case "$nano_harness" in
         ;;
 esac
 
+case "$curl_enabled" in
+    0|1) ;;
+    *)
+        echo "ASTIA_CURL must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
+case "$wget_enabled" in
+    0|1) ;;
+    *)
+        echo "ASTIA_WGET must be 0 or 1" >&2
+        exit 2
+        ;;
+esac
+
 case "$nano_iterations" in
     ''|*[!0-9]*|0)
         echo "ASTIA_NANO_ITERATIONS must be a positive integer" >&2
@@ -212,6 +232,40 @@ ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
     SYSUTILS_BUILD="$work/sysutils" "$root/utils/sysutils/build.sh"
 
+if [ -n "$curl_binary" ] || [ "$curl_enabled" = 1 ]; then
+    if [ -z "$curl_binary" ]; then
+        curl_build=${ASTIA_CURL_BUILD:-$root/build/user/curl}
+        if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+            CURL_BUILD="$curl_build" "$root/toolchain/build-curl.sh"; then
+            echo "Astia curl build failed in $curl_build." >&2
+            echo "Initialize userspace sources with toolchain/init-userspace.sh." >&2
+            exit 1
+        fi
+        curl_binary=$curl_build/output/curl
+    fi
+    if [ ! -x "$curl_binary" ]; then
+        echo "Astia curl binary is not executable: $curl_binary" >&2
+        exit 1
+    fi
+fi
+
+if [ -n "$wget_binary" ] || [ "$wget_enabled" = 1 ]; then
+    if [ -z "$wget_binary" ]; then
+        wget_build=${ASTIA_WGET_BUILD:-$root/build/user/wget}
+        if ! ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
+            WGET_BUILD="$wget_build" "$root/toolchain/build-wget.sh"; then
+            echo "Astia wget build failed in $wget_build." >&2
+            echo "Initialize userspace sources with toolchain/init-userspace.sh." >&2
+            exit 1
+        fi
+        wget_binary=$wget_build/output/wget
+    fi
+    if [ ! -x "$wget_binary" ]; then
+        echo "Astia wget binary is not executable: $wget_binary" >&2
+        exit 1
+    fi
+fi
+
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then
         nano_build=${ASTIA_NANO_BUILD:-$root/build/user/nano}
@@ -297,6 +351,12 @@ cp "$work/coreutils/bin/"* "$work/root/bin/"
 cp "$work/sysutils/bin/"* "$work/root/bin/"
 if [ -n "$nano_binary" ]; then
     cp "$nano_binary" "$work/root/bin/nano"
+fi
+if [ -n "$curl_binary" ]; then
+    cp "$curl_binary" "$work/root/bin/curl"
+fi
+if [ -n "$wget_binary" ]; then
+    cp "$wget_binary" "$work/root/bin/wget"
 fi
 cat > "$work/root/etc/zshenv" <<'EOF'
 PS1='ASTIA_READY> '

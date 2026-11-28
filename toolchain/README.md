@@ -56,6 +56,13 @@ pinned nano git endpoint is unavailable, the initializer verifies the official
 GNU nano 8.6 archive with SHA-256
 `f7abfbf0eed5f573ab51bd77a458f32d82f9859c55e9689f819d96fe1437a619`.
 
+The initializer also fetches the pinned curl and wget release archives, verifying
+curl 8.23.0 against SHA-256
+`e3de77cfa6367083c776a26647fc9f633b538c06c3baa73d931a252ac8f72b49` and
+GNU wget 1.25.0 against
+`766e48423e79359ea31e41db9e5c289675947a7fcf2efdcedb726ac9d0da3784`.
+The extracted trees live at `user/curl` and `user/wget`.
+
 ## Build zsh
 
 With the pinned checkout:
@@ -170,13 +177,14 @@ configure `ASTIA_VGA_QEMU`, `ASTIA_VGA_MEMORY`,
 paths as needed. The target invokes this launcher directly and does not
 duplicate its QEMU command line.
 
-To incrementally build the development initrd with zsh, nano, libc, and
-coreutils without starting QEMU, build the `dev_initrd` CMake target. It
-initializes the pinned zsh/nano/gnulib sources when needed, reuses the
+To incrementally build the development initrd with zsh, nano, curl, wget,
+libc, and coreutils without starting QEMU, build the `dev_initrd` CMake target.
+It initializes the pinned zsh/nano/gnulib sources when needed, reuses the
 existing userspace build caches, and writes the archive to
 `<CMake binary dir>/dev-initrd/initrd.cpio` (by default). The expanded
 manifest is in `<CMake binary dir>/dev-initrd/root`; the archive contains
-`/sbin/init`, `/bin/zsh`, `/bin/nano`, coreutils, and `/etc/zshenv`.
+`/sbin/init`, `/bin/zsh`, `/bin/nano`, `/bin/curl`, `/bin/wget`, coreutils,
+and `/etc/zshenv`.
 `ASTIA_DEV_INITRD_RUN` may select another dedicated, non-symlink directory
 directly under the CMake binary directory; the target rejects build/source
 directories and other unsafe locations before cleaning its staging tree.
