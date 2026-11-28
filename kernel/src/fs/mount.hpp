@@ -36,7 +36,11 @@ namespace astia::fs {
             return false;
         }
 
-        virtual mm::shptr<open_file> open(const char* path, u32 flags);
+        /// Open `path`.  A filesystem that cannot satisfy a create reports
+        /// why through `error` (for example -ENOSPC for a full node table)
+        /// instead of leaving the caller to guess from an empty handle.
+        virtual mm::shptr<open_file> open(const char* path, u32 flags,
+                                          long* error = nullptr);
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,

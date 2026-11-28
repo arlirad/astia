@@ -1106,7 +1106,7 @@ namespace astia::fs {
         return _parent ? _parent->chmod(permissions) : -EBADF;
     }
 
-    mm::shptr<open_file> open(const char*, u32) {
+    mm::shptr<open_file> open(const char*, u32, long*) {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
@@ -1114,7 +1114,7 @@ namespace astia::fs {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
-    mm::shptr<open_file> open_path(const char*, u32) {
+    mm::shptr<open_file> open_path(const char*, u32, long*) {
         return ::astia::io::aio::test_support::open_file_value;
     }
 

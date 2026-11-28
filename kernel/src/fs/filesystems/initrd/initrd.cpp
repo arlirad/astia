@@ -193,8 +193,9 @@ namespace astia::fs::filesystems {
         return true;
     }
 
-    mm::shptr<open_file> initrd_mount::open(const char* path, u32 flags) {
+    mm::shptr<open_file> initrd_mount::open(const char* path, u32 flags, long* error) {
         (void) flags;
+        (void) error;
 
         if (path == nullptr)
             return {};

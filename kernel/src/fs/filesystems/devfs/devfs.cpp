@@ -77,7 +77,9 @@ namespace astia::fs::filesystems {
         return -ENOENT;
     }
 
-    mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags) {
+    mm::shptr<open_file> devfs_mount::open(const char* path, u32 flags, long* error) {
+        (void) error;
+
         if (string_equal(path, "/ptmx"))
             return dev::pty_open_master(flags);
 
