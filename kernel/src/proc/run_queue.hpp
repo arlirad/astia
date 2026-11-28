@@ -115,6 +115,43 @@ namespace astia::proc {
             return pick_normal(eligible);
         }
 
+        struct admission {
+            Value* next   = nullptr;
+            u32    slot   = none;
+            bool   queued = false;
+        };
+
+        /// Insert `value` for another turn.  At capacity the entry `pick`
+        /// would have chosen next is detached first and returned in `next`
+        /// for the caller to run immediately, so a saturated queue hands off
+        /// a turn instead of dropping one.
+        template <typename Eligible>
+        admission insert_or_handoff(Value* value, const policy& bounds,
+                                    Eligible&& eligible) {
+            admission result;
+
+            if (value == nullptr)
+                return result;
+
+            if (_count < Capacity) {
+                result.slot   = insert(value, bounds);
+                result.queued = result.slot != none;
+
+                return result;
+            }
+
+            result.next = pick(eligible);
+
+            if (result.next == nullptr)
+                return result;
+
+            // pick() released a slot, so this insert always succeeds.
+            result.slot   = insert(value, bounds);
+            result.queued = result.slot != none;
+
+            return result;
+        }
+
         template <typename Function>
         void for_each(Function&& function) const {
             for (u32 slot = 0; slot < Capacity; ++slot) {
