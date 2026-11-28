@@ -1,5 +1,6 @@
 #include "common.h"
 #include "ls_layout.h"
+#include "ls_mode.h"
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 
@@ -26,20 +27,6 @@ typedef struct {
     int    almost_all;
     size_t width;
 } ls_options;
-
-static void mode_string(mode_t mode, char* result) {
-    result[0] = S_ISDIR(mode) ? 'd' : S_ISLNK(mode) ? 'l' : S_ISREG(mode) ? '-' : '?';
-
-    const int  bits[]  = {S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IWGRP,
-                          S_IXGRP, S_IROTH, S_IWOTH, S_IXOTH};
-    const char marks[] = "rwxrwxrwx";
-
-    for (int i = 0; i < 9; ++i) {
-        result[i + 1] = (mode & bits[i]) ? marks[i] : '-';
-    }
-
-    result[10] = '\0';
-}
 
 static char* join_path(const char* parent, const char* name) {
     size_t a = strlen(parent), b = strlen(name);
@@ -166,7 +153,7 @@ static int print_detailed(const char* path, const char* name, int color) {
 
     char mode[11];
 
-    mode_string(info.st_mode, mode);
+    cu_ls_mode_string(info.st_mode, mode);
 
     char line[256];
     int  length =
