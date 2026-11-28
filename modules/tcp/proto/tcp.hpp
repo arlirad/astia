@@ -178,6 +178,8 @@ namespace astia::tcp {
         void handle(connection& value, const net::protocol_packet& packet,
                     const tcp_header& header, net::packet_view payload);
 
+        void reset_unknown(const net::protocol_packet& packet, const tcp_header& header);
+
         void queue(connection& value, net::packet_view payload);
         i64  pop(connection& value, span<u8> data);
 
