@@ -73,73 +73,88 @@ namespace astia::net {
         u8 _bytes[Width / 8]{};
     };
 
-    /// Incremental RFC 1071 accumulator.  Feed the wire bytes in order: the
-    /// odd-byte carry is kept across segment boundaries, so a pseudo-header
-    /// and a split datagram can be summed without copying them together.
-    class internet_checksum_accumulator {
-        public:
-        void add(const u8* data, usz length) {
-            if (data == nullptr)
-                return;
+    /// RFC 1071 Internet checksum field.  The incremental accumulator lives
+    /// with the algorithm it belongs to (not with the generic field layout,
+    /// which also describes CRC-32).
+    struct internet_checksum final : checksum<0x10001, 16, core::byte_order::big> {
+        using base = checksum<0x10001, 16, core::byte_order::big>;
+        using base::base;
 
-            for (usz index = 0; index < length; ++index) {
-                const u8 value = data[index];
+        /// Incremental RFC 1071 sum.  Feed wire bytes in order; the odd-byte
+        /// carry is kept across segment boundaries, so a pseudo-header and a
+        /// split datagram can be summed without copying them together.
+        class accumulator {
+            public:
+            void add(const u8* data, usz length) {
+                if (data == nullptr)
+                    return;
 
-                if (!_have_high) {
-                    _high      = value;
-                    _have_high = true;
+                for (usz index = 0; index < length; ++index) {
+                    const u8 value = data[index];
+
+                    if (!_have_high) {
+                        _high      = value;
+                        _have_high = true;
+                    }
+                    else {
+                        _sum += (static_cast<u32>(_high) << 8) | value;
+                        _have_high = false;
+                    }
                 }
-                else {
-                    _sum += (static_cast<u32>(_high) << 8) | value;
-                    _have_high = false;
+            }
+
+            void add(span<const u8> data) {
+                add(data.data(), data.size());
+            }
+
+            void add(const packet_view& packet, usz length) {
+                const span<const u8> segments[2] = {packet.first, packet.second};
+
+                usz remaining = length;
+
+                for (const span<const u8>& segment : segments) {
+                    const usz take =
+                        segment.size() < remaining ? segment.size() : remaining;
+
+                    add(segment.data(), take);
+
+                    remaining -= take;
+                    if (remaining == 0)
+                        break;
                 }
             }
-        }
 
-        void add(span<const u8> data) {
-            add(data.data(), data.size());
-        }
+            u16 value() const {
+                u32 sum = _sum;
 
-        void add(const packet_view& packet, usz length) {
-            const span<const u8> segments[2] = {packet.first, packet.second};
+                if (_have_high)
+                    sum += static_cast<u32>(_high) << 8;
 
-            usz remaining = length;
+                while ((sum >> 16) != 0) {
+                    sum = (sum & 0xffffu) + (sum >> 16);
+                }
 
-            for (const span<const u8>& segment : segments) {
-                const usz take = segment.size() < remaining ? segment.size() : remaining;
-
-                add(segment.data(), take);
-
-                remaining -= take;
-                if (remaining == 0)
-                    break;
-            }
-        }
-
-        u16 value() const {
-            u32 sum = _sum;
-
-            if (_have_high)
-                sum += static_cast<u32>(_high) << 8;
-
-            while ((sum >> 16) != 0) {
-                sum = (sum & 0xffffu) + (sum >> 16);
+                return static_cast<u16>(~sum);
             }
 
-            return static_cast<u16>(~sum);
-        }
+            private:
+            u32  _sum       = 0;
+            bool _have_high = false;
+            u8   _high      = 0;
+        };
 
-        private:
-        u32  _sum       = 0;
-        bool _have_high = false;
-        u8   _high      = 0;
+        internet_checksum& operator=(value_type value) {
+            set(value);
+
+            return *this;
+        }
     };
 
     /// RFC 1071 one's-complement checksum over wire bytes.  The result is in
     /// host order; a valid checksum field makes this return 0 over the whole
     /// header or datagram (including the field itself).
     inline u16 internet_checksum_value(const u8* data, usz length) {
-        internet_checksum_accumulator accumulator;
+        internet_checksum::accumulator accumulator;
 
         accumulator.add(data, length);
 
@@ -150,15 +165,12 @@ namespace astia::net {
     /// packet view; pairs bytes by absolute offset, so split payloads need no
     /// copy.
     inline u16 internet_checksum_value(const packet_view& packet, usz length) {
-        internet_checksum_accumulator accumulator;
+        internet_checksum::accumulator accumulator;
 
         accumulator.add(packet, length);
 
         return accumulator.value();
     }
-
-    /// RFC 1071 Internet checksum: one's-complement sum, generator x^16 + 1.
-    using internet_checksum = checksum<0x10001, 16, core::byte_order::big>;
 
     /// CRC-32/ISO-HDLC used by the Ethernet frame check sequence (FCS):
     /// 0x04C11DB7, transmitted little-endian.
