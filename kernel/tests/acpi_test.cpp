@@ -9,6 +9,7 @@
 #include "acpi/power.hpp"
 #include "acpi/prt.hpp"
 #include "acpi/reader.hpp"
+#include "acpi/resources.hpp"
 #include "acpi/tables.hpp"
 #include "test.hpp"
 
@@ -61,10 +62,252 @@ namespace {
         }
     }
 
+    void store_u16(u8* bytes, u16 value) {
+        bytes[0] = static_cast<u8>(value);
+        bytes[1] = static_cast<u8>(value >> 8);
+    }
+
     void store_u64(u8* bytes, u64 value) {
         for (usz i = 0; i < 8; ++i) {
             bytes[i] = static_cast<u8>(value >> (i * 8));
         }
+    }
+
+    void store_word_bus_descriptor(u8* bytes, u8 general_flags, u8 type_flags,
+                                   u16 granularity, u16 minimum, u16 maximum, u16 length,
+                                   u8 resource_type = 2) {
+        bytes[0] = 0x88;
+        bytes[1] = 0x0d;
+        bytes[2] = 0x00;
+        bytes[3] = resource_type;
+        bytes[4] = general_flags;
+        bytes[5] = type_flags;
+
+        store_u16(bytes + 6, granularity);
+        store_u16(bytes + 8, minimum);
+        store_u16(bytes + 10, maximum);
+        store_u16(bytes + 12, 0);
+        store_u16(bytes + 14, length);
+    }
+
+    struct aml_blob {
+        u8  bytes[512]{};
+        usz length = 0;
+    };
+
+    void aml_put(aml_blob& blob, u8 value) {
+        blob.bytes[blob.length++] = value;
+    }
+
+    void aml_put(aml_blob& blob, const u8* data, usz length) {
+        for (usz i = 0; i < length; ++i) {
+            aml_put(blob, data[i]);
+        }
+    }
+
+    void aml_put_name(aml_blob& blob, const char (&name)[5]) {
+        for (usz i = 0; i < 4; ++i) {
+            aml_put(blob, static_cast<u8>(name[i]));
+        }
+    }
+
+    void aml_put_pkg_length(aml_blob& blob, usz body_length) {
+        usz size = 1;
+
+        while (size < 4) {
+            const usz limit = size == 1   ? 0x3F
+                              : size == 2 ? 0x0FFF
+                              : size == 3 ? 0xFFFFF
+                                          : 0xFFFFFFF;
+
+            if (body_length + size <= limit)
+                break;
+
+            ++size;
+        }
+
+        const usz total = body_length + size;
+        const usz mask  = size == 1 ? 0x3F : 0x0F;
+
+        aml_put(blob, static_cast<u8>(((size - 1) << 6) | (total & mask)));
+
+        usz remaining = total >> (size == 1 ? 6 : 4);
+
+        for (usz i = 1; i < size; ++i) {
+            aml_put(blob, static_cast<u8>(remaining));
+
+            remaining >>= 8;
+        }
+    }
+
+    void aml_append(aml_blob& out, const aml_blob& body) {
+        aml_put(out, body.bytes, body.length);
+    }
+
+    aml_blob aml_buffer(const u8* data, usz length) {
+        aml_blob out{};
+
+        aml_put(out, 0x11);
+        aml_put_pkg_length(out, 2 + length);
+        aml_put(out, 0x0A);
+        aml_put(out, static_cast<u8>(length));
+        aml_put(out, data, length);
+
+        return out;
+    }
+
+    aml_blob aml_zero() {
+        aml_blob out{};
+
+        aml_put(out, 0x00);
+
+        return out;
+    }
+
+    aml_blob aml_return_zero() {
+        aml_blob out{};
+
+        aml_put(out, 0xA4);
+        aml_put(out, 0x00);
+
+        return out;
+    }
+
+    aml_blob aml_integer(u32 value) {
+        aml_blob out{};
+
+        aml_put(out, 0x0C);
+
+        for (usz i = 0; i < 4; ++i) {
+            aml_put(out, static_cast<u8>(value >> (i * 8)));
+        }
+
+        return out;
+    }
+
+    aml_blob aml_package(const aml_blob& elements, u8 count) {
+        aml_blob body{};
+
+        aml_put(body, count);
+        aml_append(body, elements);
+
+        aml_blob out{};
+
+        aml_put(out, 0x12);
+        aml_put_pkg_length(out, body.length);
+        aml_append(out, body);
+
+        return out;
+    }
+
+    aml_blob aml_name(const char (&name)[5], const aml_blob& object) {
+        aml_blob out{};
+
+        aml_put(out, 0x08);
+        aml_put_name(out, name);
+        aml_append(out, object);
+
+        return out;
+    }
+
+    aml_blob aml_method(const char (&name)[5], u8 arguments, const aml_blob& body) {
+        aml_blob payload{};
+
+        aml_put_name(payload, name);
+        aml_put(payload, arguments);
+        aml_append(payload, body);
+
+        aml_blob out{};
+
+        aml_put(out, 0x14);
+        aml_put_pkg_length(out, payload.length);
+        aml_append(out, payload);
+
+        return out;
+    }
+
+    aml_blob aml_device(const char (&name)[5], const aml_blob& body) {
+        aml_blob payload{};
+
+        aml_put_name(payload, name);
+        aml_append(payload, body);
+
+        aml_blob out{};
+
+        aml_put(out, 0x5B);
+        aml_put(out, 0x82);
+        aml_put_pkg_length(out, payload.length);
+        aml_append(out, payload);
+
+        return out;
+    }
+
+    aml_blob aml_scope(const char (&name)[5], const aml_blob& body) {
+        aml_blob payload{};
+
+        aml_put_name(payload, name);
+        aml_append(payload, body);
+
+        aml_blob out{};
+
+        aml_put(out, 0x10);
+        aml_put_pkg_length(out, payload.length);
+        aml_append(out, payload);
+
+        return out;
+    }
+
+    aml_blob make_prt_link_fixture(bool without_crs) {
+        const u8 root_crs[] = {
+            0x88, 0x0D, 0x00, 0x02, 0x0C, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x01, 0x79, 0x00,
+        };
+        const u8 valid_crs[] = {
+            0x89, 0x06, 0x00, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0x79, 0x00,
+        };
+        const u8 crs_missing[] = {
+            0x89, 0x06, 0x00, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        };
+        const u8 valid_prs[]   = {0x23, 0x20, 0x0C, 0x18, 0x79, 0x00};
+        const u8 prs_missing[] = {0x23, 0x20, 0x0C, 0x18, 0x00};
+
+        aml_blob prt_entry{};
+
+        aml_append(prt_entry, aml_integer(0x0002FFFF));
+        aml_append(prt_entry, aml_zero());
+        aml_put(prt_entry, reinterpret_cast<const u8*>("LNKA"), 4);
+        aml_append(prt_entry, aml_zero());
+
+        aml_blob prt_elements{};
+
+        aml_append(prt_elements, aml_package(prt_entry, 4));
+
+        aml_blob pci_body{};
+
+        aml_append(pci_body, aml_name("_HID", aml_integer(0x080AD041)));
+        aml_append(pci_body, aml_name("_CRS", aml_buffer(root_crs, sizeof(root_crs))));
+        aml_append(pci_body, aml_name("_PRT", aml_package(prt_elements, 1)));
+
+        const u8* crs = without_crs ? crs_missing : valid_crs;
+
+        const usz crs_length = without_crs ? sizeof(crs_missing) : sizeof(valid_crs);
+
+        const u8* prs = without_crs ? valid_prs : prs_missing;
+
+        const usz prs_length = without_crs ? sizeof(valid_prs) : sizeof(prs_missing);
+
+        aml_blob link_body{};
+
+        aml_append(link_body, aml_name("_CRS", aml_buffer(crs, crs_length)));
+        aml_append(link_body, aml_name("_PRS", aml_buffer(prs, prs_length)));
+        aml_append(link_body, aml_method("_SRS", 1, aml_return_zero()));
+
+        aml_blob scope_body{};
+
+        aml_append(scope_body, aml_device("PCI0", pci_body));
+        aml_append(scope_body, aml_device("LNKA", link_body));
+
+        return aml_scope("_SB_", scope_body);
     }
 
     u8 sum(const u8* bytes, usz length) {
@@ -1734,6 +1977,377 @@ namespace {
     }
 } // namespace
 
+ASTIA_TEST(acpi_resource_iterator_frames_descriptors_and_end_tag) {
+    using astia::acpi::detail::descriptor_at;
+    using astia::acpi::detail::resource_descriptor;
+    using astia::acpi::detail::resource_iterator;
+    using astia::acpi::detail::resource_status;
+
+    const astia::u8 bytes[] = {
+        0x22, 0x20, 0x00, 0x89, 0x06, 0x00, 0x00,
+        0x01, 0x0b, 0x00, 0x00, 0x00, 0x79, 0x00,
+    };
+    const astia::span<const astia::u8> template_bytes(bytes, sizeof(bytes));
+    resource_iterator                  iterator(template_bytes);
+    resource_descriptor                first{};
+    resource_descriptor                second{};
+    resource_descriptor                third{};
+
+    ASTIA_CHECK(iterator.next(first) == resource_status::descriptor);
+    ASTIA_CHECK(!first.large && first.tag == 0x22 && first.body == 1 &&
+                first.length == 2);
+    ASTIA_CHECK(iterator.next(second) == resource_status::descriptor);
+    ASTIA_CHECK(second.large && second.tag == 0x89 && second.body == 6 &&
+                second.length == 6);
+    ASTIA_CHECK(iterator.next(third) == resource_status::end_tag);
+    ASTIA_CHECK(iterator.next(third) == resource_status::end_tag);
+    ASTIA_CHECK(descriptor_at(template_bytes, 0, first));
+    ASTIA_CHECK(descriptor_at(template_bytes, 1, second));
+    ASTIA_CHECK(!descriptor_at(template_bytes, 2, third));
+}
+
+ASTIA_TEST(acpi_resource_iterator_rejects_truncated_lengths) {
+    using astia::acpi::detail::resource_descriptor;
+    using astia::acpi::detail::resource_iterator;
+    using astia::acpi::detail::resource_status;
+
+    const astia::u8 truncated_small[]  = {0x23, 0x20, 0x00};
+    const astia::u8 truncated_large[]  = {0x89, 0x06, 0x00, 0x00, 0x01};
+    const astia::u8 truncated_header[] = {0x89, 0x02};
+    const astia::u8 truncated_end[]    = {0x79};
+
+    resource_iterator small_iterator(
+        astia::span<const astia::u8>(truncated_small, sizeof(truncated_small)));
+    resource_iterator large_iterator(
+        astia::span<const astia::u8>(truncated_large, sizeof(truncated_large)));
+    resource_iterator header_iterator(
+        astia::span<const astia::u8>(truncated_header, sizeof(truncated_header)));
+    resource_iterator end_iterator(
+        astia::span<const astia::u8>(truncated_end, sizeof(truncated_end)));
+    resource_descriptor descriptor{};
+
+    ASTIA_CHECK(small_iterator.next(descriptor) == resource_status::malformed);
+    ASTIA_CHECK(large_iterator.next(descriptor) == resource_status::malformed);
+    ASTIA_CHECK(header_iterator.next(descriptor) == resource_status::malformed);
+    ASTIA_CHECK(end_iterator.next(descriptor) == resource_status::malformed);
+}
+
+ASTIA_TEST(acpi_resource_iterator_enforces_count_and_clean_exhaustion) {
+    using astia::acpi::detail::max_resource_descriptors;
+    using astia::acpi::detail::resource_descriptor;
+    using astia::acpi::detail::resource_iterator;
+    using astia::acpi::detail::resource_status;
+
+    astia::u8         descriptors[max_resource_descriptors + 1]{};
+    resource_iterator iterator(
+        astia::span<const astia::u8>(descriptors, sizeof(descriptors)));
+    resource_descriptor descriptor{};
+
+    for (astia::usz i = 0; i < max_resource_descriptors; ++i) {
+        ASTIA_CHECK(iterator.next(descriptor) == resource_status::descriptor);
+    }
+
+    ASTIA_CHECK(iterator.next(descriptor) == resource_status::malformed);
+
+    const astia::u8   clean[] = {0x22, 0x20, 0x00};
+    resource_iterator clean_iterator(astia::span<const astia::u8>(clean, sizeof(clean)));
+
+    ASTIA_CHECK(clean_iterator.next(descriptor) == resource_status::descriptor);
+    ASTIA_CHECK(clean_iterator.next(descriptor) == resource_status::end_of_data);
+}
+
+ASTIA_TEST(acpi_resource_template_validation_checks_end_tag_and_checksum) {
+    using astia::acpi::detail::refresh_template_checksum;
+    using astia::acpi::detail::resource_template_status;
+    using astia::acpi::detail::validate_template;
+
+    const astia::u8 zero_checksum[]  = {0x22, 0x20, 0x00, 0x79, 0x00};
+    const astia::u8 valid_checksum[] = {0x22, 0x20, 0x00, 0x79, 0x45};
+    const astia::u8 bad_checksum[]   = {0x22, 0x20, 0x00, 0x79, 0x44};
+    const astia::u8 missing_end[]    = {0x22, 0x20, 0x00};
+    const astia::u8 truncated_end[]  = {0x22, 0x20, 0x00, 0x79};
+    const astia::u8 trailing[]       = {0x22, 0x20, 0x00, 0x79, 0x00, 0x00};
+    const astia::u8 malformed[]      = {0x89, 0x06, 0x00, 0x00, 0x01};
+
+    ASTIA_CHECK(validate_template(
+                    astia::span<const astia::u8>(zero_checksum, sizeof(zero_checksum))) ==
+                resource_template_status::valid);
+    ASTIA_CHECK(validate_template(astia::span<const astia::u8>(valid_checksum,
+                                                               sizeof(valid_checksum))) ==
+                resource_template_status::valid);
+    ASTIA_CHECK(validate_template(
+                    astia::span<const astia::u8>(bad_checksum, sizeof(bad_checksum))) ==
+                resource_template_status::checksum_mismatch);
+    ASTIA_CHECK(validate_template(
+                    astia::span<const astia::u8>(missing_end, sizeof(missing_end))) ==
+                resource_template_status::missing_end_tag);
+    ASTIA_CHECK(validate_template(
+                    astia::span<const astia::u8>(truncated_end, sizeof(truncated_end))) ==
+                resource_template_status::malformed);
+    ASTIA_CHECK(validate_template(astia::span<const astia::u8>(
+                    trailing, sizeof(trailing))) == resource_template_status::malformed);
+    ASTIA_CHECK(
+        validate_template(astia::span<const astia::u8>(malformed, sizeof(malformed))) ==
+        resource_template_status::malformed);
+
+    astia::u8 refresh[] = {0x22, 0x20, 0x00, 0x79, 0x45};
+
+    refresh[2] = 0x01;
+
+    ASTIA_CHECK(
+        refresh_template_checksum(astia::span<astia::u8>(refresh, sizeof(refresh))));
+    ASTIA_CHECK(validate_template(astia::span<const astia::u8>(
+                    refresh, sizeof(refresh))) == resource_template_status::valid);
+    ASTIA_CHECK(refresh[4] == 0x44);
+
+    astia::u8 zero_refresh[] = {0x22, 0x20, 0x00, 0x79, 0x00};
+
+    ASTIA_CHECK(refresh_template_checksum(
+        astia::span<astia::u8>(zero_refresh, sizeof(zero_refresh))));
+    ASTIA_CHECK(zero_refresh[4] == 0x00);
+}
+
+ASTIA_TEST(acpi_resource_decodes_irq_descriptors) {
+    using astia::acpi::detail::decode_irq;
+    using astia::acpi::detail::interrupt_resource;
+    using astia::acpi::detail::irq_vector;
+    using astia::acpi::detail::resource_descriptor;
+    using astia::acpi::detail::resource_iterator;
+    using astia::acpi::detail::resource_status;
+
+    const astia::u8 small[]       = {0x22, 0x20, 0x00};
+    const astia::u8 small_flags[] = {0x23, 0x00, 0x08, 0x0c};
+    const astia::u8 extended[]    = {
+        0x89, 0x0a, 0x00, 0x0c, 0x02, 0x05, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x00, 0x00,
+    };
+    const astia::u8 short_extended[] = {0x89, 0x05, 0x00, 0x00, 0x01,
+                                        0x05, 0x00, 0x00, 0x00};
+    const astia::u8 bad_count[]  = {0x89, 0x06, 0x00, 0x00, 0x03, 0x05, 0x00, 0x00, 0x00};
+    const astia::u8 zero_count[] = {0x89, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    resource_descriptor intdescriptor{};
+    resource_iterator   int_iterator(astia::span<const astia::u8>(small, sizeof(small)));
+    interrupt_resource  resource{};
+
+    ASTIA_CHECK(int_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(decode_irq(astia::span<const astia::u8>(small, sizeof(small)),
+                           intdescriptor, resource));
+    ASTIA_CHECK(!resource.extended && resource.mask == 0x20 &&
+                resource.vector_count == 0 && resource.flags == 0);
+
+    resource_iterator flags_iterator(
+        astia::span<const astia::u8>(small_flags, sizeof(small_flags)));
+
+    ASTIA_CHECK(flags_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(decode_irq(astia::span<const astia::u8>(small_flags, sizeof(small_flags)),
+                           intdescriptor, resource));
+    ASTIA_CHECK(!resource.extended && resource.mask == 0x0800 &&
+                resource.vector_count == 0 && resource.flags == 0x0c);
+
+    resource_iterator extended_iterator(
+        astia::span<const astia::u8>(extended, sizeof(extended)));
+
+    ASTIA_CHECK(extended_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(decode_irq(astia::span<const astia::u8>(extended, sizeof(extended)),
+                           intdescriptor, resource));
+    ASTIA_CHECK(resource.extended && resource.vector_count == 2 &&
+                resource.flags == 0x0c);
+    ASTIA_CHECK(irq_vector(astia::span<const astia::u8>(extended, sizeof(extended)),
+                           resource, 0) == 5);
+    ASTIA_CHECK(irq_vector(astia::span<const astia::u8>(extended, sizeof(extended)),
+                           resource, 1) == 11);
+    ASTIA_CHECK(irq_vector(astia::span<const astia::u8>(extended, sizeof(extended)),
+                           resource, 2) == 0);
+
+    resource_iterator short_iterator(
+        astia::span<const astia::u8>(short_extended, sizeof(short_extended)));
+
+    ASTIA_CHECK(short_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(
+        !decode_irq(astia::span<const astia::u8>(short_extended, sizeof(short_extended)),
+                    intdescriptor, resource));
+
+    resource_iterator count_iterator(
+        astia::span<const astia::u8>(bad_count, sizeof(bad_count)));
+
+    ASTIA_CHECK(count_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(!decode_irq(astia::span<const astia::u8>(bad_count, sizeof(bad_count)),
+                            intdescriptor, resource));
+
+    resource_iterator zero_iterator(
+        astia::span<const astia::u8>(zero_count, sizeof(zero_count)));
+
+    ASTIA_CHECK(zero_iterator.next(intdescriptor) == resource_status::descriptor);
+    ASTIA_CHECK(!decode_irq(astia::span<const astia::u8>(zero_count, sizeof(zero_count)),
+                            intdescriptor, resource));
+
+    resource_descriptor wrong_length{};
+
+    wrong_length.tag    = 0x23;
+    wrong_length.body   = 0;
+    wrong_length.length = 2;
+
+    ASTIA_CHECK(!decode_irq(astia::span<const astia::u8>(small, sizeof(small)),
+                            wrong_length, resource));
+
+    resource_descriptor out_of_bounds{};
+
+    out_of_bounds.tag    = 0x22;
+    out_of_bounds.body   = 0;
+    out_of_bounds.length = 2;
+
+    ASTIA_CHECK(
+        !decode_irq(astia::span<const astia::u8>(small, 1), out_of_bounds, resource));
+}
+
+ASTIA_TEST(acpi_resource_patches_small_and_extended_irqs) {
+    using astia::acpi::detail::patch_irq;
+    using astia::acpi::detail::resource_descriptor;
+
+    astia::u8 small[]           = {0x22, 0x00, 0x00};
+    astia::u8 extended[]        = {0x89, 0x06, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00};
+    astia::u8 extended_suffix[] = {
+        0x89, 0x0c, 0x00, 0x00, 0x01, 0x05, 0x00, 0x00,
+        0x00, 0x05, 0x4c, 0x4e, 0x4b, 0x41, 0x00,
+    };
+    astia::u8           multiple[] = {0x89, 0x0a, 0x00, 0x00, 0x02, 0x00, 0x00,
+                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    resource_descriptor small_descriptor{0x22, false, 1, 2};
+    resource_descriptor extended_descriptor{0x89, true, 3, 6};
+    resource_descriptor suffix_descriptor{0x89, true, 3, 12};
+    resource_descriptor multiple_descriptor{0x89, true, 3, 10};
+
+    ASTIA_CHECK(
+        patch_irq(astia::span<astia::u8>(small, sizeof(small)), small_descriptor, 9));
+    ASTIA_CHECK(small[1] == 0x00 && small[2] == 0x02);
+
+    ASTIA_CHECK(patch_irq(astia::span<astia::u8>(extended, sizeof(extended)),
+                          extended_descriptor, 11));
+    ASTIA_CHECK(extended[5] == 0x0b && extended[6] == 0x00 && extended[7] == 0x00 &&
+                extended[8] == 0x00);
+
+    ASTIA_CHECK(
+        patch_irq(astia::span<astia::u8>(extended_suffix, sizeof(extended_suffix)),
+                  suffix_descriptor, 11));
+    ASTIA_CHECK(extended_suffix[5] == 0x0b && extended_suffix[6] == 0x00 &&
+                extended_suffix[7] == 0x00 && extended_suffix[8] == 0x00);
+    ASTIA_CHECK(extended_suffix[9] == 0x05 && extended_suffix[10] == 0x4c &&
+                extended_suffix[11] == 0x4e && extended_suffix[12] == 0x4b &&
+                extended_suffix[13] == 0x41 && extended_suffix[14] == 0x00);
+
+    ASTIA_CHECK(!patch_irq(astia::span<astia::u8>(multiple, sizeof(multiple)),
+                           multiple_descriptor, 5));
+    ASTIA_CHECK(
+        !patch_irq(astia::span<astia::u8>(small, sizeof(small)), small_descriptor, 0));
+    ASTIA_CHECK(
+        !patch_irq(astia::span<astia::u8>(small, sizeof(small)), small_descriptor, 16));
+}
+
+ASTIA_TEST(acpi_resource_decodes_word_bus_number_range) {
+    using astia::acpi::detail::bus_number_range;
+    using astia::acpi::detail::decode_bus_number;
+    using astia::acpi::detail::resource_descriptor;
+    using astia::acpi::detail::resource_iterator;
+    using astia::acpi::detail::resource_status;
+
+    const astia::u8 descriptor_bytes[] = {
+        0x88, 0x0d, 0x00, 0x02, 0x0c, 0x00, 0x00, 0x00,
+        0x05, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x06, 0x00,
+    };
+    const astia::u8 not_bus[] = {
+        0x88, 0x0d, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00,
+        0x05, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x06, 0x00,
+    };
+    const astia::u8 short_descriptor[] = {
+        0x88, 0x0c, 0x00, 0x02, 0x0c, 0x00, 0x00, 0x00,
+        0x05, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x06,
+    };
+
+    resource_descriptor descriptor{};
+    resource_iterator   iterator(
+        astia::span<const astia::u8>(descriptor_bytes, sizeof(descriptor_bytes)));
+    bus_number_range range{};
+
+    ASTIA_CHECK(iterator.next(descriptor) == resource_status::descriptor);
+    ASTIA_CHECK(decode_bus_number(
+        astia::span<const astia::u8>(descriptor_bytes, sizeof(descriptor_bytes)),
+        descriptor, range));
+    ASTIA_CHECK(range.minimum == 5 && range.maximum == 10 && range.length == 6);
+
+    resource_iterator not_bus_iterator(
+        astia::span<const astia::u8>(not_bus, sizeof(not_bus)));
+
+    ASTIA_CHECK(not_bus_iterator.next(descriptor) == resource_status::descriptor);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(not_bus, sizeof(not_bus)),
+                                   descriptor, range));
+
+    resource_iterator short_iterator(
+        astia::span<const astia::u8>(short_descriptor, sizeof(short_descriptor)));
+
+    ASTIA_CHECK(short_iterator.next(descriptor) == resource_status::descriptor);
+    ASTIA_CHECK(!decode_bus_number(
+        astia::span<const astia::u8>(short_descriptor, sizeof(short_descriptor)),
+        descriptor, range));
+}
+
+ASTIA_TEST(acpi_resource_rejects_inconsistent_word_bus_ranges) {
+    using astia::acpi::detail::bus_number_range;
+    using astia::acpi::detail::decode_bus_number;
+    using astia::acpi::detail::resource_descriptor;
+
+    astia::u8           bytes[16]{};
+    bus_number_range    range{};
+    resource_descriptor descriptor{0x88, true, 3, 13};
+
+    store_word_bus_descriptor(bytes, 0x0c, 0, 0, 5, 10, 6);
+    ASTIA_CHECK(decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                  descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0xFC, 0, 0, 5, 10, 6);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x0c, 0, 1, 5, 10, 6);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x0c, 0, 0, 5, 10, 5);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x08, 0, 0, 5, 10, 6);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x04, 0, 0, 5, 10, 6);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x00, 0, 0, 10, 5, 0);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x04, 0, 3, 5, 10, 0);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x08, 0, 3, 0, 10, 0);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x0c, 1, 0, 5, 10, 6);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x00, 0, 5, 0, 15, 4);
+    ASTIA_CHECK(!decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                   descriptor, range));
+
+    store_word_bus_descriptor(bytes, 0x00, 0, 3, 0, 15, 4);
+    ASTIA_CHECK(decode_bus_number(astia::span<const astia::u8>(bytes, sizeof(bytes)),
+                                  descriptor, range));
+}
+
 ASTIA_TEST(acpi_prt_resolves_direct_and_link_routes) {
     table_image target;
 
@@ -1868,7 +2482,7 @@ ASTIA_TEST(acpi_prt_rejects_short_irq_descriptor) {
 
     ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 0, 1,
                                                         route, error));
-    ASTIA_CHECK(error == astia::acpi::detail::prt_error::link_unselected);
+    ASTIA_CHECK(error == astia::acpi::detail::prt_error::malformed_crs);
 }
 
 ASTIA_TEST(acpi_prt_rejects_malformed_and_absent_tables) {
@@ -1946,6 +2560,102 @@ ASTIA_TEST(acpi_prt_rejects_unknown_root_bus) {
     ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 0, 1,
                                                         route, error));
     ASTIA_CHECK(error == astia::acpi::detail::prt_error::no_root_bridge);
+}
+
+ASTIA_TEST(acpi_prt_rejects_root_bridge_crs_without_end_tag) {
+    table_image target;
+
+    build_aml_tables(target, prt_aml, sizeof(prt_aml));
+
+    u8* aml = target.data.bytes + dsdt_offset + 36;
+
+    bool patched = false;
+
+    for (usz i = 0; i + 17 < sizeof(prt_aml); ++i) {
+        if (aml[i] == 0x88 && aml[i + 1] == 0x0D && aml[i + 2] == 0x00 &&
+            aml[i + 3] == 0x02) {
+            ASTIA_CHECK(aml[i + 16] == 0x79);
+
+            aml[i + 16] = 0x00;
+            patched     = true;
+
+            break;
+        }
+    }
+
+    ASTIA_CHECK(patched);
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::prt_route route{};
+    auto                           error = astia::acpi::detail::prt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 0, 1,
+                                                        route, error));
+    ASTIA_CHECK(error == astia::acpi::detail::prt_error::no_root_bridge);
+}
+
+ASTIA_TEST(acpi_prt_rejects_root_bridge_reserved_general_flags) {
+    table_image target;
+
+    build_aml_tables(target, prt_aml, sizeof(prt_aml));
+
+    u8* aml = target.data.bytes + dsdt_offset + 36;
+
+    bool patched = false;
+
+    for (usz i = 0; i + 4 < sizeof(prt_aml); ++i) {
+        if (aml[i] == 0x88 && aml[i + 1] == 0x0D && aml[i + 2] == 0x00 &&
+            aml[i + 3] == 0x02) {
+            ASTIA_CHECK(aml[i + 4] == 0x0C);
+
+            aml[i + 4] = 0x1C;
+            patched    = true;
+
+            break;
+        }
+    }
+
+    ASTIA_CHECK(patched);
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::prt_route route{};
+    auto                           error = astia::acpi::detail::prt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 0, 1,
+                                                        route, error));
+    ASTIA_CHECK(error == astia::acpi::detail::prt_error::no_root_bridge);
+}
+
+ASTIA_TEST(acpi_prt_rejects_link_crs_without_end_tag) {
+    const aml_blob aml = make_prt_link_fixture(true);
+    table_image    target;
+
+    build_aml_tables(target, aml.bytes, aml.length);
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::prt_route route{};
+    auto                           error = astia::acpi::detail::prt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 1, 1,
+                                                        route, error));
+    ASTIA_CHECK(error == astia::acpi::detail::prt_error::malformed_crs);
+}
+
+ASTIA_TEST(acpi_prt_rejects_link_prs_without_end_tag) {
+    const aml_blob aml = make_prt_link_fixture(false);
+    table_image    target;
+
+    build_aml_tables(target, aml.bytes, aml.length);
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    astia::acpi::detail::prt_route route{};
+    auto                           error = astia::acpi::detail::prt_error::none;
+
+    ASTIA_CHECK(!astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 1, 1,
+                                                        route, error));
+    ASTIA_CHECK(error == astia::acpi::detail::prt_error::malformed_crs);
 }
 
 ASTIA_TEST(acpi_aml_evaluates_paths_and_buffers) {

@@ -149,6 +149,7 @@ astia_add_host_test(acpi_host_test acpi_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/parse.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/prt.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/resources.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
 target_include_directories(acpi_host_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
