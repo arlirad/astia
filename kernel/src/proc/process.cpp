@@ -93,6 +93,9 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
+        if (path[0] == '\0')
+            return -ENOENT;
+
         if (path[0] == '/' || dirfd.value == AT_FDCWD)
             return _cwd.resolve_path(path, buffer, follow_final);
 

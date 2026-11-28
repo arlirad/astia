@@ -2898,6 +2898,21 @@ int main(int argc, char** argv) {
             strcmp(cwd, "/bin") != 0)
             return 50;
 
+        errno = 0;
+
+        if (chdir("") != -1 || errno != ENOENT || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 311;
+
+        if (chdir(".") != 0 || getcwd(cwd, sizeof(cwd)) == NULL ||
+            strcmp(cwd, "/bin") != 0)
+            return 312;
+
+        errno = 0;
+
+        if (openat(AT_FDCWD, "", O_RDONLY) != -1 || errno != ENOENT)
+            return 313;
+
         if (direct_chdir("") != -EINVAL || getcwd(cwd, sizeof(cwd)) == NULL ||
             strcmp(cwd, "/bin") != 0)
             return 51;

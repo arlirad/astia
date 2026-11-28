@@ -270,6 +270,10 @@ add_executable(libc_getcwd_test sys/getcwd_test.c support/backend_host.c
 target_link_libraries(libc_getcwd_test PRIVATE astia_libc_host)
 add_test(NAME libc_getcwd_test COMMAND libc_getcwd_test)
 
+add_executable(libc_chdir_test sys/chdir_test.c)
+target_link_libraries(libc_chdir_test PRIVATE astia_libc)
+add_test(NAME libc_chdir_test COMMAND libc_chdir_test)
+
 # errno's thread-locality is a design contract, so it gets a real second
 # thread: host pthreads as a thread source only, the object under test
 # is ours.
