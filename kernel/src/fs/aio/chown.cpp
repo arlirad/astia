@@ -1,4 +1,5 @@
 #include "../../io/aio/handler.hpp"
+#include "../events.hpp"
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
@@ -79,10 +80,16 @@ namespace astia::io::aio::operations {
                 if (!handle->parent() && path_only == nullptr)
                     co_return -ENOSYS;
 
-                const uid_t existing_uid = handle_uid(*handle);
-                const gid_t existing_gid = handle_gid(*handle);
-                const uid_t target_uid   = owner_unchanged ? existing_uid : owner;
-                const gid_t target_gid   = group_unchanged ? existing_gid : group;
+                // The identity is captured once, before the ownership read
+                // the checks use.  The backend must change this same node; a
+                // name that changed after the checks fails with -EAGAIN.
+                const fs::node_identity checked      = path_only != nullptr
+                                                           ? fs::node_identity_of(path_only)
+                                                           : fs::node_identity{};
+                const uid_t             existing_uid = handle_uid(*handle);
+                const gid_t             existing_gid = handle_gid(*handle);
+                const uid_t target_uid = owner_unchanged ? existing_uid : owner;
+                const gid_t target_gid = group_unchanged ? existing_gid : group;
 
                 if (!may_change(current, existing_uid, owner_unchanged, owner,
                                 group_unchanged, group))
@@ -92,8 +99,10 @@ namespace astia::io::aio::operations {
                     co_return static_cast<i32>(
                         handle->parent()->chown(target_uid, target_gid));
 
+                fs::events::chown_checked::emit(path_only);
+
                 co_return static_cast<i32>(
-                    fs::chown_path(path_only, target_uid, target_gid, true));
+                    fs::chown_verified(path_only, checked, target_uid, target_gid));
             }
 
             char path[256];
@@ -110,17 +119,22 @@ namespace astia::io::aio::operations {
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
-            const uid_t existing_uid = fs::node_uid(resolved);
-            const gid_t existing_gid = fs::node_gid(resolved);
-            const uid_t target_uid   = owner_unchanged ? existing_uid : owner;
-            const gid_t target_gid   = group_unchanged ? existing_gid : group;
+            // Capture the identity before the ownership read so the same
+            // node the checks authorize is the one the backend changes.
+            const fs::node_identity checked      = fs::node_identity_of(resolved);
+            const uid_t             existing_uid = fs::node_uid(resolved);
+            const gid_t             existing_gid = fs::node_gid(resolved);
+            const uid_t             target_uid   = owner_unchanged ? existing_uid : owner;
+            const gid_t             target_gid   = group_unchanged ? existing_gid : group;
 
             if (!may_change(current, existing_uid, owner_unchanged, owner,
                             group_unchanged, group))
                 co_return -EPERM;
 
+            fs::events::chown_checked::emit(resolved);
+
             co_return static_cast<i32>(
-                fs::chown_path(resolved, target_uid, target_gid, follow_final));
+                fs::chown_verified(resolved, checked, target_uid, target_gid));
         }
     };
 

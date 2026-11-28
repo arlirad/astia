@@ -1481,6 +1481,19 @@ namespace astia::fs {
         return 0;
     }
 
+    long chown_verified(const char* path, const node_identity& expected, uid_t uid,
+                        gid_t gid) {
+        const node_identity current = node_identity_of(path);
+
+        if (expected.device != 0 && current.device != expected.device)
+            return -EAGAIN;
+
+        if (expected.inode != 0 && current.inode != expected.inode)
+            return -EAGAIN;
+
+        return chown_path(path, uid, gid, true);
+    }
+
     long touch_path(const char* path, const file_timestamps& times, bool follow_final) {
         auto& record = ::astia::io::aio::test_support::detail::touch_value;
 

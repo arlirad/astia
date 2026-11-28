@@ -340,7 +340,8 @@ namespace {
         aio::test_support::set_process_credentials(uid_t{0}, gid_t{0});
     }
 
-    bool swap_armed = false;
+    bool swap_armed       = false;
+    bool chown_swap_armed = false;
 
     bool same_text(const char* left, const char* right) {
         while (*left != '\0' && *left == *right) {
@@ -364,6 +365,18 @@ namespace {
         substituted->inode_value = 99;
 
         aio::test_support::set_open_file(aio_test::make_open_file(substituted));
+
+        return core::hook::outcome::pass;
+    }
+
+    core::hook::outcome swap_chown_target(const char* path) {
+        if (!chown_swap_armed || path == nullptr || !same_text(path, "/tmp/slot"))
+            return core::hook::outcome::pass;
+
+        chown_swap_armed = false;
+
+        aio::test_support::set_node_owner(path, uid_t{0}, gid_t{0});
+        aio::test_support::set_node_identity(path, 7, 99);
 
         return core::hook::outcome::pass;
     }
@@ -2010,6 +2023,39 @@ ASTIA_TEST(aio_filesystem_chown_rejects_ids_above_32_bits) {
 
     ASTIA_CHECK(submit_chown_path(path, 1000, 0x100000000ull) == -EINVAL);
     ASTIA_CHECK(!last_chown_path().called);
+}
+
+ASTIA_TEST(aio_filesystem_chown_rejects_target_swapped_after_check) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_file("/tmp/slot", 0644, uid_t{1000}, gid_t{1000});
+    set_node_identity("/tmp/slot", 7, 42);
+    set_file("/tmp/original", 0644, uid_t{1000}, gid_t{1000});
+    set_node_identity("/tmp/original", 7, 42);
+
+    chown_swap_armed = true;
+
+    ASTIA_CHECK(fs::events::chown_checked::add("issue1002", core::hook::priority::normal,
+                                               &swap_chown_target));
+
+    char path[] = "/tmp/slot";
+
+    ASTIA_CHECK(submit_chown_path(path, 0xffffffffu, 0xffffffffull) == -EAGAIN);
+    ASTIA_CHECK(!last_chown_path().called);
+
+    ASTIA_CHECK(fs::node_uid("/tmp/original") == uid_t{1000});
+    ASTIA_CHECK(fs::node_gid("/tmp/original") == gid_t{1000});
+    ASTIA_CHECK(fs::node_uid("/tmp/slot") == uid_t{0});
+    ASTIA_CHECK(fs::node_gid("/tmp/slot") == gid_t{0});
+
+    ASTIA_CHECK(fs::events::chown_checked::remove("issue1002"));
+
+    chown_swap_armed = false;
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_fchown_owner_sentinel_keeps_existing_owner) {

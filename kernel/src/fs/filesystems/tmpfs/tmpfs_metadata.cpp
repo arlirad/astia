@@ -169,6 +169,10 @@ namespace astia::fs::filesystems {
     }
 
     long tmpfs_mount::chown(const char* path, uid_t uid, gid_t gid) {
+        return chown_verified(path, 0, uid, gid);
+    }
+
+    long tmpfs_mount::chown_verified(const char* path, u64 inode, uid_t uid, gid_t gid) {
         core::spinlock_guard guard(_namespace_lock);
 
         if (path == nullptr || path[0] != '/')
@@ -180,6 +184,9 @@ namespace astia::fs::filesystems {
 
             if (!entry_table()[i].target)
                 return -ENOENT;
+
+            if (inode != 0 && entry_table()[i].target->inode() != inode)
+                return -EAGAIN;
 
             return entry_table()[i].target->chown(uid, gid);
         }
