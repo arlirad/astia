@@ -32,7 +32,7 @@ foreach(ASTIA_TYPED_HEADER IN LISTS ASTIA_TYPED_HEADERS)
 endforeach()
 add_custom_target(astia_typed_header_alone ALL DEPENDS ${ASTIA_TYPED_HEADER_OBJECTS})
 
-set(ASTIA_TYPED_MODULE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/typed_block_module.o)
+set(ASTIA_TYPED_MODULE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/typed_block_module.km)
 add_custom_command(
         OUTPUT ${ASTIA_TYPED_MODULE_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic
@@ -54,7 +54,7 @@ add_custom_target(astia_typed_module ALL DEPENDS ${ASTIA_TYPED_MODULE_OBJECT})
 # generic include root plus the build-selected port overlay, exactly what the
 # module SDK ships for the target.
 set(ASTIA_ARCH_CONTEXT_MODULE_OBJECT
-        ${CMAKE_CURRENT_BINARY_DIR}/arch_context_module.o)
+        ${CMAKE_CURRENT_BINARY_DIR}/arch_context_module.km)
 add_custom_command(
         OUTPUT ${ASTIA_ARCH_CONTEXT_MODULE_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -Wall -Wextra -Werror -pedantic

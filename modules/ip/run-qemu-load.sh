@@ -31,7 +31,7 @@ fi
 rm -rf "$staging"
 mkdir -p "$staging"
 mkdir -p "$staging/mod"
-cp "$artifact_build/modules/ip/ip.o" "$staging/mod/ip.o"
+cp "$artifact_build/modules/ip/ip.km" "$staging/mod/ip.km"
 (cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 set +e
@@ -45,4 +45,4 @@ set -e
 cat "$log"
 test "$status" -eq 1
 grep -qF 'ip: ready' "$log"
-grep -qF 'mod: mod/ip.o rc=0' "$log"
+grep -qF 'mod: mod/ip.km rc=0' "$log"

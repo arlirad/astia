@@ -2,6 +2,8 @@ build/
 build-tests/
 build-grub/
 build-nvme/
+build-ip/
+build-rtl8139/
 build-virtio-blk/
 cmake-build-*/
 Testing/
@@ -15,6 +17,7 @@ compile_commands.json
 *.a
 *.so
 *.ko
+*.km
 *.mod
 *.mod.c
 *.elf

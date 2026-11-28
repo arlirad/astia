@@ -35,7 +35,7 @@ cp "$source_image" "$image"
 rm -rf "$staging"
 mkdir -p "$staging"
 mkdir -p "$staging/mod"
-cp "$artifact_build/modules/virtio-blk/virtio_blk.o" "$staging/mod/virtio_blk.o"
+cp "$artifact_build/modules/virtio-blk/virtio_blk.km" "$staging/mod/virtio_blk.km"
 (cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 drive_readonly=

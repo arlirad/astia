@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-object=${1:?usage: check-imports.sh <module.o>}
+object=${1:?usage: check-imports.sh <module.km>}
 if command -v llvm-nm >/dev/null 2>&1; then
     nm=llvm-nm
 else

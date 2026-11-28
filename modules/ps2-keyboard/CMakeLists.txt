@@ -20,7 +20,7 @@ set(ASTIA_PS2_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/ps2_keyboard.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/ps2_fake_8042.hpp)
 
-set(ASTIA_PS2_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ps2-keyboard.o)
+set(ASTIA_PS2_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ps2-keyboard.km)
 
 set(ASTIA_PS2_OBJECTS)
 foreach(_astia_ps2_source IN LISTS ASTIA_PS2_SOURCES)

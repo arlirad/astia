@@ -18,8 +18,8 @@ are not individually compressed by this layer.
 `astia::initrd::load_boot_archive()` before mounting `/`.
 ## Module layout
 
-ET_REL modules live under `mod/` in the archive (`mod/ip.o`,
-`mod/rtl8139.o`, ...).  `kernel/src/mod/init.cpp` loads only relocatable files
+ET_REL modules live under `mod/` in the archive (`mod/ip.km`,
+`mod/rtl8139.km`, ...).  `kernel/src/mod/init.cpp` loads only relocatable files
 from that directory; every other entry stays an ordinary initrdfs file.
 Staging scripts and the QEMU fixtures follow the same convention.
 
