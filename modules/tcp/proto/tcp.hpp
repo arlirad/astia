@@ -60,11 +60,12 @@ namespace astia::tcp {
         net::link_address source{};
         net::link_address destination{};
 
-        u32 snd_una  = 0;
-        u32 snd_nxt  = 0;
-        u32 rcv_nxt  = 0;
-        u16 window   = 4096;
-        u16 peer_mss = 536;
+        u32 snd_una     = 0;
+        u32 snd_nxt     = 0;
+        u32 rcv_nxt     = 0;
+        u16 window      = 4096;
+        u16 peer_window = 4096;
+        u16 peer_mss    = 536;
 
         bool used   = false;
         u16  parent = 0xffff;
@@ -136,6 +137,7 @@ namespace astia::tcp {
         static constexpr u32 event_data        = 1u << 1;
         static constexpr u32 event_closed      = 1u << 2;
         static constexpr u32 event_child       = 1u << 3;
+        static constexpr u32 event_window      = 1u << 4;
 
         net::protocol_id id() const override;
 

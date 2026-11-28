@@ -352,6 +352,10 @@ namespace astia::tcp {
             if (after(ack, value.snd_una))
                 value.snd_una = ack;
 
+            value.peer_window = header.window;
+
+            notify(value, event_window);
+
             if (!after(value.snd_nxt, value.snd_una)) {
                 core::detail::disarm_timer(&value);
 
@@ -553,25 +557,27 @@ namespace astia::tcp {
         u32 offset = 0;
 
         while (offset < data.size()) {
+            const u32 in_flight = value.snd_nxt - value.snd_una;
+            const u32 available =
+                value.peer_window > in_flight ? value.peer_window - in_flight : 0;
+
+            if (available == 0)
+                break;
+
             const usz chunk = data.size() - offset < value.peer_mss ? data.size() - offset
+                              : available < value.peer_mss          ? available
                                                                     : value.peer_mss;
+            if (chunk == 0)
+                break;
 
-            auto operation =
-                send_segment(value, flag_ack | flag_psh, value.snd_nxt, value.rcv_nxt,
-                             span<const u8>(data.data() + offset, chunk));
-
-            if (operation.valid()) {
-                while (!operation.done()) {
-                    if (!operation.resume())
-                        break;
-                }
-            }
+            drive(send_segment(value, flag_ack | flag_psh, value.snd_nxt, value.rcv_nxt,
+                               span<const u8>(data.data() + offset, chunk)));
 
             value.snd_nxt += static_cast<u32>(chunk);
             offset += static_cast<u32>(chunk);
         }
 
-        return static_cast<i64>(data.size());
+        return static_cast<i64>(offset);
     }
 
     i64 tcp_protocol::try_receive(connection& value, span<u8> data) {
@@ -783,10 +789,33 @@ namespace astia::tcp {
         if (owner == nullptr)
             co_return -ENODEV;
 
-        if (token.canceled())
-            co_return -ECANCELED;
+        u32 offset = 0;
 
-        co_return owner->try_send(*this, data);
+        while (offset < data.size()) {
+            if (token.canceled())
+                co_return -ECANCELED;
+
+            const i64 sent = owner->try_send(
+                *this, span<const u8>(data.data() + offset, data.size() - offset));
+            if (sent < 0)
+                co_return sent;
+
+            offset += static_cast<u32>(sent);
+
+            if (offset == data.size())
+                break;
+
+            const auto waited = co_await owner->wait(
+                *this, tcp_protocol::event_window | tcp_protocol::event_closed, token);
+
+            if (!waited.has_value)
+                co_return -ECANCELED;
+
+            if (waited.value < 0)
+                co_return waited.value;
+        }
+
+        co_return static_cast<i64>(offset);
     }
 
     core::task<i64> connection::receive(span<u8> data, core::cltoken token) {
