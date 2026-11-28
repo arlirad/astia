@@ -73,68 +73,88 @@ namespace astia::net {
         u8 _bytes[Width / 8]{};
     };
 
+    /// Incremental RFC 1071 accumulator.  Feed the wire bytes in order: the
+    /// odd-byte carry is kept across segment boundaries, so a pseudo-header
+    /// and a split datagram can be summed without copying them together.
+    class internet_checksum_accumulator {
+        public:
+        void add(const u8* data, usz length) {
+            if (data == nullptr)
+                return;
+
+            for (usz index = 0; index < length; ++index) {
+                const u8 value = data[index];
+
+                if (!_have_high) {
+                    _high      = value;
+                    _have_high = true;
+                }
+                else {
+                    _sum += (static_cast<u32>(_high) << 8) | value;
+                    _have_high = false;
+                }
+            }
+        }
+
+        void add(span<const u8> data) {
+            add(data.data(), data.size());
+        }
+
+        void add(const packet_view& packet, usz length) {
+            const span<const u8> segments[2] = {packet.first, packet.second};
+
+            usz remaining = length;
+
+            for (const span<const u8>& segment : segments) {
+                const usz take = segment.size() < remaining ? segment.size() : remaining;
+
+                add(segment.data(), take);
+
+                remaining -= take;
+                if (remaining == 0)
+                    break;
+            }
+        }
+
+        u16 value() const {
+            u32 sum = _sum;
+
+            if (_have_high)
+                sum += static_cast<u32>(_high) << 8;
+
+            while ((sum >> 16) != 0) {
+                sum = (sum & 0xffffu) + (sum >> 16);
+            }
+
+            return static_cast<u16>(~sum);
+        }
+
+        private:
+        u32  _sum       = 0;
+        bool _have_high = false;
+        u8   _high      = 0;
+    };
+
     /// RFC 1071 one's-complement checksum over wire bytes.  The result is in
     /// host order; a valid checksum field makes this return 0 over the whole
     /// header or datagram (including the field itself).
     inline u16 internet_checksum_value(const u8* data, usz length) {
-        u32 sum   = 0;
-        usz index = 0;
+        internet_checksum_accumulator accumulator;
 
-        while (index + 1 < length) {
-            sum += (static_cast<u32>(data[index]) << 8) | data[index + 1];
-            index += 2;
-        }
+        accumulator.add(data, length);
 
-        if (index < length)
-            sum += static_cast<u32>(data[index]) << 8;
-
-        while ((sum >> 16) != 0) {
-            sum = (sum & 0xffffu) + (sum >> 16);
-        }
-
-        return static_cast<u16>(~sum);
+        return accumulator.value();
     }
 
     /// Segment-aware RFC 1071 checksum over the first `length` bytes of a
     /// packet view; pairs bytes by absolute offset, so split payloads need no
     /// copy.
     inline u16 internet_checksum_value(const packet_view& packet, usz length) {
-        const span<const u8> segments[2] = {packet.first, packet.second};
+        internet_checksum_accumulator accumulator;
 
-        u32  sum       = 0;
-        usz  remaining = length;
-        bool have_high = false;
-        u8   high      = 0;
+        accumulator.add(packet, length);
 
-        for (u32 segment_index = 0; segment_index < 2 && remaining > 0; ++segment_index) {
-            const span<const u8>& segment = segments[segment_index];
-
-            const usz take = segment.size() < remaining ? segment.size() : remaining;
-
-            for (usz index = 0; index < take; ++index) {
-                const u8 value = segment.data()[index];
-
-                if (!have_high) {
-                    high      = value;
-                    have_high = true;
-                }
-                else {
-                    sum += (static_cast<u32>(high) << 8) | value;
-                    have_high = false;
-                }
-            }
-
-            remaining -= take;
-        }
-
-        if (have_high)
-            sum += static_cast<u32>(high) << 8;
-
-        while ((sum >> 16) != 0) {
-            sum = (sum & 0xffffu) + (sum >> 16);
-        }
-
-        return static_cast<u16>(~sum);
+        return accumulator.value();
     }
 
     /// RFC 1071 Internet checksum: one's-complement sum, generator x^16 + 1.
