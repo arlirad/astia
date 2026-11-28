@@ -78,10 +78,13 @@ namespace astia::proc {
         if (!directory)
             return -EBADF;
 
-        if (!directory->path() || !directory->mode().is_directory())
-            return -ENOTDIR;
+        char base[fs::path_max]{};
 
-        return _cwd.compose_path_at(directory->path(), path, buffer);
+        const long base_rc = fs::directory_path(*directory, base, sizeof base);
+        if (base_rc < 0)
+            return base_rc;
+
+        return _cwd.compose_path_at(base, path, buffer);
     }
 
     i64 process::resolve_path(const char* path, span<char> buffer,
@@ -104,13 +107,16 @@ namespace astia::proc {
         if (!directory)
             return -EBADF;
 
-        if (!directory->path() || !directory->mode().is_directory())
-            return -ENOTDIR;
+        char base[fs::path_max]{};
 
-        if (!_cwd.within_root(directory->path()))
+        const long base_rc = fs::directory_path(*directory, base, sizeof base);
+        if (base_rc < 0)
+            return base_rc;
+
+        if (!_cwd.within_root(base))
             return -ENOENT;
 
-        return _cwd.resolve_path_at(directory->path(), path, buffer, follow_final);
+        return _cwd.resolve_path_at(base, path, buffer, follow_final);
     }
 
     i64 process::chroot(const char* path) {

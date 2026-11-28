@@ -89,8 +89,8 @@ namespace astia::fs {
                         file_type* type, u64* inode);
     /* Enumerate the directory an open descriptor was bound to.  The entry
        index is a property of the stream, not the directory, so it is the
-       caller's to keep; the pathname resolved here is the one the handle
-       captured at open time, never a caller-supplied path. */
+       caller's to keep; the directory is resolved through the handle's
+       retained mount/inode identity, never a caller-supplied path. */
     long read_directory(const mm::shptr<open_file>& directory, u64 index, char* name,
                         u32 capacity, file_type* type, u64* inode);
     long make_directory(const char* path, file_mode mode);
@@ -124,7 +124,12 @@ namespace astia::fs {
     bool directory_identity(const char* path, mm::shptr<mount>& owner, u64& inode);
     /// Current pathname of the directory identified by `owner`/`inode`.
     /// Returns -ENOENT when the filesystem no longer has a live name.
-    long  directory_path(mount* owner, u64 inode, char* buffer, u32 capacity);
+    long directory_path(mount* owner, u64 inode, char* buffer, u32 capacity);
+    /// Current pathname of the directory an open descriptor is bound to.
+    /// The lookup follows the retained mount/inode identity, so a rename
+    /// moves the result and a recycled name is never adopted.  A handle
+    /// without identity falls back to the path it captured at open time.
+    long  directory_path(const open_file& directory, char* buffer, u32 capacity);
     uid_t node_uid(const char* path);
     gid_t node_gid(const char* path);
     /// Timestamps the mount records for this node, all zero when it records

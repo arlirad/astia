@@ -8,8 +8,7 @@ namespace astia::io::aio::operations {
                astia_sqe sqe, [[maybe_unused]] core::cltoken token) noexcept {
             // Footnote ‡ of <astia/api/aio.h>: address NULL means fd is
             // the stat target (fstat), otherwise address is a pathname
-            // and fd is the dirfd. The VFS still has one exact-path
-            // namespace, so the dirfd is accepted and ignored.
+            // resolved relative to the directory fd (or AT_FDCWD).
             const auto out = memory::user_ptr<astia_stat>(sqe.offset).validate();
             if (!out)
                 co_return -EFAULT;

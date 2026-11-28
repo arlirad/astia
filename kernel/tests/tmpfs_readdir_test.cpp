@@ -50,6 +50,18 @@ namespace {
         initialized = true;
     }
 
+    void initialize_filesystem() {
+        initialize_runtime();
+
+        static bool initialized = false;
+        if (initialized)
+            return;
+
+        ASTIA_CHECK(astia::fs::init());
+
+        initialized = true;
+    }
+
     astia::fs::file_mode directory_mode() {
         return astia::fs::file_mode(astia::fs::directory_dir,
                                     astia::fs::default_directory_permissions);
@@ -333,4 +345,74 @@ ASTIA_TEST(tmpfs_node_path_follows_a_directory_rename) {
     char small[2];
 
     ASTIA_CHECK(mount.node_path(inode, small, sizeof small) == -ENAMETOOLONG);
+}
+
+ASTIA_TEST(fs_directory_path_follows_a_renamed_open_directory) {
+    initialize_filesystem();
+
+    (void) astia::fs::remove_path("/tmp/dirfd-before/marker", false);
+    (void) astia::fs::remove_path("/tmp/dirfd-after/child", true);
+    (void) astia::fs::remove_path("/tmp/dirfd-after", true);
+    (void) astia::fs::remove_path("/tmp/dirfd-before", true);
+
+    ASTIA_CHECK(astia::fs::make_directory("/tmp/dirfd-before", directory_mode()) == 0);
+    ASTIA_CHECK(astia::fs::make_directory("/tmp/dirfd-before/child", directory_mode()) ==
+                0);
+
+    auto directory = astia::fs::open_directory("/tmp/dirfd-before");
+
+    ASTIA_CHECK(directory);
+
+    char path[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::directory_path(*directory, path, sizeof path) == 0);
+    ASTIA_CHECK(std::strcmp(path, "/tmp/dirfd-before") == 0);
+
+    ASTIA_CHECK(astia::fs::rename_path("/tmp/dirfd-before", "/tmp/dirfd-after") == 0);
+
+    ASTIA_CHECK(astia::fs::directory_path(*directory, path, sizeof path) == 0);
+    ASTIA_CHECK(std::strcmp(path, "/tmp/dirfd-after") == 0);
+
+    ASTIA_CHECK(astia::fs::make_directory("/tmp/dirfd-before", directory_mode()) == 0);
+    ASTIA_CHECK(static_cast<bool>(astia::fs::open_creating(
+        "/tmp/dirfd-before/marker", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY, {})));
+
+    ASTIA_CHECK(astia::fs::directory_path(*directory, path, sizeof path) == 0);
+    ASTIA_CHECK(std::strcmp(path, "/tmp/dirfd-after") == 0);
+
+    char name[256]{};
+
+    astia::fs::file_type type = astia::fs::directory_unknown;
+
+    ASTIA_CHECK(
+        astia::fs::read_directory(directory, 0, name, sizeof name, &type, nullptr) == 1);
+    ASTIA_CHECK(std::strcmp(name, "child") == 0);
+
+    char small[3];
+
+    ASTIA_CHECK(astia::fs::directory_path(*directory, small, sizeof small) ==
+                -ENAMETOOLONG);
+
+    ASTIA_CHECK(astia::fs::remove_path("/tmp/dirfd-before/marker", false) == 0);
+    ASTIA_CHECK(astia::fs::remove_path("/tmp/dirfd-before", true) == 0);
+    ASTIA_CHECK(astia::fs::remove_path("/tmp/dirfd-after/child", true) == 0);
+    ASTIA_CHECK(astia::fs::remove_path("/tmp/dirfd-after", true) == 0);
+}
+
+ASTIA_TEST(fs_directory_path_rejects_an_unlinked_open_directory) {
+    initialize_filesystem();
+
+    (void) astia::fs::remove_path("/tmp/dirfd-gone", true);
+
+    ASTIA_CHECK(astia::fs::make_directory("/tmp/dirfd-gone", directory_mode()) == 0);
+
+    auto directory = astia::fs::open_directory("/tmp/dirfd-gone");
+
+    ASTIA_CHECK(directory);
+
+    ASTIA_CHECK(astia::fs::remove_path("/tmp/dirfd-gone", true) == 0);
+
+    char path[astia::fs::path_max]{};
+
+    ASTIA_CHECK(astia::fs::directory_path(*directory, path, sizeof path) == -ENOENT);
 }
