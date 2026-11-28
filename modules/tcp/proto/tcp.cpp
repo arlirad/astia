@@ -355,7 +355,12 @@ namespace astia::tcp {
 
                 value.rcv_nxt += data.length;
 
+                drain_pending(value);
+
                 notify(value, event_data);
+            }
+            else if (after(seq, value.rcv_nxt)) {
+                store_pending(value, seq, data);
             }
 
             drive(send_segment(value, flag_ack, value.snd_nxt, value.rcv_nxt, {}));
@@ -392,6 +397,51 @@ namespace astia::tcp {
 
         value.receive_head = (value.receive_head + copied) % connection::receive_capacity;
         value.receive_count += copied;
+    }
+
+    bool tcp_protocol::store_pending(connection& value, u32 seq,
+                                     net::packet_view payload) {
+        if (payload.length > mss)
+            return false;
+
+        for (connection::pending_segment& pending : value.pending) {
+            if (pending.used)
+                continue;
+
+            pending.used   = true;
+            pending.seq    = seq;
+            pending.length = static_cast<u16>(payload.length);
+
+            if (!payload.copy_to(pending.data, payload.length)) {
+                pending.used = false;
+
+                return false;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    void tcp_protocol::drain_pending(connection& value) {
+        bool progress = true;
+
+        while (progress) {
+            progress = false;
+
+            for (connection::pending_segment& pending : value.pending) {
+                if (!pending.used || pending.seq != value.rcv_nxt)
+                    continue;
+
+                queue(value,
+                      net::packet_view{span<const u8>(pending.data, pending.length)});
+
+                value.rcv_nxt += pending.length;
+                pending.used = false;
+                progress     = true;
+            }
+        }
     }
 
     i64 tcp_protocol::pop(connection& value, span<u8> data) {
@@ -734,7 +784,8 @@ namespace astia::tcp {
 
         header->set_flags(flags);
 
-        header->window         = value.window;
+        header->window =
+            static_cast<u16>(connection::receive_capacity - value.receive_count);
         header->checksum_value = 0;
         header->urgent         = 0;
 
