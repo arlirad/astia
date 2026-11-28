@@ -3,8 +3,7 @@
 #include <astia/resource_limits.hpp>
 #include <astia/span.hpp>
 namespace astia::proc::syscalls::detail {
-    inline constexpr usz path_cap = 256;
-    inline constexpr usz arg_cap  = resource_limits::policy::spawn_string_bytes;
+    inline constexpr usz arg_cap = resource_limits::policy::spawn_string_bytes;
     inline constexpr usz vec_max =
         resource_limits::policy::argv_entries > resource_limits::policy::env_entries
             ? resource_limits::policy::argv_entries

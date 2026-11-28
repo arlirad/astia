@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 static int           failures;
-static char          fake_cwd[4096] = "/bin";
+static char          fake_cwd[astia_path_buffer_capacity * 4 + 1] = "/bin";
 static long          fake_error;
 static unsigned long last_requests[64];
 static unsigned int  request_count;
@@ -99,7 +99,7 @@ static void test_allocate_default(void) {
 }
 
 static void test_allocate_long_path(void) {
-    char long_path[1001];
+    char long_path[astia_path_buffer_capacity * 2 + 1];
 
     long_path[0] = '/';
 

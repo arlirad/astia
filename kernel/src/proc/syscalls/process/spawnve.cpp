@@ -5,6 +5,7 @@
 #include "../../exec_permission.hpp"
 #include "../../proc.hpp"
 #include "argv.hpp"
+#include "path_staging.hpp"
 #include "syscall.hpp"
 #include "user_mem.hpp"
 
@@ -19,10 +20,11 @@ namespace astia::proc::syscalls {
             if (owner == nullptr || current_thread() == nullptr)
                 co_return -ESRCH;
 
-            char path[detail::path_cap];
+            detail::path_staging path{path_ptr};
 
-            if (!sys::copy_in_string(span<char>(path, sizeof path), path_ptr))
-                co_return -EFAULT;
+            const i64 staged = path.copy();
+            if (staged != 0)
+                co_return staged;
 
             detail::argument_staging staging;
 
@@ -35,7 +37,7 @@ namespace astia::proc::syscalls {
 
             char      resolved[fs::path_max]{};
             const i64 resolve_rc =
-                owner->resolve_path(path, resolved, sizeof resolved, true);
+                owner->resolve_path(path.c_str(), resolved, sizeof resolved, true);
             if (resolve_rc < 0)
                 co_return resolve_rc;
 

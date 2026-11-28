@@ -1,6 +1,8 @@
 #pragma once
 
-enum { astia_path_buffer_capacity = 256 };
+#include <limits.h>
+
+enum { astia_path_buffer_capacity = PATH_MAX };
 
 #pragma GCC visibility push(default)
 long                   __astia_getcwd_call(char* buffer, unsigned long length);

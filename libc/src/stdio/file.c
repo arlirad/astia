@@ -732,7 +732,7 @@ FILE* fopen(const char* path, const char* mode) {
     }
 
     {
-        char resolved[256];
+        char resolved[astia_path_buffer_capacity];
 
         if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
             return NULL;
