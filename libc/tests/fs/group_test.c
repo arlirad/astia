@@ -100,6 +100,111 @@ static void expect_groups(const gid_t* expected, int count) {
     }
 }
 
+static int build_member_fixture(char* path, unsigned int count) {
+    char         contents[2048];
+    unsigned int i;
+
+    size_t used;
+    int    written;
+
+    written = snprintf(contents, sizeof contents, "big:x:4242:");
+
+    if (written < 0 || (size_t) written >= sizeof contents) {
+        CHECK(0);
+
+        return -1;
+    }
+
+    used = (size_t) written;
+
+    for (i = 0; i < count; ++i) {
+        written = snprintf(contents + used, sizeof contents - used, "%sm%03u",
+                           i == 0 ? "" : ",", i);
+
+        if (written < 0 || (size_t) written >= sizeof contents - used) {
+            CHECK(0);
+
+            return -1;
+        }
+
+        used += (size_t) written;
+    }
+
+    if (used + 2 > sizeof contents) {
+        CHECK(0);
+
+        return -1;
+    }
+
+    contents[used++] = '\n';
+    contents[used]   = '\0';
+
+    return create_fixture(path, contents);
+}
+
+static void check_group_members(struct group* entry, unsigned int count) {
+    char         expected[16];
+    unsigned int i;
+
+    CHECK(entry != NULL);
+
+    if (entry == NULL)
+        return;
+
+    for (i = 0; i < count; ++i) {
+        snprintf(expected, sizeof expected, "m%03u", i);
+
+        CHECK(entry->gr_mem[i] != NULL);
+
+        if (entry->gr_mem[i] != NULL)
+            CHECK(strcmp(entry->gr_mem[i], expected) == 0);
+    }
+
+    CHECK(entry->gr_mem[count] == NULL);
+}
+
+static void test_large_group_members(void) {
+    static const unsigned int counts[] = {63, 64, 200};
+
+    const gid_t expected_groups[] = {7, 4242};
+
+    char         path[64];
+    char         target[16];
+    unsigned int count;
+    size_t       index;
+
+    for (index = 0; index < sizeof counts / sizeof counts[0]; ++index) {
+        struct group* entry;
+
+        count = counts[index];
+
+        if (build_member_fixture(path, count) != 0) {
+            CHECK(0);
+
+            return;
+        }
+
+        use_database(path);
+
+        entry = getgrnam("big");
+
+        check_group_members(entry, count);
+
+        entry = getgrgid(4242);
+
+        check_group_members(entry, count);
+
+        snprintf(target, sizeof target, "m%03u", count - 1);
+
+        reset_capture();
+
+        CHECK(initgroups(target, 7) == 0);
+        expect_groups(expected_groups, 2);
+
+        unlink(path);
+    }
+}
+
 static const char primary_fixture[] = "root:x:0:\n"
                                       "wheel:x:10:alice,carol\n"
                                       "users:x:100:alice,bob\n"
@@ -321,6 +426,7 @@ int main(void) {
     test_null_user();
     test_empty_fields();
     test_primary_fixture();
+    test_large_group_members();
     test_max_boundary();
     test_database_failures();
     test_setgroups_error();
