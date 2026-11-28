@@ -19,20 +19,20 @@ const char* const __astia_time_month_full_names[12] = {
     "January", "February", "March",     "April",   "May",      "June",
     "July",    "August",   "September", "October", "November", "December"};
 
-static void civil_from_days(int64_t days, int* year, unsigned* month, unsigned* day) {
+static void civil_from_days(int64_t days, int64_t* year, unsigned* month, unsigned* day) {
     int64_t z   = days + 719468;
     int64_t era = (z >= 0 ? z : z - 146096) / 146097;
 
-    unsigned doe = (unsigned) (z - era * 146097);
-    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    int      y   = (int) yoe + (int) era * 400;
-    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    unsigned mp  = (5 * doy + 2) / 153;
+    int64_t doe = z - era * 146097;
+    int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    int64_t y   = yoe + era * 400;
+    int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    int64_t mp  = (5 * doy + 2) / 153;
 
-    *month = mp < 10 ? mp + 3 : mp - 9;
+    *month = (unsigned) (mp < 10 ? mp + 3 : mp - 9);
     y += *month <= 2;
     *year = y;
-    *day  = doy - (153 * mp + 2) / 5 + 1;
+    *day  = (unsigned) (doy - (153 * mp + 2) / 5 + 1);
 }
 
 int clock_gettime(int clock_id, struct timespec* result) {
@@ -211,7 +211,8 @@ struct tm* gmtime_r(const time_t* timer, struct tm* result) {
     int64_t days;
     int64_t seconds;
 
-    int      year;
+    int64_t year;
+
     unsigned month;
     unsigned day;
 
@@ -228,12 +229,18 @@ struct tm* gmtime_r(const time_t* timer, struct tm* result) {
 
     civil_from_days(days, &year, &month, &day);
 
+    if (year - 1900 < INT_MIN || year - 1900 > INT_MAX) {
+        errno = EOVERFLOW;
+
+        return NULL;
+    }
+
     result->tm_sec  = (int) (seconds % 60);
     result->tm_min  = (int) ((seconds / 60) % 60);
     result->tm_hour = (int) (seconds / 3600);
     result->tm_mday = (int) day;
     result->tm_mon  = (int) month - 1;
-    result->tm_year = year - 1900;
+    result->tm_year = (int) (year - 1900);
     result->tm_wday = (int) ((days + 4) % 7);
 
     if (result->tm_wday < 0)
@@ -263,11 +270,15 @@ struct tm* localtime(const time_t* timer) {
 }
 
 time_t mktime(struct tm* value) {
-    int year;
-    int month;
+    int64_t year;
+    int64_t month;
 
     int64_t days;
-    time_t  result;
+    int64_t seconds;
+    int64_t remainder;
+    int64_t normalized;
+
+    time_t result;
 
     if (value == NULL) {
         errno = EINVAL;
@@ -275,26 +286,53 @@ time_t mktime(struct tm* value) {
         return (time_t) -1;
     }
 
-    year  = value->tm_year + 1900;
+    year  = (int64_t) value->tm_year + 1900;
     month = value->tm_mon;
-
-    while (month < 0) {
+    year += month / 12;
+    month %= 12;
+    if (month < 0) {
         month += 12;
 
         year--;
     }
 
-    while (month >= 12) {
-        month -= 12;
+    if (year < (int64_t) INT_MIN + 1900 || year > INT_MAX) {
+        errno = EOVERFLOW;
 
-        year++;
+        return (time_t) -1;
     }
 
-    days =
-        __astia_time_days_from_civil(year, (unsigned) month + 1, 1) + value->tm_mday - 1;
-    result = days * 86400 + value->tm_hour * 3600 + value->tm_min * 60 + value->tm_sec;
+    days = __astia_time_days_from_civil(year, (unsigned) month + 1, 1) +
+           (int64_t) value->tm_mday - 1;
 
-    (void) gmtime_r(&result, value);
+    if (days > INT64_MAX / 86400 || days < INT64_MIN / 86400) {
+        errno = EOVERFLOW;
+
+        return (time_t) -1;
+    }
+
+    normalized = days * 86400;
+    remainder =
+        (int64_t) value->tm_hour * 3600 + (int64_t) value->tm_min * 60 + value->tm_sec;
+
+    if ((remainder > 0 && normalized > INT64_MAX - remainder) ||
+        (remainder < 0 && normalized < INT64_MIN - remainder)) {
+        errno = EOVERFLOW;
+
+        return (time_t) -1;
+    }
+
+    seconds = normalized + remainder;
+    result  = (time_t) seconds;
+
+    if ((int64_t) result != seconds) {
+        errno = EOVERFLOW;
+
+        return (time_t) -1;
+    }
+
+    if (gmtime_r(&result, value) == NULL)
+        return (time_t) -1;
 
     return result;
 }
