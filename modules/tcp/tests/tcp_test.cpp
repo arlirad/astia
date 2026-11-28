@@ -348,7 +348,8 @@ namespace {
         assert(static_cast<u32>(last_header(ipv4).acknowledgement) == 106);
 
         u8  output[8]{};
-        i64 received = protocol.recv_data(*child, astia::span<u8>(output, sizeof output));
+        i64 received =
+            protocol.try_receive(*child, astia::span<u8>(output, sizeof output));
 
         assert(received == 5);
         assert(std::memcmp(output, "hello", 5) == 0);
@@ -430,7 +431,7 @@ namespace {
     }
 } // namespace
 
-void test_async_connect_wait() {
+void test_connect_wait() {
     astia::tcp::tcp_protocol protocol;
     capture_ipv4             ipv4;
     capture_link             link;
@@ -474,7 +475,7 @@ void test_async_connect_wait() {
     astia::net::unregister_protocol(protocol);
 }
 
-void test_async_accept_and_receive() {
+void test_accept_and_receive() {
     astia::tcp::tcp_protocol protocol;
     capture_ipv4             ipv4;
     capture_link             link;
@@ -486,7 +487,7 @@ void test_async_accept_and_receive() {
 
     assert(listener != nullptr);
 
-    auto accepted = listener->accept_async();
+    auto accepted = listener->accept();
 
     assert(accepted.resume());
     assert(!accepted.done());
@@ -517,7 +518,7 @@ void test_async_accept_and_receive() {
 
     u8 output[8]{};
 
-    auto receive_task = child->receive_async(astia::span<u8>(output, sizeof output));
+    auto receive_task = child->receive(astia::span<u8>(output, sizeof output));
 
     assert(receive_task.resume());
     assert(!receive_task.done());
@@ -586,7 +587,7 @@ void test_retransmit_syn_and_data() {
 
     const u8  payload[] = {'a', 'b', 'c'};
     const i64 sent =
-        protocol.send_data(*value, astia::span<const u8>(payload, sizeof payload));
+        protocol.try_send(*value, astia::span<const u8>(payload, sizeof payload));
 
     assert(sent == 3);
 
@@ -729,7 +730,7 @@ void test_out_of_order_reassembly() {
     assert(last_header(ipv4).window == 4096 - 10);
 
     u8  output[16]{};
-    i64 received = protocol.recv_data(*child, astia::span<u8>(output, sizeof output));
+    i64 received = protocol.try_receive(*child, astia::span<u8>(output, sizeof output));
 
     assert(received == 10);
     assert(std::memcmp(output, "helloworld", 10) == 0);
@@ -830,7 +831,7 @@ void test_mss_negotiation() {
     const u32 before = ipv4.sends;
 
     const i64 sent =
-        protocol.send_data(*child, astia::span<const u8>(payload, sizeof payload));
+        protocol.try_send(*child, astia::span<const u8>(payload, sizeof payload));
 
     assert(sent == 1000);
     assert(ipv4.sends == before + 2);
@@ -847,8 +848,8 @@ int main() {
     test_passive_handshake_and_data();
     test_active_handshake();
     test_bad_checksum_is_dropped();
-    test_async_connect_wait();
-    test_async_accept_and_receive();
+    test_connect_wait();
+    test_accept_and_receive();
     test_retransmit_syn_and_data();
     test_active_close();
     test_out_of_order_reassembly();
