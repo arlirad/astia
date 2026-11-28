@@ -6510,6 +6510,80 @@ int main(int argc, char** argv) {
         printf("astia: mkdir symlink ok\n");
     }
 
+    /* 60: O_CREAT|O_EXCL reports EEXIST for every existing final entry,
+       including a symlink, and never creates the target of a dangling
+       link.  A genuinely new path still creates normally. */
+    {
+        static const char existing[]  = "/tmp/ocreat-excl-existing";
+        static const char file_link[] = "/tmp/ocreat-excl-file-link";
+        static const char dangling[]  = "/tmp/ocreat-excl-dangling";
+        static const char absent[]    = "/tmp/ocreat-excl-absent";
+        static const char plain[]     = "/tmp/ocreat-excl-plain";
+
+        struct stat metadata;
+
+        int fd;
+
+        (void) unlink(existing);
+        (void) unlink(file_link);
+        (void) unlink(dangling);
+        (void) unlink(absent);
+        (void) unlink(plain);
+
+        fd = open(existing, O_CREAT | O_EXCL | O_RDWR, 0600);
+        if (fd < 0)
+            return 297;
+
+        if (close(fd) != 0)
+            return 298;
+
+        errno = 0;
+
+        if (open(existing, O_CREAT | O_EXCL | O_RDWR, 0600) != -1 || errno != EEXIST)
+            return 299;
+
+        if (symlink(existing, file_link) != 0)
+            return 300;
+
+        errno = 0;
+
+        if (open(file_link, O_CREAT | O_EXCL | O_RDWR, 0600) != -1 || errno != EEXIST)
+            return 301;
+
+        if (lstat(file_link, &metadata) != 0 || !S_ISLNK(metadata.st_mode))
+            return 302;
+
+        if (symlink(absent, dangling) != 0)
+            return 303;
+
+        errno = 0;
+
+        if (open(dangling, O_CREAT | O_EXCL | O_RDWR, 0600) != -1 || errno != EEXIST)
+            return 304;
+
+        if (lstat(dangling, &metadata) != 0 || !S_ISLNK(metadata.st_mode))
+            return 305;
+
+        if (lstat(absent, &metadata) != -1 || errno != ENOENT)
+            return 306;
+
+        fd = open(plain, O_CREAT | O_EXCL | O_RDWR, 0600);
+        if (fd < 0)
+            return 307;
+
+        if (close(fd) != 0)
+            return 308;
+
+        if (stat(plain, &metadata) != 0 || !S_ISREG(metadata.st_mode))
+            return 309;
+
+        if (unlink(existing) != 0 || unlink(file_link) != 0 || unlink(dangling) != 0 ||
+            unlink(plain) != 0)
+            return 310;
+
+        printf("astia: open excl symlink ok\n");
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */
