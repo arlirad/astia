@@ -32,5 +32,6 @@ namespace astia::ext4 {
                                u32 self, u32 parent);
         static bool deindex(volume& v, inode_record& dir);
         static void finish_block(volume& v, const inode_record& dir, u8* block);
+        static bool set_parent(volume& v, inode_record& dir, u32 parent);
     };
 } // namespace astia::ext4

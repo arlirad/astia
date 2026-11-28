@@ -11,6 +11,7 @@ root=$(mktemp -d)
 trap 'rm -rf "$root"' EXIT
 
 printf 'orphan victim payload\n' >"$root/victim"
+printf 'second orphan payload\n' >"$root/second"
 
 fixture=${work}/orphan-base.img
 
@@ -26,7 +27,16 @@ if [ -z "$inode" ]; then
     exit 1
 fi
 
+inode2=$(debugfs -R 'stat /second' "$fixture" 2>/dev/null |
+    sed -n 's/^Inode: \([0-9][0-9]*\).*/\1/p' | head -n 1)
+
+if [ -z "$inode2" ]; then
+    echo "could not read /second inode number from the fixture" >&2
+    exit 1
+fi
+
 echo "fixture /victim inode: ${inode}"
+echo "fixture /second inode: ${inode2}"
 
 launcher=${EXT4_ORPHAN_VFS_LAUNCHER:-}
 if [ -z "$launcher" ] && command -v setarch >/dev/null 2>&1; then
@@ -164,5 +174,100 @@ fi
 check_result "file phase" "${work}/orphan-file-out.img" "$file_baseline" yes
 
 echo "file phase: orphan_present after cleanup: $(has_orphan_present "${work}/orphan-file-out.img" && echo yes || echo no)"
+
+# Phase 3: the checksum on the orphan file block must be verified before any
+# inode is freed. Corrupting it must make a writable mount fail without
+# touching the image.
+corrupt_image=${work}/orphan-file-corrupt.img
+corrupt_before=${work}/orphan-file-corrupt-before.img
+
+run_tool "${work}/orphan-file-made.img" "$corrupt_image" orphan-corrupt-file \
+    >"${work}/corrupt-make.log" 2>&1
+cat "${work}/corrupt-make.log"
+
+if ! grep -qx 'OK' "${work}/corrupt-make.log"; then
+    echo "orphan-corrupt-file did not report OK" >&2
+    exit 1
+fi
+
+cp "$corrupt_image" "$corrupt_before"
+
+if run_tool "$corrupt_image" "${work}/orphan-file-corrupt-out.img" orphan-mount \
+    >"${work}/corrupt-mount.log" 2>&1; then
+    echo "orphan-mount accepted a corrupted orphan file checksum" >&2
+    cat "${work}/corrupt-mount.log" >&2
+    exit 1
+fi
+
+cat "${work}/corrupt-mount.log"
+
+if [ -f "${work}/orphan-file-corrupt-out.img" ]; then
+    echo "corrupted orphan-file mount still wrote an output image" >&2
+    exit 1
+fi
+
+if ! cmp -s "$corrupt_image" "$corrupt_before"; then
+    echo "corrupted orphan-file image changed during the refused mount" >&2
+    exit 1
+fi
+
+echo "corrupt phase: mount refused and image unchanged"
+
+# Phase 4: a two-inode s_last_orphan chain must free both inodes.
+chain_image=${work}/orphan-chain.img
+
+cp "$fixture" "$chain_image"
+debugfs -w -R 'unlink /victim' "$chain_image" >/dev/null 2>&1
+debugfs -w -R 'unlink /second' "$chain_image" >/dev/null 2>&1
+
+chain_baseline=$(free_inodes "$chain_image")
+
+echo "chain phase: free inodes before cleanup: ${chain_baseline}"
+
+run_tool "$chain_image" "${work}/orphan-chain-made.img" orphan-make-chain \
+    "$inode" "$inode2" >"${work}/chain-make.log" 2>&1
+cat "${work}/chain-make.log"
+
+if ! grep -qx 'OK' "${work}/chain-make.log"; then
+    echo "orphan-make-chain did not report OK" >&2
+    exit 1
+fi
+
+run_tool "${work}/orphan-chain-made.img" "${work}/orphan-chain-out.img" \
+    orphan-mount >"${work}/chain-mount.log" 2>&1
+cat "${work}/chain-mount.log"
+
+if ! grep -qx 'OK' "${work}/chain-mount.log"; then
+    echo "orphan-mount did not report OK for the inode chain phase" >&2
+    exit 1
+fi
+
+status=0
+e2fsck -fn "${work}/orphan-chain-out.img" >"${work}/chain-fsck.log" 2>&1 || status=$?
+cat "${work}/chain-fsck.log"
+
+echo "chain phase: e2fsck -fn exited ${status}"
+
+if [ "$status" -ne 0 ]; then
+    echo "chain phase: e2fsck rejected the orphan-cleaned image" >&2
+    exit 1
+fi
+
+chain_after=$(free_inodes "${work}/orphan-chain-out.img")
+
+echo "chain phase: free inodes ${chain_baseline} -> ${chain_after}"
+
+if [ "$chain_after" -ne $((chain_baseline + 2)) ]; then
+    echo "chain phase: cleanup did not free exactly two inodes" >&2
+    exit 1
+fi
+
+chain_listing=$(debugfs -R 'ls -l /' "${work}/orphan-chain-out.img" 2>/dev/null)
+
+if printf '%s\n' "$chain_listing" | grep -qw 'victim' ||
+    printf '%s\n' "$chain_listing" | grep -qw 'second'; then
+    echo "chain phase: an orphan inode still has a directory entry" >&2
+    exit 1
+fi
 
 printf 'ext4 orphan cleanup test passed\n'

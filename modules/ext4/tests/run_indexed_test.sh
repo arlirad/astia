@@ -94,7 +94,8 @@ if ! grep -qx 'OK' "${work}/tool.log"; then
 fi
 
 status=0
-e2fsck -fn "$output" || status=$?
+e2fsck -fn "$output" >"${work}/fsck.log" 2>&1 || status=$?
+cat "${work}/fsck.log"
 
 echo "e2fsck -fn ${output} exited ${status}"
 
@@ -103,12 +104,27 @@ if [ "$status" -ne 0 ]; then
     exit 1
 fi
 
-listing=$(debugfs -R 'ls -l /big' "$output" 2>/dev/null)
+if ! grep -q 'Pass 5: Checking group summary information' "${work}/fsck.log"; then
+    echo "e2fsck did not complete directory checking (no pass 5)" >&2
+    exit 1
+fi
+
+if ! debugfs -R 'stat /other/big' "$output" 2>/dev/null | grep -q '^Inode:'; then
+    echo "renamed directory /other/big is missing from the output" >&2
+    exit 1
+fi
+
+if debugfs -R 'stat /big' "$output" 2>/dev/null | grep -q '^Inode:'; then
+    echo "old path /big still exists in the output" >&2
+    exit 1
+fi
+
+listing=$(debugfs -R 'ls -l /other/big' "$output" 2>/dev/null)
 printf '%s\n' "$listing"
 
 for name in added.txt added2.txt known.txt; do
     if ! printf '%s\n' "$listing" | grep -Fq "$name"; then
-        echo "expected entry ${name} missing from converted /big" >&2
+        echo "expected entry ${name} missing from renamed /other/big" >&2
         exit 1
     fi
 done
@@ -119,50 +135,50 @@ while IFS= read -r name; do
 done <"${work}/names.txt"
 
 if [ "$missing" -ne 0 ]; then
-    echo "${missing} original entries missing from converted /big" >&2
+    echo "${missing} original entries missing from renamed /other/big" >&2
     exit 1
 fi
 
-added=$(debugfs -R 'cat /big/added.txt' "$output" 2>/dev/null || true)
+added=$(debugfs -R 'cat /other/big/added.txt' "$output" 2>/dev/null || true)
 printf '%s\n' "$added"
 
 if [ "$added" != 'added through one-time deindex' ]; then
-    echo "/big/added.txt content mismatch after conversion" >&2
+    echo "/other/big/added.txt content mismatch after conversion" >&2
     exit 1
 fi
 
-second=$(debugfs -R 'cat /big/added2.txt' "$output" 2>/dev/null || true)
+second=$(debugfs -R 'cat /other/big/added2.txt' "$output" 2>/dev/null || true)
 printf '%s\n' "$second"
 
 if [ "$second" != 'second insertion on linear directory' ]; then
-    echo "/big/added2.txt content mismatch after conversion" >&2
+    echo "/other/big/added2.txt content mismatch after conversion" >&2
     exit 1
 fi
 
-known=$(debugfs -R 'cat /big/known.txt' "$output" 2>/dev/null || true)
+known=$(debugfs -R 'cat /other/big/known.txt' "$output" 2>/dev/null || true)
 
 if [ "$known" != 'indexed fixture known payload' ]; then
-    echo "/big/known.txt content mismatch after conversion" >&2
+    echo "/other/big/known.txt content mismatch after conversion" >&2
     exit 1
 fi
 
-after_flags=$(debugfs -R 'stat /big' "$output" 2>/dev/null |
+after_flags=$(debugfs -R 'stat /other/big' "$output" 2>/dev/null |
     sed -n 's/.*Flags: *\(0x[0-9a-fA-F]*\).*/\1/p' | head -n 1)
 
 if [ -z "$after_flags" ]; then
-    echo "could not read the /big inode flags from the output" >&2
+    echo "could not read the /other/big inode flags from the output" >&2
     exit 1
 fi
 
-echo "converted /big Flags: $after_flags"
+echo "converted /other/big Flags: $after_flags"
 
 if [ $((after_flags & 0x1000)) -ne 0 ]; then
-    echo "converted /big still carries the index flag (Flags: $after_flags)" >&2
+    echo "converted /other/big still carries the index flag (Flags: $after_flags)" >&2
     exit 1
 fi
 
 if [ $((after_flags & 0x80000)) -eq 0 ]; then
-    echo "converted /big lost the extents flag (Flags: $after_flags)" >&2
+    echo "converted /other/big lost the extents flag (Flags: $after_flags)" >&2
     exit 1
 fi
 

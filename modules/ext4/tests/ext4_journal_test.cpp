@@ -375,6 +375,29 @@ int main(int argc, char** argv) {
              check(!record.requires_recovery(), "journal is clean") &&
              verify_target(v) && check(v.sync(), "sync recovered volume");
     }
+    else if (std::strcmp(mode, "--revoke-reset") == 0) {
+        journal record;
+
+        constexpr u64 revoked_block    = 0x1234;
+        constexpr u32 revoke_sequence  = 2;
+
+        ok = check(record.test_add_revoke(revoked_block, revoke_sequence),
+                   "insert test revoke") &&
+             check(record.test_revoked(revoked_block, 1),
+                   "revoke suppresses an earlier transaction") &&
+             check(record.test_revoked(revoked_block, revoke_sequence),
+                   "revoke suppresses its own transaction") &&
+             check(!record.test_revoked(revoked_block, revoke_sequence + 1),
+                   "revoke does not suppress a later transaction");
+
+        record.test_reset_replay();
+
+        ok = ok &&
+             check(record.test_revoked(revoked_block, revoke_sequence),
+                   "revoke survives the recovery replay reset") &&
+             check(!record.test_revoked(revoked_block, revoke_sequence + 1),
+                   "later transaction still replays after the reset");
+    }
     else {
         std::printf("FAIL: unknown mode %s\n", mode);
 

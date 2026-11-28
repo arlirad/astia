@@ -708,6 +708,82 @@ namespace astia::ext4 {
         return true;
     }
 
+    bool directory::set_parent(volume& v, inode_record& dir, u32 parent) {
+        if (!v.writable() || !dir.is_directory() || parent == 0)
+            return false;
+
+        if ((dir.flags() & (inode_inline_data | inode_extents)) != inode_extents)
+            return false;
+
+        u64 physical = 0;
+
+        if (!extent::map(v, dir, 0, physical) || physical == 0)
+            return false;
+
+        u8 block[4096];
+
+        if (!v.read_block(physical, block))
+            return false;
+
+        const u32 block_size = v.block_size();
+        const u32 parent_rec =
+            is_indexed(dir) ? block_size - 12 : usable_bytes(v) - 12;
+
+        if (block_size < 0x40 || load32(block) != dir.number ||
+            load16(block + 4) != 12 || block[6] != 1 || block[8] != '.' ||
+            load16(block + 0x10) != parent_rec || block[0x12] != 2 ||
+            block[0x14] != '.' || block[0x15] != '.')
+            return false;
+
+        store32(block + 0x0C, parent);
+
+        if (is_indexed(dir)) {
+            if (v.metadata_csum()) {
+                const u32 count_offset = 0x20;
+                const u32 limit        = load16(block + 0x20);
+                const u32 count        = load16(block + 0x22);
+
+                if (count < 1 || count > limit ||
+                    limit > (block_size - count_offset - 8) / 8)
+                    return false;
+
+                const u32 tail_offset = count_offset + limit * 8;
+
+                if (tail_offset + 8 != block_size)
+                    return false;
+
+                u8 tail[8]{};
+
+                for (u32 i = 0; i < 8; ++i) {
+                    tail[i] = block[tail_offset + i];
+                }
+
+                for (u32 i = 4; i < 8; ++i) {
+                    tail[i] = 0;
+                }
+
+                u8 number[4];
+                u8 generation[4];
+
+                store32(number, dir.number);
+                store32(generation, dir.generation());
+
+                u32 value = crc32c(v.checksum_seed(), number, sizeof number);
+
+                value = crc32c(value, generation, sizeof generation);
+                value = crc32c(value, block, count_offset + count * 8);
+                value = crc32c(value, tail, sizeof tail);
+
+                store32(block + tail_offset + 4, value);
+            }
+        }
+        else {
+            finish_block(v, dir, block);
+        }
+
+        return v.write_block(physical, block);
+    }
+
     long directory::initialize(volume& v, space& alloc, inode_record& dir,
                                u32 self, u32 parent) {
         if (!v.writable())

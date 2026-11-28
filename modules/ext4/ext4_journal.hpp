@@ -51,6 +51,11 @@ namespace astia::ext4 {
 
         static bool test_set_crash_after_commit(bool enabled);
         static bool test_set_crash_after_checkpoint(bool enabled);
+#if defined(ASTIA_EXT4_TEST_HOOKS)
+        bool test_add_revoke(u64 block, u32 sequence);
+        void test_reset_replay();
+        bool test_revoked(u64 block, u32 sequence) const;
+#endif
 
         private:
         struct tag {
@@ -85,6 +90,7 @@ namespace astia::ext4 {
                         u32& next_position) const;
         bool parse_revokes(const u8* block, u32 sequence);
         bool revoked(u64 block, u32 sequence) const;
+        void reset_tags();
         void serialize_tag(u8* destination, const tag& value, u16 extra) const;
         bool write_descriptor(volume& v);
         bool write_commit(volume& v);

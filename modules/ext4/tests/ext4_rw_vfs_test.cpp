@@ -172,13 +172,27 @@ namespace {
         return v.open(io, writable);
     }
 
-    bool make_orphan_list(astia::ext4::volume& v, u32 inode_number) {
+    bool make_orphan_list(astia::ext4::volume& v, u32 inode_number,
+                          u32 next_number) {
+        if (next_number != 0) {
+            astia::ext4::inode_record following;
+
+            if (!v.read_inode(next_number, following))
+                return false;
+
+            following.set_dtime(0);
+            following.set_links_count(0);
+
+            if (!v.write_inode(following))
+                return false;
+        }
+
         astia::ext4::inode_record node;
 
         if (!v.read_inode(inode_number, node))
             return false;
 
-        node.set_dtime(0);
+        node.set_dtime(next_number);
         node.set_links_count(0);
 
         if (!v.write_inode(node))
@@ -239,6 +253,33 @@ namespace {
                                      astia::ext4::ro_orphan_present);
 
         return v.write_superblock();
+    }
+
+    bool corrupt_orphan_file(astia::ext4::volume& v) {
+        const u32 file_inode = v.sb().orphan_file_inum();
+
+        if (file_inode == 0)
+            return false;
+
+        astia::ext4::inode_record file;
+
+        if (!v.read_inode(file_inode, file))
+            return false;
+
+        u64 physical = 0;
+
+        if (!astia::ext4::extent::map(v, file, 0, physical))
+            return false;
+
+        const u32 block_size = v.block_size();
+        u8        block[astia::ext4::sector_size_max];
+
+        if (!v.read_block(physical, block))
+            return false;
+
+        block[block_size - 4] ^= 0xFF;
+
+        return v.write_block(physical, block);
     }
 
     bool no_mapping(u64, u64) {
@@ -309,27 +350,53 @@ int main(int argc, char** argv) {
         return 1;
 
     if (std::strcmp(mode, "orphan-make-list") == 0 ||
+        std::strcmp(mode, "orphan-make-chain") == 0 ||
         std::strcmp(mode, "orphan-make-file") == 0) {
-        if (argc < 5) {
-            std::printf("usage: %s INPUT OUTPUT %s INODE\n", argv[0], mode);
+        const bool chain = std::strcmp(mode, "orphan-make-chain") == 0;
+
+        if (argc < (chain ? 6 : 5)) {
+            std::printf("usage: %s INPUT OUTPUT %s INODE%s\n", argv[0], mode,
+                        chain ? " NEXT" : "");
 
             return 2;
         }
 
         const u32 inode_number =
             static_cast<u32>(std::strtoul(argv[4], nullptr, 10));
+        const u32 next_number =
+            chain ? static_cast<u32>(std::strtoul(argv[5], nullptr, 10)) : 0;
         astia::ext4::volume volume;
 
         if (!check(inode_number != 0 && open_volume(volume, true),
                    "open volume for orphan fixture"))
             return 1;
 
-        const bool built = std::strcmp(mode, "orphan-make-list") == 0
-                               ? make_orphan_list(volume, inode_number)
-                               : make_orphan_file(volume, inode_number);
+        bool built = false;
+
+        if (chain)
+            built = next_number != 0 &&
+                    make_orphan_list(volume, inode_number, next_number);
+        else if (std::strcmp(mode, "orphan-make-list") == 0)
+            built = make_orphan_list(volume, inode_number, 0);
+        else
+            built = make_orphan_file(volume, inode_number);
 
         if (!check(built, "build orphan fixture") ||
             !check(fake_device.store(output), "store orphan fixture"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
+    if (std::strcmp(mode, "orphan-corrupt-file") == 0) {
+        astia::ext4::volume volume;
+
+        if (!check(open_volume(volume, true),
+                   "open volume for orphan corruption") ||
+            !check(corrupt_orphan_file(volume), "corrupt orphan file") ||
+            !check(fake_device.store(output), "store corrupted orphan fixture"))
             return 1;
 
         std::printf("OK\n");
@@ -436,13 +503,23 @@ int main(int argc, char** argv) {
     }
 
     if (std::strcmp(mode, "indexed") == 0) {
+        if (!check(astia::fs::make_directory(
+                       "/tmp/ext4/other",
+                       astia::fs::file_mode(astia::fs::directory_dir,
+                                            astia::fs::file_permissions(0755))) == 0,
+                   "mkdir /other") ||
+            !check(astia::fs::rename_path("/tmp/ext4/big",
+                                          "/tmp/ext4/other/big") == 0,
+                   "rename indexed /big into /other"))
+            return 1;
+
         bool known_seen = false;
 
         for (u64 index = 0; index < 512; ++index) {
             char                 entry_name[256]{};
             astia::fs::file_type entry_type{};
             const long           rc = astia::fs::read_directory(
-                "/tmp/ext4/big", index, entry_name, sizeof entry_name,
+                "/tmp/ext4/other/big", index, entry_name, sizeof entry_name,
                 &entry_type, nullptr);
 
             if (rc == 0)
@@ -461,12 +538,12 @@ int main(int argc, char** argv) {
         const char* known_text   = "indexed fixture known payload\n";
         const u32   known_length = static_cast<u32>(std::strlen(known_text));
 
-        auto known = astia::fs::open("/tmp/ext4/big/known.txt",
+        auto known = astia::fs::open("/tmp/ext4/other/big/known.txt",
                                      ASTIA_AIO_O_RDONLY);
 
         char known_read[64]{};
 
-        if (!check_handle(known, "open known.txt in indexed /big") ||
+        if (!check_handle(known, "open known.txt in indexed /other/big") ||
             !check(known.get() != nullptr &&
                        known->read(known_read, sizeof known_read) ==
                            static_cast<long>(known_length),
@@ -480,14 +557,14 @@ int main(int argc, char** argv) {
         const char* added_text   = "added through one-time deindex\n";
         const u32   added_length = static_cast<u32>(std::strlen(added_text));
 
-        auto added = astia::fs::open("/tmp/ext4/big/added.txt",
+        auto added = astia::fs::open("/tmp/ext4/other/big/added.txt",
                                      ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
 
-        if (!check_handle(added, "create /big/added.txt") ||
+        if (!check_handle(added, "create /other/big/added.txt") ||
             !check(added.get() != nullptr &&
                        added->write(added_text, added_length) ==
                            static_cast<long>(added_length),
-                   "write /big/added.txt"))
+                   "write /other/big/added.txt"))
             return 1;
 
         added = {};
@@ -495,30 +572,30 @@ int main(int argc, char** argv) {
         const char* second_text   = "second insertion on linear directory\n";
         const u32   second_length = static_cast<u32>(std::strlen(second_text));
 
-        auto second = astia::fs::open("/tmp/ext4/big/added2.txt",
+        auto second = astia::fs::open("/tmp/ext4/other/big/added2.txt",
                                       ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
 
-        if (!check_handle(second, "create /big/added2.txt") ||
+        if (!check_handle(second, "create /other/big/added2.txt") ||
             !check(second.get() != nullptr &&
                        second->write(second_text, second_length) ==
                            static_cast<long>(second_length),
-                   "write /big/added2.txt"))
+                   "write /other/big/added2.txt"))
             return 1;
 
         second = {};
 
-        auto verify_added = astia::fs::open("/tmp/ext4/big/added.txt",
+        auto verify_added = astia::fs::open("/tmp/ext4/other/big/added.txt",
                                             ASTIA_AIO_O_RDONLY);
 
         char added_read[64]{};
 
-        if (!check_handle(verify_added, "reopen /big/added.txt") ||
+        if (!check_handle(verify_added, "reopen /other/big/added.txt") ||
             !check(verify_added.get() != nullptr &&
                        verify_added->read(added_read, sizeof added_read) ==
                            static_cast<long>(added_length),
-                   "read /big/added.txt") ||
+                   "read /other/big/added.txt") ||
             !check(std::strcmp(added_read, added_text) == 0,
-                   "/big/added.txt content"))
+                   "/other/big/added.txt content"))
             return 1;
 
         verify_added = {};

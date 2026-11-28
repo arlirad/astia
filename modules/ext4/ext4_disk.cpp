@@ -1123,6 +1123,9 @@ namespace astia::ext4 {
             descriptor_size != 64)
             return false;
 
+        if ((incompat & incompat_64bit) != 0 && descriptor_size < 64)
+            return false;
+
         if ((incompat & incompat_64bit) != 0 && _sb.blocks_count() > 0xFFFFFFFFu)
             return false;
 

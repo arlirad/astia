@@ -93,6 +93,10 @@ namespace astia::ext4 {
         _revoke_count = 0;
     }
 
+    void journal::reset_tags() {
+        _tag_count = 0;
+    }
+
     u32 journal::next(u32 position) const {
         return position + 1 == _maxlen ? _first : position + 1;
     }
@@ -385,7 +389,7 @@ namespace astia::ext4 {
             if (_revokes[i].block != block)
                 continue;
 
-            if (static_cast<i32>(sequence - _revokes[i].sequence) >= 0)
+            if (static_cast<i32>(sequence - _revokes[i].sequence) <= 0)
                 return true;
         }
 
@@ -406,7 +410,7 @@ namespace astia::ext4 {
         u32       end            = _start;
 
         _revoke_count = 0;
-        reset_transaction();
+        reset_tags();
 
         for (;;) {
             if (scanned >= _maxlen)
@@ -493,7 +497,7 @@ namespace astia::ext4 {
         u32 replay_expected = first_sequence;
         u32 replay_position = _start;
 
-        reset_transaction();
+        reset_tags();
 
         while (replay_position != end) {
             if (!read_journal_block(v, replay_position, _block))
@@ -536,7 +540,7 @@ namespace astia::ext4 {
                         return false;
                 }
 
-                reset_transaction();
+                reset_tags();
 
                 replay_expected = sequence_after(replay_expected);
                 replay_position = next(replay_position);
@@ -940,4 +944,25 @@ namespace astia::ext4 {
 
         return previous;
     }
+
+#if defined(ASTIA_EXT4_TEST_HOOKS)
+    bool journal::test_add_revoke(u64 block, u32 sequence) {
+        if (_revoke_count >= max_revokes)
+            return false;
+
+        _revokes[_revoke_count].block    = block;
+        _revokes[_revoke_count].sequence = sequence;
+        ++_revoke_count;
+
+        return true;
+    }
+
+    void journal::test_reset_replay() {
+        reset_tags();
+    }
+
+    bool journal::test_revoked(u64 block, u32 sequence) const {
+        return revoked(block, sequence);
+    }
+#endif
 } // namespace astia::ext4

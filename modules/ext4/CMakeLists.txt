@@ -202,6 +202,7 @@ set(ASTIA_EXT4_JOURNAL_UNIT ${CMAKE_CURRENT_BINARY_DIR}/ext4_journal_unit)
 add_custom_command(
         OUTPUT ${ASTIA_EXT4_JOURNAL_UNIT}
         COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -DASTIA_HOST_TEST=1
+                -DASTIA_EXT4_TEST_HOOKS=1
                 -Wall -Wextra -Werror -pedantic
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include

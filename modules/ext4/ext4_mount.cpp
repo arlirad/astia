@@ -10,7 +10,6 @@ namespace astia::ext4 {
     namespace {
         constexpr u32 inline_symlink_max = 60;
         constexpr u32 max_name_length    = 255;
-        constexpr u32 orphan_walk_limit  = 1024;
 
         u32 text_length(const char* text) {
             u32 length = 0;
@@ -474,6 +473,19 @@ namespace astia::ext4 {
                 return false;
             }
 
+            if (_volume.metadata_csum()) {
+                const u32 stored = load32(block + block_size - 4);
+                const u32 actual = orphan_block_checksum(
+                    _volume.checksum_seed(), number, node.generation(),
+                    physical, block, block_size);
+
+                if (actual != stored) {
+                    logs::error("orphan file block checksum is invalid");
+
+                    return false;
+                }
+            }
+
             for (u32 offset = 0; offset + 4 <= block_size - 8; offset += 4) {
                 const u32 orphan_number = load32(block + offset);
 
@@ -507,10 +519,12 @@ namespace astia::ext4 {
             return false;
 
         u32 next  = _volume.sb().last_orphan();
-        u32 walked = 0;
+        u64 walked = 0;
+        const u64 walk_limit =
+            static_cast<u64>(_volume.inodes_count()) + 1;
 
         while (next != 0) {
-            if (++walked > orphan_walk_limit) {
+            if (++walked > walk_limit) {
                 logs::error("orphan list exceeds the walk limit");
 
                 return false;
@@ -1584,44 +1598,8 @@ namespace astia::ext4 {
         if ((directory_node.flags() & inode_extents) == 0)
             return -EOPNOTSUPP;
 
-        u64 physical = 0;
-
-        if (!extent::map(_volume, directory_node, 0, physical) || physical == 0)
-            return -EIO;
-
-        u8 block[4096]{};
-
-        if (!_volume.read_block(physical, block))
-            return -EIO;
-
-        const u32 block_size = _volume.block_size();
-        u32       usable = block_size;
-
-        if (_volume.metadata_csum() && usable > 12)
-            usable -= 12;
-
-        u32 offset = 0;
-
-        while (offset + 8 <= usable) {
-            const u32 inode    = load32(block + offset);
-            const u16 rec_len  = load16(block + offset + 4);
-            const u8  name_len = block[offset + 6];
-
-            if (rec_len < 8 || (rec_len & 3) != 0 || rec_len > usable - offset)
-                return -EIO;
-
-            if (inode != 0 && name_len == 2 && block[offset + 8] == '.' &&
-                block[offset + 9] == '.') {
-                store32(block + offset, parent);
-                directory::finish_block(_volume, directory_node, block);
-
-                return _volume.write_block(physical, block) ? 0 : -EIO;
-            }
-
-            offset += rec_len;
-        }
-
-        return -ENOENT;
+        return directory::set_parent(_volume, directory_node, parent) ? 0
+                                                                     : -EIO;
     }
 
     long mount::rename(const char* old_path, const char* new_path) {

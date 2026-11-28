@@ -65,3 +65,6 @@ if grep -q 'needs_recovery' "$out/recovered.dumpe2fs"; then
 fi
 
 check_content "$out/crash.img"
+
+cp "$image" "$out/revoke.img"
+"$tool" --revoke-reset "$out/revoke.img" "$out/revoke.img"
