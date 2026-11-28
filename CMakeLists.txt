@@ -399,6 +399,8 @@ if(ASTIA_BUILD_TESTS)
             astiakrn_acpi
             astiakrn_acpi_reject
             astia_acpi_grub_iso
+            astia_power_reboot_iso
+            astia_power_shutdown_iso
             astia_boot_initrd
             astia_production_exit_initrd
             astia_cross_libc
