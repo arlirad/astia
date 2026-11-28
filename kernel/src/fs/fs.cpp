@@ -548,6 +548,12 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    long mount::chown_verified(const char* path, u64 inode, uid_t uid, gid_t gid) {
+        (void) inode;
+
+        return chown(path, uid, gid);
+    }
+
     long mount::symlink(const char*, const char*) {
         return -ENOSYS;
     }
@@ -1666,6 +1672,31 @@ namespace astia::fs {
                                            permissions);
     }
 
+    long chown_verified(const char* path, const node_identity& expected, uid_t uid,
+                        gid_t gid) {
+        if (path == nullptr || path[0] != '/')
+            return -EINVAL;
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return -ENOENT;
+
+        if (expected.device != 0 && operation.instance()->device() != expected.device)
+            return -EAGAIN;
+
+        if (operation.instance()->read_only())
+            return -EROFS;
+
+        long unix_rc = unix_chown_path(path, operation.instance(), uid, gid);
+
+        if (unix_rc != -ENOENT)
+            return unix_rc;
+
+        return operation.instance()->chown_verified(
+            relative_path(*operation.entry(), path), expected.inode, uid, gid);
+    }
+
     long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final) {
         if (path == nullptr || path[0] != '/')
             return -EINVAL;
@@ -1675,21 +1706,7 @@ namespace astia::fs {
         if (rc < 0)
             return rc;
 
-        mount_operation operation(resolved);
-
-        if (!operation)
-            return -ENOENT;
-
-        if (operation.instance()->read_only())
-            return -EROFS;
-
-        long unix_rc = unix_chown_path(resolved, operation.instance(), uid, gid);
-
-        if (unix_rc != -ENOENT)
-            return unix_rc;
-
-        return operation.instance()->chown(relative_path(*operation.entry(), resolved),
-                                           uid, gid);
+        return chown_verified(resolved, node_identity_of(resolved), uid, gid);
     }
 
     long touch_path(const char* path, const file_timestamps& times, bool follow_final) {

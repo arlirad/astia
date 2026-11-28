@@ -137,6 +137,12 @@ namespace astia::fs {
     file_timestamps node_timestamps(const char* path);
     long            chmod_path(const char* path, file_permissions permissions);
     long chown_path(const char* path, uid_t uid, gid_t gid, bool follow_final = true);
+    /// Apply an ownership change to the node in `expected`, which the caller
+    /// captured from the resolution it checked.  `path` must already be the
+    /// canonical name of that resolution.  A name that now resolves to another
+    /// node fails with -EAGAIN and changes nothing.
+    long chown_verified(const char* path, const node_identity& expected, uid_t uid,
+                        gid_t gid);
     long touch_path(const char* path, const file_timestamps& times, bool follow_final);
     long make_symlink(const char* target, const char* path);
     long read_symlink(const char* path, char* buffer, u32 capacity);

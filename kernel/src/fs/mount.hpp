@@ -81,7 +81,13 @@ namespace astia::fs {
         virtual file_timestamps node_timestamps(const char* path) const;
         virtual long            chmod(const char* path, file_permissions permissions);
         virtual long            chown(const char* path, uid_t uid, gid_t gid);
-        virtual long            symlink(const char* target, const char* path);
+        /// Change ownership only when `path` still names the node in `inode`
+        /// (`0` when the mount cannot identify one).  Backends that resolve and
+        /// mutate under one namespace lock override this so a name swapped
+        /// since the caller checked it fails with -EAGAIN instead of changing
+        /// the replacement.
+        virtual long chown_verified(const char* path, u64 inode, uid_t uid, gid_t gid);
+        virtual long symlink(const char* target, const char* path);
         virtual long readlink(const char* path, char* buffer, u32 capacity) const;
 
         void retain_open() {

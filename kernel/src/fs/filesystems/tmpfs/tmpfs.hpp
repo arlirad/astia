@@ -195,7 +195,8 @@ namespace astia::fs::filesystems {
         file_timestamps node_timestamps(const char* path) const override;
         long            chmod(const char* path, file_permissions permissions) override;
         long            chown(const char* path, uid_t uid, gid_t gid) override;
-        long            symlink(const char* target, const char* path) override;
+        long chown_verified(const char* path, u64 inode, uid_t uid, gid_t gid) override;
+        long symlink(const char* target, const char* path) override;
         long readlink(const char* path, char* buffer, u32 capacity) const override;
 
         private:
