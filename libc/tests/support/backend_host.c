@@ -470,7 +470,9 @@ void __astia_fio_prepare_exec(void) {}
 
 void __astia_fio_prepare_fork(void) {}
 
-void __astia_fio_after_fork(void) {}
+void __astia_fio_after_fork(void) {
+    __astia_aio_after_fork();
+}
 
 struct host_dirent64 {
     unsigned long  d_ino;

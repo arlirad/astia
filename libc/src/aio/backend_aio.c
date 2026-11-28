@@ -92,22 +92,48 @@ static _Thread_local uint64_t     g_inflight; /* 0: none.  Tag of an operation w
                                    the stale entry and wait on a completion
                                    that never comes, or an append could be
                                    applied twice. */
-static uint64_t g_deferred_user_data[RING_ENTRIES];
-static int32_t  g_deferred_result[RING_ENTRIES];
-static size_t   g_deferred_count;
 
-static int deferred_result(uint64_t user_data, long* result) {
+struct fio_deferred {
+    astia_rings* ring;
+    uint64_t     user_data;
+    int32_t      result;
+};
+
+struct fio_cq_state {
+    volatile int        lock;
+    size_t              count;
+    struct fio_deferred entries[RING_ENTRIES];
+};
+
+static struct fio_cq_state               g_cq_state;
+static _Thread_local struct fio_cq_state g_signal_cq_state;
+
+static struct fio_cq_state* cq_state(void) {
+    return g_signal_transaction ? &g_signal_cq_state : &g_cq_state;
+}
+
+static void cq_lock(struct fio_cq_state* state) {
+    while (__atomic_exchange_n(&state->lock, 1, __ATOMIC_ACQUIRE) != 0) {
+        (void) astia_yield();
+    }
+}
+
+static void cq_unlock(struct fio_cq_state* state) {
+    __atomic_store_n(&state->lock, 0, __ATOMIC_RELEASE);
+}
+
+static int deferred_result(struct fio_cq_state* state, astia_rings* ring,
+                           uint64_t user_data, long* result) {
     size_t i;
 
-    for (i = 0; i < g_deferred_count; ++i) {
-        if (g_deferred_user_data[i] == user_data) {
-            *result = g_deferred_result[i];
+    for (i = 0; i < state->count; ++i) {
+        if (state->entries[i].ring == ring && state->entries[i].user_data == user_data) {
+            *result = state->entries[i].result;
 
-            --g_deferred_count;
+            --state->count;
 
-            for (; i < g_deferred_count; ++i) {
-                g_deferred_user_data[i] = g_deferred_user_data[i + 1];
-                g_deferred_result[i]    = g_deferred_result[i + 1];
+            for (; i < state->count; ++i) {
+                state->entries[i] = state->entries[i + 1];
             }
 
             return 1;
@@ -143,19 +169,26 @@ static long ring_ensure(void) {
  * then g_inflight stays set and the next transaction stops at this same
  * gate instead of compounding the unknown state. */
 static long settle(void) {
+    struct fio_cq_state* state = cq_state();
+
     long result;
 
-    if (deferred_result(g_inflight, &result)) {
-        g_inflight = 0;
-
-        return 0;
-    }
-
     for (;;) {
-        astia_cqe* c = astia_cq_peek(g_ring);
+        astia_cqe* c;
 
         long rc;
 
+        cq_lock(state);
+
+        if (deferred_result(state, g_ring, g_inflight, &result)) {
+            g_inflight = 0;
+
+            cq_unlock(state);
+
+            return 0;
+        }
+
+        c = astia_cq_peek(g_ring);
         if (c != NULL) {
             int ours = (c->user_data == g_inflight);
 
@@ -164,11 +197,17 @@ static long settle(void) {
             if (ours) {
                 g_inflight = 0;
 
+                cq_unlock(state);
+
                 return 0;
             }
 
+            cq_unlock(state);
+
             continue; /* not the tag we owe — keep reaping */
         }
+
+        cq_unlock(state);
 
         rc = astia_io_submit(g_ring, 1);
         if (rc < 0)
@@ -183,10 +222,11 @@ static long settle(void) {
  * find with our tag is ours and nothing else can be pending. */
 static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
                      uint32_t len, uint32_t op_flags, uint32_t aux) {
-    astia_rings* r;
-    astia_sqe*   s;
-    astia_cqe*   c;
-    uint64_t     tag;
+    struct fio_cq_state* state;
+    astia_rings*         r;
+    astia_sqe*           s;
+    astia_cqe*           c;
+    uint64_t             tag;
 
     long rc;
 
@@ -220,8 +260,9 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
             return rc;
     }
 
-    r   = g_ring;
-    tag = ++g_tag;
+    state = cq_state();
+    r     = g_ring;
+    tag   = ++g_tag;
 
     s = astia_sqe_slot(r);
     if (s == NULL) {
@@ -264,11 +305,18 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
     }
 
     for (;;) {
-        if (deferred_result(tag, &rc))
+        cq_lock(state);
+
+        if (deferred_result(state, r, tag, &rc)) {
+            cq_unlock(state);
+
             return rc;
+        }
 
         c = astia_cq_peek(r);
         if (c == NULL) {
+            cq_unlock(state);
+
             rc = astia_io_submit(r, 0);
             if (rc < 0)
                 return rc;
@@ -282,17 +330,22 @@ static long transact(uint32_t op, int32_t fd, uint64_t off, const void* addr,
 
             astia_cq_consume(r, 1);
 
+            cq_unlock(state);
+
             return rc;
         }
 
-        if (g_deferred_count < RING_ENTRIES) {
-            g_deferred_user_data[g_deferred_count] = c->user_data;
-            g_deferred_result[g_deferred_count]    = c->result;
+        if (state->count < RING_ENTRIES) {
+            state->entries[state->count].ring      = r;
+            state->entries[state->count].user_data = c->user_data;
+            state->entries[state->count].result    = c->result;
 
-            ++g_deferred_count;
+            ++state->count;
         }
 
         astia_cq_consume(r, 1);
+
+        cq_unlock(state);
     }
 }
 
@@ -374,43 +427,68 @@ long __astia_fio_aio_fsync(int fd, uint64_t* tag_out) {
     return aio_submit_op(OP_FSYNC, fd, 0, 0, NULL, 0, tag_out);
 }
 
-long __astia_fio_aio_result(uint64_t tag, long* result) {
-    astia_rings* r;
-    astia_cqe*   c;
+long __astia_fio_aio_context(void** ring) {
+    if (ring == NULL)
+        return -EINVAL;
+
+    *ring = g_ring;
+
+    return 0;
+}
+
+long __astia_fio_aio_result(void* ring, uint64_t tag, long* result) {
+    struct fio_cq_state* state = &g_cq_state;
+    astia_rings*         r     = ring != NULL ? ring : g_ring;
+    astia_cqe*           c;
 
     long rc;
 
     if (result == NULL)
         return -EINVAL;
 
-    if (deferred_result(tag, result))
-        return 1;
-
-    r = g_ring;
     if (r == NULL)
         return 0;
 
     for (;;) {
+        cq_lock(state);
+
+        if (deferred_result(state, r, tag, result)) {
+            cq_unlock(state);
+
+            return 1;
+        }
+
         c = astia_cq_peek(r);
-        if (c == NULL)
+        if (c == NULL) {
+            cq_unlock(state);
+
             break;
+        }
 
         if (c->user_data == tag) {
             *result = c->result;
 
             astia_cq_consume(r, 1);
 
+            cq_unlock(state);
+
             return 1;
         }
 
-        if (g_deferred_count == RING_ENTRIES)
+        if (state->count == RING_ENTRIES) {
+            cq_unlock(state);
+
             return -EBUSY;
+        }
 
-        g_deferred_user_data[g_deferred_count] = c->user_data;
-        g_deferred_result[g_deferred_count]    = c->result;
+        state->entries[state->count].ring      = r;
+        state->entries[state->count].user_data = c->user_data;
+        state->entries[state->count].result    = c->result;
 
-        ++g_deferred_count;
+        ++state->count;
         astia_cq_consume(r, 1);
+
+        cq_unlock(state);
     }
 
     rc = astia_io_submit(r, 0);
@@ -422,12 +500,11 @@ void __astia_fio_prepare_exec(void) {
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
 
-    g_ring           = NULL;
-    g_inflight       = 0;
-    g_tag            = 0;
-    g_signal_ring    = NULL;
-    g_signal_tag     = 0;
-    g_deferred_count = 0;
+    g_ring        = NULL;
+    g_inflight    = 0;
+    g_tag         = 0;
+    g_signal_ring = NULL;
+    g_signal_tag  = 0;
 }
 
 void __astia_fio_prepare_fork(void) {
@@ -437,12 +514,11 @@ void __astia_fio_prepare_fork(void) {
     if (g_ring != NULL)
         (void) astia_io_destroy(g_ring);
 
-    g_ring           = NULL;
-    g_inflight       = 0;
-    g_tag            = 0;
-    g_signal_ring    = NULL;
-    g_signal_tag     = 0;
-    g_deferred_count = 0;
+    g_ring        = NULL;
+    g_inflight    = 0;
+    g_tag         = 0;
+    g_signal_ring = NULL;
+    g_signal_tag  = 0;
 }
 
 long __astia_fio_open(const char* path, int flags, int mode) {
@@ -1179,11 +1255,16 @@ void __astia_fio_after_fork(void) {
     /* The ring's user alias belongs to the parent address space.  The child
        inherits libc data through CoW, so it must acquire its own ring before
        issuing any I/O. */
-    g_ring               = NULL;
-    g_inflight           = 0;
-    g_tag                = 0;
-    g_signal_ring        = NULL;
-    g_signal_tag         = 0;
-    g_signal_transaction = 0;
-    g_deferred_count     = 0;
+    g_ring                  = NULL;
+    g_inflight              = 0;
+    g_tag                   = 0;
+    g_signal_ring           = NULL;
+    g_signal_tag            = 0;
+    g_signal_transaction    = 0;
+    g_cq_state.count        = 0;
+    g_cq_state.lock         = 0;
+    g_signal_cq_state.count = 0;
+    g_signal_cq_state.lock  = 0;
+
+    __astia_aio_after_fork();
 }

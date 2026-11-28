@@ -13,83 +13,220 @@ enum { aio_slots_max = 128 };
 struct aio_slot {
     struct aiocb* cb;
     uint64_t      tag;
+    void*         ring;
     long          result;
     int           complete;
     int           returned;
+    int           reserved;
+    int           polling;
+    unsigned      users;
 };
 
-static _Thread_local struct aio_slot g_aio_slots[aio_slots_max];
-static _Thread_local uint64_t        g_aio_host_tag;
+static struct aio_slot g_aio_slots[aio_slots_max];
+static volatile int    g_aio_lock;
 
-static struct aio_slot* aio_find(const struct aiocb* cb) {
+static void aio_lock(void) {
+    while (__atomic_exchange_n(&g_aio_lock, 1, __ATOMIC_ACQUIRE) != 0) {
+        (void) astia_yield();
+    }
+}
+
+static void aio_unlock(void) {
+    __atomic_store_n(&g_aio_lock, 0, __ATOMIC_RELEASE);
+}
+
+static void aio_slot_clear(struct aio_slot* slot) {
+    *slot = (struct aio_slot){0};
+}
+
+static struct aio_slot* aio_find_locked(const struct aiocb* cb) {
     size_t i;
 
     for (i = 0; i < aio_slots_max; ++i) {
-        if (g_aio_slots[i].cb == cb && !g_aio_slots[i].returned)
+        if (g_aio_slots[i].cb == cb && !g_aio_slots[i].returned &&
+            !g_aio_slots[i].reserved)
             return &g_aio_slots[i];
     }
 
     return NULL;
 }
 
-static struct aio_slot* aio_free_slot(void) {
+static struct aio_slot* aio_free_locked(void) {
     size_t i;
 
     for (i = 0; i < aio_slots_max; ++i) {
-        if (g_aio_slots[i].cb == NULL || g_aio_slots[i].returned)
+        if (g_aio_slots[i].cb == NULL && g_aio_slots[i].users == 0)
             return &g_aio_slots[i];
     }
 
     return NULL;
+}
+
+static struct aio_slot* aio_acquire(const struct aiocb* cb) {
+    struct aio_slot* slot;
+
+    aio_lock();
+
+    slot = aio_find_locked(cb);
+    if (slot != NULL)
+        ++slot->users;
+
+    aio_unlock();
+
+    return slot;
+}
+
+static void aio_release(struct aio_slot* slot) {
+    aio_lock();
+
+    if (slot->users != 0)
+        --slot->users;
+
+    if (slot->returned && slot->users == 0)
+        aio_slot_clear(slot);
+
+    aio_unlock();
 }
 
 static int aio_update(struct aio_slot* slot) {
     long result;
+
+    void*    ring;
+    uint64_t tag;
+
     long rc;
 
-    if (slot->complete)
-        return 1;
+    aio_lock();
 
-    rc = __astia_fio_aio_result(slot->tag, &result);
-    if (rc < 0) {
-        slot->result   = rc;
-        slot->complete = 1;
+    if (slot->complete) {
+        aio_unlock();
 
         return 1;
     }
 
-    if (rc == 0)
+    if (slot->polling) {
+        aio_unlock();
+
         return 0;
+    }
 
-    slot->result   = result;
-    slot->complete = 1;
+    slot->polling = 1;
+    tag           = slot->tag;
+    ring          = slot->ring;
 
-    return 1;
+    aio_unlock();
+
+    rc = __astia_fio_aio_result(ring, tag, &result);
+
+    aio_lock();
+
+    if (rc < 0) {
+        slot->result   = rc;
+        slot->complete = 1;
+    }
+    else if (rc > 0) {
+        slot->result   = result;
+        slot->complete = 1;
+    }
+
+    slot->polling = 0;
+    rc            = slot->complete;
+
+    aio_unlock();
+
+    return (int) rc;
+}
+
+static int aio_conflict_locked(const struct aiocb* cb) {
+    size_t i;
+
+    for (i = 0; i < aio_slots_max; ++i) {
+        if (g_aio_slots[i].cb == cb && !g_aio_slots[i].returned)
+            return 1;
+    }
+
+    return 0;
+}
+
+static int aio_update_wait(struct aio_slot* slot) {
+    for (;;) {
+        int polling;
+
+        if (aio_update(slot))
+            return 1;
+
+        aio_lock();
+
+        polling = slot->polling;
+
+        aio_unlock();
+
+        if (!polling)
+            return 0;
+
+        (void) astia_yield();
+    }
 }
 
 static struct aio_slot* aio_begin(const struct aiocb* cb) {
     struct aio_slot* slot;
 
-    if (aio_find(cb) != NULL) {
+    aio_lock();
+
+    if (aio_conflict_locked(cb)) {
+        aio_unlock();
+
         errno = EINVAL;
 
         return NULL;
     }
 
-    slot = aio_free_slot();
-    if (slot == NULL)
+    slot = aio_free_locked();
+    if (slot == NULL) {
+        aio_unlock();
+
         errno = EAGAIN;
+
+        return NULL;
+    }
+
+    aio_slot_clear(slot);
+
+    slot->cb       = (struct aiocb*) cb;
+    slot->reserved = 1;
+    slot->users    = 1;
+
+    aio_unlock();
 
     return slot;
 }
 
-static void aio_commit(struct aio_slot* slot, struct aiocb* cb, uint64_t tag) {
-    *slot = (struct aio_slot){cb, tag, 0, 0, 0};
+static void aio_commit(struct aio_slot* slot, uint64_t tag, void* ring) {
+    aio_lock();
+
+    slot->tag      = tag;
+    slot->ring     = ring;
+    slot->result   = 0;
+    slot->complete = 0;
+    slot->returned = 0;
+    slot->reserved = 0;
+    slot->polling  = 0;
+
+    --slot->users;
+
+    aio_unlock();
+}
+
+static void aio_abort(struct aio_slot* slot) {
+    aio_lock();
+    aio_slot_clear(slot);
+    aio_unlock();
 }
 
 static int aio_submit(struct aiocb* cb, int write) {
     struct aio_slot* slot;
-    uint64_t         tag = 0;
+    void*            ring = NULL;
+    uint64_t         tag  = 0;
 
     long rc;
 
@@ -107,12 +244,17 @@ static int aio_submit(struct aiocb* cb, int write) {
     rc = __astia_fio_aio_submit(cb->aio_fildes, (uint64_t) cb->aio_offset,
                                 (void*) cb->aio_buf, cb->aio_nbytes, write, &tag);
     if (rc < 0) {
+        aio_abort(slot);
+
         errno = (int) -rc;
 
         return -1;
     }
 
-    aio_commit(slot, cb, tag);
+    if (__astia_fio_aio_context(&ring) < 0)
+        ring = NULL;
+
+    aio_commit(slot, tag, ring);
 
     return 0;
 }
@@ -127,7 +269,8 @@ int aio_write(struct aiocb* aiocbp) {
 
 int aio_fsync(int op, struct aiocb* aiocbp) {
     struct aio_slot* slot;
-    uint64_t         tag = 0;
+    void*            ring = NULL;
+    uint64_t         tag  = 0;
 
     long rc;
 
@@ -146,12 +289,17 @@ int aio_fsync(int op, struct aiocb* aiocbp) {
 
     rc = __astia_fio_aio_fsync(aiocbp->aio_fildes, &tag);
     if (rc < 0) {
+        aio_abort(slot);
+
         errno = (int) -rc;
 
         return -1;
     }
 
-    aio_commit(slot, aiocbp, tag);
+    if (__astia_fio_aio_context(&ring) < 0)
+        ring = NULL;
+
+    aio_commit(slot, tag, ring);
 
     return 0;
 }
@@ -243,30 +391,60 @@ int lio_listio(int mode, struct aiocb* const list[], int nent, struct sigevent* 
 }
 
 int aio_error(const struct aiocb* aiocbp) {
-    struct aio_slot* slot = aio_find(aiocbp);
+    struct aio_slot* slot = aio_acquire(aiocbp);
+
+    int complete;
+    int error;
+
     if (slot == NULL)
         return EINVAL;
 
-    if (!aio_update(slot))
-        return EINPROGRESS;
+    (void) aio_update(slot);
 
-    return slot->result < 0 ? (int) -slot->result : 0;
+    aio_lock();
+
+    complete = slot->complete;
+    error    = slot->result < 0 ? (int) -slot->result : 0;
+
+    aio_unlock();
+
+    aio_release(slot);
+
+    return complete ? error : EINPROGRESS;
 }
 
 ssize_t aio_return(struct aiocb* aiocbp) {
-    struct aio_slot* slot = aio_find(aiocbp);
+    struct aio_slot* slot = aio_acquire(aiocbp);
 
     long result;
 
-    if (slot == NULL || !aio_update(slot)) {
+    if (slot == NULL || !aio_update_wait(slot)) {
+        if (slot != NULL)
+            aio_release(slot);
+
         errno = EINVAL;
 
         return -1;
     }
 
-    result         = slot->result;
+    aio_lock();
+
+    result = slot->result;
+
+    if (slot->returned) {
+        aio_unlock();
+        aio_release(slot);
+
+        errno = EINVAL;
+
+        return -1;
+    }
+
     slot->returned = 1;
-    slot->cb       = NULL;
+
+    aio_unlock();
+
+    aio_release(slot);
 
     if (result < 0) {
         errno = (int) -result;
@@ -333,14 +511,19 @@ int aio_suspend(const struct aiocb* const list[], int nent,
             if (list[i] == NULL)
                 continue;
 
-            slot = aio_find(list[i]);
+            slot = aio_acquire(list[i]);
             if (slot == NULL)
                 continue;
 
             have = 1;
 
-            if (aio_update(slot))
+            if (aio_update(slot)) {
+                aio_release(slot);
+
                 return 0;
+            }
+
+            aio_release(slot);
         }
 
         if (!have) {
@@ -360,6 +543,9 @@ int aio_suspend(const struct aiocb* const list[], int nent,
 }
 
 int aio_cancel(int fildes, struct aiocb* aiocbp) {
+    struct aio_slot* snapshot[aio_slots_max];
+
+    size_t count  = 0;
     int    active = 0;
     int    done   = 0;
     size_t i;
@@ -371,30 +557,51 @@ int aio_cancel(int fildes, struct aiocb* aiocbp) {
     }
 
     if (aiocbp != NULL) {
-        struct aio_slot* slot = aio_find(aiocbp);
+        struct aio_slot* slot = aio_acquire(aiocbp);
 
         if (slot == NULL || slot->cb->aio_fildes != fildes) {
+            if (slot != NULL)
+                aio_release(slot);
+
             errno = EINVAL;
 
             return -1;
         }
 
-        if (aio_update(slot))
+        if (aio_update(slot)) {
+            aio_release(slot);
+
             return AIO_ALLDONE;
+        }
+
+        aio_release(slot);
 
         return AIO_NOTCANCELED;
     }
 
+    aio_lock();
+
     for (i = 0; i < aio_slots_max; ++i) {
         struct aio_slot* slot = &g_aio_slots[i];
 
-        if (slot->cb == NULL || slot->returned || slot->cb->aio_fildes != fildes)
+        if (slot->cb == NULL || slot->returned || slot->reserved ||
+            slot->cb->aio_fildes != fildes)
             continue;
 
-        if (aio_update(slot))
+        ++slot->users;
+
+        snapshot[count++] = slot;
+    }
+
+    aio_unlock();
+
+    for (i = 0; i < count; ++i) {
+        if (aio_update(snapshot[i]))
             ++done;
         else
             ++active;
+
+        aio_release(snapshot[i]);
     }
 
     if (active != 0)
@@ -405,14 +612,20 @@ int aio_cancel(int fildes, struct aiocb* aiocbp) {
     return AIO_ALLDONE;
 }
 
-static _Thread_local struct {
+struct aio_host_result {
     uint64_t tag;
     long     result;
     int      used;
-} g_host_results[aio_slots_max];
+};
+
+static struct aio_host_result g_host_results[aio_slots_max];
+
+static uint64_t g_aio_host_tag;
 
 static long aio_host_record(long result, uint64_t* tag) {
     size_t i;
+
+    aio_lock();
 
     for (i = 0; i < aio_slots_max; ++i) {
         if (!g_host_results[i].used) {
@@ -421,9 +634,13 @@ static long aio_host_record(long result, uint64_t* tag) {
             g_host_results[i].result = result;
             *tag                     = g_host_results[i].tag;
 
+            aio_unlock();
+
             return 0;
         }
     }
+
+    aio_unlock();
 
     return -EAGAIN;
 }
@@ -440,17 +657,52 @@ long __attribute__((weak)) __astia_fio_aio_fsync(int fd, uint64_t* tag) {
     return aio_host_record(__astia_fio_fsync(fd), tag);
 }
 
-long __attribute__((weak)) __astia_fio_aio_result(uint64_t tag, long* result) {
+long __attribute__((weak)) __astia_fio_aio_context(void** ring) {
+    if (ring == NULL)
+        return -EINVAL;
+
+    *ring = NULL;
+
+    return 0;
+}
+
+long __attribute__((weak)) __astia_fio_aio_result(void* ring, uint64_t tag,
+                                                  long* result) {
     size_t i;
+
+    (void) ring;
+
+    if (result == NULL)
+        return -EINVAL;
+
+    aio_lock();
 
     for (i = 0; i < aio_slots_max; ++i) {
         if (g_host_results[i].used && g_host_results[i].tag == tag) {
             *result                = g_host_results[i].result;
             g_host_results[i].used = 0;
 
+            aio_unlock();
+
             return 1;
         }
     }
 
+    aio_unlock();
+
     return 0;
+}
+
+void __astia_aio_after_fork(void) {
+    size_t i;
+
+    __atomic_store_n(&g_aio_lock, 0, __ATOMIC_RELEASE);
+
+    for (i = 0; i < aio_slots_max; ++i) {
+        aio_slot_clear(&g_aio_slots[i]);
+
+        g_host_results[i] = (struct aio_host_result){0};
+    }
+
+    g_aio_host_tag = 0;
 }

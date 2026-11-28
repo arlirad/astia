@@ -123,6 +123,10 @@ add_executable(libc_aio_test aio/aio_test.c support/backend_host.c support/time_
 target_link_libraries(libc_aio_test PRIVATE astia_libc)
 add_test(NAME libc_aio_test COMMAND libc_aio_test)
 
+add_executable(libc_aio_thread_test aio/aio_thread_test.c support/backend_host.c support/time_host.c)
+target_link_libraries(libc_aio_thread_test PRIVATE astia_libc Threads::Threads)
+add_test(NAME libc_aio_thread_test COMMAND libc_aio_thread_test)
+
 add_executable(libc_socket_test io/socket_test.c support/backend_host.c support/socket_backend_host.c)
 target_link_libraries(libc_socket_test PRIVATE astia_libc)
 add_test(NAME libc_socket_test COMMAND libc_socket_test)

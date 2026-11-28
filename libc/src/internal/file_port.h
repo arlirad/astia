@@ -62,7 +62,9 @@ long __astia_fio_read(int fd, uint64_t off, void* buf, size_t n);
 long __astia_fio_aio_submit(int fd, uint64_t off, void* buf, size_t n, int write,
                             uint64_t* tag);
 long __astia_fio_aio_fsync(int fd, uint64_t* tag);
-long __astia_fio_aio_result(uint64_t tag, long* result);
+long __astia_fio_aio_context(void** ring);
+long __astia_fio_aio_result(void* ring, uint64_t tag, long* result);
+void __astia_aio_after_fork(void);
 
 struct astia_fio_batch_read {
     int      fd;
