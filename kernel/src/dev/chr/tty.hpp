@@ -93,6 +93,7 @@ namespace astia::dev {
         long read_available(void* buf, u32 len, u64 off, bool allow_short);
         bool onlcr_lf_pending();
         void set_onlcr_lf_pending(bool pending);
+        long park_request(io::request& request);
 
         /// Called per flag TCSETS changes, with the flag bit and its
         /// new state — the driver reacts without the tty layer knowing

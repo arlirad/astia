@@ -206,9 +206,7 @@ namespace astia::dev {
         if (request.direction() == io::direction::input && !slave_open())
             return -EIO;
 
-        request.stage(1);
-
-        return 0;
+        return park_request(request);
     }
 
     u32 pty::master_poll(u32 events) const {
