@@ -92,7 +92,10 @@ namespace aio_test {
             co_return ioctl_result;
         }
 
-        long chmod(fs::file_permissions) override {
+        long chmod(fs::file_permissions permissions) override {
+            chmod_called      = true;
+            chmod_permissions = permissions;
+
             return 0;
         }
 
@@ -116,19 +119,21 @@ namespace aio_test {
             return recorded_timestamps;
         }
 
-        fs::file_timestamps recorded_timestamps{};
-        fs::file_type       type_           = fs::file_type::regular;
-        long                submit_result   = 0;
-        long                size_value      = 0;
-        long                truncate_result = 0;
-        long                sync_result     = 0;
-        long                ioctl_result    = -ENOTTY;
-        u32                 poll_events     = 0;
-        uid_t               uid_value{};
-        gid_t               gid_value{};
-        bool                chown_called = false;
-        uid_t               chown_uid{};
-        gid_t               chown_gid{};
+        fs::file_timestamps  recorded_timestamps{};
+        fs::file_type        type_           = fs::file_type::regular;
+        long                 submit_result   = 0;
+        long                 size_value      = 0;
+        long                 truncate_result = 0;
+        long                 sync_result     = 0;
+        long                 ioctl_result    = -ENOTTY;
+        u32                  poll_events     = 0;
+        uid_t                uid_value{};
+        gid_t                gid_value{};
+        bool                 chown_called = false;
+        uid_t                chown_uid{};
+        gid_t                chown_gid{};
+        bool                 chmod_called = false;
+        fs::file_permissions chmod_permissions{};
     };
 
     inline mm::shptr<fs::open_file> make_open_file(fake_file* file, u32 flags = 0) {

@@ -230,6 +230,37 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_chmod_path(char* path, u32 mode) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_CHMOD);
+
+        sqe.address = reinterpret_cast<u64>(path);
+        sqe.aux     = mode;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
+    i32 submit_fchmod(i32 fd, u32 mode) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(OP_CHMOD, fd);
+
+        sqe.aux = mode;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_utimensat_times(char* path, i32 dirfd, const astia_timespec* times,
                                u32 flags) {
         using namespace aio::test_support;
@@ -1103,6 +1134,87 @@ ASTIA_TEST(aio_filesystem_statx_root_bypasses_search) {
     char path[] = "/secret/file";
 
     ASTIA_CHECK(submit_statx(path, -1, 0, &stat) == 0);
+}
+
+ASTIA_TEST(aio_filesystem_chmod_requires_search_on_parent) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{1000}, gid_t{1000});
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_chmod_path(path, 0600) == -EACCES);
+    ASTIA_CHECK(!last_chmod_path().called);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_chmod_allows_after_parent_search_granted) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/secret", 0700, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{1000}, gid_t{1000});
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_chmod_path(path, 0600) == -EACCES);
+
+    set_directory("/secret", 0755, uid_t{0}, gid_t{0});
+
+    ASTIA_CHECK(submit_chmod_path(path, 0600) == 0);
+
+    const chmod_record& call = last_chmod_path();
+
+    ASTIA_CHECK(call.called);
+    ASTIA_CHECK(call.permissions.raw() == 0600);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_chmod_root_bypasses_search) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/secret", 0600, uid_t{0}, gid_t{0});
+    set_file("/secret/file", 0644, uid_t{1000}, gid_t{1000});
+
+    char path[] = "/secret/file";
+
+    ASTIA_CHECK(submit_chmod_path(path, 0600) == 0);
+    ASTIA_CHECK(last_chmod_path().called);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_fchmod_ignores_search_on_path) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+
+    auto* node = new aio_test::fake_file;
+
+    node->uid_value = uid_t{1000};
+    node->gid_value = gid_t{1000};
+
+    const i32 fd = install_descriptor(aio_test::make_open_file(node, ASTIA_AIO_O_RDWR));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchmod(fd, 0600) == 0);
+    ASTIA_CHECK(node->chmod_called);
+    ASTIA_CHECK(node->chmod_permissions.raw() == 0600);
+    ASTIA_CHECK(!last_chmod_path().called);
+
+    restore_credentials();
 }
 
 ASTIA_TEST(aio_filesystem_close_releases_descriptor) {

@@ -44,6 +44,7 @@ namespace astia::io::aio::test_support {
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
+        chmod_record         last_chmod_path_record;
         symlink_record       last_symlink_record;
         char                 readlink_target[fs::path_max]{};
         usz                  readlink_target_length = 0;
@@ -290,6 +291,7 @@ namespace astia::io::aio::test_support {
 
         memory_allowed         = true;
         last_chown_path_record = {};
+        last_chmod_path_record = {};
         timer_hz_value         = 1000;
         timer_ticks_value      = 0;
         generation_value       = 0;
@@ -299,6 +301,10 @@ namespace astia::io::aio::test_support {
 
     const chown_record& last_chown_path() {
         return detail::last_chown_path_record;
+    }
+
+    const chmod_record& last_chmod_path() {
+        return detail::last_chmod_path_record;
     }
 
     const symlink_record& last_symlink() {
@@ -1184,7 +1190,17 @@ namespace astia::fs {
         return entry != nullptr && entry->identity_set ? entry->inode : 0ull;
     }
 
-    long chmod_path(const char*, file_permissions) {
+    long chmod_path(const char* path, file_permissions permissions) {
+        auto& record = ::astia::io::aio::test_support::detail::last_chmod_path_record;
+
+        record = {};
+
+        ::astia::io::aio::test_support::detail::copy_text(record.path, sizeof record.path,
+                                                          path != nullptr ? path : "");
+
+        record.called      = true;
+        record.permissions = permissions;
+
         return 0;
     }
 
