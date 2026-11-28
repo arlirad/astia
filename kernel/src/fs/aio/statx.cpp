@@ -152,7 +152,12 @@ namespace astia::io::aio::operations {
                     co_return -EBADF;
             }
 
-            const long size = handle->size();
+            const char* const path_only = path_only_path(*handle);
+
+            if (!handle->parent() && path_only == nullptr)
+                co_return -ENOSYS;
+
+            const long size = handle->parent() ? handle->size() : 0;
             if (size < 0)
                 co_return static_cast<i32>(size);
 
@@ -163,16 +168,18 @@ namespace astia::io::aio::operations {
 
             __builtin_memset(stat_out, 0, sizeof *stat_out);
 
-            const fs::file_timestamps times = handle->timestamps();
+            const fs::file_timestamps times = path_only != nullptr
+                                                  ? fs::node_timestamps(path_only)
+                                                  : handle->timestamps();
 
             stat_out->dev        = fs::node_device(*handle);
             stat_out->ino        = handle_inode(*handle);
-            stat_out->nlink      = handle->parent()->nlink();
+            stat_out->nlink      = handle_nlink(*handle);
             stat_out->size       = static_cast<u64>(size);
             stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;
             stat_out->mode       = mapper<fs::file_mode>::to(handle->mode());
-            stat_out->uid        = static_cast<u32>(handle->parent()->uid());
-            stat_out->gid        = static_cast<u32>(handle->parent()->gid());
+            stat_out->uid        = static_cast<u32>(handle_uid(*handle));
+            stat_out->gid        = static_cast<u32>(handle_gid(*handle));
             stat_out->atime_sec  = times.atime_sec;
             stat_out->atime_nsec = times.atime_nsec;
             stat_out->mtime_sec  = times.mtime_sec;
