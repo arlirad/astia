@@ -105,7 +105,7 @@ namespace astia::fs::filesystems {
 
         for (u32 i = 0; i < node_capacity(); ++i) {
             if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
-                return entry_table()[i].uid;
+                return entry_table()[i].target ? entry_table()[i].target->uid() : uid_t{};
         }
 
         return {};
@@ -116,7 +116,7 @@ namespace astia::fs::filesystems {
 
         for (u32 i = 0; i < node_capacity(); ++i) {
             if (entry_table()[i].used && string_equal(entry_table()[i].path, path))
-                return entry_table()[i].gid;
+                return entry_table()[i].target ? entry_table()[i].target->gid() : gid_t{};
         }
 
         return {};
@@ -175,15 +175,13 @@ namespace astia::fs::filesystems {
             return -EINVAL;
 
         for (u32 i = 0; i < node_capacity(); ++i) {
-            if (entry_table()[i].used && string_equal(entry_table()[i].path, path)) {
-                entry_table()[i].uid = uid;
-                entry_table()[i].gid = gid;
+            if (!entry_table()[i].used || !string_equal(entry_table()[i].path, path))
+                continue;
 
-                if (entry_table()[i].target)
-                    (void) entry_table()[i].target->chown(uid, gid);
+            if (!entry_table()[i].target)
+                return -ENOENT;
 
-                return 0;
-            }
+            return entry_table()[i].target->chown(uid, gid);
         }
 
         return -ENOENT;
