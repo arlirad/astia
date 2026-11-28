@@ -1,0 +1,4 @@
+description: One-shot service used by the supervision boot test.
+exec: /bin/true
+restart: always
+restart-limit: 1

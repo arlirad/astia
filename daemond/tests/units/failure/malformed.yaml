@@ -1,0 +1,2 @@
+# The supervisor must reject this unit before starting any service.
+exec: relative-service-record

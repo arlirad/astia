@@ -1,4 +1,0 @@
-# A service that ignores SIGTERM.  Its child leaves the service process group
-# and asks the supervisor to stop; daemond must escalate to SIGKILL before it
-# can report success and exit.
-/bin/stop-client

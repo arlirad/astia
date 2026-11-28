@@ -1,0 +1,2 @@
+description: Snapshot the supervisor process table.
+exec: /bin/ps

@@ -1,6 +1,7 @@
 #include "daemond.h"
 #include <daemon_protocol.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <sys/wait.h>
 
@@ -230,30 +231,51 @@ static int wait_for_child(int pid, long timeout_ms, int* status) {
     }
 }
 
+static void remove_case(const char* directory) {
+    char unit_path[PATH_MAX];
+
+    snprintf(unit_path, sizeof unit_path, "%s/unit.yaml", directory);
+
+    unlink(unit_path);
+    rmdir(directory);
+}
+
 static int prepare_case(const char* self, const char* mode, char* rc_path, size_t rc_size,
                         char* service_path, size_t service_size) {
-    snprintf(rc_path, rc_size, "/tmp/astia-daemond-stop-%d-%s.rc", (int) getpid(), mode);
+    snprintf(rc_path, rc_size, "/tmp/astia-daemond-stop-%d-%s", (int) getpid(), mode);
 
-    /* The supervisor's STATUS line is bounded, so keep the service path short
-     * instead of exposing the build-tree depth in argv[0]. */
+    /* The supervisor's STATUS line is bounded, so keep the unit path short
+     * instead of exposing the build-tree depth in the service name. */
     snprintf(service_path, service_size, "/tmp/astia-daemond-svc-%d-%s", (int) getpid(),
              mode);
 
+    remove_case(rc_path);
     unlink(service_path);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
 
-    if (symlink(self, service_path) < 0)
+    if (mkdir(rc_path, 0700) < 0)
         return -1;
 
-    FILE* file = fopen(rc_path, "w");
-    if (!file) {
-        unlink(service_path);
+    if (symlink(self, service_path) < 0) {
+        remove_case(rc_path);
 
         return -1;
     }
 
-    fprintf(file, "%s %s\n", service_path,
+    char unit_path[PATH_MAX];
+
+    snprintf(unit_path, sizeof unit_path, "%s/unit.yaml", rc_path);
+
+    FILE* file = fopen(unit_path, "w");
+    if (!file) {
+        unlink(service_path);
+        remove_case(rc_path);
+
+        return -1;
+    }
+
+    fprintf(file, "exec: %s\nargs:\n  - %s\n", service_path,
             strcmp(mode, "graceful") ? "ignore" : "graceful");
     fclose(file);
 
@@ -343,25 +365,19 @@ static void run_case(const char* self, const char* mode) {
     fprintf(stderr, "daemond_stop_test: %s case done\n", mode);
 
     unlink(service_path);
-    unlink(rc_path);
+    remove_case(rc_path);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
 }
 
 static int prepare_protocol_case(char* rc_path, size_t rc_size) {
-    snprintf(rc_path, rc_size, "/tmp/astia-daemond-protocol-%d.rc", (int) getpid());
+    snprintf(rc_path, rc_size, "/tmp/astia-daemond-protocol-%d", (int) getpid());
 
+    remove_case(rc_path);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
 
-    FILE* file = fopen(rc_path, "w");
-    if (!file)
-        return -1;
-
-    fprintf(file, "# protocol framing cases only\n");
-    fclose(file);
-
-    return 0;
+    return mkdir(rc_path, 0700);
 }
 
 static void run_protocol_case(void) {
@@ -456,7 +472,7 @@ static void run_protocol_case(void) {
 
     fprintf(stderr, "daemond_stop_test: protocol case done\n");
 
-    unlink(rc_path);
+    remove_case(rc_path);
     unlink(DAEMON_SOCKET_PATH);
     unlink(DAEMON_SOCKET_FALLBACK);
 }
