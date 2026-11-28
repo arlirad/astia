@@ -1111,6 +1111,38 @@ static int sort_growth_checks(void) {
     return check("sort many lines", sort_many, input, 0, expected, 1);
 }
 
+static int head_header_checks(void) {
+    char* head_pair[]  = {"head", "/tmp/coreutils_head_a", "/tmp/coreutils_head_b", NULL};
+    char* head_quiet[] = {"head", "-q", "/tmp/coreutils_head_a", "/tmp/coreutils_head_b",
+                          NULL};
+    char* head_verbose[] = {"head", "-v", "/tmp/coreutils_head_a", NULL};
+    char* head_stdin[]   = {"head", "-v", NULL};
+    char* head_dash[]    = {"head", "-", "/tmp/coreutils_head_a", NULL};
+    char* head_single[]  = {"head", "/tmp/coreutils_head_a", NULL};
+
+    if (put_file("/tmp/coreutils_head_a", "a\n") != 0 ||
+        put_file("/tmp/coreutils_head_b", "b\n") != 0)
+        return fail("head header fixtures");
+
+    int status =
+        check("head multiple files", head_pair, NULL, 0,
+              "==> /tmp/coreutils_head_a <==\na\n\n"
+              "==> /tmp/coreutils_head_b <==\nb\n",
+              1) ||
+        check("head -q", head_quiet, NULL, 0, "a\nb\n", 1) ||
+        check("head -v", head_verbose, NULL, 0, "==> /tmp/coreutils_head_a <==\na\n",
+              1) ||
+        check("head -v stdin", head_stdin, "x\n", 0, "==> standard input <==\nx\n", 1) ||
+        check("head dash operand", head_dash, "x\n", 0,
+              "==> standard input <==\nx\n\n==> /tmp/coreutils_head_a <==\na\n", 1) ||
+        check("head single file", head_single, NULL, 0, "a\n", 1);
+
+    (void) unlink("/tmp/coreutils_head_a");
+    (void) unlink("/tmp/coreutils_head_b");
+
+    return status;
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -1511,6 +1543,9 @@ int main(void) {
         return 1;
 
     if (long_line_checks() != 0)
+        return 1;
+
+    if (head_header_checks() != 0)
         return 1;
 
     if (sort_growth_checks() != 0)

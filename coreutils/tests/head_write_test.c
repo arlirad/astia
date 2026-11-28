@@ -63,12 +63,91 @@ static int report(const char* name, int status, size_t expected_calls) {
     return 1;
 }
 
-static int run_case(const char* name, const char* path, const char* wanted,
-                    const char* data, size_t length, const char* expected,
-                    size_t expected_calls, int fail_output) {
+static int report_capture(const char* name, int status, const char* expected) {
+    if (status != 0 || capture_length != strlen(expected) ||
+        memcmp(capture, expected, capture_length) != 0) {
+        printf("head write: %s status=%d writes=%zu bytes=%zu\n", name, status,
+               write_calls, capture_length);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+static void reset_capture(int fail_output) {
     capture_length = 0;
     write_calls    = 0;
     fail_writes    = fail_output;
+}
+
+static int prepare_pair(const char* first_path, const char* second_path) {
+    if (write_fixture(first_path, "a\n", 2) != 0 ||
+        write_fixture(second_path, "b\n", 2) != 0)
+        return 1;
+
+    reset_capture(0);
+
+    return 0;
+}
+
+static int run_header_cases(const char* path, const char* second_path) {
+    char expected[512];
+
+    char* multi[] = {"head", (char*) path, (char*) second_path};
+
+    if (prepare_pair(path, second_path) != 0)
+        return 1;
+
+    snprintf(expected, sizeof expected, "==> %s <==\na\n\n==> %s <==\nb\n", path,
+             second_path);
+
+    if (report_capture("multiple files", head_main(3, multi), expected) != 0)
+        return 1;
+
+    char* quiet[] = {"head", "-q", (char*) path, (char*) second_path};
+
+    if (prepare_pair(path, second_path) != 0)
+        return 1;
+
+    if (report_capture("quiet", head_main(4, quiet), "a\nb\n") != 0)
+        return 1;
+
+    char* last_option[] = {"head", "-q", "-v", (char*) path, (char*) second_path};
+
+    if (prepare_pair(path, second_path) != 0)
+        return 1;
+
+    snprintf(expected, sizeof expected, "==> %s <==\na\n\n==> %s <==\nb\n", path,
+             second_path);
+
+    if (report_capture("last option wins", head_main(5, last_option), expected) != 0)
+        return 1;
+
+    char* verbose[] = {"head", "-v", (char*) path};
+
+    if (prepare_pair(path, second_path) != 0)
+        return 1;
+
+    snprintf(expected, sizeof expected, "==> %s <==\na\n", path);
+
+    if (report_capture("verbose", head_main(3, verbose), expected) != 0)
+        return 1;
+
+    char* zero[] = {"head", "-n", "0", (char*) path, (char*) second_path};
+
+    if (prepare_pair(path, second_path) != 0)
+        return 1;
+
+    snprintf(expected, sizeof expected, "==> %s <==\n\n==> %s <==\n", path, second_path);
+
+    return report_capture("zero lines", head_main(5, zero), expected);
+}
+
+static int run_case(const char* name, const char* path, const char* wanted,
+                    const char* data, size_t length, const char* expected,
+                    size_t expected_calls, int fail_output) {
+    reset_capture(fail_output);
 
     if (write_fixture(path, data, length) != 0) {
         printf("head write: fixture %s failed\n", name);
@@ -110,6 +189,17 @@ int main(void) {
 
     close(fd);
 
+    char second_path[] = "/tmp/head_write_test_XXXXXX";
+
+    fd = mkstemp(second_path);
+    if (fd < 0) {
+        printf("head write: second mkstemp failed\n");
+
+        return 1;
+    }
+
+    close(fd);
+
     memset(long_input, 'a', 4096);
     memcpy(long_input + 4096, "\nB\nC\n", 6);
 
@@ -121,8 +211,12 @@ int main(void) {
             0 ||
         run_case("line across read buffer", path, "1", long_input, 4101, long_expected, 2,
                  0) != 0 ||
-        run_case("write failure", path, "10", "a\nb\n", 4, NULL, 0, 1) != 0)
+        run_case("write failure", path, "10", "a\nb\n", 4, NULL, 0, 1) != 0 ||
+        run_header_cases(path, second_path) != 0)
         return 1;
+
+    (void) unlink(path);
+    (void) unlink(second_path);
 
     printf("head write tests ok\n");
 
