@@ -79,13 +79,16 @@ namespace astia::proc {
         void inherit_from(const cwd_context& parent);
 
         private:
+        // Pathname-only composition cannot drop _lock to recover a moved
+        // directory, so it keeps rejecting a stale anchor.  resolve_path()
+        // refreshes the cached name from the directory identity instead.
         i64 compose_path_locked(const char* path, span<char> buffer) const;
         i64 compose_from_locked(const char* base, const char* path,
                                 span<char> buffer) const;
-        i64 store_path_locked(const char* path);
+        i64 store_path_locked(const char* path) const;
 
         mutable core::spinlock   _lock{};
-        char                     _cwd[fs::path_max]  = "/";
+        mutable char             _cwd[fs::path_max]  = "/";
         char                     _root[fs::path_max] = "/";
         directory_anchor         _anchor;
         mm::shptr<fs::open_file> _root_handle{};

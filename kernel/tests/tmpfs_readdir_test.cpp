@@ -201,3 +201,31 @@ ASTIA_TEST(tmpfs_readdir_reports_stable_inode_identity) {
     ASTIA_CHECK(mount.read_directory("/identity", 3, name, sizeof name, &type, &inode) ==
                 0);
 }
+
+ASTIA_TEST(tmpfs_node_path_follows_a_directory_rename) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs_mount mount;
+
+    ASTIA_CHECK(mount.mkdir("/a", directory_mode()) == 0);
+    ASTIA_CHECK(mount.mkdir("/a/child", directory_mode()) == 0);
+
+    const astia::u64 inode = mount.node_inode("/a");
+
+    ASTIA_CHECK(inode != 0);
+    ASTIA_CHECK(mount.rename("/a", "/b") == 0);
+
+    char path[astia::fs::path_max]{};
+
+    ASTIA_CHECK(mount.node_path(inode, path, sizeof path) == 0);
+    ASTIA_CHECK(std::strcmp(path, "/b") == 0);
+
+    ASTIA_CHECK(mount.node_path(0, path, sizeof path) == 0);
+    ASTIA_CHECK(std::strcmp(path, "/") == 0);
+
+    ASTIA_CHECK(mount.node_path(~astia::u64{0}, path, sizeof path) == -ENOENT);
+
+    char small[2];
+
+    ASTIA_CHECK(mount.node_path(inode, small, sizeof small) == -ENAMETOOLONG);
+}

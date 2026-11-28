@@ -190,6 +190,29 @@ namespace astia::fs {
     bool directory_matches(const char*, mount*, u64) {
         return !directory_matches_stale;
     }
+
+    const char* directory_moved_path = nullptr;
+
+    bool directory_identity(const char*, mm::shptr<mount>& owner, u64& inode) {
+        owner = {};
+        inode = 0;
+
+        return false;
+    }
+
+    long directory_path(mount*, u64, char* buffer, u32 capacity) {
+        if (directory_moved_path == nullptr)
+            return -ENOENT;
+
+        usz length = std::strlen(directory_moved_path);
+
+        if (length + 1 > capacity)
+            return -ENAMETOOLONG;
+
+        std::strcpy(buffer, directory_moved_path);
+
+        return 0;
+    }
 } // namespace astia::fs
 
 namespace {
@@ -469,4 +492,49 @@ ASTIA_TEST(cwd_context_inherits_root_state) {
     ASTIA_CHECK(child.copy_root(output, sizeof output) == 6);
     ASTIA_CHECK(std::strcmp(output, "/jail") == 0);
     ASTIA_CHECK(child.copy_cwd(output, sizeof output) == -ENOENT);
+}
+
+ASTIA_TEST(cwd_context_follows_a_renamed_directory) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    astia::fs::directory_matches_stale = false;
+    astia::fs::directory_moved_path    = nullptr;
+
+    char output[32];
+    char resolved[32];
+
+    ASTIA_CHECK(context.bind_directory("/before", make_anchor()) == 0);
+
+    astia::fs::directory_matches_stale = true;
+    astia::fs::directory_moved_path    = "/after";
+
+    ASTIA_CHECK(context.resolve_path("child", resolved, sizeof resolved, true) == 0);
+    ASTIA_CHECK(std::strcmp(resolved, "/after/child") == 0);
+    ASTIA_CHECK(context.copy_cwd(output, sizeof output) == 7);
+    ASTIA_CHECK(std::strcmp(output, "/after") == 0);
+
+    astia::fs::directory_moved_path    = nullptr;
+    astia::fs::directory_matches_stale = false;
+}
+
+ASTIA_TEST(cwd_context_climbs_out_of_an_unlinked_directory) {
+    initialize_heap();
+
+    astia::proc::cwd_context context;
+
+    astia::fs::directory_matches_stale = false;
+    astia::fs::directory_moved_path    = nullptr;
+
+    char resolved[8];
+
+    ASTIA_CHECK(context.bind_directory("/gone", make_anchor()) == 0);
+
+    astia::fs::directory_matches_stale = true;
+
+    ASTIA_CHECK(context.resolve_path("..", resolved, sizeof resolved, true) == 0);
+    ASTIA_CHECK(std::strcmp(resolved, "/") == 0);
+
+    astia::fs::directory_matches_stale = false;
 }

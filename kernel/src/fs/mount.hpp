@@ -45,9 +45,13 @@ namespace astia::fs {
         virtual long unlink(const char* path, bool directory);
         virtual long rename(const char* old_path, const char* new_path);
         virtual long link(const char* old_path, const char* new_path);
-        virtual file_type       node_type(const char* path) const;
-        virtual file_mode       node_mode(const char* path) const;
-        virtual u64             node_inode(const char* path) const;
+        virtual file_type node_type(const char* path) const;
+        virtual file_mode node_mode(const char* path) const;
+        virtual u64       node_inode(const char* path) const;
+        /// Path of the node identified by `inode` inside this mount, or
+        /// -ENOENT when the filesystem has no live name for it.  The result
+        /// is mount-relative and always starts with '/'.
+        virtual long            node_path(u64 inode, char* buffer, u32 capacity) const;
         virtual uid_t           node_uid(const char* path) const;
         virtual gid_t           node_gid(const char* path) const;
         virtual file_timestamps node_timestamps(const char* path) const;
