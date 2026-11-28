@@ -301,6 +301,40 @@ namespace {
         return *reinterpret_cast<const astia::tcp::tcp_header*>(ipv4.segment);
     }
 
+    astia::tcp::connection* establish(astia::tcp::tcp_protocol& protocol,
+                                      capture_link&             link,
+                                      astia::tcp::connection&   listener) {
+        u8  segment[128]{};
+        usz length = build_segment(segment, 40000, 80, 100, 0, astia::tcp::flag_syn,
+                                   nullptr, 0, remote_ip, local_ip);
+
+        receive(protocol, link, segment, length, remote_ip, local_ip);
+
+        auto* child = protocol.accept(listener);
+
+        assert(child != nullptr);
+
+        length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_nxt,
+                               astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+        receive(protocol, link, segment, length, remote_ip, local_ip);
+
+        assert(child->state == astia::tcp::connection_state::established);
+
+        return child;
+    }
+
+    void deliver(astia::tcp::tcp_protocol& protocol, capture_link& link,
+                 astia::tcp::connection& value, u32 seq, const u8* payload, u32 length) {
+        u8        segment[2048]{};
+        const usz segment_length =
+            build_segment(segment, 40000, 80, seq, value.snd_una,
+                          astia::tcp::flag_psh | astia::tcp::flag_ack, payload, length,
+                          remote_ip, local_ip);
+
+        receive(protocol, link, segment, segment_length, remote_ip, local_ip);
+    }
+
     void test_passive_handshake_and_data() {
         astia::tcp::tcp_protocol protocol;
         capture_ipv4             ipv4;
@@ -739,6 +773,170 @@ void test_out_of_order_reassembly() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_receive_queue_overflow() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    auto* child = establish(protocol, link, *listener);
+
+    constexpr u32 capacity = astia::tcp::connection::rx_capacity;
+
+    u8 expected[capacity]{};
+
+    for (u32 index = 0; index < capacity; ++index) {
+        expected[index] = static_cast<u8>(index & 0xff);
+    }
+
+    for (u32 offset = 0; offset < capacity;) {
+        const u32 chunk =
+            capacity - offset < 1400 ? capacity - offset : static_cast<u32>(1400);
+
+        deliver(protocol, link, *child, child->rcv_nxt, expected + offset, chunk);
+
+        offset += chunk;
+    }
+
+    assert(child->buffered() == capacity);
+    assert(last_header(ipv4).window == 0);
+
+    const u32 accepted_nxt = child->rcv_nxt;
+    const u32 accepted_ack = static_cast<u32>(last_header(ipv4).acknowledgement);
+
+    assert(accepted_ack == accepted_nxt);
+
+    u8 extra[1400]{};
+
+    std::memset(extra, 0xee, sizeof extra);
+
+    deliver(protocol, link, *child, child->rcv_nxt, extra, sizeof extra);
+
+    assert(child->buffered() == capacity);
+    assert(child->rcv_nxt == accepted_nxt);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == accepted_nxt);
+    assert(last_header(ipv4).window == 0);
+
+    u8  drained[capacity]{};
+    i64 received = protocol.try_receive(*child, astia::span<u8>(drained, sizeof drained));
+
+    assert(received == static_cast<i64>(capacity));
+    assert(child->buffered() == 0);
+
+    for (u32 index = 0; index < capacity; ++index) {
+        assert(drained[index] == expected[index]);
+    }
+
+    assert(protocol.try_receive(*child, astia::span<u8>(drained, sizeof drained)) ==
+           -EAGAIN);
+
+    deliver(protocol, link, *child, child->rcv_nxt, extra, sizeof extra);
+
+    assert(child->buffered() == sizeof extra);
+    assert(child->rcv_nxt == accepted_nxt + sizeof extra);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == child->rcv_nxt);
+    assert(last_header(ipv4).window ==
+           static_cast<u16>(capacity - static_cast<u32>(sizeof extra)));
+
+    received = protocol.try_receive(*child, astia::span<u8>(drained, sizeof extra));
+
+    assert(received == static_cast<i64>(sizeof extra));
+    assert(drained[0] == 0xee);
+    assert(drained[sizeof extra - 1] == 0xee);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
+void test_receive_queue_partial_window() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    auto* child = establish(protocol, link, *listener);
+
+    constexpr u32 capacity = astia::tcp::connection::rx_capacity;
+    constexpr u32 queued   = 4000;
+
+    u8 expected[capacity]{};
+
+    for (u32 index = 0; index < capacity; ++index) {
+        expected[index] = static_cast<u8>(index & 0xff);
+    }
+
+    for (u32 offset = 0; offset < queued;) {
+        const u32 chunk =
+            queued - offset < 1400 ? queued - offset : static_cast<u32>(1400);
+
+        deliver(protocol, link, *child, child->rcv_nxt, expected + offset, chunk);
+
+        offset += chunk;
+    }
+
+    assert(child->buffered() == queued);
+    assert(last_header(ipv4).window == capacity - queued);
+
+    const u32 base = child->rcv_nxt;
+
+    u8 extra[1400]{};
+
+    std::memset(extra, 0xee, sizeof extra);
+
+    deliver(protocol, link, *child, child->rcv_nxt, extra, sizeof extra);
+
+    constexpr u32 partial = capacity - queued;
+
+    assert(child->buffered() == capacity);
+    assert(child->rcv_nxt == base + partial);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == base + partial);
+    assert(last_header(ipv4).window == 0);
+
+    u8  drained[capacity]{};
+    i64 received = protocol.try_receive(*child, astia::span<u8>(drained, sizeof drained));
+
+    assert(received == static_cast<i64>(capacity));
+
+    for (u32 index = 0; index < queued; ++index) {
+        assert(drained[index] == expected[index]);
+    }
+
+    for (u32 index = queued; index < capacity; ++index) {
+        assert(drained[index] == 0xee);
+    }
+
+    const u32 remaining = static_cast<u32>(sizeof extra) - partial;
+
+    deliver(protocol, link, *child, child->rcv_nxt, extra + partial, remaining);
+
+    assert(child->buffered() == remaining);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == child->rcv_nxt);
+    assert(last_header(ipv4).window == static_cast<u16>(capacity - remaining));
+
+    received = protocol.try_receive(*child, astia::span<u8>(drained, sizeof drained));
+
+    assert(received == static_cast<i64>(remaining));
+
+    for (u32 index = 0; index < remaining; ++index) {
+        assert(drained[index] == 0xee);
+    }
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 void test_reset_unknown_and_rst_abort() {
     astia::tcp::tcp_protocol protocol;
     capture_ipv4             ipv4;
@@ -916,6 +1114,8 @@ int main() {
     test_retransmit_syn_and_data();
     test_active_close();
     test_out_of_order_reassembly();
+    test_receive_queue_overflow();
+    test_receive_queue_partial_window();
     test_reset_unknown_and_rst_abort();
     test_mss_negotiation();
     test_peer_window_blocks_send();

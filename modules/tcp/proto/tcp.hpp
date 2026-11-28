@@ -113,6 +113,10 @@ namespace astia::tcp {
             return rx_count;
         }
 
+        u32 rx_space() const {
+            return rx_count < rx_capacity ? rx_capacity - rx_count : 0;
+        }
+
         core::task<i64>         wait_established(core::cltoken token = {});
         core::task<i64>         send(span<const u8> data, core::cltoken token = {});
         core::task<i64>         receive(span<u8> data, core::cltoken token = {});
@@ -183,8 +187,8 @@ namespace astia::tcp {
 
         void reset_unknown(const net::protocol_packet& packet, const tcp_header& header);
 
-        void queue(connection& value, net::packet_view payload);
-        i64  pop(connection& value, span<u8> data);
+        u32 queue(connection& value, net::packet_view payload);
+        i64 pop(connection& value, span<u8> data);
 
         bool store_pending(connection& value, u32 seq, net::packet_view payload);
         void drain_pending(connection& value);

@@ -442,13 +442,14 @@ namespace astia::tcp {
 
         if (data.length != 0) {
             if (seq == value.rcv_nxt) {
-                queue(value, data);
+                const u32 accepted = queue(value, data);
+                if (accepted != 0) {
+                    value.rcv_nxt += accepted;
 
-                value.rcv_nxt += data.length;
+                    drain_pending(value);
 
-                drain_pending(value);
-
-                notify(value, event_data);
+                    notify(value, event_data);
+                }
             }
             else if (after(seq, value.rcv_nxt)) {
                 store_pending(value, seq, data);
@@ -467,16 +468,14 @@ namespace astia::tcp {
         }
     }
 
-    void tcp_protocol::queue(connection& value, net::packet_view payload) {
+    u32 tcp_protocol::queue(connection& value, net::packet_view payload) {
         const span<const u8> segments[2] = {payload.first, payload.second};
 
-        u32 copied = 0;
+        const u32 limit  = value.rx_space();
+        u32       copied = 0;
 
         for (const span<const u8>& segment : segments) {
-            for (usz index = 0; index < segment.size(); ++index) {
-                if (value.rx_count == connection::rx_capacity)
-                    return;
-
+            for (usz index = 0; index < segment.size() && copied < limit; ++index) {
                 const u32 position = (value.rx_head + copied) % connection::rx_capacity;
 
                 value.rx_buffer[position] = segment.data()[index];
@@ -487,6 +486,8 @@ namespace astia::tcp {
 
         value.rx_head = (value.rx_head + copied) % connection::rx_capacity;
         value.rx_count += copied;
+
+        return copied;
     }
 
     bool tcp_protocol::store_pending(connection& value, u32 seq,
@@ -522,6 +523,9 @@ namespace astia::tcp {
 
             for (connection::pending_segment& pending : value.pending) {
                 if (!pending.used || pending.seq != value.rcv_nxt)
+                    continue;
+
+                if (pending.length > value.rx_space())
                     continue;
 
                 queue(value,
@@ -906,7 +910,7 @@ namespace astia::tcp {
 
         header->set_flags(flags);
 
-        header->window = static_cast<u16>(connection::rx_capacity - value.rx_count);
+        header->window         = static_cast<u16>(value.rx_space());
         header->checksum_value = 0;
         header->urgent         = 0;
 
