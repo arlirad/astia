@@ -49,6 +49,7 @@ namespace astia::io::aio::test_support {
 
     const chown_record&   last_chown_path();
     const symlink_record& last_symlink();
+    bool                  last_resolve_follow_final();
     void                  set_readlink_target(const char* target);
 
     i32  install_descriptor(const mm::shptr<fs::open_file>& file, u32 flags = 0);

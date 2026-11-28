@@ -6277,6 +6277,56 @@ int main(int argc, char** argv) {
             return 272;
     }
 
+    {
+        static const char dangling[] = "/tmp/mkdir-symlink-dangling";
+        static const char dir_link[] = "/tmp/mkdir-symlink-dir";
+        static const char plain[]    = "/tmp/mkdir-symlink-plain";
+
+        struct stat metadata;
+
+        (void) unlink(dangling);
+        (void) unlink(dir_link);
+        (void) rmdir(plain);
+
+        if (symlink("/does/not/exist", dangling) != 0)
+            return 273;
+
+        errno = 0;
+
+        if (mkdir(dangling, 0755) != -1 || errno != EEXIST)
+            return 274;
+
+        if (lstat(dangling, &metadata) != 0 || !S_ISLNK(metadata.st_mode))
+            return 275;
+
+        errno = 0;
+
+        if (lstat("/does/not/exist", &metadata) != -1 || errno != ENOENT)
+            return 276;
+
+        if (symlink("/tmp", dir_link) != 0)
+            return 277;
+
+        errno = 0;
+
+        if (mkdir(dir_link, 0755) != -1 || errno != EEXIST)
+            return 278;
+
+        if (lstat(dir_link, &metadata) != 0 || !S_ISLNK(metadata.st_mode))
+            return 279;
+
+        if (mkdir(plain, 0755) != 0)
+            return 280;
+
+        if (stat(plain, &metadata) != 0 || !S_ISDIR(metadata.st_mode))
+            return 281;
+
+        if (unlink(dangling) != 0 || unlink(dir_link) != 0 || rmdir(plain) != 0)
+            return 282;
+
+        printf("astia: mkdir symlink ok\n");
+    }
+
     /* 52: chroot and privilege-separation sequence.  chroot does not
        change cwd, so relative paths stay unreachable until chdir("/");
        then fork+exec must keep the new root and only see the jail. */

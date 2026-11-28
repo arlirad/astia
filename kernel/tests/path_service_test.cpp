@@ -43,6 +43,9 @@ namespace {
         if (same(path, "/absolute"))
             return "/target";
 
+        if (same(path, "/dangling"))
+            return "/does/not/exist";
+
         if (same(path, "/loop1"))
             return "/loop2";
 
@@ -179,6 +182,11 @@ ASTIA_TEST(path_service_normalizes_dotdot_and_symlinks) {
     ASTIA_CHECK(std::strcmp(buffer, "/target") == 0);
     ASTIA_CHECK(astia::fs::path_service::resolve("/tree/file/child", buffer,
                                                  sizeof buffer) == -ENOTDIR);
+    ASTIA_CHECK(
+        astia::fs::path_service::resolve("/dangling", buffer, sizeof buffer, false) == 0);
+    ASTIA_CHECK(std::strcmp(buffer, "/dangling") == 0);
+    ASTIA_CHECK(astia::fs::path_service::resolve("/dangling", buffer, sizeof buffer,
+                                                 true) == -ENOENT);
 }
 
 ASTIA_TEST(path_service_preserves_loop_and_length_errors) {
