@@ -34,6 +34,13 @@ static int grep_fd(int fd, const char* name, const gre_regex* regex, int invert,
         ++number;
 
         int found = gre_match(regex, line, length);
+        if (found < 0) {
+            cu_line_reader_destroy(&reader);
+
+            cu_error("grep", "match limit exceeded");
+
+            return 2;
+        }
 
         if ((found != 0) == (invert == 0)) {
             matched = 1;
