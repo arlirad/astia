@@ -55,6 +55,14 @@ namespace astia::io::aio::operations {
         return 0;
     }
 
+    inline u64 msghdr_destination(const astia_msghdr& header) {
+        u64 value = 0;
+
+        __builtin_memcpy(&value, &header.msg_flags, sizeof value);
+
+        return value;
+    }
+
     /// Decode the caller's sockaddr and resolve it once against the caller's
     /// root and working directory.  The result is a host-canonical pathname
     /// that the socket layer registers and looks up verbatim, so a chrooted
@@ -70,5 +78,25 @@ namespace astia::io::aio::operations {
             return -ESRCH;
 
         return static_cast<long>(current->resolve_path(path, path, capacity, false));
+    }
+
+    inline long select_unix_destination(fs::open_file&        handle,
+                                        const astia_sockaddr& address) {
+        char socket_path[fs::path_max]{};
+        long path_rc = resolve_unix_path(address, socket_path, sizeof socket_path);
+        if (path_rc < 0)
+            return path_rc;
+
+        auto* current = proc::current_process();
+
+        if (!socket_node_writable(current, socket_path))
+            return -EACCES;
+
+        const auto* socket = handle.parent()->unix_socket_capability();
+
+        if (socket == nullptr || socket->sendto == nullptr)
+            return -EOPNOTSUPP;
+
+        return socket->sendto(handle, socket_path);
     }
 } // namespace astia::io::aio::operations

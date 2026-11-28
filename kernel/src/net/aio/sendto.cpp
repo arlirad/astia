@@ -25,20 +25,7 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
 
-            char socket_path[fs::path_max]{};
-            long path_rc = resolve_unix_path(a, socket_path, sizeof socket_path);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
-
-            auto* current = proc::current_process();
-
-            if (!socket_node_writable(current, socket_path))
-                co_return -EACCES;
-
-            const auto* socket = handle->parent()->unix_socket_capability();
-
-            long rc =
-                socket == nullptr ? -EOPNOTSUPP : socket->sendto(*handle, socket_path);
+            const long rc = select_unix_destination(*handle, a);
             if (rc < 0)
                 co_return static_cast<i32>(rc);
 
