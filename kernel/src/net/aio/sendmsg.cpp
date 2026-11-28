@@ -110,10 +110,14 @@ namespace astia::io::aio::operations {
 
             optional<i64> result;
 
+            const bool nonblock =
+                (handle->flags() &
+                 static_cast<u32>(fs::open_file_status_flags::nonblock)) != 0;
+
             if (dgram)
                 result = co_await dgram->sendmsg(
                     kernel, destination != 0 ? &destination_address : nullptr, control,
-                    token);
+                    token, nonblock);
             else
                 result = co_await stream->sendmsg(kernel, control, token);
 

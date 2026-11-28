@@ -128,13 +128,15 @@ namespace astia::fs {
             long getsockopt(u32 level, u32 name, u32* value) override;
 
             core::task<i64> sendto(span<const u8> data, const astia_sockaddr& destination,
-                                   core::cltoken token = {}) override;
+                                   core::cltoken token    = {},
+                                   bool          nonblock = false) override;
             core::task<message> recvfrom(span<u8>      data,
                                          core::cltoken token = {}) override;
             core::task<i64>     sendmsg(span<const u8>                 data,
                                         const astia_sockaddr*          destination,
                                         const mm::shptr<unix_control>& control,
-                                        core::cltoken                  token = {}) override;
+                                        core::cltoken                  token = {},
+                                        bool nonblock = false) override;
             core::task<message> recvmsg(span<u8> data, core::cltoken token = {}) override;
 
             optional<readable&> as_readable() override;
@@ -551,11 +553,26 @@ namespace astia::fs {
                     side    = _side;
                 }
                 if (kind == state::dgram) {
-                    long n = r.direction() == io::direction::input
-                                 ? recv_dgram(astia::span<u8>(
-                                       static_cast<u8*>(r.buffer()), r.length()))
-                                 : send_dgram(astia::span<const u8>(
-                                       static_cast<const u8*>(r.buffer()), r.length()));
+                    if (r.direction() == io::direction::output) {
+                        const long n = send_dgram(astia::span<const u8>(
+                            static_cast<const u8*>(r.buffer()), r.length()));
+
+                        // A full queue parks a blocking sender and fails a
+                        // non-blocking one; 0 is only a queued empty datagram.
+                        if (n == -EAGAIN && !r.nonblock()) {
+                            r.stage(1);
+
+                            return 0;
+                        }
+
+                        if (n == 0)
+                            r.complete(true);
+
+                        return n;
+                    }
+
+                    const long n = recv_dgram(
+                        astia::span<u8>(static_cast<u8*>(r.buffer()), r.length()));
 
                     if (n == 0 && !r.complete())
                         r.stage(1);
@@ -595,6 +612,7 @@ namespace astia::fs {
                 bool                 bound;
                 char                 path[path_max]{};
                 mm::shptr<unix_file> peer;
+                mm::shptr<unix_file> target;
                 mm::shptr<channel>   channel;
                 u32                  side;
                 {
@@ -604,12 +622,14 @@ namespace astia::fs {
 
                     copy_path(path, _bound_path);
 
-                    _bound      = false;
-                    _closed     = true;
-                    peer        = _peer_owner;
-                    _peer_owner = {};
-                    channel     = _ch;
-                    side        = _side;
+                    _bound              = false;
+                    _closed             = true;
+                    peer                = _peer_owner;
+                    target              = _dgram_target_owner;
+                    _peer_owner         = {};
+                    _dgram_target_owner = {};
+                    channel             = _ch;
+                    side                = _side;
                 }
                 if (bound)
                     unregister_unix_path(path, this);
@@ -908,7 +928,7 @@ namespace astia::fs {
 
             core::task<i64> sendto_async(span<const u8>        data,
                                          const astia_sockaddr& destination,
-                                         core::cltoken         token) {
+                                         core::cltoken token, bool nonblock = false) {
                 if (kind() != state::dgram)
                     co_return -EOPNOTSUPP;
 
@@ -918,7 +938,7 @@ namespace astia::fs {
 
                 buffer     entry{const_cast<u8*>(data.data()), data.size()};
                 const auto result = co_await submit_writev(span<const buffer>(&entry, 1),
-                                                           0, token, false);
+                                                           0, token, nonblock);
 
                 co_return result ? result.value : error_errno(result.error);
             }
@@ -955,7 +975,7 @@ namespace astia::fs {
             core::task<i64> sendmsg_async(span<const u8>                 data,
                                           const astia_sockaddr*          destination,
                                           const mm::shptr<unix_control>& control,
-                                          core::cltoken                  token) {
+                                          core::cltoken token, bool nonblock = false) {
                 if (destination != nullptr) {
                     const long queued = sendto_address(*destination);
                     if (queued < 0)
@@ -966,7 +986,7 @@ namespace astia::fs {
 
                 buffer     entry{const_cast<u8*>(data.data()), data.size()};
                 const auto result = co_await submit_writev(span<const buffer>(&entry, 1),
-                                                           0, token, false);
+                                                           0, token, nonblock);
 
                 set_send_control({});
 
@@ -1043,7 +1063,7 @@ namespace astia::fs {
                         return -ENOTCONN;
 
                     if (target->_dgram_count == socket_datagram_queue_capacity)
-                        return 0;
+                        return -EAGAIN;
 
                     datagram& m = target->_dgrams[target->_dgram_tail];
 
@@ -1535,8 +1555,8 @@ namespace astia::fs {
 
         core::task<i64> unix_dgram_view::sendto(span<const u8>        data,
                                                 const astia_sockaddr& destination,
-                                                core::cltoken         token) {
-            return _owner.sendto_async(data, destination, token);
+                                                core::cltoken token, bool nonblock) {
+            return _owner.sendto_async(data, destination, token, nonblock);
         }
 
         core::task<message> unix_dgram_view::recvfrom(span<u8>      data,
@@ -1547,8 +1567,8 @@ namespace astia::fs {
         core::task<i64> unix_dgram_view::sendmsg(span<const u8>        data,
                                                  const astia_sockaddr* destination,
                                                  const mm::shptr<unix_control>& control,
-                                                 core::cltoken                  token) {
-            return _owner.sendmsg_async(data, destination, control, token);
+                                                 core::cltoken token, bool nonblock) {
+            return _owner.sendmsg_async(data, destination, control, token, nonblock);
         }
 
         core::task<message> unix_dgram_view::recvmsg(span<u8> data, core::cltoken token) {
