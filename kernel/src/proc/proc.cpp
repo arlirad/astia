@@ -278,7 +278,7 @@ namespace astia::proc {
 
         u64 entry = 0;
 
-        auto loaded = co_await child->load_user_file_async(file, length, &entry);
+        auto loaded = co_await child->load_user_file_async(*parent, file, length, &entry);
 
         if (!loaded || !loaded.value)
             co_return loaded.error == error_t::enone ? error_t::einval : loaded.error;

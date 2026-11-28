@@ -1579,6 +1579,152 @@ static int create_plain_file(const char* path) {
     return chmod(path, 0644);
 }
 
+static int interp_exec_permission_check(void) {
+    const char* source  = "/lib/ld.stub.so";
+    const char* interp  = "/tmp/ld.stub.so";
+    const char* payload = "/bin/interp_exec_perm";
+
+    struct stat metadata;
+
+    const int payload_present = stat(payload, &metadata) == 0;
+    const int source_present  = stat(source, &metadata) == 0;
+
+    if (!payload_present || !source_present) {
+        if (errno != ENOENT || payload_present != source_present)
+            return 273;
+
+        printf("astia: interp exec permission skipped\n");
+
+        return 0;
+    }
+
+    (void) unlink(interp);
+
+    int in = open(source, O_RDONLY);
+    if (in < 0)
+        return 274;
+
+    if (fstat(in, &metadata) != 0 || metadata.st_size <= 0) {
+        close(in);
+
+        return 275;
+    }
+
+    int out = open(interp, O_WRONLY | O_CREAT | O_TRUNC, 0755);
+    if (out < 0) {
+        close(in);
+
+        return 276;
+    }
+
+    char buffer[4096];
+
+    off_t copied = 0;
+
+    while (copied < metadata.st_size) {
+        size_t want = (size_t) (metadata.st_size - copied);
+
+        if (want > sizeof buffer)
+            want = sizeof buffer;
+
+        const ssize_t got = read(in, buffer, want);
+        if (got <= 0) {
+            close(in);
+            close(out);
+            (void) unlink(interp);
+
+            return 277;
+        }
+
+        ssize_t written = 0;
+
+        while (written < got) {
+            const ssize_t step = write(out, buffer + written, (size_t) (got - written));
+            if (step <= 0) {
+                close(in);
+                close(out);
+                (void) unlink(interp);
+
+                return 278;
+            }
+
+            written += step;
+        }
+
+        copied += got;
+    }
+
+    if (close(in) != 0 || close(out) != 0) {
+        (void) unlink(interp);
+
+        return 279;
+    }
+
+    if (chmod(interp, 0755) != 0) {
+        (void) unlink(interp);
+
+        return 280;
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        (void) unlink(interp);
+
+        return 281;
+    }
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) payload, NULL};
+
+        execv(payload, child_argv);
+        _Exit(2);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child || status != 0) {
+        (void) unlink(interp);
+
+        return 282;
+    }
+
+    if (chmod(interp, 0644) != 0) {
+        (void) unlink(interp);
+
+        return 283;
+    }
+
+    child = fork();
+    if (child < 0) {
+        (void) unlink(interp);
+
+        return 284;
+    }
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) payload, NULL};
+
+        execv(payload, child_argv);
+        _Exit(errno == EACCES ? 42 : 3);
+    }
+
+    status = 0;
+
+    if (waitpid(child, &status, 0) != child || !WIFEXITED(status) ||
+        WEXITSTATUS(status) != 42) {
+        (void) unlink(interp);
+
+        return 285;
+    }
+
+    if (unlink(interp) != 0)
+        return 286;
+
+    printf("astia: interp exec permission ok\n");
+
+    return 0;
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && strcmp(argv[1], "--term-thread-check") == 0) {
         if (argc != 2)
@@ -5680,6 +5826,15 @@ int main(int argc, char** argv) {
             return 287;
 
         printf("astia: execvp search ok\n");
+    }
+
+    /* execve must enforce the interpreter image's execute bit too: the same
+       dynamic payload runs when its PT_INTERP target is executable and gets
+       EACCES from execve once that target is 0644. */
+    {
+        const int interp_permission = interp_exec_permission_check();
+        if (interp_permission != 0)
+            return interp_permission;
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise

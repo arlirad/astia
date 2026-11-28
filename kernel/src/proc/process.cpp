@@ -1586,7 +1586,7 @@ namespace astia::proc {
 
         u64 entry = 0, stack = 0;
 
-        auto loaded = co_await staging.load_user_file_async(file, length, &entry);
+        auto loaded = co_await staging.load_user_file_async(*this, file, length, &entry);
         if (!loaded)
             co_return loaded.error;
 

@@ -646,8 +646,9 @@ namespace astia::proc {
         core::task<exec_result> exec_user_file_async(mm::shptr<fs::open_file> file,
                                                      usz length, char* const argv[],
                                                      char* const envp[]);
-        core::task<bool> load_user_file_async(mm::shptr<fs::open_file> file, usz length,
-                                              u64* entry_out);
+        core::task<bool>        load_user_file_async(const process&           caller,
+                                                     mm::shptr<fs::open_file> file, usz length,
+                                                     u64* entry_out);
 
         /// Fork: the child's first thread, resuming `uctx` inside the
         /// parent's ring-3 call site with rax = 0.
