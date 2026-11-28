@@ -305,6 +305,43 @@ namespace {
 
         return capture.result(index);
     }
+
+    mm::shptr<fs::open_file> make_connect_listener(const char* path) {
+        mm::shptr<fs::open_file> listener;
+
+        if (fs::create_unix_socket(listener, SOCK_STREAM) != 0 || !listener)
+            return {};
+
+        auto ops = listener->parent()->as_stream_sock();
+
+        if (!ops || ops->listen(1) != 0)
+            return {};
+
+        set_unix_lookup_endpoint(listener->parent());
+        fs::require_unix_lookup_path(path);
+
+        return listener;
+    }
+
+    i32 dispatch_connect(const astia_sockaddr& address, mm::shptr<fs::open_file>& client,
+                         astia::io::aio::test_support::cq_capture& capture,
+                         aio::ring::ring_slot& slot, u32 index) {
+        client = {};
+
+        if (fs::create_unix_socket(client, SOCK_STREAM) != 0 || !client)
+            return -1;
+
+        const i32 fd = astia::io::aio::test_support::install_descriptor(client);
+        if (fd < 0)
+            return fd;
+
+        astia_sqe sqe = socket_sqe(OP_CONNECT, fd, reinterpret_cast<u64>(&address));
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EINVAL;
+
+        return capture.result(index);
+    }
 } // namespace
 
 ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
@@ -742,6 +779,159 @@ ASTIA_TEST(aio_unix_connect_uses_caller_root) {
     ASTIA_CHECK(capture.result(1) == 0);
     ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/jail/sock"));
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_connect_enforces_socket_node_write_permission) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    const auto listener = make_connect_listener("/sock");
+
+    ASTIA_CHECK(listener);
+
+    if (!listener)
+        return;
+
+    const astia_sockaddr address = socket_address("/sock");
+
+    set_node_mode("/sock",
+                  fs::file_mode(fs::file_type::socket, fs::file_permissions(0444)));
+    set_node_owner("/sock", astia::uid_t{1000}, astia::gid_t{1000});
+    set_process_credentials(astia::uid_t{1000}, astia::gid_t{1000});
+
+    mm::shptr<fs::open_file> client;
+    cq_capture               capture;
+    aio::ring::ring_slot     slot{};
+
+    ASTIA_CHECK(dispatch_connect(address, client, capture, slot, 0) == -EACCES);
+    ASTIA_CHECK(fs::unix_lookup_path()[0] == '\0');
+
+    set_node_mode("/sock",
+                  fs::file_mode(fs::file_type::socket, fs::file_permissions(0666)));
+
+    ASTIA_CHECK(dispatch_connect(address, client, capture, slot, 1) == 0);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/sock"));
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_connect_requires_search_permission_on_parent) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+
+    const auto listener = make_connect_listener("/jail/sock");
+
+    ASTIA_CHECK(listener);
+
+    if (!listener)
+        return;
+
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+    set_node_mode("/jail/sock",
+                  fs::file_mode(fs::file_type::socket, fs::file_permissions(0666)));
+    set_node_mode("/jail",
+                  fs::file_mode(fs::file_type::directory, fs::file_permissions(0666)));
+    set_process_credentials(astia::uid_t{1000}, astia::gid_t{1000});
+
+    const astia_sockaddr address = socket_address("/sock");
+
+    mm::shptr<fs::open_file> client;
+    cq_capture               capture;
+    aio::ring::ring_slot     slot{};
+
+    ASTIA_CHECK(dispatch_connect(address, client, capture, slot, 0) == -EACCES);
+    ASTIA_CHECK(fs::unix_lookup_path()[0] == '\0');
+
+    set_node_mode("/jail",
+                  fs::file_mode(fs::file_type::directory, fs::file_permissions(0755)));
+
+    ASTIA_CHECK(dispatch_connect(address, client, capture, slot, 1) == 0);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/jail/sock"));
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_connect_root_bypasses_pathname_permissions) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    const auto listener = make_connect_listener("/sock");
+
+    ASTIA_CHECK(listener);
+
+    if (!listener)
+        return;
+
+    const astia_sockaddr address = socket_address("/sock");
+
+    set_node_mode("/sock",
+                  fs::file_mode(fs::file_type::socket, fs::file_permissions(0000)));
+    set_node_owner("/sock", astia::uid_t{1000}, astia::gid_t{1000});
+    set_process_credentials(astia::uid_t{0}, astia::gid_t{0});
+
+    mm::shptr<fs::open_file> client;
+    cq_capture               capture;
+    aio::ring::ring_slot     slot{};
+
+    ASTIA_CHECK(dispatch_connect(address, client, capture, slot, 0) == 0);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/sock"));
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_bind_requires_search_permission_on_ancestors) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+
+    set_node_mode("/jail/sub",
+                  fs::file_mode(fs::file_type::directory, fs::file_permissions(0777)));
+    set_node_mode("/jail",
+                  fs::file_mode(fs::file_type::directory, fs::file_permissions(0666)));
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+    set_process_credentials(astia::uid_t{1000}, astia::gid_t{1000});
+
+    mm::shptr<fs::open_file> socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(socket, SOCK_STREAM) == 0);
+
+    if (!socket)
+        return;
+
+    const i32 fd = install_descriptor(socket);
+
+    astia_sockaddr       address = socket_address("/sub/sock");
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = socket_sqe(OP_BIND, fd, reinterpret_cast<u64>(&address));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == -EACCES);
+    ASTIA_CHECK(fs::unix_registration_count() == 0);
+
+    set_node_mode("/jail",
+                  fs::file_mode(fs::file_type::directory, fs::file_permissions(0777)));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(1) == 0);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(string_equal(fs::unix_registration_path(0), "/jail/sub/sock"));
     release_parked(slot);
 }
 

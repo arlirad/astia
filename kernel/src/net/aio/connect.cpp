@@ -30,8 +30,9 @@ namespace astia::io::aio::operations {
                 if (current == nullptr)
                     co_return -ESRCH;
 
-                if (!socket_node_writable(current, socket_path))
-                    co_return -EACCES;
+                const long permission = unix_connect_permission(current, socket_path);
+                if (permission < 0)
+                    co_return static_cast<i32>(permission);
             }
 
             if (auto* sock = dgram_for(handle))
