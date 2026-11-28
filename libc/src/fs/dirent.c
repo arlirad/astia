@@ -44,6 +44,28 @@ DIR* opendir(const char* path) {
     return directory;
 }
 
+DIR* fdopendir(int fd) {
+    struct astia_dir* directory;
+
+    if (fd < 0) {
+        errno = EBADF;
+
+        return 0;
+    }
+
+    directory = malloc(sizeof *directory);
+    if (directory == 0) {
+        errno = ENOMEM;
+
+        return 0;
+    }
+
+    directory->fd    = fd;
+    directory->index = 0;
+
+    return (DIR*) directory;
+}
+
 struct dirent* readdir(DIR* handle) {
     struct astia_dir* directory = (struct astia_dir*) handle;
     astia_dirent      result;

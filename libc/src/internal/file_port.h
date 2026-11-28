@@ -46,6 +46,7 @@ enum { /* open flags — the subset every port can speak */
        FIO_NONBLOCK  = 1u << 6,
        FIO_CLOEXEC   = 1u << 7,
        FIO_DIRECTORY = 1u << 8,
+       FIO_NOFOLLOW  = 1u << 9,
 };
 
 /* offset meaning "append"; == astia's OFF_APPEND by ABI design */

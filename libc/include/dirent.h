@@ -21,6 +21,7 @@ struct dirent {
 #define DT_SOCK 12
 
 DIR*           opendir(const char* path);
+DIR*           fdopendir(int fd);
 struct dirent* readdir(DIR* directory);
 int            closedir(DIR* directory);
 void           rewinddir(DIR* directory);

@@ -99,6 +99,10 @@ $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
     -o "$out/host/rm_root_guard_test"
 "$out/host/rm_root_guard_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/coreutils/src" "$root/coreutils/tests/rm_symlink_swap_test.c" \
+    -o "$out/host/rm_symlink_swap_test"
+"$out/host/rm_symlink_swap_test"
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
     -I "$root/coreutils/src" "$root/coreutils/src/rm.c" -o "$out/host/rm"
 mkdir -p "$out/host/rm_guard"
 ln -s / "$out/host/rm_guard/rootlink"
