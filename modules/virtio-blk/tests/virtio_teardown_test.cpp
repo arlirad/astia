@@ -24,6 +24,12 @@ namespace astia::mm {
         return false;
     }
 
+    void dma_buffer::abandon() {
+        assert(released_dma_count < sizeof released_dma / sizeof released_dma[0]);
+
+        released_dma[released_dma_count++] = this;
+    }
+
     void dma_buffer::release() {
         for (unsigned i = 0; i < released_dma_count; ++i) {
             if (released_dma[i] == this)

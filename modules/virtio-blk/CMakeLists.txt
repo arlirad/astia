@@ -55,6 +55,34 @@ if(ASTIA_BUILD_TESTS)
     astia_add_test_label(virtio_blk_teardown_unit "sanitizer-host")
 endif()
 
+set(ASTIA_VIRTIO_BLK_ASYNC_ERROR_UNIT ${CMAKE_CURRENT_BINARY_DIR}/virtio_blk_async_error_unit)
+add_custom_command(
+        OUTPUT ${ASTIA_VIRTIO_BLK_ASYNC_ERROR_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -std=c++20 -Wall -Wextra -Werror -pedantic
+                -ffunction-sections -fdata-sections
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../..
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_async_error_test.cpp
+                -Wl,--gc-sections
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_VIRTIO_BLK_ASYNC_ERROR_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/virtio_async_error_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/virtio_blk_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+        VERBATIM)
+add_custom_target(virtio_blk_async_error_target ALL DEPENDS ${ASTIA_VIRTIO_BLK_ASYNC_ERROR_UNIT})
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME virtio_blk_async_error
+             COMMAND ${ASTIA_VIRTIO_BLK_ASYNC_ERROR_UNIT})
+    astia_append_test_label("module;virtio;host;deterministic;async-error")
+    astia_add_test_label(virtio_blk_async_error "sanitizer-host")
+endif()
+
 add_custom_command(
         OUTPUT ${ASTIA_VIRTIO_BLK_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER}

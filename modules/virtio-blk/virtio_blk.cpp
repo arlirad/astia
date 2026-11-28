@@ -42,6 +42,7 @@ namespace {
     constexpr unsigned _requestflush      = 4;
     constexpr unsigned status_ok          = 0;
     constexpr unsigned status_unsupp      = 2;
+    constexpr unsigned status_needs_reset = 0x40;
     constexpr unsigned status_acknowledge = 1;
     constexpr unsigned status_driver      = 2;
     constexpr unsigned status_features_ok = 8;
@@ -173,6 +174,10 @@ namespace {
 
     void memory_barrier() {
         asm volatile("mfence" ::: "memory");
+    }
+
+    long device_status_error(unsigned status) {
+        return status == status_unsupp ? -95 : -5;
     }
 
     uint8_t pci_byte(const astia::hw::pci_device* pci, uint16_t offset) {
@@ -509,15 +514,33 @@ namespace {
             if (!pending.active)
                 return;
 
-            pending.completed     = true;
-            pending.result        = -19;
-            pending.hardware_done = quiesce_safe;
+            if (pending.completed && pending.hardware_done)
+                return;
 
-            if (pending.io != nullptr && quiesce_safe) {
+            pending.completed = true;
+            pending.result    = -19;
+
+            if (!quiesce_safe) {
+                if (pending.io == nullptr)
+                    return;
+
+                pending.request.abandon();
+
+                pending.hardware_done = true;
+
+                if (pending.io->device_state() != nullptr)
+                    pending.io->wake();
+
+                return;
+            }
+
+            pending.hardware_done = true;
+
+            if (pending.io != nullptr) {
                 if (pending.io->device_state() != nullptr)
                     pending.io->wake();
             }
-            else if (pending.io == nullptr && quiesce_safe) {
+            else {
                 pending.request.release();
 
                 pending = {};
@@ -664,6 +687,35 @@ namespace {
             return true;
         }
 
+        bool device_lost() const {
+            if (!started || !common.mapped())
+                return false;
+
+            const uint8_t status = common.read<uint8_t>(0x14);
+
+            return (status & status_driver_ok) == 0 || (status & status_needs_reset) != 0;
+        }
+
+        int complete_with_error(long result) {
+            pending.result        = result;
+            pending.completed     = true;
+            pending.hardware_done = true;
+
+            if (pending.io != nullptr && pending.io->device_state() != nullptr)
+                pending.io->wake();
+
+            return 0;
+        }
+
+        int fail_device() {
+            _requestqueue.used_index = _requestqueue.used()->index;
+
+            if (!reset_queue_after_timeout())
+                failed = true;
+
+            return complete_with_error(-5);
+        }
+
         long wait(dma& request, unsigned data_length, unsigned status_offset,
                   void* buffer, bool write) {
             volatile used_ring* used = _requestqueue.used();
@@ -701,7 +753,7 @@ namespace {
             const uint8_t status =
                 static_cast<unsigned char*>(request.data())[status_offset];
             if (status != status_ok)
-                return status == status_unsupp ? -95 : -5;
+                return device_status_error(status);
 
             if (!write && buffer != nullptr)
                 copy_bytes(buffer, static_cast<unsigned char*>(request.data()) + 64,
@@ -841,15 +893,25 @@ namespace {
             }
 
             if (io.timeout_expired()) {
-                pending.hardware_done = ring_reset && reset_queue_after_timeout();
+                const bool reaped = ring_reset && reset_queue_after_timeout();
+                if (!reaped) {
+                    pending.request.abandon();
+
+                    failed = true;
+                }
+
                 pending.result        = -110;
                 pending.completed     = true;
+                pending.hardware_done = true;
 
-                if (pending.hardware_done && pending.io->device_state() != nullptr)
+                if (pending.io->device_state() != nullptr)
                     pending.io->wake();
 
                 return 0;
             }
+
+            if (device_lost())
+                return fail_device();
 
             volatile used_ring* used = _requestqueue.used();
 
@@ -863,26 +925,17 @@ namespace {
 
             const unsigned expected_length = pending.flush ? 0 : pending.length;
 
-            if (element.id != 0 || element.length < expected_length + 1) {
-                pending.request.release();
-
-                pending = {};
-
-                return -5;
-            }
+            if (element.id != 0 || element.length < expected_length + 1)
+                return complete_with_error(-5);
 
             auto* bytes = static_cast<unsigned char*>(pending.request.data());
 
-            const long status_result = bytes[pending.status_offset] == status_ok
-                                           ? static_cast<long>(pending.length)
-                                           : -5;
-            if (status_result < 0) {
-                pending.request.release();
-
-                pending = {};
-
-                return -5;
-            }
+            const long status_result =
+                bytes[pending.status_offset] == status_ok
+                    ? static_cast<long>(pending.length)
+                    : device_status_error(bytes[pending.status_offset]);
+            if (status_result < 0)
+                return complete_with_error(status_result);
 
             if (!pending.write) {
                 copy_bytes(pending.io->buffer(), bytes + 64, pending.length);
@@ -901,13 +954,8 @@ namespace {
                 pending.flush         = true;
                 pending.status_offset = 16;
 
-                if (!enqueue(pending.request, 0, 0, false, 16, _requestflush, 0)) {
-                    pending.request.release();
-
-                    pending = {};
-
-                    return -5;
-                }
+                if (!enqueue(pending.request, 0, 0, false, 16, _requestflush, 0))
+                    return complete_with_error(-5);
 
                 return 0;
             }
@@ -933,8 +981,8 @@ namespace {
             if (!retain)
                 pending.io = nullptr;
 
-            pending.hardware_done =
-                quiescing || (ring_reset && reset_queue_after_timeout());
+            pending.hardware_done = pending.hardware_done || quiescing ||
+                                    (ring_reset && reset_queue_after_timeout());
 
             if (retain && pending.hardware_done && pending.io->device_state() != nullptr)
                 pending.io->wake();
@@ -959,6 +1007,23 @@ namespace {
             return true;
         }
 
+        long resume_async(astia::io::request& io) {
+            if (poll_async(io) < 0) {
+                io.device_state(nullptr);
+
+                return -5;
+            }
+
+            long result = 0;
+
+            if (!complete_async(io, result))
+                return 0;
+
+            io.device_state(nullptr);
+
+            return result;
+        }
+
         long read(void* buffer, unsigned length, uint64_t offset) {
             return transfer(buffer, length, offset, false);
         }
@@ -980,18 +1045,9 @@ namespace {
             const long valid = validate_request(request);
             if (valid != 0)
                 return valid;
-            if (request.device_state() == this) {
-                _owner.poll_async(request);
+            if (request.device_state() == this)
+                return _owner.resume_async(request);
 
-                long result = 0;
-
-                if (!_owner.complete_async(request, result))
-                    return 0;
-
-                request.device_state(nullptr);
-
-                return result;
-            }
             if (request.device_state() != nullptr)
                 return -16;
             request.device_state(this);
