@@ -115,6 +115,11 @@ namespace astia::elf::loader {
         bool defer_symbol_relocs = false;
     };
 
+    /// ELF64 `p_flags` permission bits (PF_X/PF_W/PF_R), in the ABI's order.
+    inline constexpr u32 pf_execute = 1u << 0;
+    inline constexpr u32 pf_write   = 1u << 1;
+    inline constexpr u32 pf_read    = 1u << 2;
+
     /// One loaded PT_LOAD segment of an executable (relocatable images leave
     /// this list empty).
     struct segment {

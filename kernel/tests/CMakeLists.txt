@@ -2042,6 +2042,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: exec permission ok"
                 "astia: random ok"
                 "astia: interp ok"
+                "astia: w^x ok"
                 "astia: copy reloc ok"
                 "astia: relro ok"
                 "astia: ver ok"

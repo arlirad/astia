@@ -2,6 +2,7 @@
 
 #include <astia/common.hpp>
 #include <astia/fs.hpp>
+#include <astia/mm/address_space.hpp>
 #include <astia/mm/phys_region.hpp>
 #include <astia/mm/shptr.hpp>
 
@@ -70,6 +71,24 @@ namespace astia::proc {
 
     constexpr bool has(map_flags v, map_flags f) {
         return (v & f) != map_flags::none;
+    }
+
+    /// PROT_* word to PTE flags: user and present always; writable when
+    /// PROT_WRITE; executable only when PROT_EXEC (x86 defaults to NX).
+    /// The arch translates these into its native bits.
+    constexpr mm::mapping_flags pte_flags(map_protection prot) {
+        auto flags = mm::mapping_flags::present;
+
+        if (prot != map_protection::none)
+            flags = flags | mm::mapping_flags::user;
+
+        if (has(prot, map_protection::write))
+            flags = flags | mm::mapping_flags::writable;
+
+        if (!has(prot, map_protection::exec))
+            flags = flags | mm::mapping_flags::no_execute;
+
+        return flags;
     }
 
     /// One contiguous user virtual range and the phys_region backing

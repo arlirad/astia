@@ -1048,6 +1048,13 @@ static siginfo_t             user_signal_info;
 static volatile uintptr_t    fault_expected_addr;
 static volatile int          fault_expected_code;
 static int                   abort_pipe_write_fd = -1;
+static const char            wx_rodata[]         = "astia-w^x-rodata";
+static unsigned char         wx_data_code[8];
+
+static void wx_fault_handler(int signal_number) {
+    (void) signal_number;
+    _Exit(42);
+}
 
 static void page_fault_handler(int signal_number, siginfo_t* info, void* context) {
     (void) context;
@@ -2800,6 +2807,73 @@ int main(int argc, char** argv) {
         if (waitpid(child, &status, 0) != child || status != (42 << 8))
             return 76;
     }
+
+    /* W^X: the kernel must apply each PT_LOAD's p_flags.  Writing the
+       image's read-only data and jumping into its writable data both fault;
+       reading the read-only data remains valid. */
+    {
+        if (wx_rodata[0] != 'a')
+            return 273;
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 274;
+
+        if (child == 0) {
+            struct sigaction action = {0};
+
+            action.sa_handler = wx_fault_handler;
+
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(275);
+
+            *(volatile char*) wx_rodata = 'X';
+
+            _Exit(276);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 277;
+    }
+
+    {
+        memset(wx_data_code, 0xc3, sizeof wx_data_code);
+
+        const pid_t child = fork();
+        if (child < 0)
+            return 278;
+
+        if (child == 0) {
+            struct sigaction action = {0};
+
+            union {
+                void (*fn)(void);
+                uintptr_t address;
+            } target;
+
+            action.sa_handler = wx_fault_handler;
+
+            if (sigemptyset(&action.sa_mask) != 0 ||
+                sigaction(SIGSEGV, &action, NULL) != 0)
+                _Exit(279);
+
+            target.address = (uintptr_t) wx_data_code;
+
+            target.fn();
+
+            _Exit(280);
+        }
+
+        int status = 0;
+
+        if (waitpid(child, &status, 0) != child || status != (42 << 8))
+            return 281;
+    }
+
+    printf("astia: w^x ok\n");
 
     /* 9-15: file-backed mmap — /sbin/init's bytes captured into a
        private mapping that outlives the descriptor */

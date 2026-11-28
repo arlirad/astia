@@ -115,11 +115,11 @@ namespace astia::proc {
                 return nullptr;
 
             for (u64 page = 0; page < pages; ++page) {
-                if (!image.map->map_4k(base + page * elf::loader::page_size,
-                                       frames + page * elf::loader::page_size,
-                                       mm::mapping_flags::present |
-                                           mm::mapping_flags::writable |
-                                           mm::mapping_flags::user)) {
+                if (!image.map->map_4k(
+                        base + page * elf::loader::page_size,
+                        frames + page * elf::loader::page_size,
+                        mm::mapping_flags::present | mm::mapping_flags::writable |
+                            mm::mapping_flags::user | mm::mapping_flags::no_execute)) {
                     unmap_run(*image.map, base, page);
                     mm::kernel_frames().release(frames, pages);
 
@@ -219,17 +219,116 @@ namespace astia::proc {
                                      rollback_release_frames, rollback_release_region);
         }
 
-        // The ELF loader reserves and maps one contiguous span for all
-        // PT_LOAD segments.  Until VMAs can split that span at each
-        // segment boundary, keep the span executable and writable:
-        // this preserves the loader's established mapping contract and
-        // lets fork/CoW account for it as one physical region.  The
-        // page-granular permission split is a later mprotect/exec slice.
-        map_protection segment_prot(const elf::loader::image& image, u64 base) {
-            (void) image;
-            (void) base;
+        // The ELF loader maps one writable, non-executable span for the whole
+        // image: that window is what the loader copies segment bytes through
+        // and applies R_X86_64_RELATIVE relocations in.  Once the load is
+        // complete, each PT_LOAD page gets its ABI protections: PF_R read,
+        // PF_W writable, PF_X executable.  x86-64 page tables cannot express
+        // execute-without-read, so PF_X implies read here.  A segment that
+        // claims both PF_W and PF_X is contradictory and is rejected.
+        map_protection segment_protection(u32 flags) {
+            map_protection prot = map_protection::none;
 
-            return map_protection::read | map_protection::write | map_protection::exec;
+            if ((flags & elf::loader::pf_read) != 0)
+                prot = prot | map_protection::read;
+
+            if ((flags & elf::loader::pf_write) != 0)
+                prot = prot | map_protection::write;
+
+            if ((flags & elf::loader::pf_execute) != 0)
+                prot = prot | map_protection::read | map_protection::exec;
+
+            return prot;
+        }
+
+        bool segment_page_range(const elf::loader::segment& seg, u64& first, u64& last) {
+            const u64 page = elf::loader::page_size;
+
+            if (seg.memsz == 0)
+                return false;
+
+            const u64 start = reinterpret_cast<u64>(seg.loc);
+
+            if (start > ~u64{0} - seg.memsz || start + seg.memsz > ~u64{0} - (page - 1))
+                return false;
+
+            first = start & ~(page - 1);
+            last  = (start + seg.memsz + page - 1) & ~(page - 1);
+
+            return true;
+        }
+
+        /// Union of every PT_LOAD segment that touches `address`.  Segments
+        /// can share a page when p_align is below the page size; the shared
+        /// page must not end up both writable and executable.
+        map_protection page_protection(const elf::loader::image& image, u64 address) {
+            map_protection prot = map_protection::none;
+
+            for (u32 i = 0; i < image.nsegs; ++i) {
+                u64 first = 0;
+                u64 last  = 0;
+
+                if (!segment_page_range(image.segs[i], first, last) || address < first ||
+                    address >= last)
+                    continue;
+
+                prot = prot | segment_protection(image.segs[i].flags);
+            }
+
+            return prot;
+        }
+
+        bool validate_image_segments(const elf::loader::image& image) {
+            if (image.nsegs > elf::loader::max_segments)
+                return false;
+
+            const u64 base = reinterpret_cast<u64>(image.base);
+
+            if (image.size > ~u64{0} - base)
+                return false;
+
+            const u64 end = base + image.size;
+
+            for (u32 i = 0; i < image.nsegs; ++i) {
+                const auto& seg = image.segs[i];
+
+                const u32 flags = seg.flags;
+
+                if ((flags & (elf::loader::pf_write | elf::loader::pf_execute)) ==
+                    (elf::loader::pf_write | elf::loader::pf_execute))
+                    return false;
+
+                if (seg.memsz == 0)
+                    continue;
+
+                const u64 start = reinterpret_cast<u64>(seg.loc);
+
+                if (start < base || start > end || seg.memsz > end - start)
+                    return false;
+
+                u64 first = 0;
+                u64 last  = 0;
+
+                if (!segment_page_range(seg, first, last) || first < base || last > end)
+                    return false;
+
+                for (u32 j = i + 1; j < image.nsegs; ++j) {
+                    u64 other_first = 0;
+                    u64 other_last  = 0;
+
+                    if (!segment_page_range(image.segs[j], other_first, other_last) ||
+                        first >= other_last || other_first >= last)
+                        continue;
+
+                    const u32 combined = flags | image.segs[j].flags;
+
+                    if ((combined & (elf::loader::pf_write | elf::loader::pf_execute)) ==
+                        (elf::loader::pf_write | elf::loader::pf_execute))
+                        return false;
+                }
+            }
+
+            return true;
         }
 
         // Where the static TLS block lives: a fixed base well below the
@@ -320,6 +419,106 @@ namespace astia::proc {
             return true;
         }
     } // namespace
+
+    /// Feed the loaded image through the ABI's p_flags one page at a time.
+    ///
+    /// `frames`/`pages` name the loader's single writable run.  The run is
+    /// adopted as one phys_region so its slices share ownership; each
+    /// maximal same-protection page range then gets its PTE bits and one
+    /// VMA.  Only the first VMA carries the region reference and the rest
+    /// are its reference-less siblings, exactly as a split of one mapping.
+    ///
+    /// Returns false with `frames`/`pages` still the caller's when nothing
+    /// was adopted, and with both zero once the region owns (or has freed)
+    /// the run; the caller then relies on discard_image() for VMAs.
+    bool process::finalize_image_mapping(const elf::loader::image& image, u64& base,
+                                         u64& frames, u64& pages) {
+        const u64 page = elf::loader::page_size;
+
+        if (frames == mm::frame_allocator::invalid_frame || pages == 0 ||
+            (base & (page - 1)) != 0 || pages > (~u64{0} - base) / page)
+            return false;
+
+        const u64 span_end = base + pages * page;
+
+        auto* region = mm::phys_region::adopt(frames, pages);
+        if (region == nullptr)
+            return false;
+
+        // The region owns the run from here on.  Zeroing the caller's view
+        // keeps cleanup_pending() from releasing the same frames.
+        frames = 0;
+        pages  = 0;
+
+        bool registered = false;
+        u64  cursor     = base;
+
+        while (cursor < span_end) {
+            const auto prot = page_protection(image, cursor);
+
+            u64 run_end = cursor + page;
+
+            while (run_end < span_end && page_protection(image, run_end) == prot) {
+                run_end += page;
+            }
+
+            const usz run_pages = static_cast<usz>((run_end - cursor) / page);
+
+            if (prot != map_protection::none) {
+                // Two PT_LOAD segments sharing a page must not combine into
+                // a writable, executable page either.
+                if (has(prot, map_protection::write) && has(prot, map_protection::exec)) {
+                    if (!registered)
+                        region->release();
+
+                    return false;
+                }
+
+                const auto flags = pte_flags(prot);
+
+                for (u64 address = cursor; address < run_end; address += page) {
+                    if (!_address_space.protect_4k(address, flags)) {
+                        if (!registered)
+                            region->release();
+
+                        return false;
+                    }
+                }
+
+                if (!register_mapping_range(cursor, run_pages, prot, region,
+                                            static_cast<usz>((cursor - base) / page),
+                                            !registered)) {
+                    if (!registered)
+                        region->release();
+
+                    return false;
+                }
+
+                registered = true;
+            }
+            else {
+                // A hole in the PT_LOAD span: the loader mapped and zeroed
+                // it, but the ABI gives it no permissions at all.  Drop the
+                // PTEs and the frames; no VMA references this range.
+                for (u64 address = cursor; address < run_end; address += page) {
+                    (void) _address_space.unmap(address);
+                }
+
+                (void) region->unmap_range(static_cast<usz>((cursor - base) / page),
+                                           run_pages);
+            }
+
+            cursor = run_end;
+        }
+
+        if (!registered) {
+            region->release();
+
+            return false;
+        }
+
+        return true;
+    }
 
     void process::rollback_tls_failure(void* context, mm::address_space& map) {
         auto& image = *static_cast<image_map*>(context);
@@ -419,25 +618,29 @@ namespace astia::proc {
             return false;
         }
 
-        // File every segment as a VMA: the frames (mapped above)
-        // transfer to a phys_region, so fork and copy-on-write
-        // account for the image like any other mapping.
+        if (!validate_image_segments(image)) {
+            cleanup_pending(image_state, _address_space);
+
+            return false;
+        }
+
+        // File every segment as a VMA: the frames (mapped above) transfer to a
+        // phys_region, so fork and copy-on-write account for the image like any
+        // other mapping, and the ABI's p_flags become the final page
+        // protections.
         for (u32 i = 0; i < image_state.count; ++i) {
-            const auto& seg = image_state.segs[i];
+            auto& seg = image_state.segs[i];
 
             if (!seg.used)
                 continue;
 
-            auto* region = mm::phys_region::adopt(seg.frames, seg.pages);
+            if (!finalize_image_mapping(image, seg.virt, seg.frames, seg.pages)) {
+                // The helper either kept frames/pages for cleanup or consumed
+                // the run; discard_image() owns any VMA it already published.
+                seg.mapped = false;
 
-            if (region == nullptr ||
-                !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
-                                  region)) {
-                rollback_mapping_failure(_address_space, seg.virt, seg.pages, seg.frames,
-                                         region);
-
-                image_state.segs[i].mapped = false;
-                image_state.segs[i].used   = false;
+                if (seg.pages == 0)
+                    seg.used = false;
 
                 cleanup_pending(image_state, _address_space);
                 discard_image();
@@ -445,7 +648,8 @@ namespace astia::proc {
                 return false;
             }
 
-            image_state.segs[i].used = false;
+            seg.mapped = false;
+            seg.used   = false;
         }
 
         // Static TLS: the thread's %fs base loads the block end this
@@ -678,19 +882,23 @@ namespace astia::proc {
             co_return false;
         }
 
+        if (!validate_image_segments(image)) {
+            cleanup_pending(stream.map, _address_space);
+
+            co_return false;
+        }
+
         for (u32 i = 0; i < stream.map.count; ++i) {
             auto& seg = stream.map.segs[i];
 
-            auto* region = mm::phys_region::adopt(seg.frames, seg.pages);
+            if (!seg.used)
+                continue;
 
-            if (region == nullptr ||
-                !register_mapping(seg.virt, seg.pages, segment_prot(image, seg.virt),
-                                  region)) {
-                rollback_mapping_failure(_address_space, seg.virt, seg.pages, seg.frames,
-                                         region);
-
+            if (!finalize_image_mapping(image, seg.virt, seg.frames, seg.pages)) {
                 seg.mapped = false;
-                seg.used   = false;
+
+                if (seg.pages == 0)
+                    seg.used = false;
 
                 cleanup_pending(stream.map, _address_space);
                 discard_image();
@@ -698,7 +906,8 @@ namespace astia::proc {
                 co_return false;
             }
 
-            seg.used = false;
+            seg.mapped = false;
+            seg.used   = false;
         }
 
         if (image.tls_memsz != 0 || image.interp_size != 0) {

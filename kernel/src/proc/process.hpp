@@ -8,6 +8,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/dbg/panic_report.hpp>
+#include <astia/elf.hpp>
 #include <astia/mm/address_space.hpp>
 #include <astia/mm/iovec.hpp>
 #include <astia/mm/shptr.hpp>
@@ -670,6 +671,19 @@ namespace astia::proc {
         /// reference.
         bool register_mapping(u64 base, usz pages, map_protection prot,
                               mm::phys_region* region);
+        /// File one page-granular slice of a loader image.  Every slice of
+        /// an exec image shares the one adopted region, so only the first
+        /// entry carries the allocation reference and the rest are
+        /// reference-less siblings (as a VMA split would produce).
+        bool register_mapping_range(u64 base, usz pages, map_protection prot,
+                                    mm::phys_region* region, usz region_page,
+                                    bool holds_ref);
+        /// Apply the PT_LOAD segments' final page protections and file their
+        /// VMAs, consuming the loader's writable mapping run.  On failure the
+        /// run is either still owned by the caller (`frames`/`pages` intact)
+        /// or already consumed (both zero); see the definition.
+        bool finalize_image_mapping(const elf::loader::image& image, u64& base,
+                                    u64& frames, u64& pages);
         bool build_user_stack(char* const argv[], char* const envp[], u64* rsp_out);
         void discard_image();
         void rollback_tls_failure(void* image, mm::address_space& map);

@@ -47,25 +47,6 @@ namespace astia::proc {
             core::spinlock& _lock;
         };
 
-        /// PROT_* word to PTE flags: user and present always; writable
-        /// when PROT_WRITE; executable only when PROT_EXEC (x86
-        /// defaults to NX).  The arch translates these into its native
-        /// bits.
-        mm::mapping_flags pte_flags(map_protection prot) {
-            auto flags = mm::mapping_flags::present;
-
-            if (prot != map_protection::none)
-                flags = flags | mm::mapping_flags::user;
-
-            if (has(prot, map_protection::write))
-                flags = flags | mm::mapping_flags::writable;
-
-            if (!has(prot, map_protection::exec))
-                flags = flags | mm::mapping_flags::no_execute;
-
-            return flags;
-        }
-
         /// Drop the address space's one reference on `victim`'s
         /// backing: a surviving neighbour of the same region (split
         /// siblings are adjacent) inherits it, otherwise the last
@@ -1523,6 +1504,12 @@ namespace astia::proc {
 
     bool process::register_mapping(u64 base, usz pages, map_protection prot,
                                    mm::phys_region* region) {
+        return register_mapping_range(base, pages, prot, region, 0, true);
+    }
+
+    bool process::register_mapping_range(u64 base, usz pages, map_protection prot,
+                                         mm::phys_region* region, usz region_page,
+                                         bool holds_ref) {
         // PTEs are the caller's job — exec segments, the user stack,
         // and the TLS block map their own — and so is adopting the
         // frames; this only files the VMA so fork and CoW see the
@@ -1539,8 +1526,9 @@ namespace astia::proc {
         entry->mapped_pages = pages;
         entry->prot         = prot;
         entry->demand_zero  = region->lazy();
-        entry->holds_ref    = true;
+        entry->holds_ref    = holds_ref;
         entry->backing      = region;
+        entry->region_page  = region_page;
 
         const u64 bytes  = pages * mm::phys_region::frame_size;
         bool      linked = false;
