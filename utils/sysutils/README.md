@@ -16,6 +16,13 @@ portable POSIX-style command set.
 effective UID 0, matching the syscall contract; a non-root call reports
 `Operation not permitted`.
 
+Detailed command documentation:
+
+- [`modopen`](../../docs/userspace/modopen.md)
+- [`modls`](../../docs/userspace/modls.md)
+- [`modclose`](../../docs/userspace/modclose.md)
+- [`modstat`](../../docs/userspace/modstat.md)
+
 Build and stage:
 
 ```sh

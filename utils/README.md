@@ -5,3 +5,5 @@
   `modclose`).
 
 Each directory keeps its own build script, README, and QEMU regression suite.
+The documented module lifecycle commands are described in
+[`docs/userspace`](../docs/userspace/).
