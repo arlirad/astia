@@ -1,57 +1,152 @@
-# Read-only ext4 module boundary
+# ext4 module design
 
-The parser in `kernel/src/mod/ext4_reader.*` is deliberately independent of
-the VFS and is not linked into the kernel's `mod` library. It accepts a
-bounded `read_at` callback and covers the on-disk path needed by a first
-read-only implementation: superblock and feature validation, group
-descriptors, inode records, direct/indirect blocks, extent trees, classic and
-indexed directory entries, and regular-file reads.
+## Boundary
 
-The parser rejects journals, unsupported incompatible or read-only-compatible
-features, malformed bounds, and metadata checksum failures. Indexed directory
-enumeration validates HTree metadata and walks its leaf blocks; it does not
-perform hash-directed lookup. It does not replay a journal or implement
-writes, fsck, xattrs, inline data, encryption, case folding, symlinks, or
-other HTree operations.
+ext4 is a loadable ET_REL module under `modules/ext4/`, not part of the kernel
+image. `modules/ext4/CMakeLists.txt` compiles each source with the kernel's C++
+ABI: `-ffreestanding -fno-exceptions -fno-rtti -fno-threadsafe-statics
+-mgeneral-regs-only -fno-use-cxa-atexit -DASTIA_MODULE_ET_REL=1`, together with
+`-mcmodel=large` and `-mno-red-zone`, then links the objects with `ld -r` into
+`ext4.km`. The loader takes it from `mod/ext4.km`. The `mod` init step depends
+on `boot_info`, `interrupts` and `fs`, so boot modules are loaded after the
+filesystem registry is ready.
 
-## Integration blockers
+`module_main()` calls `register_filesystem()`, which registers one static
+`fs::filesystem` factory through the public `astia/fs/module.hpp` contract using
+`fs::register_type()`. The factory reports the name `ext4`, constructs an
+`ext4::mount` for a source path, and owns and destroys its mounts. A
+`[[gnu::destructor]]` calls `unregister_filesystem()` before unload. If
+`fs::unregister_type()` fails with `-EBUSY` because a mount or an in-flight
+registry operation still references the type, the module logs the failure and
+calls `astia::module::make_resident()`, so the loader cannot unmap code or
+vtables that a live mount still points at.
 
-`kernel/include/astia/dev/blk/blkdev.hpp` provides the minimal public
-block-driver contract on top of `dev::blk::blkdev`, built on `dev::device`.
-Requests use the existing
-`io_request`/`io_flight`/`io_packet` path; offset and length must both be
-multiples of the device block size and invalid requests return `-EINVAL`.
-`dev::device_file` is the small VFS adapter. The block implementation is
-read-only by default, while geometry and device identity beyond these bounds
-remain future work.
+## Layers
 
-Loadable module sources and driver fixtures live under the repository-root
-`modules/` tree. The module loader packages and loads ET_REL images from boot
-modules and calls `module_main`; packaging is not a separate filesystem kind.
-Every filesystem is an ordinary first-class `fs::filesystem` registered through
-the filesystem registry. A type must be unregistered before its implementation
-is unloaded, and unregister is rejected while factories or mounts still refer to
-it. The C++ filesystem interfaces are public under
-`kernel/include/astia/fs/`: `filesystem.hpp`, `mount.hpp` and the
-module-facing `module.hpp`.
+- `ext4_reader` is the original read-only parser: bounded callback I/O,
+  superblock and feature validation, group descriptors, inodes, extent trees,
+  classic and indexed directory entries, and regular-file reads. The mount does
+  not use it; it is retained for pure host unit tests.
+- `volume` (`ext4_disk.*`) owns superblock and group-descriptor parsing, inode
+  records, sector/block I/O, the metadata_csum seed and verification, and the
+  journal hooks. It is the only path the mount uses to reach the device.
+- `space` allocates and frees blocks and inodes through the group bitmaps and
+  keeps the descriptor and superblock counters in step.
+- `extent` maps logical blocks through the extent B-tree, allocates and grows
+  trees, splits leaf and index nodes, and truncates or frees extents.
+- `directory` iterates and searches dirents, creates and removes entries,
+  maintains `.` and `..`, spills entries into new blocks, and writes
+  checksum tails on metadata_csum directories.
+- `journal` implements JBD2 open, replay, checksum upgrade, transactions, and
+  checkpointing.
+- `ext4_mount` and `ext4_file` are the VFS adapter: open/create, read/write,
+  mkdir/rmdir, unlink, rename, link, symlink/readlink, chmod/chown/touch,
+  truncate, directory enumeration, stat metadata, and sync, with POSIX
+  deferred-free semantics and a bounded table of 64 open inodes.
 
-## Implemented module boundary
+## On-disk guarantees
 
-`modules/ext4/` is a loadable module. Its `module_main()` registers a static
-`fs::filesystem` factory with `fs::register_type()`; a destructor unregisters it
-before unload, and the registry refuses unregister while mounts or in-flight
-operations still reference the type. Boot-loaded modules depend on the `fs`
-init step, so `register_type()` runs against a ready registry. `fs::init()`
-registers only the built-in devfs, initrd and tmpfs types.
+Files and directories are extent-mapped; the extents feature is required and
+indirect-block files are not supported. Block sizes of 1, 2 and 4 KiB are
+accepted; inode sizes 128 through 512; descriptor sizes 32 or 64; revision
+level must be 1 and `first_data_block` must match the block size. With
+metadata_csum, checksum type 1 (CRC32C) is required.
 
-The existing mount factory accepts only a source string and has no mount
-options or source-open capability contract. Ext4 remains optional and does not
-replace the root mount automatically. Write support, journal replay and
-mutation are the next step; this slice stays read-only.
+The metadata_csum path verifies and writes the superblock checksum, group
+descriptor checksums, block and inode bitmap checksums, inode checksums, extent
+node checksums, and the 12-byte directory tail (or `dx_tail` for indexed
+directories). Superblock free counters and state are written with each
+committed transaction. File data is written to its home block
+before the metadata transaction commits, giving ordered-data semantics.
 
-## Fixture
+## Journaling
 
-`kernel/tests/make_ext4_fixture.sh` creates a small journal-free image with
-features outside this bounded parser disabled. It requires `mkfs.ext4` and
-`debugfs`/`mke2fs` tooling and is intentionally a standalone fixture command;
-it is not part of the production kernel build.
+Read-write mounts use the in-filesystem JBD2 journal. The journal must have a
+v2 superblock; v1 journals are refused. CRC32C checksums are supported for v2
+and v3 tags, commit blocks and descriptor tails. Replay parses revoke blocks,
+honours the `ESCAPE` flag for metadata blocks that begin with the journal magic,
+and tracks sequence numbers and ring wrap. A journal with fast commit, unknown
+incompatible bits, or any compat/ro-compat bits is unsupported.
+
+Each VFS mutation stages its metadata in one transaction and checkpoints it
+immediately at `finish()`. A transaction begins by setting the filesystem
+`needs_recovery` flag (`INCOMPAT_RECOVER`) and writing the superblock; a
+successful commit checkpoints the staged blocks, clears the flag and sets the
+superblock state to clean.
+Replay runs before the mount is usable. A journal without checksum features is
+upgraded to `CSUM_V3` on the first read-write mount; if that upgrade fails, the
+mount falls back to read-only. An unsupported journal also mounts read-only,
+but a dirty journal on a read-only source refuses to mount. Images without a
+journal remain writable through the direct block path.
+
+## Supported and refused features
+
+`volume::open()` accepts the incompatible features `filetype`, `recover`,
+`extents`, `64bit`, `csum_seed` and `largedir`, and the read-only-compatible
+features `sparse_super`, `large_file`, `huge_file`, `gdt_csum`, `dir_nlink`,
+`extra_isize` and `metadata_csum`. `csum_seed` requires `metadata_csum`, as
+does `gdt_csum`; `metadata_csum` requires checksum type 1. The `64bit` bit is
+accepted only while the block count still fits in 32 bits.
+
+Everything else is refused at open: inline data, bigalloc, flex_bg,
+encryption, quota, the orphan file, external journal devices, unknown feature
+bits, and the read-only flag. The mount additionally rejects images without
+extents, with blocks beyond the source device, or with a non-directory root.
+
+HTree directories are read, enumerated and can have entries removed, but
+creating an entry inside an existing indexed directory returns `-ENOSYS`:
+a linear append cannot update the hash index. No xattr, ACL, inline-data,
+encryption, or orphan-list cleanup path exists.
+
+## Concurrency and lifetime
+
+Each mount has one `core::spinlock`, held across synchronous device I/O. The
+module assumes a synchronous block device (`dv_sync`) whose callbacks run in
+task context; an asynchronous device would need a sleeping lock and a different
+submission path. Mounts and open files pin the type and module through the
+registry's existing active-operation and mount counters, which is what makes
+unregister return `-EBUSY` while they are live. The deferred-free table holds
+at most 64 open inodes; opening another inode when it is full fails.
+
+## Testing
+
+- `astia_ext4_test` and `ext4_unit` build the reader/disk parser test through
+  the kernel test harness and the module's standalone host harness.
+- `astia_ext4_real_test` reads a checked `mkfs.ext4` image
+  (`ext4-metadata-csum.img`) through the parser.
+- `ext4_disk_test` runs the volume layer against an `mke2fs` fixture.
+- `ext4_extent_test` exercises extent mapping, growth, splitting and truncation
+  against a real image.
+- `ext4_dir_test` exercises directory iteration, insertion, removal and
+  checksum tails.
+- `ext4_journal_test` exercises journal open, transaction staging, commit and
+  replay.
+- `astia_ext4_vfs_test` registers the module with the kernel VFS and covers
+  mount, lookup, readdir, symlink, and journal/read-only handling.
+- `astia_ext4_rw_vfs_test` mounts a real `mkfs.ext4` image through the VFS,
+  performs create, write, rename, link, symlink, chmod, truncate and removal,
+  then remounts. Its CTest entry runs `e2fsck -fn` and `debugfs` assertions on
+  the result.
+- `ext4_journal_vfs_test` runs the same tool on a journaled fixture in
+  `normal`, `crash` (power loss after commit, before checkpoint) and `recover`
+  modes, then checks both images with `e2fsck -fn`, `dumpe2fs` and `debugfs`,
+  including the replayed 8 KiB file contents.
+- `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
+  `mod/` and checks the serial log for a successful load.
+
+The real-image tests are gated on `mkfs.ext4`, `e2fsck` and `debugfs` being
+present. The crash mode deliberately leaves `needs_recovery` set, then proves
+that a real VFS replay recovers the committed file contents.
+
+## Known gaps
+
+- HTree insertion and conversion.
+- xattrs, ACLs, encryption, and inline data.
+- bigalloc and flex_bg.
+- 64-bit high block numbers and volumes larger than 16 TiB.
+- External journal devices.
+- The orphan inode list and orphan-file cleanup.
+- Quota.
+- fsck-time-only fields such as MMP.
+- Parallel journal transactions; the journal commits one transaction at a time.
+- A sleeping lock and asynchronous I/O path for non-`dv_sync` devices.
