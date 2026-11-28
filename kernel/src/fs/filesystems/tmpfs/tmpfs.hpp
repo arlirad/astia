@@ -3,7 +3,7 @@
 #include <astia/core/spinlock.hpp>
 #include <astia/mm/phys_region.hpp>
 
-#include "../../filesystem.hpp"
+#include <astia/fs/filesystem.hpp>
 
 namespace astia::fs::filesystems {
     inline constexpr u32 tmpfs_max_entries = 32;

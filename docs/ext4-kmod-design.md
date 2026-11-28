@@ -28,19 +28,26 @@ remain future work.
 Loadable module sources and driver fixtures live under the repository-root
 `modules/` tree. The module loader packages and loads ET_REL images from boot
 modules and calls `module_main`; packaging is not a separate filesystem kind.
-Every filesystem, including one eventually supplied by a module, is an
-ordinary first-class `fs::filesystem` registered through the filesystem
-registry. A type must be unregistered before its implementation is unloaded,
-and unregister is rejected while factories or mounts still refer to it.
-The typed module contract does not expose the C++ filesystem interfaces, so
-this slice does not add module-specific filesystem APIs or mount ext4.
+Every filesystem is an ordinary first-class `fs::filesystem` registered through
+the filesystem registry. A type must be unregistered before its implementation
+is unloaded, and unregister is rejected while factories or mounts still refer to
+it. The C++ filesystem interfaces are public under
+`kernel/include/astia/fs/`: `filesystem.hpp`, `mount.hpp` and the
+module-facing `module.hpp`.
+
+## Implemented module boundary
+
+`modules/ext4/` is a loadable module. Its `module_main()` registers a static
+`fs::filesystem` factory with `fs::register_type()`; a destructor unregisters it
+before unload, and the registry refuses unregister while mounts or in-flight
+operations still reference the type. Boot-loaded modules depend on the `fs`
+init step, so `register_type()` runs against a ready registry. `fs::init()`
+registers only the built-in devfs, initrd and tmpfs types.
 
 The existing mount factory accepts only a source string and has no mount
-options or source-open capability contract. A future integration should first
-add a safe module-facing ABI with explicit load/unload ownership, device
-geometry/identity, and mount teardown rules. Ext4 must remain optional and
-must not replace the root mount automatically. The current C++ virtual
-`fs::filesystem` / `fs::mount` interfaces are not safe module exports.
+options or source-open capability contract. Ext4 remains optional and does not
+replace the root mount automatically. Write support, journal replay and
+mutation are the next step; this slice stays read-only.
 
 ## Fixture
 

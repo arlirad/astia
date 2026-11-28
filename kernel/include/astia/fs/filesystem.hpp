@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mount.hpp"
+#include <astia/fs/mount.hpp>
 
 namespace astia::fs {
     inline constexpr u32 invalid_filesystem_slot = ~u32{0};

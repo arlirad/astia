@@ -4,7 +4,7 @@
 #include <astia/mm/frame_allocator.hpp>
 
 #include "boot.hpp"
-#include "filesystem.hpp"
+#include <astia/fs/filesystem.hpp>
 #include "filesystems/initrd/initrd.hpp"
 
 namespace astia::fs {

@@ -7,7 +7,6 @@
 #include <astia/strings.hpp>
 
 #include "filesystems/devfs/devfs.hpp"
-#include "filesystems/ext4/ext4.hpp"
 #include "filesystems/initrd/initrd.hpp"
 #include "filesystems/tmpfs/tmpfs.hpp"
 #include "path_service.hpp"
@@ -518,7 +517,6 @@ namespace astia::fs {
 
         const bool ok = register_type(&devfs_type) == 0 &&
                         register_type(&filesystems::initrd_type()) == 0 &&
-                        register_type(&filesystems::ext4_type()) == 0 &&
                         register_type(&tmpfs_type_instance) == 0 &&
                         mount_type("devfs", "/dev") == 0 &&
                         mount_type("tmpfs", "/tmp") == 0;

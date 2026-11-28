@@ -17,8 +17,8 @@
 // directly. Anything that is not an ELF image is reported and skipped — a
 // single bad module must not brick the boot.
 //
-// Depends on `frames` (the frame allocator places section contents) and
-// `boot_info` (the ramdisk and the module list).
+// Depends on `boot_info` (the ramdisk and the module list) and on `fs`
+// (boot-loaded filesystem modules register with a ready filesystem registry).
 
 namespace astia::mod {
     namespace {
@@ -176,4 +176,4 @@ namespace astia::mod {
     }
 } // namespace astia::mod
 
-ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "frames", "interrupts")
+ASTIA_INIT_STEP(devices, mod, astia::mod::step_mod, "boot_info", "interrupts", "fs")

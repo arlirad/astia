@@ -11,9 +11,6 @@ add_library(fs STATIC
         filesystems/devfs/devfs.cpp
         filesystems/initrd/initrd.cpp
         initrd_init.cpp
-        filesystems/ext4/ext4_file.cpp
-        filesystems/ext4/ext4_mount.cpp
-        filesystems/ext4/ext4_reader.cpp
         filesystems/tmpfs/tmpfs_file.cpp
         filesystems/tmpfs/tmpfs_mount.cpp
         filesystems/tmpfs/tmpfs_metadata.cpp

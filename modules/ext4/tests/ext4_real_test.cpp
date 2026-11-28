@@ -1,4 +1,4 @@
-#include "filesystems/ext4/ext4_reader.hpp"
+#include "ext4_reader.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -33,7 +33,7 @@ namespace {
     };
 
     bool find_entry(void*                                                context,
-                    const astia::fs::filesystems::ext4::directory_entry& entry) {
+                    const astia::ext4::directory_entry& entry) {
         auto& state = *static_cast<find_state*>(context);
 
         u32 length = 0;
@@ -52,9 +52,9 @@ namespace {
         return true;
     }
 
-    bool find_inode(astia::fs::filesystems::ext4::reader&      reader,
-                    const astia::fs::filesystems::ext4::inode& directory,
-                    const char* name, astia::fs::filesystems::ext4::inode& result) {
+    bool find_inode(astia::ext4::reader&      reader,
+                    const astia::ext4::inode& directory,
+                    const char* name, astia::ext4::inode& result) {
         find_state state{name};
 
         if (!reader.read_directory(directory, find_entry, &state) || state.inode == 0)
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
     if (!check(input.good() || input.eof(), "read fixture"))
         return 1;
 
-    astia::fs::filesystems::ext4::reader reader;
+    astia::ext4::reader reader;
 
     if (!check(reader.open(read_image, &image_data), "open metadata-csum fixture"))
         return 1;
@@ -101,11 +101,11 @@ int main(int argc, char** argv) {
     if (!check((reader.feature_ro_compat() & 0x0400) != 0, "metadata checksums enabled"))
         return 1;
 
-    astia::fs::filesystems::ext4::inode root;
-    astia::fs::filesystems::ext4::inode etc;
-    astia::fs::filesystems::ext4::inode known;
-    astia::fs::filesystems::ext4::inode directory;
-    astia::fs::filesystems::ext4::inode nested;
+    astia::ext4::inode root;
+    astia::ext4::inode etc;
+    astia::ext4::inode known;
+    astia::ext4::inode directory;
+    astia::ext4::inode nested;
 
     bool valid =
         check(reader.read_inode(2, root), "read root inode") &&
@@ -126,18 +126,18 @@ int main(int argc, char** argv) {
 
     corrupted.bytes[1024 + 0x3FC] ^= 1;
 
-    astia::fs::filesystems::ext4::reader damaged;
+    astia::ext4::reader damaged;
 
     valid =
         check(!damaged.open(read_image, &corrupted), "reject bad superblock checksum") &&
-        check(damaged.last_error() == astia::fs::filesystems::ext4::error::checksum,
+        check(damaged.last_error() == astia::ext4::error::checksum,
               "superblock checksum error");
 
     corrupted = image_data;
     corrupted.bytes[2048 + 0x1E] ^= 1;
     valid = check(damaged.open(read_image, &corrupted), "open bad descriptor image") &&
             check(!damaged.read_inode(2, root), "reject bad descriptor checksum") &&
-            check(damaged.last_error() == astia::fs::filesystems::ext4::error::checksum,
+            check(damaged.last_error() == astia::ext4::error::checksum,
                   "descriptor checksum error") &&
             valid;
 
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
     valid =
         check(damaged.open(read_image, &corrupted), "open bad inode image") &&
         check(!damaged.read_inode(known.number, known), "reject bad inode checksum") &&
-        check(damaged.last_error() == astia::fs::filesystems::ext4::error::checksum,
+        check(damaged.last_error() == astia::ext4::error::checksum,
               "inode checksum error") &&
         valid;
 

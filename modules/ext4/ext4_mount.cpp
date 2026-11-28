@@ -3,7 +3,7 @@
 
 #include "ext4.hpp"
 
-namespace astia::fs::filesystems {
+namespace astia::ext4 {
     namespace {
         bool copy_name(char* destination, const u8* source, u8 length, u32 capacity) {
             if (static_cast<u32>(length) + 1 > capacity)
@@ -18,22 +18,22 @@ namespace astia::fs::filesystems {
             return true;
         }
 
-        file_type convert_type(ext4::node_type type) {
+        fs::file_type convert_type(ext4::node_type type) {
             switch (type) {
             case ext4::node_type::regular:
-                return directory_reg;
+                return fs::directory_reg;
             case ext4::node_type::directory:
-                return directory_dir;
+                return fs::directory_dir;
             case ext4::node_type::symlink:
-                return directory_lnk;
+                return fs::directory_lnk;
             case ext4::node_type::character:
-                return directory_chr;
+                return fs::directory_chr;
             case ext4::node_type::fifo:
-                return directory_fifo;
+                return fs::directory_fifo;
             case ext4::node_type::socket:
-                return directory_sock;
+                return fs::directory_sock;
             default:
-                return directory_unknown;
+                return fs::directory_unknown;
             }
         }
 
@@ -79,7 +79,7 @@ namespace astia::fs::filesystems {
             u64        ordinal = 0;
             char*      name;
             u32        capacity;
-            file_type* type;
+            fs::file_type* type;
             u64*       inode;
             long       result = 0;
         };
@@ -110,11 +110,11 @@ namespace astia::fs::filesystems {
         }
     }
 
-    bool ext4_mount::read_source(void* context, u64 offset, void* buffer, usz length) {
-        return static_cast<ext4_mount*>(context)->source_read(offset, buffer, length);
+    bool mount::read_source(void* context, u64 offset, void* buffer, usz length) {
+        return static_cast<mount*>(context)->source_read(offset, buffer, length);
     }
 
-    bool ext4_mount::source_read(u64 offset, void* buffer, usz length) const {
+    bool mount::source_read(u64 offset, void* buffer, usz length) const {
         if (!_source || (buffer == nullptr && length != 0))
             return false;
 
@@ -150,7 +150,7 @@ namespace astia::fs::filesystems {
         return true;
     }
 
-    bool ext4_mount::initialize() {
+    bool mount::initialize() {
         if (!_source || !_source->mode().is_block_device())
             return false;
 
@@ -163,7 +163,7 @@ namespace astia::fs::filesystems {
         return _root.type() == ext4::node_type::directory;
     }
 
-    bool ext4_mount::child(const ext4::inode& parent, const char* name,
+    bool mount::child(const ext4::inode& parent, const char* name,
                            ext4::inode& node) const {
         if (parent.type() != ext4::node_type::directory)
             return false;
@@ -176,7 +176,7 @@ namespace astia::fs::filesystems {
         return _reader.read_inode(context.inode, node);
     }
 
-    bool ext4_mount::lookup(const char* path, ext4::inode& node) const {
+    bool mount::lookup(const char* path, ext4::inode& node) const {
         if (path == nullptr || path[0] != '/')
             return false;
 
@@ -192,11 +192,11 @@ namespace astia::fs::filesystems {
             if (path[at] == '\0')
                 break;
 
-            char component[path_max]{};
+            char component[fs::path_max]{};
             u32  length = 0;
 
             while (path[at] != '\0' && path[at] != '/') {
-                if (length + 1 >= path_max)
+                if (length + 1 >= fs::path_max)
                     return false;
 
                 component[length++] = path[at++];
@@ -218,17 +218,17 @@ namespace astia::fs::filesystems {
         return true;
     }
 
-    file_type ext4_mount::vfs_type(ext4::node_type type) {
+    fs::file_type mount::vfs_type(ext4::node_type type) {
         return convert_type(type);
     }
 
-    file_mode ext4_mount::vfs_mode(const ext4::inode& node) {
-        const file_type type = vfs_type(node.type());
+    fs::file_mode mount::vfs_mode(const ext4::inode& node) {
+        const fs::file_type type = vfs_type(node.type());
 
-        return file_mode(type, file_permissions(static_cast<u16>(node.mode & 07777)));
+        return fs::file_mode(type, fs::file_permissions(static_cast<u16>(node.mode & 07777)));
     }
 
-    mm::shptr<open_file> ext4_mount::open(const char* path, u32 flags) {
+    mm::shptr<fs::open_file> mount::open(const char* path, u32 flags) {
         if (path == nullptr || (flags & (ASTIA_AIO_O_ACCMODE | ASTIA_AIO_O_CREAT |
                                          ASTIA_AIO_O_EXCL | ASTIA_AIO_O_TRUNC)) != 0)
             return {};
@@ -243,18 +243,18 @@ namespace astia::fs::filesystems {
             node.type() != ext4::node_type::directory)
             return {};
 
-        auto file = mm::share<ext4_file>(this, node);
+        auto file = mm::share<ext4::file>(this, node);
 
-        return file ? mm::share<open_file>(file, flags) : mm::shptr<open_file>{};
+        return file ? mm::share<fs::open_file>(file, flags) : mm::shptr<fs::open_file>{};
     }
 
-    bool ext4_mount::read_file(const ext4::inode& node, void* buffer, u32 length,
+    bool mount::read_file(const ext4::inode& node, void* buffer, u32 length,
                                u64 offset) {
         return _reader.read_file(node, offset, buffer, length);
     }
 
-    long ext4_mount::read_directory(const char* path, u64 index, char* name, u32 capacity,
-                                    file_type* type, u64* inode) {
+    long mount::read_directory(const char* path, u64 index, char* name, u32 capacity,
+                            fs::file_type* type, u64* inode) {
         if (path == nullptr || name == nullptr || type == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -274,7 +274,7 @@ namespace astia::fs::filesystems {
         return context.result;
     }
 
-    long ext4_mount::readlink(const char* path, char* buffer, u32 capacity) const {
+    long mount::readlink(const char* path, char* buffer, u32 capacity) const {
         if (path == nullptr || buffer == nullptr || capacity == 0)
             return -EINVAL;
 
@@ -303,37 +303,37 @@ namespace astia::fs::filesystems {
         return static_cast<long>(node.size);
     }
 
-    file_type ext4_mount::node_type(const char* path) const {
+    fs::file_type mount::node_type(const char* path) const {
         ext4::inode node;
 
-        return lookup(path, node) ? vfs_type(node.type()) : directory_unknown;
+        return lookup(path, node) ? vfs_type(node.type()) : fs::directory_unknown;
     }
 
-    file_mode ext4_mount::node_mode(const char* path) const {
+    fs::file_mode mount::node_mode(const char* path) const {
         ext4::inode node;
 
-        return lookup(path, node) ? vfs_mode(node) : file_mode{};
+        return lookup(path, node) ? vfs_mode(node) : fs::file_mode{};
     }
 
-    u64 ext4_mount::node_inode(const char* path) const {
+    u64 mount::node_inode(const char* path) const {
         ext4::inode node;
 
         return lookup(path, node) ? node.number : 0;
     }
 
-    uid_t ext4_mount::node_uid(const char* path) const {
+    uid_t mount::node_uid(const char* path) const {
         ext4::inode node;
 
         return lookup(path, node) ? uid_t(node.uid) : uid_t{};
     }
 
-    gid_t ext4_mount::node_gid(const char* path) const {
+    gid_t mount::node_gid(const char* path) const {
         ext4::inode node;
 
         return lookup(path, node) ? gid_t(node.gid) : gid_t{};
     }
 
-    fs::mount* ext4_filesystem::mount(const char* source) const {
+    fs::mount* filesystem::mount(const char* source) const {
         if (source == nullptr || source[0] != '/')
             return nullptr;
 
@@ -341,7 +341,7 @@ namespace astia::fs::filesystems {
         if (!device)
             return nullptr;
 
-        auto* instance = new ext4_mount(device);
+        auto* instance = new ext4::mount(device);
 
         if (instance == nullptr || !instance->initialize()) {
             delete instance;
@@ -352,9 +352,9 @@ namespace astia::fs::filesystems {
         return instance;
     }
 
-    ext4_filesystem& ext4_type() {
-        static ext4_filesystem type;
+    filesystem& type() {
+        static filesystem instance;
 
-        return type;
+        return instance;
     }
-} // namespace astia::fs::filesystems
+} // namespace astia::ext4

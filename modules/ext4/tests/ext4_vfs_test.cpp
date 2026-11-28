@@ -9,8 +9,12 @@
 #endif
 
 #include <astia/fs.hpp>
+#include <astia/fs/module.hpp>
+#include <astia/log.hpp>
 #include <astia/mm/frame_allocator.hpp>
 #include <astia/mm/heap.hpp>
+
+#include "ext4.hpp"
 
 #include <cstring>
 
@@ -18,8 +22,7 @@ alignas(16) unsigned char ext4_test_heap_storage[256 * 1024];
 
 #include <astia/dev/blk/blkdev.hpp>
 
-#include "../src/dev/device_file.hpp"
-#include "../src/fs/filesystem.hpp"
+#include "device_file.hpp"
 
 namespace astia::proc {
     mm::shptr<fs::open_file> controlling_terminal() {
@@ -266,6 +269,22 @@ namespace {
         ASTIA_CHECK(astia::mm::heap::init());
         ASTIA_CHECK(astia::fs::init());
 
+        ASTIA_CHECK(astia::fs::register_device(
+                        "/dev/fake-ext4",
+                        astia::mm::shptr<astia::fs::file>::borrowed(&fake_file)) == 0);
+        fake_registered = true;
+
+        ASTIA_CHECK(astia::fs::make_directory(
+                        "/tmp/ext4",
+                        astia::fs::file_mode(astia::fs::directory_dir,
+                                             astia::fs::file_permissions(0755))) == 0);
+        fake_mountpoint = true;
+
+        ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") < 0);
+        ASTIA_CHECK(astia::ext4::register_filesystem());
+        ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") == 0);
+        ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+
         initialized = true;
     }
 
@@ -449,4 +468,10 @@ ASTIA_TEST(ext4_vfs_reads_indexed_directory) {
 
     ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
     fake_device.make_valid_image();
+}
+
+namespace astia::log::detail {
+    void prefix(record_builder&, level, const char*, astia::u32) {}
+
+    void emit(level, const char*, astia::u32) {}
 }

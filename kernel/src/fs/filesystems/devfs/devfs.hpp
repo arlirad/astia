@@ -2,7 +2,7 @@
 
 #include <astia/core/spinlock.hpp>
 
-#include "../../filesystem.hpp"
+#include <astia/fs/filesystem.hpp>
 
 namespace astia::fs::filesystems {
     inline constexpr u32 devfs_max_entries = 32;

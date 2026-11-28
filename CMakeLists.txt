@@ -273,7 +273,8 @@ set(_astia_dev_initrd_modules
     "${CMAKE_BINARY_DIR}/modules/eth/eth.km"
     "${CMAKE_BINARY_DIR}/modules/ip/ip.km"
     "${CMAKE_BINARY_DIR}/modules/udp/udp.km"
-    "${CMAKE_BINARY_DIR}/modules/tcp/tcp.km")
+    "${CMAKE_BINARY_DIR}/modules/tcp/tcp.km"
+    "${CMAKE_BINARY_DIR}/modules/ext4/ext4.km")
 add_custom_command(
     OUTPUT "${_astia_dev_initrd_archive}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_astia_dev_initrd_run}"
@@ -312,7 +313,7 @@ add_custom_command(
     USES_TERMINAL
     VERBATIM)
 add_custom_target(dev_initrd DEPENDS "${_astia_dev_initrd_archive}")
-add_dependencies(dev_initrd rtl8139_module eth_module ip_module udp_module tcp_module)
+add_dependencies(dev_initrd rtl8139_module eth_module ip_module udp_module tcp_module ext4_module)
 
 set(ASTIA_DIRECT_QEMU "$ENV{QEMU}" CACHE STRING
     "QEMU executable used by the direct VGA/GDB launcher")
@@ -411,6 +412,7 @@ if(ASTIA_BUILD_TESTS)
             udp_module
             tcp_module
             eth_module
+            ext4_module
             astia_ps2_keyboard_iso)
         if(TARGET ${_astia_qemu_target})
             add_dependencies(astia_qemu_test_artifacts ${_astia_qemu_target})
@@ -446,7 +448,8 @@ if(ASTIA_BUILD_TESTS)
             ps2_scancode_unit_target
             ps2_keyboard_unit_target
             ip_unit_target
-            udp_unit_target)
+            udp_unit_target
+            ext4_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -473,7 +476,8 @@ if(ASTIA_BUILD_TESTS)
             ps2_scancode_unit_target
             ps2_keyboard_unit_target
             ip_unit_target
-            udp_unit_target)
+            udp_unit_target
+            ext4_unit_target)
 
     add_test(NAME astia_module_host_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}

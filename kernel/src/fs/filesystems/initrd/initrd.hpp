@@ -2,7 +2,7 @@
 
 #include <astia/span.hpp>
 
-#include "../../filesystem.hpp"
+#include <astia/fs/filesystem.hpp>
 
 #include <initrd.hpp>
 

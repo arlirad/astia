@@ -14,7 +14,7 @@
 #include <astia/mm/phys_region.hpp>
 
 #include "../dev/chr/tty/uart16550.hpp"
-#include "../fs/filesystem.hpp"
+#include <astia/fs/filesystem.hpp>
 #include "../proc/task_run.hpp"
 #include "../proc/tls_arena.hpp"
 #include "aio.hpp"

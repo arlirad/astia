@@ -2,7 +2,7 @@
 
 #include <astia/core/endian.hpp>
 
-namespace astia::fs::filesystems::ext4 {
+namespace astia::ext4 {
     namespace {
         constexpr u16 super_magic        = 0xEF53;
         constexpr u32 compat_has_journal = 0x0004;
@@ -859,4 +859,4 @@ namespace astia::fs::filesystems::ext4 {
 
         return true;
     }
-} // namespace astia::fs::filesystems::ext4
+} // namespace astia::ext4
