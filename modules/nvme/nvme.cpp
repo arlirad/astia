@@ -180,6 +180,15 @@ namespace {
             }
         }
 
+        static void finish_async(async_request& pending, long result) {
+            pending.result        = result;
+            pending.completed     = true;
+            pending.hardware_done = true;
+
+            if (pending.request != nullptr && pending.request->device_state() != nullptr)
+                pending.request->wake();
+        }
+
         void acknowledge_async_hardware() {
             for (async_request& pending : async_requests) {
                 if (!pending.used || !pending.completed)
@@ -631,12 +640,13 @@ namespace {
             service_async();
 
             for (async_request& pending : async_requests) {
-                if (pending.used && pending.request == &request) {
-                    if (request.timeout_expired())
-                        request.timeout_expired(false);
+                if (!pending.used || pending.request != &request)
+                    continue;
 
-                    return 0;
-                }
+                if (!pending.completed && request.timeout_expired())
+                    finish_async(pending, -110);
+
+                return 0;
             }
 
             return 0;
@@ -728,12 +738,7 @@ namespace {
                         }
                     }
 
-                    found->result        = result;
-                    found->completed     = true;
-                    found->hardware_done = true;
-
-                    if (found->request->device_state() != nullptr)
-                        found->request->wake();
+                    finish_async(*found, result);
                 }
 
                 if (found->canceled) {

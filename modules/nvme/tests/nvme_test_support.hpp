@@ -4,11 +4,13 @@
 #include <astia/module.hpp>
 
 #include <cassert>
+#include <cstdlib>
 
 namespace nvme_test {
     inline unsigned    dma_release_count = 0;
     inline const void* released_dma[64]{};
     inline unsigned    released_dma_count  = 0;
+    inline bool        host_dma            = false;
     inline astia::u64  bar_mapped          = 0;
     inline astia::u64  bar_size            = 0x4000;
     inline unsigned    bus_master_enables  = 0;
@@ -31,11 +33,39 @@ namespace astia::mm {
         release();
     }
 
-    bool dma_buffer::allocate(usz, bool) {
-        return false;
+    bool dma_buffer::allocate(usz pages, bool zero) {
+        if (!nvme_test::host_dma || pages == 0)
+            return false;
+
+        const usz size = pages * astia::mm::page_size;
+
+        auto* memory =
+            static_cast<unsigned char*>(std::aligned_alloc(astia::mm::page_size, size));
+        if (memory == nullptr)
+            return false;
+
+        if (zero) {
+            for (usz i = 0; i < size; ++i) {
+                memory[i] = 0;
+            }
+        }
+
+        _physical = reinterpret_cast<astia::u64>(memory);
+        _address  = memory;
+        _pages    = pages;
+
+        return true;
     }
 
     void dma_buffer::release() {
+        if (_address != nullptr) {
+            std::free(_address);
+
+            _physical = 0;
+            _address  = nullptr;
+            _pages    = 0;
+        }
+
         for (unsigned i = 0; i < nvme_test::released_dma_count; ++i) {
             if (nvme_test::released_dma[i] == this)
                 return;

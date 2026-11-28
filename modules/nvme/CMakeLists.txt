@@ -101,6 +101,31 @@ add_custom_command(
                 ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
         VERBATIM)
 add_custom_target(nvme_start_target ALL DEPENDS ${ASTIA_NVME_START_UNIT})
+
+set(ASTIA_NVME_ASYNC_UNIT ${CMAKE_CURRENT_BINARY_DIR}/nvme_async_unit)
+add_custom_command(
+        OUTPUT ${ASTIA_NVME_ASYNC_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -std=c++20 -Wall -Wextra -Werror -pedantic
+                -ffunction-sections -fdata-sections
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}/../..
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_async_test.cpp
+                -Wl,--gc-sections
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_NVME_ASYNC_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_async_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/nvme_test_support.hpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/nvme.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/nvme_protocol.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/io.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/mm/dma_buffer.hpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/hw/pci.hpp
+        VERBATIM)
+add_custom_target(nvme_async_target ALL DEPENDS ${ASTIA_NVME_ASYNC_UNIT})
 if(ASTIA_BUILD_TESTS)
     add_test(NAME nvme_protocol_unit
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run-host.sh)
@@ -116,4 +141,7 @@ if(ASTIA_BUILD_TESTS)
     add_test(NAME nvme_start_unit COMMAND ${ASTIA_NVME_START_UNIT})
     astia_add_test_label(nvme_start_unit "module;nvme;host;deterministic;start")
     astia_add_test_label(nvme_start_unit "sanitizer-host")
+    add_test(NAME nvme_async_unit COMMAND ${ASTIA_NVME_ASYNC_UNIT})
+    astia_add_test_label(nvme_async_unit "module;nvme;host;deterministic;async")
+    astia_add_test_label(nvme_async_unit "sanitizer-host")
 endif()
