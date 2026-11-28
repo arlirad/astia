@@ -21,8 +21,8 @@ if [ "$openssh_actual" != "$openssh_commit" ]; then
     exit 1
 fi
 
-git -C "$root" submodule update --init --recursive user/curl
-git -C "$root" submodule update --init --recursive user/wget
+git -C "$root" submodule update --init user/curl
+git -C "$root" submodule update --init user/wget
 curl_actual=$(git -C "$root/user/curl" rev-parse HEAD)
 curl_commit=3163ec065643ba20709f190111f42c3e1fe95273
 if [ "$curl_actual" != "$curl_commit" ]; then
