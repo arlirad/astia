@@ -3,6 +3,7 @@
 #include <sys/stat.h>
 
 #include <fcntl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -82,6 +83,66 @@ static int copy_file(const char* source, const char* destination, mode_t mode) {
     return status;
 }
 
+static int copy_symlink(const char* source, const char* destination) {
+    size_t capacity = 256;
+
+    char* target = malloc(capacity);
+
+    if (target == 0)
+        return cu_error("mv", "out of memory");
+
+    for (;;) {
+        long count = readlink(source, target, capacity);
+        if (count < 0) {
+            free(target);
+
+            return cu_error("mv", source);
+        }
+
+        if ((size_t) count < capacity) {
+            target[count] = '\0';
+
+            if (symlink(target, destination) == 0) {
+                free(target);
+
+                return 0;
+            }
+
+            /* rename() replaces an existing destination, but symlink() does
+               not, so mirror that replacement after the EXDEV fallback. */
+            if (errno == EEXIST && unlink(destination) == 0 &&
+                symlink(target, destination) == 0) {
+                free(target);
+
+                return 0;
+            }
+
+            free(target);
+
+            return cu_error("mv", destination);
+        }
+
+        if (capacity >= PATH_MAX) {
+            free(target);
+
+            return cu_error("mv", strerror(ENAMETOOLONG));
+        }
+
+        size_t next = capacity * 2 < PATH_MAX ? capacity * 2 : PATH_MAX;
+
+        char* grown = realloc(target, next);
+
+        if (grown == 0) {
+            free(target);
+
+            return cu_error("mv", "out of memory");
+        }
+
+        target   = grown;
+        capacity = next;
+    }
+}
+
 static int move_file(const char* source, const char* destination) {
     struct stat destination_info;
 
@@ -106,8 +167,14 @@ static int move_file(const char* source, const char* destination) {
         if (errno != EXDEV) {
             status = cu_error("mv", source);
         }
-        else if (stat(source, &source_info) < 0) {
+        else if (lstat(source, &source_info) < 0) {
             status = cu_error("mv", source);
+        }
+        else if (S_ISLNK(source_info.st_mode)) {
+            status = copy_symlink(source, target);
+
+            if (status == 0 && unlink(source) < 0)
+                status = cu_error("mv", source);
         }
         else if (S_ISDIR(source_info.st_mode)) {
             /* Cross-filesystem moves cannot be atomic, and copy+unlink of a

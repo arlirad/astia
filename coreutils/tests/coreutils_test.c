@@ -79,6 +79,24 @@ static int is_symlink(const char* path) {
     return lstat(path, &info) == 0 && S_ISLNK(info.st_mode);
 }
 
+static int is_absent(const char* path) {
+    struct stat info;
+
+    return lstat(path, &info) != 0 && errno == ENOENT;
+}
+
+static int symlink_target_is(const char* path, const char* expected) {
+    char buffer[256];
+
+    long count = readlink(path, buffer, sizeof buffer - 1);
+    if (count < 0)
+        return 0;
+
+    buffer[count] = '\0';
+
+    return strcmp(buffer, expected) == 0;
+}
+
 static int same_file(const char* left, const char* right) {
     struct stat left_info;
     struct stat right_info;
@@ -775,6 +793,75 @@ static int mv_cross_device_mode_checks(void) {
         status = 1;
 
     return status == 0 ? 0 : fail("mv cross-device mode");
+}
+
+static int mv_cross_device_symlink_checks(void) {
+    char* mv_relative[] = {"mv", "/tmp/coreutils_mv_symlink",
+                           "/tmp/coreutils_mv_symlink_mnt/link", NULL};
+    char* mv_dangling[] = {"mv", "/tmp/coreutils_mv_dangling_symlink",
+                           "/tmp/coreutils_mv_symlink_mnt/dangling", NULL};
+
+    (void) unlink("/tmp/coreutils_mv_symlink_mnt/link");
+    (void) unlink("/tmp/coreutils_mv_symlink_mnt/dangling");
+    (void) unlink("/tmp/coreutils_mv_symlink");
+    (void) unlink("/tmp/coreutils_mv_dangling_symlink");
+    (void) rmdir("/tmp/coreutils_mv_symlink_mnt");
+
+    if (mkdir("/tmp/coreutils_mv_symlink_mnt", 0700) != 0)
+        return fail("mv cross-device symlink mount point");
+
+    if (mount("tmpfs", "/tmp/coreutils_mv_symlink_mnt", NULL) != 0) {
+        (void) rmdir("/tmp/coreutils_mv_symlink_mnt");
+
+        return fail("mv cross-device symlink mount");
+    }
+
+    struct stat source_root;
+    struct stat destination_root;
+
+    int status = 0;
+
+    if (stat("/tmp", &source_root) != 0 ||
+        stat("/tmp/coreutils_mv_symlink_mnt", &destination_root) != 0 ||
+        source_root.st_dev == destination_root.st_dev ||
+        symlink("relative/target", "/tmp/coreutils_mv_symlink") != 0 ||
+        symlink("/nonexistent/astia-669", "/tmp/coreutils_mv_dangling_symlink") != 0) {
+        status = 1;
+    }
+    else {
+        if (check("mv cross-device relative symlink", mv_relative, NULL, 0, NULL, 0) !=
+                0 ||
+            !is_symlink("/tmp/coreutils_mv_symlink_mnt/link") ||
+            !symlink_target_is("/tmp/coreutils_mv_symlink_mnt/link", "relative/target") ||
+            !is_absent("/tmp/coreutils_mv_symlink"))
+            status = 1;
+
+        if (check("mv cross-device dangling symlink", mv_dangling, NULL, 0, NULL, 0) !=
+                0 ||
+            !is_symlink("/tmp/coreutils_mv_symlink_mnt/dangling") ||
+            !symlink_target_is("/tmp/coreutils_mv_symlink_mnt/dangling",
+                               "/nonexistent/astia-669") ||
+            !is_absent("/tmp/coreutils_mv_dangling_symlink"))
+            status = 1;
+    }
+
+    if (unlink("/tmp/coreutils_mv_symlink_mnt/link") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_symlink_mnt/dangling") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_symlink") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_dangling_symlink") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (umount("/tmp/coreutils_mv_symlink_mnt") != 0 ||
+        rmdir("/tmp/coreutils_mv_symlink_mnt") != 0)
+        status = 1;
+
+    return status == 0 ? 0 : fail("mv cross-device symlink");
 }
 
 static int ln_checks(void) {
@@ -1678,6 +1765,9 @@ int main(void) {
         return 1;
 
     if (mv_cross_device_mode_checks() != 0)
+        return 1;
+
+    if (mv_cross_device_symlink_checks() != 0)
         return 1;
 
     if (rm_directory_checks() != 0)
