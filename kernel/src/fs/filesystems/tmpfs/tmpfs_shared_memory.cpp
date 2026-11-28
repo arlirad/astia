@@ -40,8 +40,9 @@ namespace astia::fs::filesystems {
                 : access == ASTIA_AIO_O_WRONLY ? permission_bits::write
                                                : permission_bits::read;
 
-            if (!access_allowed(entry_table()[i].mode, entry_table()[i].uid,
-                                entry_table()[i].gid, euid, egid, want, privileged))
+            if (!access_allowed(
+                    entry_table()[i].target->mode(), entry_table()[i].target->uid(),
+                    entry_table()[i].target->gid(), euid, egid, want, privileged))
                 return -EACCES;
 
             result = mm::share<open_file>(entry_table()[i].target, flags);
@@ -75,8 +76,6 @@ namespace astia::fs::filesystems {
             entry_table()[i].used      = true;
             entry_table()[i].directory = false;
             entry_table()[i].mode      = mode;
-            entry_table()[i].uid       = uid;
-            entry_table()[i].gid       = gid;
             entry_table()[i].target    = file;
             result                     = mm::share<open_file>(file, flags);
             if (!result) {

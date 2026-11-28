@@ -196,8 +196,6 @@ namespace astia::fs::filesystems {
             bool                  used      = false;
             bool                  directory = false;
             file_mode             mode{};
-            uid_t                 uid{};
-            gid_t                 gid{};
             char                  path[path_max]{};
             mm::shptr<tmpfs_file> target;
         };

@@ -643,8 +643,6 @@ namespace astia::fs::filesystems {
             entry_table()[target].used      = false;
             entry_table()[target].directory = false;
             entry_table()[target].mode      = {};
-            entry_table()[target].uid       = {};
-            entry_table()[target].gid       = {};
             entry_table()[target].path[0]   = '\0';
             entry_table()[target].target    = {};
         }
@@ -776,8 +774,6 @@ namespace astia::fs::filesystems {
                     entry_table()[i].used      = true;
                     entry_table()[i].directory = false;
                     entry_table()[i].mode      = entry_table()[source].mode;
-                    entry_table()[i].uid       = entry_table()[source].uid;
-                    entry_table()[i].gid       = entry_table()[source].gid;
                     entry_table()[i].target    = entry_table()[source].target;
 
                     if (!copy_path(entry_table()[i].path, new_path)) {
