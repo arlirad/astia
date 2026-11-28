@@ -64,6 +64,13 @@ printf 'delta\nalpha\ncharlie\nbravo\nalpha\ndelta\n' | \
     "$out/host/sort_sanitize" -u >"$out/host/sort_unique_scattered.out"
 printf 'alpha\nbravo\ncharlie\ndelta\n' >"$out/host/sort_unique_scattered.expected"
 cmp "$out/host/sort_unique_scattered.expected" "$out/host/sort_unique_scattered.out"
+printf 'a\000c\na\000b\n' | "$out/host/sort_sanitize" >"$out/host/sort_nul_order.out"
+printf 'a\000b\na\000c\n' >"$out/host/sort_nul_order.expected"
+cmp "$out/host/sort_nul_order.expected" "$out/host/sort_nul_order.out"
+printf 'a\000b\na\000z\na\000b\na\n' | \
+    "$out/host/sort_sanitize" -u >"$out/host/sort_nul_unique.out"
+printf 'a\na\000b\na\000z\n' >"$out/host/sort_nul_unique.expected"
+cmp "$out/host/sort_nul_unique.expected" "$out/host/sort_nul_unique.out"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I "$root/utils/coreutils/src" \
     -Dmain=cu_tee_main -c "$root/utils/coreutils/src/tee.c" -o "$out/host/tee_eintr_tee.o"
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
