@@ -16,11 +16,19 @@ namespace astia::dev {
             u32 value = 0;
 
             for (u32 i = 5; path[i] != '\0'; ++i) {
-                if (path[i] < '0' || path[i] > '9' || value > 0xffffffffu / 10)
+                if (path[i] < '0' || path[i] > '9')
                     return false;
 
-                value = value * 10 + static_cast<u32>(path[i] - '0');
+                const u32 digit = static_cast<u32>(path[i] - '0');
+
+                if (value > (0xffffffffu - digit) / 10)
+                    return false;
+
+                value = value * 10 + digit;
             }
+
+            if (value >= max_ptys)
+                return false;
 
             *index = value;
 

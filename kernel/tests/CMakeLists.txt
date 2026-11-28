@@ -1357,6 +1357,21 @@ target_include_directories(astia_ext4_vfs_test PRIVATE
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
 
+astia_add_arena_test(astia_pty_vfs_test
+        pty_vfs_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/pty_vfs.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/pty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/heap.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/frame_allocator.cpp
+        support/arena.cpp
+        support/interrupts_host.cpp)
+target_link_libraries(astia_pty_vfs_test PRIVATE fs)
+target_compile_options(astia_pty_vfs_test PRIVATE -fno-rtti)
+target_include_directories(astia_pty_vfs_test PRIVATE ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+
 astia_add_arena_test(astia_tmpfs_readdir_test
         tmpfs_readdir_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
