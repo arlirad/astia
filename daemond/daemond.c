@@ -13,16 +13,18 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 enum {
-    SERVICE_LINE             = 256,
-    SERVICE_MAX              = 32,
-    SERVICE_ARG_MAX          = 16,
-    SERVICE_RESTART_MAX      = 16,
-    SERVICE_DEFAULT_RESTARTS = 3,
-    SERVICE_STOP_GRACE_MS    = 2000,
-    SERVICE_STOP_KILL_MS     = 1000
+    SERVICE_LINE               = 256,
+    SERVICE_MAX                = 32,
+    SERVICE_ARG_MAX            = 16,
+    SERVICE_RESTART_MAX        = 16,
+    SERVICE_DEFAULT_RESTARTS   = 3,
+    SERVICE_STOP_GRACE_MS      = 2000,
+    SERVICE_STOP_KILL_MS       = 1000,
+    CONTROL_REQUEST_TIMEOUT_MS = 5000
 };
 
 struct service {
@@ -409,6 +411,102 @@ static void append_text(char* buffer, size_t* used, const char* text) {
     buffer[*used] = '\0';
 }
 
+static long long monotonic_ms(void) {
+    struct timespec now;
+
+    if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
+        return -1;
+
+    return (long long) now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+enum request_status {
+    REQUEST_CLOSED,
+    REQUEST_COMPLETE,
+    REQUEST_MALFORMED,
+    REQUEST_TIMED_OUT,
+    REQUEST_FAILED
+};
+
+static enum request_status receive_request(int client, char* request, size_t capacity,
+                                           size_t* used) {
+    const long long deadline = monotonic_ms() + CONTROL_REQUEST_TIMEOUT_MS;
+
+    size_t length = 0;
+
+    if (deadline < 0)
+        return REQUEST_FAILED;
+
+    for (;;) {
+        struct pollfd ready = {client, POLLIN, 0};
+
+        long long now = monotonic_ms();
+
+        int result;
+
+        if (now < 0 || now >= deadline)
+            return REQUEST_TIMED_OUT;
+
+        result = poll(&ready, 1, (int) (deadline - now));
+        if (result < 0) {
+            if (errno == EINTR) {
+                if (shutdown_pending)
+                    return REQUEST_TIMED_OUT;
+
+                continue;
+            }
+
+            return REQUEST_FAILED;
+        }
+
+        if (result == 0)
+            return REQUEST_TIMED_OUT;
+
+        if (ready.revents & POLLNVAL)
+            return REQUEST_FAILED;
+
+        if (!(ready.revents & (POLLIN | POLLHUP | POLLERR)))
+            continue;
+
+        {
+            const size_t room = capacity - 1 - length;
+
+            ssize_t received;
+
+            if (!room)
+                return REQUEST_MALFORMED;
+
+            received = recv(client, request + length, room, 0);
+            if (received < 0) {
+                if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+                    continue;
+
+                return REQUEST_FAILED;
+            }
+
+            if (received == 0) {
+                if (!length)
+                    return REQUEST_CLOSED;
+
+                *used = length;
+
+                return REQUEST_COMPLETE;
+            }
+
+            for (ssize_t i = 0; i < received; ++i) {
+                if (request[length + (size_t) i] == '\n' ||
+                    request[length + (size_t) i] == '\0') {
+                    *used = length + (size_t) i + 1;
+
+                    return REQUEST_COMPLETE;
+                }
+            }
+
+            length += (size_t) received;
+        }
+    }
+}
+
 /* Requests arrive on the control socket, which the supervisor polls itself.
  * Handling them in the main loop keeps one process per supervisor: the old
  * helper fork inherited the daemond name and showed up as a second daemond in
@@ -419,50 +517,29 @@ static void handle_client(int client, struct service* services, int count) {
 
     struct command command;
 
-    long length;
+    size_t length = 0;
 
-    /* Bound a client that connects but never sends: the supervisor owns the
-     * loop now, so it cannot park here forever. */
-    struct pollfd ready;
+    const enum request_status status =
+        receive_request(client, request, sizeof request, &length);
 
-    ready.fd      = client;
-    ready.events  = POLLIN;
-    ready.revents = 0;
-
-    const int readable = poll(&ready, 1, 5000);
-    if (readable < 0) {
-        fprintf(stderr, "daemond: control request wait failed: errno=%d\n", errno);
-
+    if (status == REQUEST_CLOSED)
         return;
-    }
 
-    if (readable == 0) {
+    if (status == REQUEST_TIMED_OUT) {
         fprintf(stderr, "daemond: control request timed out\n");
 
         return;
     }
 
-    if (!(ready.revents & POLLIN)) {
-        fprintf(stderr, "daemond: control request wait failed: revents=0x%x\n",
-                ready.revents);
+    if (status == REQUEST_FAILED) {
+        fprintf(stderr, "daemond: control request failed: errno=%d\n", errno);
 
         return;
     }
 
-    do {
-        length = recv(client, request, sizeof request - 1, 0);
-    } while (length < 0 && errno == EINTR);
-
-    if (length <= 0) {
-        fprintf(stderr, "daemond: control request failed: errno=%d length=%ld\n", errno,
-                length);
-
-        return;
-    }
-
-    if (length >= (long) sizeof request ||
-        (request[length - 1] != '\n' && request[length - 1] != '\0')) {
-        (void) write_all(client, "ERR malformed request\n", 23);
+    if (status == REQUEST_MALFORMED) {
+        (void) write_all(client, "ERR malformed request\n",
+                         sizeof "ERR malformed request\n" - 1);
 
         return;
     }
