@@ -131,6 +131,40 @@ namespace {
         }
     }
 
+    void configure_msi_only(astia::u16 control) {
+        reset_fixture();
+
+        for (astia::hw::pci_bdf address :
+             {astia::hw::pci_bdf{0, 3, 0}, astia::hw::pci_bdf{0, 3, 1}}) {
+            config[address.device][address.function][0x51] = 0;
+
+            put16(address, 0x52, control);
+            put32(address, 0x54, 0xfee00000u);
+            put32(address, 0x58, 0);
+            put16(address, 0x5c, 0x0040);
+        }
+    }
+
+    const astia::hw::pci_device* enumerate_msi_only(astia::u16 control) {
+        configure_msi_only(control);
+
+        if (!astia::hw::pci_set_config_backend({config_read, config_write}))
+            return nullptr;
+
+        astia::u32 enumerated = 0;
+
+        if (!astia_test::run_task(astia::hw::pci_enumerate(), enumerated) ||
+            enumerated != 2) {
+            astia::hw::pci_reset_config_backend();
+
+            return nullptr;
+        }
+
+        astia::hw::pci_reset_config_backend();
+
+        return astia::hw::pci_devices().at(0);
+    }
+
     bool map_bar(astia::u64 physical, astia::u64 size, bool,
                  astia::u64& virtual_address) {
         ++map_count;
@@ -203,6 +237,7 @@ ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
     ASTIA_CHECK(device->extended_count == 1);
     ASTIA_CHECK(device->interrupt.msix);
     ASTIA_CHECK(device->interrupt.vector_count == 4);
+    ASTIA_CHECK(device->interrupt.vector_capable == 4);
     ASTIA_CHECK(astia::hw::pci_interrupt_status(*device) ==
                 astia::hw::pci_interrupt_blocker::msix_table_unmapped);
 
@@ -214,6 +249,40 @@ ASTIA_TEST(pci_enumerates_caps_bars_and_filters) {
         filtered));
     ASTIA_CHECK(filtered == 1);
     astia::hw::pci_reset_config_backend();
+}
+
+ASTIA_TEST(pci_msi_reports_enabled_and_capable_vector_counts) {
+    const auto* device = enumerate_msi_only(0x0097);
+
+    ASTIA_CHECK(device != nullptr);
+
+    if (device == nullptr)
+        return;
+
+    ASTIA_CHECK(device->interrupt.present);
+    ASTIA_CHECK(!device->interrupt.msix);
+    ASTIA_CHECK(device->interrupt.enabled);
+    ASTIA_CHECK(device->interrupt.is_64bit);
+    ASTIA_CHECK(device->capability_count == 1);
+    ASTIA_CHECK(device->interrupt.vector_capable == 8);
+    ASTIA_CHECK(device->interrupt.vector_count == 2);
+    ASTIA_CHECK(astia::hw::pci_interrupt_status(*device) ==
+                astia::hw::pci_interrupt_blocker::no_vector_router);
+}
+
+ASTIA_TEST(pci_msi_rejects_enable_above_capable) {
+    const auto* device = enumerate_msi_only(0x0023);
+
+    ASTIA_CHECK(device != nullptr);
+
+    if (device == nullptr)
+        return;
+
+    ASTIA_CHECK(!device->interrupt.msix);
+    ASTIA_CHECK(device->interrupt.vector_capable == 2);
+    ASTIA_CHECK(device->interrupt.vector_count == 0);
+    ASTIA_CHECK(astia::hw::pci_interrupt_status(*device) ==
+                astia::hw::pci_interrupt_blocker::invalid_capability);
 }
 
 ASTIA_TEST(pci_type_check_rejects_forged_bus_tag) {

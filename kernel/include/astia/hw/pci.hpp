@@ -69,6 +69,7 @@ namespace astia::hw {
         bool is_64bit        = false;
         bool per_vector_mask = false;
         u16  vector_count    = 0;
+        u16  vector_capable  = 0;
         u8   capability      = 0;
         u8   table_bar       = 0;
         u8   pba_bar         = 0;

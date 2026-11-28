@@ -181,15 +181,25 @@ namespace astia::hw {
                 if (!read_word(device.bdf, static_cast<u16>(cap.offset + 2), control))
                     return;
 
+                const u8 capable = static_cast<u8>((control >> 1) & 7u);
+                const u8 enable  = static_cast<u8>((control >> 4) & 7u);
+
                 device.interrupt.present         = true;
                 device.interrupt.msix            = false;
                 device.interrupt.capability      = cap.offset;
                 device.interrupt.enabled         = (control & 1u) != 0;
                 device.interrupt.is_64bit        = (control & (1u << 7)) != 0;
                 device.interrupt.per_vector_mask = (control & (1u << 8)) != 0;
-                device.interrupt.vector_count =
-                    static_cast<u16>(1u << ((control >> 1) & 7u));
-                device.interrupt_blocker = pci_interrupt_blocker::no_vector_router;
+                device.interrupt.vector_capable  = static_cast<u16>(1u << capable);
+                device.interrupt.vector_count    = static_cast<u16>(1u << enable);
+
+                if (enable > capable) {
+                    device.interrupt.vector_count = 0;
+                    device.interrupt_blocker = pci_interrupt_blocker::invalid_capability;
+                }
+                else {
+                    device.interrupt_blocker = pci_interrupt_blocker::no_vector_router;
+                }
             }
             else if (cap.id == capability_msix) {
                 u16 control = 0;
@@ -206,10 +216,11 @@ namespace astia::hw {
                 device.interrupt.capability   = cap.offset;
                 device.interrupt.enabled      = (control & (1u << 15)) != 0;
                 device.interrupt.vector_count = static_cast<u16>((control & 0x7ffu) + 1);
-                device.interrupt.table_bar    = static_cast<u8>(table & 7u);
-                device.interrupt.pba_bar      = static_cast<u8>(pba & 7u);
-                device.interrupt.table_offset = table & ~7u;
-                device.interrupt.pba_offset   = pba & ~7u;
+                device.interrupt.vector_capable = device.interrupt.vector_count;
+                device.interrupt.table_bar      = static_cast<u8>(table & 7u);
+                device.interrupt.pba_bar        = static_cast<u8>(pba & 7u);
+                device.interrupt.table_offset   = table & ~7u;
+                device.interrupt.pba_offset     = pba & ~7u;
                 device.interrupt_blocker = pci_interrupt_blocker::msix_table_unmapped;
             }
         }
