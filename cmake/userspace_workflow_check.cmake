@@ -72,7 +72,7 @@ file(READ "${_astia_root}/toolchain/package-openssh-initrd.sh"
         _astia_openssh_package)
 file(READ "${_astia_root}/toolchain/build-init-libc.sh" _astia_init_libc_build)
 file(READ "${_astia_root}/toolchain/init-userspace.sh" _astia_userspace_init)
-file(READ "${_astia_root}/coreutils/build.sh" _astia_coreutils_build)
+file(READ "${_astia_root}/utils/coreutils/build.sh" _astia_coreutils_build)
 foreach(_astia_text _astia_zsh_build _astia_nano_build _astia_openssh_build
         _astia_coreutils_build)
     if(NOT "${${_astia_text}}" MATCHES "astia")

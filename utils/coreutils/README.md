@@ -14,10 +14,10 @@ Build them with:
 
 ```sh
 ASTIA_SYSROOT=/tmp/astia-zsh-build/sysroot \
-  coreutils/build.sh /tmp/astia-zsh-build/astia/image/crt0.o
+  utils/coreutils/build.sh /tmp/astia-zsh-build/astia/image/crt0.o
 ```
 
-The resulting executables are placed in `coreutils/build/bin/`.  The zsh QEMU
+The resulting executables are placed in `utils/coreutils/build/bin/`.  The zsh QEMU
 launcher builds and installs them into `/bin` automatically.
 
 `env` prints `NAME=VALUE` entries in `environ` order; `env -s` /
@@ -28,7 +28,7 @@ mutates `environ` and never changes the environment of `env COMMAND`.
 The utilities deliberately use only native Astia primitives (`read`, `write`,
 `open`, `close`, `mkdir`, `unlink`, `rmdir`, `environ`, native power operations
 through `astia_power`, process exit, and the libc directory API).  The
-QEMU regression suite can be run with `coreutils/tests/run.sh`; it builds the
+QEMU regression suite can be run with `utils/coreutils/tests/run.sh`; it builds the
 utilities and checks their exit status and output on the real kernel.
 
 `ls -l` prints native mode, link count, numeric owner IDs, size, timestamp, and

@@ -229,7 +229,7 @@ The previous launcher was not a clean build: it ran the kernel test only when
 an artifact was missing, so an existing stale `astiakrn_runtime` could be
 reused.
 
-The launcher also builds the native Astia coreutils from `coreutils/` and
+The launcher also builds the native Astia coreutils from `utils/coreutils/` and
 places them in `/bin` (`cat`, `echo`, `env`, `false`, `head`, `pwd`, `true`,
 `uname`, and `wc`).
 

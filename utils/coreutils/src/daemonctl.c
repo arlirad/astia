@@ -1,4 +1,4 @@
-#include "../../libc/include/daemon_protocol.h"
+#include "../../../libc/include/daemon_protocol.h"
 #include "common.h"
 #include "daemonctl_path.h"
 #include <sys/socket.h>
