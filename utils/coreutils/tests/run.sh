@@ -122,6 +122,32 @@ for wc_separator in 'a\vb:1 2 4' 'a\fb:1 2 4' 'a\rb:1 2 4' \
     cmp "$out/host/wc_separator.expected" "$out/host/wc_separator.out"
 done
 
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/src/env.c" \
+    -o "$out/host/env"
+if "$out/host/env" /no/such/command 2>"$out/host/env_missing.err"; then
+    echo "env accepted a missing command" >&2
+    exit 1
+else
+    status=$?
+fi
+test "$status" -eq 127
+status=0
+"$out/host/env" --bad 2>"$out/host/env_bad_option.err" || status=$?
+test "$status" -eq 125
+printf 'not executable\n' >"$out/host/env_noexec"
+chmod 0644 "$out/host/env_noexec"
+if "$out/host/env" "$out/host/env_noexec" 2>"$out/host/env_noexec.err"; then
+    echo "env accepted a non-executable command" >&2
+    exit 1
+else
+    status=$?
+fi
+test "$status" -eq 126
+status=0
+"$out/host/env" false || status=$?
+test "$status" -eq 1
+
 # close() failure injection: link each tool with its main renamed and fail a
 # chosen close() call through the linker's --wrap hook.
 close_host_flags="-std=c11 -Wall -Wextra -Werror -Wno-unused-function \

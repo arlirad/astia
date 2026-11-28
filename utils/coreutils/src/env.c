@@ -5,6 +5,20 @@
 
 extern char** environ;
 
+enum { ENV_EXIT_CANCELED = 125, ENV_EXIT_CANNOT_EXECUTE = 126, ENV_EXIT_NOT_FOUND = 127 };
+
+static int env_usage(void) {
+    (void) cu_usage("env", "[--sorted] [NAME=VALUE]... [COMMAND [ARG]...]");
+
+    return ENV_EXIT_CANCELED;
+}
+
+static int env_failure(const char* detail) {
+    (void) cu_error("env", detail);
+
+    return ENV_EXIT_CANCELED;
+}
+
 static int compare_entries(const void* lhs, const void* rhs) {
     const char* const* left  = (const char* const*) lhs;
     const char* const* right = (const char* const*) rhs;
@@ -43,7 +57,7 @@ int main(int argc, char** argv) {
         const char* equals     = 0;
 
         if (assignment[0] == '-')
-            return cu_usage("env", "[--sorted] [NAME=VALUE]... [COMMAND [ARG]...]");
+            return env_usage();
 
         for (const char* p = assignment; *p != '\0'; ++p) {
             if (*p == '=') {
@@ -53,14 +67,17 @@ int main(int argc, char** argv) {
             }
         }
 
-        if (equals == 0 || equals == assignment)
+        if (equals == 0)
             break;
+
+        if (equals == assignment)
+            return env_usage();
 
         size_t name_length = (size_t) (equals - assignment);
 
         char* name = (char*) malloc(name_length + 1);
         if (name == 0)
-            return cu_error("env", "cannot set environment");
+            return env_failure("cannot set environment");
 
         memcpy(name, assignment, name_length);
 
@@ -71,7 +88,7 @@ int main(int argc, char** argv) {
         free(name);
 
         if (set_result != 0)
-            return cu_error("env", "cannot set environment");
+            return env_failure("cannot set environment");
 
         ++first_command;
     }
@@ -100,7 +117,7 @@ int main(int argc, char** argv) {
 
         char** entries = (char**) malloc(count * sizeof *entries);
         if (entries == 0)
-            return cu_error("env", "cannot sort environment");
+            return env_failure("cannot sort environment");
 
         for (size_t i = 0; i < count; ++i) {
             entries[i] = environ[i];
@@ -122,10 +139,8 @@ int main(int argc, char** argv) {
     }
 
     if (execvp(argv[first_command], &argv[first_command]) < 0)
-        /* Keep the utility's established usage status for a command that
-           cannot be resolved, while commands that do resolve retain their
-           child's status through execvp. */
-        return errno == ENOENT ? 2 : 127;
+        return errno == ENOENT || errno == ENOTDIR ? ENV_EXIT_NOT_FOUND
+                                                   : ENV_EXIT_CANNOT_EXECUTE;
 
-    return 127;
+    return ENV_EXIT_NOT_FOUND;
 }

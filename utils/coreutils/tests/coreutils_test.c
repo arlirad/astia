@@ -1596,6 +1596,10 @@ int main(void) {
     char* env_assign_sorted[] = {"env", "-s", "A=1", "B=2", "A=3", NULL};
     char* env_invalid_name[]  = {"env", "=x", NULL};
     char* env_exec[]          = {"env", "PATH=/bin", "true", NULL};
+    char* env_missing[]       = {"env", "/no/such/command", NULL};
+    char* env_not_exec[]      = {"env", "/tmp/coreutils_env_noexec", NULL};
+    char* env_false[]         = {"env", "PATH=/bin", "false", NULL};
+    char* env_bad_option[]    = {"env", "--bad", NULL};
     char* env_empty[]         = {NULL};
     char* env_known[]         = {"Z=1", "A=2", "M=3", NULL};
     char* env_duplicates[]    = {"B=2", "A=1", "B=3", NULL};
@@ -1756,6 +1760,10 @@ int main(void) {
         chmod("/tmp/coreutils_mode_src", 0640) != 0)
         return fail("cp mode fixture setup");
 
+    if (put_file("/tmp/coreutils_env_noexec", "not an executable\n") != 0 ||
+        chmod("/tmp/coreutils_env_noexec", 0644) != 0)
+        return fail("env non-executable fixture setup");
+
     struct stat dangling_stat;
 
     if (mkdir("/tmp/coreutils_tree", 0777) != 0 ||
@@ -1845,9 +1853,13 @@ int main(void) {
                   1) ||
         check_env("env sorted duplicates", env_sorted, env_duplicates, 0,
                   "A=1\nB=2\nB=3\n", 1) ||
-        check("env invalid name", env_invalid_name, NULL, 2, NULL, 0) ||
+        check("env invalid name", env_invalid_name, NULL, 125, NULL, 0) ||
         check("env command", env_exec, NULL, 0, NULL, 0) ||
-        check("env invalid", env_bad, NULL, 2, NULL, 0) ||
+        check("env missing command", env_missing, NULL, 127, NULL, 0) ||
+        check("env non-executable command", env_not_exec, NULL, 126, NULL, 0) ||
+        check("env child status", env_false, NULL, 1, NULL, 0) ||
+        check("env invalid option", env_bad_option, NULL, 125, NULL, 0) ||
+        check("env missing path command", env_bad, NULL, 127, NULL, 0) ||
         check("uname", uname, NULL, 0, "Astia\n", 1) ||
         check("uname -a", uname_all, NULL, 0, uname_all_expected(), 1) ||
         check("uname -a -m", uname_all_machine, NULL, 0, uname_all_expected(), 1) ||
