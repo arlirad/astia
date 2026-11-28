@@ -20,4 +20,5 @@ Returns the previous mask.
 
 ## NOTES
 
-Only permission bits represented by the filesystem mode are retained.
+Only permission bits represented by the filesystem mode are retained: any
+value is accepted, and the stored mask is `mode & 0777`.

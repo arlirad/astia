@@ -6166,6 +6166,53 @@ int main(int argc, char** argv) {
             return 199;
     }
 
+    /* 60: umask accepts every 32-bit mask, stores only the low permission
+       bits (mode & 0777), and returns the previous mask.  File creation
+       honors the stored effective mask, including the all-ones mask. */
+    {
+        static const char file[] = "/tmp/umask_high_bit_file";
+
+        struct stat metadata;
+
+        unsigned int previous;
+        unsigned int old_mask;
+        int          fd;
+
+        (void) unlink(file);
+
+        old_mask = umask(0022);
+
+        if (umask(0400) != 0022)
+            return 288;
+
+        fd = open(file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
+        if (fd < 0)
+            return 289;
+
+        if (fstat(fd, &metadata) != 0 || (metadata.st_mode & 0777) != 0377)
+            return 290;
+
+        if (close(fd) != 0 || unlink(file) != 0)
+            return 291;
+
+        previous = umask(0xffffffffu);
+        if (previous != 0400)
+            return 292;
+
+        fd = open(file, O_CREAT | O_WRONLY | O_TRUNC, 0777);
+        if (fd < 0)
+            return 293;
+
+        if (fstat(fd, &metadata) != 0 || (metadata.st_mode & 0777) != 0)
+            return 294;
+
+        if (close(fd) != 0 || unlink(file) != 0)
+            return 295;
+
+        if (umask(old_mask) != 0777)
+            return 296;
+    }
+
     /* 56: dlopen/dlsym/dlclose through the interpreter's handle API.  The
        payload proves constructors, duplicate handles, the default scope,
        NODELETE and real unload against a fresh image. */
