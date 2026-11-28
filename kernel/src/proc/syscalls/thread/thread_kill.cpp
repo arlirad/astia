@@ -34,6 +34,10 @@ namespace astia::proc::syscalls {
             const auto          disposition = owner->signals().disposition(signal);
             signal_info         info{};
 
+            if (signal != signal_number::chld && !is_uncatchable(signal) &&
+                disposition.action == signal_action::ignore)
+                return 0;
+
             info.pid = static_cast<i32>(raw_id(owner->pid()));
             info.uid = owner->uid();
 

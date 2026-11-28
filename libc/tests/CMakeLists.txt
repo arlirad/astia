@@ -310,6 +310,16 @@ add_executable(libc_signal_api_test process/signal_api_test.c)
 target_link_libraries(libc_signal_api_test PRIVATE astia_libc)
 add_test(NAME libc_signal_api_test COMMAND libc_signal_api_test)
 
+add_executable(libc_raise_test process/raise_test.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/process/signal.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/sys/errno.c)
+target_include_directories(libc_raise_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../include
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../kernel/include)
+target_link_libraries(libc_raise_test PRIVATE Threads::Threads)
+add_test(NAME libc_raise_test COMMAND libc_raise_test)
+
 add_executable(libc_semaphore_test process/semaphore_test.c support/semaphore_host.c support/backend_host.c support/process_host.c support/alarm_host.c support/time_host.c)
 target_link_libraries(libc_semaphore_test PRIVATE astia_libc_host)
 add_test(NAME libc_semaphore_test COMMAND libc_semaphore_test)

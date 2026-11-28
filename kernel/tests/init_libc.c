@@ -754,6 +754,11 @@ static volatile int libc_nodefer_calls;
 static volatile int libc_nodefer_failed;
 static sem_t        libc_signal_sem;
 static volatile int libc_signal_sem_calls;
+static volatile int libc_raise_calls;
+static volatile int libc_raise_wrong_thread;
+static volatile int libc_raise_worker_ready;
+static volatile int libc_raise_worker_release;
+static pthread_t    libc_raise_caller;
 
 static void libc_signal_sem_handler(int signal_number) {
     (void) signal_number;
@@ -826,6 +831,45 @@ static void* libc_signal_mask_worker(void* opaque) {
         libc_signal_mask_result = 3;
 
     return (void*) (unsigned long) (libc_signal_mask_result == 0 ? 0x7890 : 0x7891);
+}
+
+static void libc_raise_handler(int signal_number) {
+    (void) signal_number;
+
+    ++libc_raise_calls;
+
+    if (!pthread_equal(pthread_self(), libc_raise_caller))
+        libc_raise_wrong_thread = 1;
+}
+
+static void* libc_raise_blocked_worker(void* opaque) {
+    (void) opaque;
+
+    sigset_t blocked;
+
+    if (sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGUSR1) != 0 ||
+        pthread_sigmask(SIG_BLOCK, &blocked, NULL) != 0)
+        return (void*) (unsigned long) 0x311;
+
+    libc_raise_worker_ready = 1;
+
+    while (!libc_raise_worker_release) {
+        sched_yield();
+    }
+
+    return NULL;
+}
+
+static void* libc_raise_unblocked_worker(void* opaque) {
+    (void) opaque;
+
+    libc_raise_worker_ready = 1;
+
+    while (!libc_raise_worker_release) {
+        sched_yield();
+    }
+
+    return NULL;
 }
 
 static volatile int libc_thread_helper_started;
@@ -4573,6 +4617,103 @@ int main(int argc, char** argv) {
 
         if (pthread_kill(other, 0) != ESRCH || pthread_kill(other, SIGUSR2) != ESRCH)
             return 85;
+    }
+
+    {
+        struct sigaction action = {0};
+        sigset_t         unblocked;
+        pthread_t        worker;
+        void*            result = NULL;
+
+        int failed = 0;
+
+        libc_raise_calls          = 0;
+        libc_raise_wrong_thread   = 0;
+        libc_raise_worker_ready   = 0;
+        libc_raise_worker_release = 0;
+        libc_raise_caller         = pthread_self();
+
+        action.sa_handler = libc_raise_handler;
+
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR1, &action, NULL) != 0 ||
+            sigemptyset(&unblocked) != 0 || sigaddset(&unblocked, SIGUSR1) != 0 ||
+            sigprocmask(SIG_UNBLOCK, &unblocked, NULL) != 0) {
+            failed = 1;
+        }
+        else if (pthread_create(&worker, NULL, libc_raise_blocked_worker, NULL) != 0) {
+            failed = 1;
+        }
+        else {
+            while (!libc_raise_worker_ready) {
+                sched_yield();
+            }
+
+            if (raise(SIGUSR1) != 0 || libc_raise_calls != 1 || libc_raise_wrong_thread)
+                failed = 1;
+
+            libc_raise_worker_release = 1;
+
+            if (pthread_join(worker, &result) != 0 || result != NULL)
+                failed = 1;
+        }
+
+        if (failed)
+            return 311;
+    }
+
+    {
+        struct sigaction action = {0};
+        sigset_t         blocked;
+        sigset_t         pending;
+        pthread_t        worker;
+        void*            result = NULL;
+
+        int failed = 0;
+
+        libc_raise_calls          = 0;
+        libc_raise_wrong_thread   = 0;
+        libc_raise_worker_ready   = 0;
+        libc_raise_worker_release = 0;
+        libc_raise_caller         = pthread_self();
+
+        action.sa_handler = libc_raise_handler;
+
+        if (sigemptyset(&action.sa_mask) != 0 || sigaction(SIGUSR1, &action, NULL) != 0 ||
+            sigemptyset(&blocked) != 0 || sigaddset(&blocked, SIGUSR1) != 0 ||
+            sigprocmask(SIG_UNBLOCK, &blocked, NULL) != 0) {
+            failed = 1;
+        }
+        else if (pthread_create(&worker, NULL, libc_raise_unblocked_worker, NULL) != 0) {
+            failed = 1;
+        }
+        else {
+            while (!libc_raise_worker_ready) {
+                sched_yield();
+            }
+
+            if (sigprocmask(SIG_BLOCK, &blocked, NULL) != 0 || raise(SIGUSR1) != 0)
+                failed = 1;
+
+            for (int i = 0; failed == 0 && i < 1000 && libc_raise_calls == 0; ++i) {
+                sched_yield();
+            }
+
+            if (libc_raise_calls != 0 || sigpending(&pending) != 0 ||
+                !sigismember(&pending, SIGUSR1))
+                failed = 1;
+
+            if (sigprocmask(SIG_UNBLOCK, &blocked, NULL) != 0 || libc_raise_calls != 1 ||
+                libc_raise_wrong_thread)
+                failed = 1;
+
+            libc_raise_worker_release = 1;
+
+            if (pthread_join(worker, &result) != 0 || result != NULL)
+                failed = 1;
+        }
+
+        if (failed)
+            return 312;
     }
 
     {

@@ -332,7 +332,27 @@ int killpg(int process_group, int signal_number) {
 }
 
 int raise(int signal_number) {
-    return kill((int) astia_getpid(), signal_number);
+    if (signal_number < 0 || signal_number >= NSIG) {
+        errno = EINVAL;
+
+        return -1;
+    }
+
+    const long tid = __astia_process_gettid();
+    if (tid < 0) {
+        errno = (int) -tid;
+
+        return -1;
+    }
+
+    const long rc = __astia_process_thread_kill((unsigned long) tid, signal_number);
+    if (rc < 0) {
+        errno = (int) -rc;
+
+        return -1;
+    }
+
+    return 0;
 }
 
 int sigsuspend(const sigset_t* mask) {
