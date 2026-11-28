@@ -166,20 +166,29 @@ int main(void) {
                     static const char payload[] = "truncated";
                     char              received[sizeof payload];
 
-                    struct sockaddr from;
-                    socklen_t       from_len = sizeof from;
+                    struct {
+                        struct sockaddr address;
+                        unsigned char   canary[16];
+                    } truncated;
 
-                    __builtin_memset(&from, 0, sizeof from);
+                    socklen_t from_len = sizeof truncated.address;
+
+                    __builtin_memset(&truncated, 0xaa, sizeof truncated);
 
                     CHECK(send(rf[0], payload, sizeof payload, 0) ==
                           (long) sizeof payload);
-                    CHECK(recvfrom(rf[1], received, sizeof received, 0, &from,
+                    CHECK(recvfrom(rf[1], received, sizeof received, 0,
+                                   &truncated.address,
                                    &from_len) == (long) sizeof payload);
                     CHECK(__builtin_memcmp(received, payload, sizeof payload) == 0);
-                    CHECK(from_len == sizeof from);
-                    CHECK(from.sa_family == AF_UNIX);
-                    CHECK(__builtin_memcmp(from.sa_data, peer_path,
-                                           sizeof from.sa_data) == 0);
+                    CHECK(from_len == (socklen_t) written + 3);
+                    CHECK(truncated.address.sa_family == AF_UNIX);
+                    CHECK(__builtin_memcmp(truncated.address.sa_data, peer_path,
+                                           sizeof truncated.address.sa_data) == 0);
+
+                    for (unsigned long i = 0; i < sizeof truncated.canary; ++i) {
+                        CHECK(truncated.canary[i] == 0xaa);
+                    }
                 }
 
                 {
