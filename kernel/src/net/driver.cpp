@@ -41,9 +41,6 @@ namespace astia::net {
     } // namespace
 
     core::task<bool> bus::bind(netdev& device) {
-        if (device.attached() != nullptr)
-            co_return true;
-
         driver* candidates[max_drivers]{};
 
         u32 count = 0;
@@ -51,7 +48,7 @@ namespace astia::net {
         {
             core::spinlock_guard guard(bus_lock);
 
-            if (find_binding_locked(device) != nullptr)
+            if (find_binding_locked(device) != nullptr || device.attached() != nullptr)
                 co_return true;
 
             for (driver* value : drivers) {
@@ -74,37 +71,34 @@ namespace astia::net {
 
             mm::shptr<link> created = created_result.value;
 
-            if (device.attached() == nullptr)
-                (void) device.attach(created);
-
-            if (device.attached() != created.get()) {
-                co_await selected->destroy(*created.get());
-                device.detach();
-
-                continue;
-            }
-
             bool stored = false;
 
             {
                 core::spinlock_guard guard(bus_lock);
 
-                for (binding& value : bindings) {
-                    if (value.device)
-                        continue;
+                // Another bind won the race while this driver was creating its
+                // link.  It owns the device now; leave its binding untouched.
+                if (find_binding_locked(device) == nullptr &&
+                    device.attached() == nullptr && device.attach(created)) {
+                    for (binding& value : bindings) {
+                        if (value.device)
+                            continue;
 
-                    value.device = reference;
-                    value.value  = created;
-                    value.owner  = selected;
-                    stored       = true;
+                        value.device = reference;
+                        value.value  = created;
+                        value.owner  = selected;
+                        stored       = true;
 
-                    break;
+                        break;
+                    }
+
+                    if (!stored)
+                        device.detach();
                 }
             }
 
             if (!stored) {
                 co_await selected->destroy(*created.get());
-                device.detach();
 
                 co_return false;
             }
@@ -126,16 +120,19 @@ namespace astia::net {
             binding* value = find_binding_locked(device);
 
             if (value == nullptr)
-                co_return error_t::enone;
+                co_return error_t::enoent;
 
             removed = *value;
             *value  = {};
+
+            // Only clear the device link if it is the one this binding
+            // published; a racing bind may already own the device again.
+            if (removed.value && device.attached() == removed.value.get())
+                device.detach();
         }
 
         if (removed.value)
             forget(*removed.value.get());
-
-        device.detach();
 
         if (removed.value)
             co_await removed.owner->destroy(*removed.value.get());
@@ -209,16 +206,18 @@ namespace astia::net {
                     continue;
 
                 removed[count++] = entry;
-                entry            = {};
+
+                if (entry.value && entry.device &&
+                    entry.device->attached() == entry.value.get())
+                    entry.device->detach();
+
+                entry = {};
             }
         }
 
         for (u32 i = 0; i < count; ++i) {
             if (removed[i].value)
                 forget(*removed[i].value.get());
-
-            if (removed[i].device)
-                removed[i].device->detach();
 
             if (removed[i].value)
                 value.destroy_now(*removed[i].value.get());

@@ -1,4 +1,6 @@
 #include <astia/net.hpp>
+#include <astia/net/bus.hpp>
+#include <astia/net/driver.hpp>
 #include <astia/net/link.hpp>
 #include <astia/net/neighbour.hpp>
 #include <astia/net/netdev.hpp>
@@ -8,7 +10,9 @@
 #include "support/timer_host.hpp"
 
 #include <atomic>
+#include <barrier>
 #include <cassert>
+#include <mutex>
 #include <thread>
 
 namespace astia::core {
@@ -78,6 +82,94 @@ namespace {
         void rx(astia::net::packet_view view) override {
             ++received;
             last = view;
+        }
+    };
+
+    struct barrier_awaiter {
+        std::barrier<>& gate;
+
+        bool await_ready() const noexcept {
+            return false;
+        }
+
+        bool await_suspend(std::coroutine_handle<>) const noexcept {
+            gate.arrive_and_wait();
+
+            return false;
+        }
+
+        void await_resume() const noexcept {}
+    };
+
+    struct fake_net_driver final : astia::net::driver {
+        static constexpr astia::u32 max_links = 4;
+
+        fake_link             links[max_links];
+        bool                  used[max_links]{};
+        std::mutex            mutex;
+        std::barrier<>*       gate = nullptr;
+        std::atomic<unsigned> created{0};
+        std::atomic<unsigned> destroyed{0};
+        std::atomic<unsigned> destroyed_now{0};
+
+        bool match(const astia::net::netdev&) const override {
+            return true;
+        }
+
+        astia::core::task<astia::mm::shptr<astia::net::link>>
+        create(astia::net::netdev&,
+               const astia::mm::shptr<astia::net::netdev>&) override {
+            if (gate != nullptr)
+                co_await barrier_awaiter{*gate};
+
+            std::lock_guard guard(mutex);
+
+            for (astia::u32 i = 0; i < max_links; ++i) {
+                if (used[i])
+                    continue;
+
+                used[i] = true;
+
+                created.fetch_add(1, std::memory_order_relaxed);
+
+                co_return astia::mm::shptr<astia::net::link>::borrowed(&links[i]);
+            }
+
+            co_return astia::mm::shptr<astia::net::link>{};
+        }
+
+        astia::core::task<void> destroy(astia::net::link& value) override {
+            {
+                std::lock_guard guard(mutex);
+
+                for (astia::u32 i = 0; i < max_links; ++i) {
+                    if (&links[i] != &value || !used[i])
+                        continue;
+
+                    used[i] = false;
+
+                    destroyed.fetch_add(1, std::memory_order_relaxed);
+
+                    break;
+                }
+            }
+
+            co_return astia::error_t::enone;
+        }
+
+        void destroy_now(astia::net::link& value) override {
+            std::lock_guard guard(mutex);
+
+            for (astia::u32 i = 0; i < max_links; ++i) {
+                if (&links[i] != &value || !used[i])
+                    continue;
+
+                used[i] = false;
+
+                destroyed_now.fetch_add(1, std::memory_order_relaxed);
+
+                break;
+            }
         }
     };
 
@@ -575,5 +667,115 @@ int main() {
 
         astia::net::unregister_discoverer(discoverer);
         astia::net::forget(link);
+    }
+
+    {
+        // Two concurrent binds rendezvous inside create() before either
+        // publishes, so both pass the initial "unbound" check.  Exactly one
+        // must win; the loser must not detach the winner's link.
+        astia::net::netdev race_device("race0", &rx);
+
+        fake_net_driver race_driver;
+
+        auto registration = astia::net::register_driver(race_driver);
+
+        registration.resume();
+        assert(registration.done());
+        assert(registration.error() == astia::error_t::enone);
+        assert(registration.value() != nullptr && *registration.value());
+
+        std::barrier gate{2};
+
+        race_driver.gate = &gate;
+
+        std::atomic<unsigned> won{0};
+        std::atomic<unsigned> lost{0};
+
+        auto bind_worker = [&] {
+            auto result = astia::net::bus::bind(race_device);
+
+            result.resume();
+            assert(result.done());
+            assert(result.error() == astia::error_t::enone);
+            assert(result.value() != nullptr);
+
+            if (*result.value())
+                won.fetch_add(1, std::memory_order_relaxed);
+            else
+                lost.fetch_add(1, std::memory_order_relaxed);
+        };
+
+        std::thread first(bind_worker);
+        std::thread second(bind_worker);
+
+        first.join();
+        second.join();
+
+        race_driver.gate = nullptr;
+
+        assert(race_driver.created.load(std::memory_order_relaxed) == 2);
+        assert(won.load(std::memory_order_relaxed) == 1);
+        assert(lost.load(std::memory_order_relaxed) == 1);
+        assert(race_driver.destroyed.load(std::memory_order_relaxed) == 1);
+        assert(race_device.attached() != nullptr);
+
+        const astia::net::link* winner = race_device.attached();
+
+        bool winner_live = false;
+
+        for (astia::u32 i = 0; i < fake_net_driver::max_links; ++i) {
+            if (static_cast<const astia::net::link*>(&race_driver.links[i]) == winner &&
+                race_driver.used[i])
+                winner_live = true;
+        }
+
+        assert(winner_live);
+
+        std::atomic<unsigned> unbound{0};
+        std::atomic<unsigned> missing{0};
+
+        auto unbind_worker = [&] {
+            auto result = astia::net::bus::unbind(race_device);
+
+            result.resume();
+            assert(result.done());
+
+            if (result.error() == astia::error_t::enone)
+                unbound.fetch_add(1, std::memory_order_relaxed);
+            else if (result.error() == astia::error_t::enoent)
+                missing.fetch_add(1, std::memory_order_relaxed);
+        };
+
+        std::thread third(unbind_worker);
+        std::thread fourth(unbind_worker);
+
+        third.join();
+        fourth.join();
+
+        assert(unbound.load(std::memory_order_relaxed) == 1);
+        assert(missing.load(std::memory_order_relaxed) == 1);
+        assert(race_device.attached() == nullptr);
+        assert(race_driver.destroyed.load(std::memory_order_relaxed) == 2);
+        assert(race_driver.destroyed_now.load(std::memory_order_relaxed) == 0);
+
+        // The device is fully released, so a fresh bind must attach again
+        // instead of trusting a stale binding record.
+        auto rebound = astia::net::bus::bind(race_device);
+
+        rebound.resume();
+        assert(rebound.done());
+        assert(rebound.error() == astia::error_t::enone);
+        assert(rebound.value() != nullptr && *rebound.value());
+        assert(race_device.attached() != nullptr);
+
+        auto final_unbind = astia::net::bus::unbind(race_device);
+
+        final_unbind.resume();
+        assert(final_unbind.done());
+        assert(final_unbind.error() == astia::error_t::enone);
+        assert(race_device.attached() == nullptr);
+
+        astia::net::unregister_driver_now(race_driver);
+        assert(race_driver.destroyed_now.load(std::memory_order_relaxed) == 0);
     }
 }
