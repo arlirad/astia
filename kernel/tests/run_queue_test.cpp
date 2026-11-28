@@ -302,3 +302,99 @@ ASTIA_TEST(run_queue_realtime_pick_examines_only_the_selected_entry) {
     ASTIA_CHECK(values.probes() - before == 32);
     ASTIA_CHECK(values.empty());
 }
+
+ASTIA_TEST(run_queue_full_admission_hands_off_and_queues_caller_once) {
+    queue values;
+    item  items[33];
+
+    for (u32 i = 0; i < 32; ++i) {
+        items[i].vruntime = i;
+
+        ASTIA_CHECK(values.insert(&items[i], policy_for(items[i])) != queue::none);
+    }
+
+    items[32].vruntime = 0;
+
+    const eligible ready{};
+
+    const auto admitted =
+        values.insert_or_handoff(&items[32], policy_for(items[32]), ready);
+
+    ASTIA_CHECK(admitted.queued);
+    ASTIA_CHECK(admitted.next == &items[0]);
+    ASTIA_CHECK(admitted.next != &items[32]);
+    ASTIA_CHECK(values.size() == 32);
+
+    u32 occurrences[33]{};
+
+    values.for_each([&](u32, item* value, u64, bool) {
+        for (u32 i = 0; i < 33; ++i) {
+            if (value == &items[i])
+                ++occurrences[i];
+        }
+    });
+
+    ASTIA_CHECK(occurrences[0] == 0);
+    ASTIA_CHECK(occurrences[32] == 1);
+
+    for (u32 i = 1; i < 32; ++i) {
+        ASTIA_CHECK(occurrences[i] == 1);
+    }
+
+    ASTIA_CHECK(values.pick(ready) == &items[32]);
+
+    for (u32 i = 1; i < 32; ++i) {
+        ASTIA_CHECK(values.pick(ready) == &items[i]);
+    }
+
+    ASTIA_CHECK(values.pick(ready) == nullptr);
+}
+
+ASTIA_TEST(run_queue_full_admission_reports_when_nothing_is_eligible) {
+    queue values;
+    item  items[33];
+
+    for (u32 i = 0; i < 32; ++i) {
+        items[i].eligible = false;
+        items[i].vruntime = i;
+
+        ASTIA_CHECK(values.insert(&items[i], policy_for(items[i])) != queue::none);
+    }
+
+    const eligible ready{};
+
+    const auto admitted =
+        values.insert_or_handoff(&items[32], policy_for(items[32]), ready);
+
+    ASTIA_CHECK(!admitted.queued);
+    ASTIA_CHECK(admitted.next == nullptr);
+    ASTIA_CHECK(admitted.slot == queue::none);
+    ASTIA_CHECK(values.size() == 32);
+}
+
+ASTIA_TEST(run_queue_admission_inserts_without_handoff_when_a_slot_is_free) {
+    queue values;
+    item  first;
+    item  second;
+
+    first.vruntime  = 1;
+    second.vruntime = 0;
+
+    const eligible ready{};
+
+    const auto first_admitted =
+        values.insert_or_handoff(&first, policy_for(first), ready);
+
+    ASTIA_CHECK(first_admitted.queued);
+    ASTIA_CHECK(first_admitted.next == nullptr);
+    ASTIA_CHECK(first_admitted.slot != queue::none);
+
+    const auto second_admitted =
+        values.insert_or_handoff(&second, policy_for(second), ready);
+
+    ASTIA_CHECK(second_admitted.queued);
+    ASTIA_CHECK(second_admitted.next == nullptr);
+    ASTIA_CHECK(values.size() == 2);
+    ASTIA_CHECK(values.pick(ready) == &second);
+    ASTIA_CHECK(values.pick(ready) == &first);
+}

@@ -56,37 +56,128 @@ namespace astia::proc::scheduler {
             }
         }
 
-        bool enqueue(thread* value) {
-            if (value == nullptr)
-                return false;
-
+        /// Queue of `value`'s CPU, or null when that CPU cannot accept it.
+        cpu_state* queue_for(const thread* value) {
             const u32 index = value->cpu_owner();
 
             if (index >= max_cpu_count ||
                 cpus[index].status != cpu_state::lifecycle::online)
-                return false;
+                return nullptr;
 
-            auto& state = cpus[index];
+            return &cpus[index];
+        }
 
-            arch::interrupt_spinlock_guard guard(state.lock);
-
-            const u32 slot = value->run_slot();
-
-            if (value->queued() && state.queue.value_at(slot) == value)
-                return state.queue.reactivate(slot, queue_policy(value));
-
-            if (state.queue.size() == run_queue_capacity)
-                return false;
-
-            const u32 inserted = state.queue.insert(value, queue_policy(value));
-
-            if (inserted == queue_type::none)
+        /// Record that `value` now occupies `slot`.  Caller holds the lock.
+        bool adopt(thread* value, u32 slot) {
+            if (slot == queue_type::none)
                 return false;
 
             value->queued(true);
-            value->run_slot(inserted);
+            value->run_slot(slot);
 
             return true;
+        }
+
+        /// Insert `value` and record the slot it landed in.  Caller holds the lock.
+        bool insert_locked(cpu_state& state, thread* value) {
+            return adopt(value, state.queue.insert(value, queue_policy(value)));
+        }
+
+        /// Refresh the entry `value` already owns.  Caller holds the lock.
+        bool reactivate_locked(cpu_state& state, thread* value) {
+            const u32 slot = value->run_slot();
+
+            if (!value->queued() || state.queue.value_at(slot) != value)
+                return false;
+
+            return state.queue.reactivate(slot, queue_policy(value));
+        }
+
+        bool runnable(thread* value) {
+            return value->state() == thread_state::runnable &&
+                   value->owner()->state() != process_state::stopped;
+        }
+
+        /// Clear the run-queue position `value` held before it starts running.
+        void detach(thread* value) {
+            value->queued(false);
+            value->run_slot(queue_type::none);
+        }
+
+        /// Pick the thread to run next, detaching it from the queue.
+        /// Caller holds the lock.
+        thread* pick_locked(cpu_state& state) {
+            thread* value = state.queue.pick(runnable);
+            if (value != nullptr)
+                detach(value);
+
+            return value;
+        }
+
+        bool enqueue(thread* value) {
+            if (value == nullptr)
+                return false;
+
+            auto* state = queue_for(value);
+            if (state == nullptr)
+                return false;
+
+            arch::interrupt_spinlock_guard guard(state->lock);
+
+            return reactivate_locked(*state, value) || insert_locked(*state, value);
+        }
+
+        struct requeue_result {
+            thread* next   = nullptr;
+            bool    queued = false;
+        };
+
+        /// Queue `previous` for another turn and choose what runs next.
+        /// The run queue holds no slot for the running thread, so a saturated
+        /// queue would make a yield return without dispatching anybody:
+        /// instead the entry `pick` would have chosen next is detached and
+        /// handed back in `next`, and the caller takes its slot.  A voluntary
+        /// yield hands off whenever another runnable thread exists, and keeps
+        /// the caller running when none does.  Every decision is made under a
+        /// single queue lock, so no thread is dropped or queued twice.
+        requeue_result requeue(thread* previous, bool voluntary) {
+            auto* state = queue_for(previous);
+            if (state == nullptr)
+                return {};
+
+            arch::interrupt_spinlock_guard guard(state->lock);
+
+            if (!reactivate_locked(*state, previous)) {
+                const queue_type::admission admitted = state->queue.insert_or_handoff(
+                    previous, queue_policy(previous), runnable);
+
+                if (!adopt(previous, admitted.slot))
+                    return {};
+
+                if (admitted.next != nullptr) {
+                    detach(admitted.next);
+
+                    return {.next = admitted.next, .queued = true};
+                }
+            }
+
+            thread* next = pick_locked(*state);
+
+            if (!voluntary || next != previous)
+                return {.next = next, .queued = true};
+
+            // A voluntary yield must hand off when another runnable thread
+            // exists, even if vruntime still prefers the caller.  Otherwise a
+            // thread charged by a timer tick can starve a fresh thread while
+            // repeatedly selecting itself.
+            next = pick_locked(*state);
+            if (next == nullptr)
+                return {};
+
+            // pick() detached `next`, so the caller's slot is free again.
+            (void) insert_locked(*state, previous);
+
+            return {.next = next, .queued = true};
         }
 
         bool rebalance_idle_cpu(u32 target_index) {
@@ -159,20 +250,7 @@ namespace astia::proc::scheduler {
 
             arch::interrupt_spinlock_guard guard(state.lock);
 
-            auto eligible = [](thread* value) {
-                return value->state() == thread_state::runnable &&
-                       value->owner()->state() != process_state::stopped;
-            };
-
-            thread* value = state.queue.pick(eligible);
-
-            if (value == nullptr)
-                return nullptr;
-
-            value->queued(false);
-            value->run_slot(queue_type::none);
-
-            return value;
+            return pick_locked(state);
         }
 
         u64 nice_charge(i32 nice) {
@@ -441,18 +519,25 @@ namespace astia::proc::scheduler {
 
         (void) core::drain_resumes();
 
+        thread* next = nullptr;
+
         if (!previous->idle() && (previous->state() == thread_state::running ||
                                   previous->state() == thread_state::runnable)) {
             previous->state(thread_state::runnable);
 
-            if (!enqueue(previous)) {
+            const requeue_result requeued = requeue(previous, gate_open);
+
+            if (!requeued.queued) {
                 previous->state(thread_state::running);
 
                 return;
             }
+
+            next = requeued.next;
         }
 
-        thread* next = select_next(cpu_index);
+        if (next == nullptr)
+            next = select_next(cpu_index);
 
         if (next == nullptr && previous->idle() && rebalance_idle_cpu(cpu_index))
             next = select_next(cpu_index);
@@ -465,21 +550,6 @@ namespace astia::proc::scheduler {
                 previous->state(thread_state::running);
 
             return;
-        }
-
-        if (next == previous && gate_open) {
-            // A voluntary yield must hand off when another runnable thread
-            // exists, even if vruntime still prefers the caller.  Otherwise
-            // a thread charged by a timer tick can starve a fresh thread
-            // while repeatedly selecting itself.
-            next = select_next(cpu_index);
-            if (next == nullptr) {
-                previous->state(thread_state::running);
-
-                return;
-            }
-
-            enqueue(previous);
         }
 
         if (next == previous) {
