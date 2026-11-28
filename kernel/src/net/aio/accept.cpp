@@ -14,6 +14,10 @@ namespace astia::io::aio::operations {
             if (handle->parent()->unix_socket_capability() == nullptr)
                 co_return -EOPNOTSUPP;
 
+            if (sqe.address != 0 &&
+                !memory::user_ptr<astia_sockaddr>(sqe.address).validate())
+                co_return -EFAULT;
+
             co_return dispatch::submit_socket_request(slot, ring, sqe, handle, nullptr, 0,
                                                       ::astia::io::direction::input, true,
                                                       true, token)
