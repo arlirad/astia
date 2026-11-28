@@ -41,7 +41,7 @@ namespace astia::hw {
 
     u32 driver_registry::take_device_slot() {
         for (u32 i = 0; i < max_devices; ++i) {
-            if (!_bindings[i].used)
+            if (_bindings[i].state == binding_state::free)
                 return i;
         }
 
@@ -74,7 +74,7 @@ namespace astia::hw {
 
         binding& item = _bindings[value.slot - 1];
 
-        return item.used ? &item : nullptr;
+        return item.state != binding_state::free ? &item : nullptr;
     }
 
     const driver_registry::binding*
@@ -84,7 +84,81 @@ namespace astia::hw {
 
         const binding& item = _bindings[value.slot - 1];
 
-        return item.used ? &item : nullptr;
+        return item.state != binding_state::free ? &item : nullptr;
+    }
+
+    bool driver_registry::device_registered(const mm::shptr<device_info>& device) const {
+        core::spinlock_guard guard(_lock);
+
+        for (u32 i = 0; i < max_devices; ++i) {
+            const binding& item = _bindings[i];
+
+            if (item.state != binding_state::free && item.device->equals(*device))
+                return true;
+        }
+
+        return false;
+    }
+
+    bool driver_registry::binding_is_bound(const binding& value) const {
+        core::spinlock_guard guard(_lock);
+
+        return value.state == binding_state::bound;
+    }
+
+    bool driver_registry::binding_is_owned_by(const binding& value,
+                                              owner_id       owner) const {
+        core::spinlock_guard guard(_lock);
+
+        return value.state == binding_state::bound && value.owner == owner;
+    }
+
+    bool driver_registry::attach_binding(driver_handle driver_slot, owner_id owner,
+                                         mm::shptr<device_info>& device,
+                                         product_handle& product, device_handle& out) {
+        core::spinlock_guard guard(_lock);
+
+        const u32 slot = take_device_slot();
+
+        if (slot == max_devices)
+            return false;
+
+        binding& item = _bindings[slot];
+
+        item.driver  = driver_slot;
+        item.handle  = device_handle{slot + 1};
+        item.owner   = owner;
+        item.device  = static_cast<mm::shptr<device_info>&&>(device);
+        item.product = static_cast<product_handle&&>(product);
+        item.state   = binding_state::bound;
+
+        ++_device_count;
+
+        out = item.handle;
+
+        return true;
+    }
+
+    void driver_registry::finish_binding(binding& value, product_handle& product,
+                                         mm::shptr<device_info>& device) {
+        core::spinlock_guard guard(_lock);
+
+        product = static_cast<product_handle&&>(value.product);
+        device  = static_cast<mm::shptr<device_info>&&>(value.device);
+
+        value.driver = {};
+        value.handle = {};
+        value.owner  = {};
+        value.state  = binding_state::free;
+
+        --_device_count;
+    }
+
+    void driver_registry::restore_binding(binding& value) {
+        core::spinlock_guard guard(_lock);
+
+        if (value.state == binding_state::detaching)
+            value.state = binding_state::bound;
     }
 
     i64 driver_registry::register_driver(driver& value, driver_handle& out,
@@ -127,7 +201,7 @@ namespace astia::hw {
             return -ENOENT;
 
         for (u32 i = 0; i < max_devices; ++i) {
-            if (_bindings[i].used && _bindings[i].driver == value)
+            if (_bindings[i].state != binding_state::free && _bindings[i].driver == value)
                 return -EBUSY;
         }
 
@@ -148,10 +222,8 @@ namespace astia::hw {
         if (!device)
             co_return -EINVAL;
 
-        for (u32 i = 0; i < max_devices; ++i) {
-            if (_bindings[i].used && _bindings[i].device->equals(*device))
-                co_return -EEXIST;
-        }
+        if (device_registered(device))
+            co_return -EEXIST;
 
         if (_device_count == max_devices)
             co_return -ENOSPC;
@@ -186,26 +258,15 @@ namespace astia::hw {
 
             product_handle product = value.publish(*device);
 
-            const u32 slot = take_device_slot();
-            if (slot == max_devices) {
+            const bool attached = attach_binding(driver_handle{i + 1}, candidate.owner,
+                                                 device, product, out);
+
+            if (!attached) {
                 (void) co_await value.stop(*device);
                 (void) co_await value.remove(*device);
 
                 co_return -ENOSPC;
             }
-
-            binding& item = _bindings[slot];
-
-            item.driver  = driver_handle{i + 1};
-            item.handle  = device_handle{slot + 1};
-            item.owner   = candidate.owner;
-            item.device  = static_cast<mm::shptr<device_info>&&>(device);
-            item.product = static_cast<product_handle&&>(product);
-            item.used    = true;
-
-            ++_device_count;
-
-            out = item.handle;
 
             co_return 0;
         }
@@ -214,26 +275,70 @@ namespace astia::hw {
     }
 
     core::task<i64> driver_registry::release_binding(binding& value) {
+        i64 claim_error = 0;
+
+        {
+            core::spinlock_guard guard(_lock);
+
+            if (value.state == binding_state::detaching)
+                claim_error = -EBUSY;
+            else if (value.state == binding_state::free)
+                claim_error = -ENOENT;
+            else
+                value.state = binding_state::detaching;
+        }
+
+        if (claim_error < 0)
+            co_return claim_error;
+
         registration* item = registration_for(value.driver);
         if (item != nullptr) {
             (void) co_await item->value->stop(*value.device);
 
             const error_t removed = co_await item->value->remove(*value.device);
 
-            if (removed != error_t::enone)
+            if (removed != error_t::enone) {
+                restore_binding(value);
+
                 co_return error_errno(removed);
+            }
         }
 
-        value.product = {};
-        value.device  = {};
-        value.driver  = {};
-        value.handle  = {};
-        value.owner   = {};
-        value.used    = false;
+        product_handle         product;
+        mm::shptr<device_info> device;
 
-        --_device_count;
+        finish_binding(value, product, device);
 
         co_return 0;
+    }
+
+    core::task<i64> driver_registry::release_bindings(release_scope scope,
+                                                      owner_id      owner) {
+        i64 released = 0;
+
+        for (u32 i = max_devices; i != 0; --i) {
+            binding& item = _bindings[i - 1];
+
+            bool selected = binding_is_bound(item);
+
+            if (scope == release_scope::owner)
+                selected = binding_is_owned_by(item, owner);
+
+            if (!selected)
+                continue;
+
+            const i64 result = task_error(co_await release_binding(item));
+
+            if (result == -ENOENT)
+                continue;
+
+            if (result < 0)
+                co_return result;
+
+            ++released;
+        }
+
+        co_return released;
     }
 
     core::task<i64> driver_registry::unbind(device_handle value) {
@@ -247,41 +352,11 @@ namespace astia::hw {
     }
 
     core::task<i64> driver_registry::unbind_owner(owner_id owner) {
-        i64 released = 0;
-
-        for (u32 i = max_devices; i != 0; --i) {
-            binding& item = _bindings[i - 1];
-
-            if (!item.used || !(item.owner == owner))
-                continue;
-
-            const i64 result = task_error(co_await release_binding(item));
-            if (result < 0)
-                co_return result;
-
-            ++released;
-        }
-
-        co_return released;
+        co_return task_error(co_await release_bindings(release_scope::owner, owner));
     }
 
     core::task<i64> driver_registry::unbind_all() {
-        i64 released = 0;
-
-        for (u32 i = max_devices; i != 0; --i) {
-            binding& item = _bindings[i - 1];
-
-            if (!item.used)
-                continue;
-
-            const i64 result = task_error(co_await release_binding(item));
-            if (result < 0)
-                co_return result;
-
-            ++released;
-        }
-
-        co_return released;
+        co_return task_error(co_await release_bindings(release_scope::all));
     }
 
     bool driver_registry::valid(driver_handle value) const {
@@ -315,7 +390,7 @@ namespace astia::hw {
         u32 count = 0;
 
         for (u32 i = 0; i < max_devices; ++i) {
-            if (_bindings[i].used && _bindings[i].owner == owner)
+            if (_bindings[i].state != binding_state::free && _bindings[i].owner == owner)
                 ++count;
         }
 

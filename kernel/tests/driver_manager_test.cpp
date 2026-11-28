@@ -4,6 +4,11 @@
 #include "support/task_host.hpp"
 #include "support/test.hpp"
 
+#include <atomic>
+#include <barrier>
+#include <coroutine>
+#include <thread>
+
 namespace {
     class test_info final : public astia::hw::device_info {
         public:
@@ -57,6 +62,20 @@ namespace {
         int* destroyed_;
     };
 
+    struct suspend_gate {
+        std::atomic<std::coroutine_handle<>> parked{};
+
+        bool await_ready() const noexcept {
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> handle) noexcept {
+            parked.store(handle, std::memory_order_release);
+        }
+
+        void await_resume() const noexcept {}
+    };
+
     struct typed_state {
         astia::u32     match_value        = 0;
         astia::i64     probe_result       = 0;
@@ -70,6 +89,7 @@ namespace {
         int            publish_calls      = 0;
         int            destroyed_products = 0;
         astia::error_t remove_error       = astia::error_t::enone;
+        suspend_gate*  remove_gate        = nullptr;
     };
 
     class test_driver final : public astia::hw::driver {
@@ -104,6 +124,10 @@ namespace {
 
         astia::core::task<void> remove(const astia::hw::device_info&) override {
             ++state_.remove_calls;
+
+            if (state_.remove_gate != nullptr)
+                co_await *state_.remove_gate;
+
             co_return state_.remove_error;
         }
 
@@ -204,6 +228,45 @@ namespace {
         ASTIA_CHECK(astia_test::run_task(manager.unbind_all(), result));
 
         return result;
+    }
+
+    /// Unbind `handle` while its remove() is parked, then run `loser` on a
+    /// second thread against the same binding.  The winner's teardown resumes
+    /// only after the loser has completed, so the interleaving is fixed.
+    template <typename Loser>
+    astia::i64 race_unbind(astia::hw::driver_registry& manager,
+                           astia::hw::device_handle handle, suspend_gate& gate,
+                           astia::i64& loser_result, Loser loser) {
+        std::barrier parked{2};
+        std::barrier released{2};
+        astia::i64   winner_result = -1;
+
+        std::thread winner([&] {
+            auto task = manager.unbind(handle);
+
+            task.resume();
+            parked.arrive_and_wait();
+            released.arrive_and_wait();
+
+            auto parked = gate.parked.load(std::memory_order_acquire);
+            if (parked)
+                parked.resume();
+
+            winner_result = *task.value();
+        });
+
+        std::thread rival([&] {
+            parked.arrive_and_wait();
+
+            loser_result = loser();
+
+            released.arrive_and_wait();
+        });
+
+        winner.join();
+        rival.join();
+
+        return winner_result;
     }
 
     astia::hw::owner_id resolved_owner() {
@@ -432,6 +495,103 @@ ASTIA_TEST(driver_manager_keeps_binding_when_remove_is_refused) {
     ASTIA_CHECK(unbind_sync(manager, bound) == 0);
     ASTIA_CHECK(state.remove_calls == 2);
     ASTIA_CHECK(!manager.valid(bound));
+    ASTIA_CHECK(manager.device_count() == 0);
+}
+
+ASTIA_TEST(driver_manager_concurrent_unbind_runs_teardown_once) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    test_driver     driver(state);
+
+    driver_handle registered{};
+    device_handle bound{};
+
+    ASTIA_CHECK(manager.register_driver(driver, registered) == 0);
+    ASTIA_CHECK(bind_sync(manager, typed_device(12), bound) == 0);
+
+    suspend_gate gate;
+
+    state.remove_gate = &gate;
+
+    astia::i64       loser  = -1;
+    const astia::i64 winner = race_unbind(manager, bound, gate, loser,
+                                          [&] { return unbind_sync(manager, bound); });
+
+    ASTIA_CHECK(winner == 0);
+    ASTIA_CHECK(loser == -EBUSY);
+    ASTIA_CHECK(state.stop_calls == 1);
+    ASTIA_CHECK(state.remove_calls == 1);
+    ASTIA_CHECK(!manager.valid(bound));
+    ASTIA_CHECK(manager.device_count() == 0);
+}
+
+ASTIA_TEST(driver_manager_concurrent_refused_unbind_keeps_binding_for_retry) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    test_driver     driver(state);
+
+    driver_handle registered{};
+    device_handle bound{};
+
+    ASTIA_CHECK(manager.register_driver(driver, registered) == 0);
+    ASTIA_CHECK(bind_sync(manager, typed_device(13), bound) == 0);
+
+    suspend_gate gate;
+
+    state.remove_error = astia::error_t::ebusy;
+    state.remove_gate  = &gate;
+
+    astia::i64       loser  = 0;
+    const astia::i64 winner = race_unbind(manager, bound, gate, loser,
+                                          [&] { return unbind_sync(manager, bound); });
+
+    ASTIA_CHECK(winner == -EBUSY);
+    ASTIA_CHECK(loser == -EBUSY);
+    ASTIA_CHECK(state.stop_calls == 1);
+    ASTIA_CHECK(state.remove_calls == 1);
+    ASTIA_CHECK(manager.valid(bound));
+    ASTIA_CHECK(manager.device_count() == 1);
+
+    state.remove_error = astia::error_t::enone;
+    state.remove_gate  = nullptr;
+
+    ASTIA_CHECK(unbind_sync(manager, bound) == 0);
+    ASTIA_CHECK(state.remove_calls == 2);
+    ASTIA_CHECK(!manager.valid(bound));
+    ASTIA_CHECK(manager.device_count() == 0);
+}
+
+ASTIA_TEST(driver_manager_unbind_owner_skips_binding_being_detached) {
+    using namespace astia::hw;
+
+    driver_registry manager;
+    typed_state     state;
+    test_driver     driver(state);
+
+    driver_handle registered{};
+    device_handle bound{};
+
+    ASTIA_CHECK(manager.register_driver(driver, registered, owner_id{4}) == 0);
+    ASTIA_CHECK(bind_sync(manager, typed_device(14), bound) == 0);
+
+    suspend_gate gate;
+
+    state.remove_gate = &gate;
+
+    astia::i64       loser  = -1;
+    const astia::i64 winner = race_unbind(manager, bound, gate, loser, [&] {
+        return unbind_owner_sync(manager, owner_id{4});
+    });
+
+    ASTIA_CHECK(winner == 0);
+    ASTIA_CHECK(loser == 0);
+    ASTIA_CHECK(state.stop_calls == 1);
+    ASTIA_CHECK(state.remove_calls == 1);
+    ASTIA_CHECK(manager.devices_owned_by(owner_id{4}) == 0);
     ASTIA_CHECK(manager.device_count() == 0);
 }
 
