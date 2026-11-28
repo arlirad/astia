@@ -882,11 +882,32 @@ static int ln_checks(void) {
     char* ln_missing[]        = {"ln", "/tmp/coreutils_missing",
                                  "/tmp/coreutils_symlink_missing", NULL};
     char* readlink_link[]     = {"readlink", "/tmp/coreutils_link", NULL};
+    char* ln_into_dir[]       = {"ln", "/tmp/coreutils_a", "/tmp/coreutils_ln_dir", NULL};
+    char* ln_into_dir_slash[] = {"ln", "/tmp/coreutils_b", "/tmp/coreutils_ln_dir/",
+                                 NULL};
+    char* ln_symbolic_into_dir[]       = {"ln", "-s", "coreutils_a",
+                                          "/tmp/coreutils_ln_linkdir", NULL};
+    char* ln_force_symbolic_into_dir[] = {"ln", "-sf", "coreutils_a",
+                                          "/tmp/coreutils_ln_dir", NULL};
+    char* ln_force_into_dir[] = {"ln", "-f", "/tmp/coreutils_a", "/tmp/coreutils_ln_dir",
+                                 NULL};
+    char* readlink_dir_link[] = {"readlink", "/tmp/coreutils_ln_dir/coreutils_a", NULL};
+    char* readlink_dir_symbolic[] = {"readlink", "/tmp/coreutils_ln_linkdir/coreutils_a",
+                                     NULL};
 
     (void) unlink("/tmp/coreutils_hard");
     (void) unlink("/tmp/coreutils_link");
     (void) unlink("/tmp/coreutils_symlink_long");
     (void) unlink("/tmp/coreutils_symlink_missing");
+    (void) unlink("/tmp/coreutils_ln_dir/coreutils_a");
+    (void) unlink("/tmp/coreutils_ln_dir/coreutils_b");
+    (void) unlink("/tmp/coreutils_ln_linkdir/coreutils_a");
+    (void) rmdir("/tmp/coreutils_ln_dir");
+    (void) rmdir("/tmp/coreutils_ln_linkdir");
+
+    if (mkdir("/tmp/coreutils_ln_dir", 0777) != 0 ||
+        mkdir("/tmp/coreutils_ln_linkdir", 0777) != 0)
+        return fail("ln directory fixture setup");
 
     int status = 0;
 
@@ -912,12 +933,36 @@ static int ln_checks(void) {
         check("ln -sf relative", ln_relative_force, NULL, 0, NULL, 0) != 0 ||
         !is_symlink("/tmp/coreutils_link") ||
         check("readlink restored symlink", readlink_link, NULL, 0, "coreutils_a\n", 1) !=
-            0)
+            0 ||
+        check("ln file dir", ln_into_dir, NULL, 0, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_a", "/tmp/coreutils_ln_dir/coreutils_a") ||
+        is_symlink("/tmp/coreutils_ln_dir/coreutils_a") ||
+        check("ln file dir existing name", ln_into_dir, NULL, 1, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_a", "/tmp/coreutils_ln_dir/coreutils_a") ||
+        check("ln file dir trailing slash", ln_into_dir_slash, NULL, 0, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_b", "/tmp/coreutils_ln_dir/coreutils_b") ||
+        check("ln -s relative target dir", ln_symbolic_into_dir, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_ln_linkdir/coreutils_a") ||
+        check("readlink into dir", readlink_dir_symbolic, NULL, 0, "coreutils_a\n", 1) !=
+            0 ||
+        check("ln -sf file dir", ln_force_symbolic_into_dir, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_ln_dir/coreutils_a") ||
+        check("readlink forced dir link", readlink_dir_link, NULL, 0, "coreutils_a\n",
+              1) != 0 ||
+        check("ln -f file dir", ln_force_into_dir, NULL, 0, NULL, 0) != 0 ||
+        !same_file("/tmp/coreutils_a", "/tmp/coreutils_ln_dir/coreutils_a") ||
+        is_symlink("/tmp/coreutils_ln_dir/coreutils_a") ||
+        check("readlink after ln -f", readlink_dir_link, NULL, 1, NULL, 0) != 0)
         status = 1;
 
     (void) unlink("/tmp/coreutils_hard");
     (void) unlink("/tmp/coreutils_symlink_long");
     (void) unlink("/tmp/coreutils_symlink_missing");
+    (void) unlink("/tmp/coreutils_ln_dir/coreutils_a");
+    (void) unlink("/tmp/coreutils_ln_dir/coreutils_b");
+    (void) unlink("/tmp/coreutils_ln_linkdir/coreutils_a");
+    (void) rmdir("/tmp/coreutils_ln_dir");
+    (void) rmdir("/tmp/coreutils_ln_linkdir");
 
     return status;
 }

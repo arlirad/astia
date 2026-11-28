@@ -206,6 +206,17 @@ test -f "$cp_link_root/source_copy"
 test ! -L "$cp_link_root/source_copy"
 grep -qxF 'target' "$cp_link_root/source_copy"
 
+# ln TARGET DIR creates DIR/<basename TARGET>, including the trailing-slash
+# form, and keeps relative symbolic-link targets verbatim (issue #819).
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -Dmain=cu_ln_main -I "$root/utils/coreutils/src" \
+    -c "$root/utils/coreutils/src/ln.c" -o "$out/host/ln_dir_ln.o"
+$clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
+    -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/ln_dir_test.c" "$out/host/ln_dir_ln.o" \
+    -o "$out/host/ln_dir_test"
+"$out/host/ln_dir_test"
+
 # mkdir -p must accept any path the host filesystem can represent up to
 # PATH_MAX; the QEMU guest cannot receive such arguments yet (issue #184
 # limits exec argv and AIO paths to 256 bytes).
