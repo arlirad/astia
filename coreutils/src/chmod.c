@@ -51,8 +51,8 @@ static unsigned int who_bits(char who) {
     return 7;
 }
 
-static unsigned int perm_bits(char perm, unsigned int who, mode_t current,
-                              mode_t original, int directory) {
+static unsigned int perm_bits(char perm, unsigned int target, mode_t current,
+                              int directory) {
     unsigned int result = 0;
 
     if (perm == 'r')
@@ -62,11 +62,11 @@ static unsigned int perm_bits(char perm, unsigned int who, mode_t current,
     else if (perm == 'x')
         result = 1;
     else if (perm == 'X')
-        result = directory || (original & 0111) != 0 ? 1 : 0;
+        result = directory || (current & 0111) != 0 ? 1 : 0;
     else if (perm == 's')
-        return who == 1 ? CU_SETUID : who == 2 ? CU_SETGID : 0;
+        return target == 1 ? CU_SETUID : target == 2 ? CU_SETGID : 0;
     else if (perm == 't')
-        return CU_STICKY;
+        return (target & 4) != 0 ? CU_STICKY : 0;
     else if (perm == 'u')
         result = (current >> 6) & 7;
     else if (perm == 'g')
@@ -74,22 +74,16 @@ static unsigned int perm_bits(char perm, unsigned int who, mode_t current,
     else if (perm == 'o')
         result = current & 7;
 
-    if (who & 1)
-        result |= (result & 7) << 6;
-
-    if (who & 2)
-        result |= (result & 7) << 3;
-
-    if (who & 4)
-        result |= result & 7;
+    if (target == 1)
+        result <<= 6;
+    else if (target == 2)
+        result <<= 3;
 
     return result;
 }
 
 static int parse_symbolic(const char* value, mode_t current, int directory,
                           mode_t* result) {
-    mode_t original = current;
-
     unsigned int mask = umask(0);
 
     (void) umask(mask);
@@ -121,12 +115,8 @@ static int parse_symbolic(const char* value, mode_t current, int directory,
 
             mode_t bits = 0;
 
-            int has_perm = 0;
-
             while (cursor < clause_end && strchr("rwxXstugo", *cursor) != 0) {
                 char perm = *cursor++;
-
-                has_perm = 1;
 
                 if (perm == 's' && !explicit_who) {
                     bits |= CU_SETUID | CU_SETGID;
@@ -134,23 +124,9 @@ static int parse_symbolic(const char* value, mode_t current, int directory,
                     continue;
                 }
 
-                if (perm == 't') {
-                    bits |= CU_STICKY;
-
-                    continue;
-                }
-
-                if (perm == 'u' || perm == 'g' || perm == 'o') {
-                    for (unsigned int target = 1; target <= 4; target <<= 1) {
-                        if ((allowed & target) != 0)
-                            bits |= perm_bits(perm, target, current, original, directory);
-                    }
-                }
-                else {
-                    for (unsigned int target = 1; target <= 4; target <<= 1) {
-                        if ((allowed & target) != 0)
-                            bits |= perm_bits(perm, target, current, original, directory);
-                    }
+                for (unsigned int target = 1; target <= 4; target <<= 1) {
+                    if ((allowed & target) != 0)
+                        bits |= perm_bits(perm, target, current, directory);
                 }
             }
 
@@ -170,22 +146,13 @@ static int parse_symbolic(const char* value, mode_t current, int directory,
                 mode_t clear = 0;
 
                 if ((allowed & 1) != 0)
-                    clear |= 0700;
+                    clear |= 0700 | CU_SETUID;
 
                 if ((allowed & 2) != 0)
-                    clear |= 0070;
+                    clear |= 0070 | CU_SETGID;
 
                 if ((allowed & 4) != 0)
-                    clear |= 0007;
-
-                if (has_perm && (bits & CU_SETUID) != 0)
-                    clear |= CU_SETUID;
-
-                if (has_perm && (bits & CU_SETGID) != 0)
-                    clear |= CU_SETGID;
-
-                if (has_perm && (bits & CU_STICKY) != 0)
-                    clear |= CU_STICKY;
+                    clear |= 0007 | CU_STICKY;
 
                 current = (mode_t) ((current & ~clear) | bits);
             }
