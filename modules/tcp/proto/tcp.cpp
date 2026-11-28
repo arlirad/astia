@@ -11,8 +11,9 @@ namespace astia::tcp {
         if (packet.egress == nullptr || packet.payload.length < sizeof(tcp_header))
             return;
 
-        const tcp_header header      = packet.payload.slice<tcp_header>();
-        const u32        data_offset = header.data_offset();
+        const tcp_header header = packet.payload.slice<tcp_header>();
+
+        const u32 data_offset = header.data_offset();
 
         if (data_offset < sizeof(tcp_header) || data_offset > packet.payload.length)
             return;

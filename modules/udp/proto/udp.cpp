@@ -12,7 +12,8 @@ namespace astia::udp {
             return;
 
         const udp_header header = packet.payload.slice<udp_header>();
-        const u16        length = header.length_value.value();
+
+        const u16 length = header.length_value.value();
 
         if (length < sizeof(udp_header) || length > packet.payload.length)
             return;
