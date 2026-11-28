@@ -1510,10 +1510,10 @@ int main(void) {
     if (tree_walk_checks() != 0)
         return 1;
 
-    const char* help[] = {"cat",   "head",  "wc",    "ls",       "find",    "pwd",
-                          "uname", "echo",  "env",   "true",     "false",   "mkdir",
-                          "rm",    "cp",    "mv",    "grep",     "sort",    "cut",
-                          "tee",   "touch", "chmod", "basename", "dirname", "poweroff",
+    const char* help[] = {"cat",    "head",  "wc",    "ls",       "find",    "pwd",
+                          "uname",  "echo",  "env",   "true",     "false",   "mkdir",
+                          "rm",     "cp",    "mv",    "grep",     "sort",    "cut",
+                          "tee",    "touch", "chmod", "basename", "dirname", "poweroff",
                           "reboot", NULL};
 
     for (int i = 0; help[i] != NULL; ++i) {

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common.h"
-
 #include <astia/api/syscalls.h>
+
+#include "common.h"
 
 #include <errno.h>
 #include <string.h>
