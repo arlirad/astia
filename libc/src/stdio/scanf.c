@@ -1,10 +1,14 @@
 #include <ctype.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
+
+#define SCAN_WIDE_MAX 8
 
 struct scan_input {
     int (*get)(void*);
@@ -71,6 +75,60 @@ static void scan_push_back(struct scan_input* in, const char* text) {
     while (n != 0) {
         scan_unget(in, (unsigned char) text[--n]);
     }
+}
+
+static void scan_unget_bytes(struct scan_input* in, const char* bytes, size_t count) {
+    while (count != 0) {
+        scan_unget(in, (unsigned char) bytes[--count]);
+    }
+}
+
+/*
+ * Reads one multibyte character and converts it as mbrtowc(3) would.
+ * Returns 1 when a wide character was stored, 0 at a clean end of input and
+ * -1 when the sequence is malformed or incomplete; the bytes of the failed
+ * attempt are pushed back so the caller's input position is unchanged.
+ */
+static int scan_wide_char(struct scan_input* in, wchar_t* out, mbstate_t* state) {
+    char   bytes[SCAN_WIDE_MAX];
+    size_t used = 0;
+
+    while (used < sizeof bytes) {
+        int c = scan_get(in);
+        if (c == EOF) {
+            if (used != 0) {
+                scan_unget_bytes(in, bytes, used);
+
+                errno = EILSEQ;
+
+                return -1;
+            }
+
+            return 0;
+        }
+
+        size_t result;
+
+        bytes[used++] = (char) c;
+        result        = mbrtowc(out, &bytes[used - 1], 1, state);
+
+        if (result == (size_t) -2)
+            continue;
+
+        if (result == (size_t) -1) {
+            scan_unget_bytes(in, bytes, used);
+
+            return -1;
+        }
+
+        return 1;
+    }
+
+    scan_unget_bytes(in, bytes, used);
+
+    errno = EILSEQ;
+
+    return -1;
 }
 
 static void skip_input_space(struct scan_input* in) {
@@ -388,26 +446,46 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
                 int n = width == 0 ? 1 : width;
                 int i;
 
-                char* dest = suppress ? NULL : va_arg(ap, char*);
-
                 ok = 1;
 
-                for (i = 0; i < n; i++) {
-                    int c = scan_get(in);
-                    if (c == EOF) {
-                        ok = 0;
+                if (length == 'l') {
+                    wint_t*   dest = suppress ? NULL : va_arg(ap, wint_t*);
+                    mbstate_t state;
 
-                        break;
+                    memset(&state, 0, sizeof state);
+
+                    for (i = 0; i < n; i++) {
+                        wchar_t wc;
+                        int     result = scan_wide_char(in, &wc, &state);
+
+                        if (result <= 0) {
+                            ok = 0;
+
+                            break;
+                        }
+
+                        if (!suppress)
+                            dest[i] = (wint_t) wc;
                     }
+                }
+                else {
+                    char* dest = suppress ? NULL : va_arg(ap, char*);
 
-                    if (!suppress)
-                        dest[i] = (char) c;
+                    for (i = 0; i < n; i++) {
+                        int c = scan_get(in);
+                        if (c == EOF) {
+                            ok = 0;
+
+                            break;
+                        }
+
+                        if (!suppress)
+                            dest[i] = (char) c;
+                    }
                 }
             }
             else if (spec == 's' || spec == '[') {
                 char set[128];
-
-                char* dest = suppress ? NULL : va_arg(ap, char*);
 
                 size_t n = 0;
                 int    c;
@@ -423,25 +501,69 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
                 if (spec == 's')
                     skip_input_space(in);
 
-                while (width == 0 || (int) n < width) {
-                    c = scan_get(in);
+                if (length == 'l') {
+                    wchar_t*  dest = suppress ? NULL : va_arg(ap, wchar_t*);
+                    mbstate_t state;
 
-                    if (c == EOF || (spec == 's' ? isspace((unsigned char) c)
-                                                 : !scanset_has(set, c))) {
+                    memset(&state, 0, sizeof state);
+
+                    while (width == 0 || (int) n < width) {
+                        wchar_t wc;
+                        int     result;
+
+                        c = scan_get(in);
+
+                        if (c == EOF)
+                            break;
+
+                        if (spec == 's' ? isspace((unsigned char) c)
+                                        : !scanset_has(set, c)) {
+                            scan_unget(in, c);
+
+                            break;
+                        }
+
                         scan_unget(in, c);
-                        break;
+
+                        result = scan_wide_char(in, &wc, &state);
+                        if (result <= 0)
+                            break;
+
+                        if (!suppress)
+                            dest[n] = wc;
+
+                        n++;
                     }
 
-                    if (!suppress)
-                        dest[n] = (char) c;
+                    ok = n != 0;
 
-                    n++;
+                    if (ok && !suppress)
+                        dest[n] = L'\0';
                 }
+                else {
+                    char* dest = suppress ? NULL : va_arg(ap, char*);
 
-                ok = n != 0;
+                    while (width == 0 || (int) n < width) {
+                        c = scan_get(in);
 
-                if (ok && !suppress)
-                    dest[n] = '\0';
+                        if (c == EOF || (spec == 's' ? isspace((unsigned char) c)
+                                                     : !scanset_has(set, c))) {
+                            scan_unget(in, c);
+
+                            break;
+                        }
+
+                        if (!suppress)
+                            dest[n] = (char) c;
+
+                        n++;
+                    }
+
+                    ok = n != 0;
+
+                    if (ok && !suppress)
+                        dest[n] = '\0';
+                }
             }
             else if (spec == 'n') {
                 if (!suppress) {
