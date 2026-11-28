@@ -59,6 +59,7 @@ namespace {
 
         std::memcpy(pseudo.source, source, 4);
         std::memcpy(pseudo.destination, destination, 4);
+
         pseudo.length = length;
 
         return pseudo;
@@ -137,8 +138,9 @@ namespace {
                 length =
                     data.size() < sizeof datagram ? static_cast<u32>(data.size()) : 0;
 
-                for (u32 index = 0; index < length; ++index)
+                for (u32 index = 0; index < length; ++index) {
                     datagram[index] = data.data()[index];
+                }
             }
 
             saw_udp     = request.upper == astia::net::protocol_id::udp;
@@ -182,20 +184,24 @@ namespace {
         capture_link link;
 
         astia::udp::socket* socket = protocol.create();
+
         assert(socket != nullptr);
         assert(socket->bind(endpoint_of(local_ip, 4000)) == 0);
 
         alignas(8) u8 packet[64]{};
-        const usz     length =
+
+        const usz length =
             build_datagram(packet, source_ip, local_ip, 1234, 4000, "hello", 5, true);
 
         receive(protocol, link, packet, length);
 
         assert(socket->readable());
 
-        u8                   payload[8]{};
+        u8 payload[8]{};
+
         astia::udp::endpoint source{};
-        const astia::i64     received =
+
+        const astia::i64 received =
             socket->receive(span<u8>(payload, sizeof payload), source);
 
         assert(received == 5);
@@ -208,12 +214,14 @@ namespace {
         // A different destination port is not ours.
         const usz other =
             build_datagram(packet, source_ip, local_ip, 1234, 4001, "x", 1, true);
+
         receive(protocol, link, packet, other);
         assert(!socket->readable());
 
         // A zero checksum means "not computed" and must be accepted.
         const usz unchecked =
             build_datagram(packet, source_ip, local_ip, 1234, 4000, "no-sum", 6, false);
+
         receive(protocol, link, packet, unchecked);
         assert(socket->readable());
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == 6);
@@ -225,11 +233,14 @@ namespace {
         capture_link link;
 
         astia::udp::socket* socket = protocol.create();
+
         assert(socket != nullptr);
         assert(socket->bind(endpoint_of(local_ip, 4100)) == 0);
 
-        alignas(8) u8        packet[64]{};
-        u8                   payload[8]{};
+        alignas(8) u8 packet[64]{};
+
+        u8 payload[8]{};
+
         astia::udp::endpoint source{};
 
         usz length =
@@ -237,11 +248,13 @@ namespace {
 
         // Corrupt payload after the checksum was computed.
         packet[astia::udp::header_bytes] ^= 0xff;
+
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         // Length shorter than the header.
         length = build_datagram(packet, source_ip, local_ip, 1234, 4100, "", 0, true);
+
         put16(packet + 4, 4);
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
@@ -249,6 +262,7 @@ namespace {
         // Length longer than the received payload.
         length =
             build_datagram(packet, source_ip, local_ip, 1234, 4100, "hello", 5, true);
+
         put16(packet + 4, static_cast<u16>(length + 8));
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
@@ -256,6 +270,7 @@ namespace {
         // Destination port zero is invalid.
         length =
             build_datagram(packet, source_ip, local_ip, 1234, 4100, "hello", 5, true);
+
         put16(packet + 2, 0);
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
@@ -263,6 +278,7 @@ namespace {
         // Wrong local address for an address-specific bind.
         length =
             build_datagram(packet, source_ip, source_ip, 1234, 4100, "hello", 5, true);
+
         receive(protocol, link, packet, length, source_ip, source_ip);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
@@ -271,11 +287,13 @@ namespace {
 
         length =
             build_datagram(packet, source_ip, local_ip, 9999, 4100, "hello", 5, true);
+
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == -EAGAIN);
 
         length =
             build_datagram(packet, source_ip, local_ip, 1234, 4100, "hello", 5, true);
+
         receive(protocol, link, packet, length);
         assert(socket->receive(span<u8>(payload, sizeof payload), source) == 5);
 
@@ -293,6 +311,7 @@ namespace {
 
         // Port 0 picks an ephemeral port, and binding twice fails.
         astia::udp::endpoint wildcard{};
+
         wildcard.port = 0;
 
         assert(second->bind(wildcard) == 0);
@@ -303,11 +322,13 @@ namespace {
         protocol.destroy(first);
 
         astia::udp::socket* third = protocol.create();
+
         assert(third != nullptr);
         assert(third->bind(endpoint_of(local_ip, 4200)) == 0);
 
         // Malformed addresses are rejected.
         astia::udp::endpoint malformed{};
+
         malformed.host = astia::net::link_address::from_packet(peer_mac, 6);
         malformed.port = 4300;
 
@@ -321,6 +342,7 @@ namespace {
         capture_link link;
 
         astia::udp::socket* socket = protocol.create();
+
         assert(socket != nullptr);
         assert(socket->bind(endpoint_of(local_ip, 4400)) == 0);
 
@@ -329,6 +351,7 @@ namespace {
         astia::net::packet_builder builder(storage, sizeof storage);
 
         astia::udp::route path{};
+
         path.egress           = &link;
         path.link_destination = astia::net::link_address::from_packet(peer_mac, 6);
         path.source           = address_of(local_ip);
@@ -340,8 +363,9 @@ namespace {
             socket->send(builder, span<const u8>(reinterpret_cast<const u8*>(payload), 4),
                          endpoint_of(source_ip, 53), path);
 
-        while (!operation.done())
+        while (!operation.done()) {
             operation.resume();
+        }
 
         assert(!operation.failed());
         assert(operation.value() != nullptr);
@@ -374,8 +398,9 @@ namespace {
             socket->send(small, span<const u8>(reinterpret_cast<const u8*>(payload), 4),
                          endpoint_of(source_ip, 53), path);
 
-        while (!too_big.done())
+        while (!too_big.done()) {
             too_big.resume();
+        }
 
         assert(!too_big.failed());
         assert(too_big.value() != nullptr);

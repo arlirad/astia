@@ -88,7 +88,8 @@ namespace astia::udp {
 
         if (!_bound) {
             const endpoint wildcard{};
-            const i64      bound = bind(wildcard);
+
+            const i64 bound = bind(wildcard);
 
             if (bound < 0)
                 return bound;
@@ -107,7 +108,8 @@ namespace astia::udp {
 
         if (!_bound) {
             const endpoint wildcard{};
-            const i64      bound = bind(wildcard);
+
+            const i64 bound = bind(wildcard);
 
             if (bound < 0)
                 co_return bound;
@@ -122,15 +124,14 @@ namespace astia::udp {
             co_return -E2BIG;
 
         u8* payload_bytes = builder.prepend(payload.size());
-
         if (payload_bytes == nullptr)
             co_return -E2BIG;
 
-        for (usz index = 0; index < payload.size(); ++index)
+        for (usz index = 0; index < payload.size(); ++index) {
             payload_bytes[index] = payload.data()[index];
+        }
 
         u8* header_bytes = builder.prepend(sizeof(udp_header));
-
         if (header_bytes == nullptr)
             co_return -E2BIG;
 
@@ -180,14 +181,14 @@ namespace astia::udp {
 
     i64 socket::receive(span<u8> buffer, endpoint& source) {
         datagram* value = pop();
-
         if (value == nullptr)
             return -EAGAIN;
 
         const i64 length = static_cast<i64>(value->length);
 
-        for (usz index = 0; index < buffer.size() && index < value->length; ++index)
+        for (usz index = 0; index < buffer.size() && index < value->length; ++index) {
             buffer.data()[index] = value->data[index];
+        }
 
         source.host = value->source_host;
         source.port = value->source_port;
@@ -210,7 +211,6 @@ namespace astia::udp {
             return;
 
         auto* value = new (std::nothrow) datagram{};
-
         if (value == nullptr)
             return;
 
@@ -254,6 +254,7 @@ namespace astia::udp {
         _tail = value;
 
         ++_count;
+
         _bytes += value->length;
 
         return true;
@@ -268,11 +269,11 @@ namespace astia::udp {
             return nullptr;
 
         _head = value->next;
-
         if (_head == nullptr)
             _tail = nullptr;
 
         --_count;
+
         _bytes -= value->length;
 
         value->next = nullptr;

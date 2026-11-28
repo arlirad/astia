@@ -75,8 +75,9 @@ namespace astia::udp {
         }
 
         inline u16 finish(u32 sum) {
-            while ((sum >> 16) != 0)
+            while ((sum >> 16) != 0) {
                 sum = (sum & 0xffffu) + (sum >> 16);
+            }
 
             return static_cast<u16>(~sum);
         }
