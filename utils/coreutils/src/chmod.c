@@ -312,8 +312,12 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (args.options && value[0] == '-')
-            return cu_error("chmod", "unknown option");
+        if (args.options && value[0] == '-') {
+            mode_t ignored;
+
+            if (mode != 0 || parse_mode(value, 0, 0, &ignored) != 0)
+                return cu_error("chmod", "unknown option");
+        }
 
         if (mode == 0) {
             mode = value;
