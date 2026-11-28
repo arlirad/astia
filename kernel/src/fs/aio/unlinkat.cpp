@@ -1,4 +1,5 @@
 #include "../../io/aio/handler.hpp"
+#include "../events.hpp"
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
@@ -24,14 +25,21 @@ namespace astia::io::aio::operations {
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
+            // The identity is captured once, from the resolution the checks
+            // below use.  The removal must bind this same node; a name that
+            // changed after the checks fails with -EAGAIN.
+            const fs::node_identity checked = fs::node_identity_of(resolved);
+
             if (!parent_writable(current, resolved))
                 co_return -EACCES;
 
             if (!sticky_directory_allows(current, resolved))
                 co_return -EPERM;
 
-            const long rc =
-                fs::remove_path(resolved, (sqe.op_flags & UNLINKAT_REMOVEDIR) != 0);
+            fs::events::unlink_checked::emit(resolved);
+
+            const long rc = fs::remove_path_verified(
+                resolved, (sqe.op_flags & UNLINKAT_REMOVEDIR) != 0, checked);
 
             co_return static_cast<i32>(rc);
         }

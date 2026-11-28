@@ -47,6 +47,7 @@ namespace astia::io::aio::test_support {
         chmod_record         last_chmod_path_record;
         creation_record      last_creation_record;
         symlink_record       last_symlink_record;
+        remove_record        last_remove_path_record;
         char                 readlink_target[fs::path_max]{};
         usz                  readlink_target_length = 0;
         constexpr usz        node_override_capacity = 8;
@@ -413,6 +414,7 @@ namespace astia::io::aio::test_support {
         touch_value_valid          = false;
         resolve_follow_final_value = true;
         last_symlink_record        = {};
+        last_remove_path_record    = {};
         readlink_target[0]         = '\0';
         readlink_target_length     = 0;
         open_file_value            = {};
@@ -463,6 +465,10 @@ namespace astia::io::aio::test_support {
 
     const symlink_record& last_symlink() {
         return detail::last_symlink_record;
+    }
+
+    const remove_record& last_remove_path() {
+        return detail::last_remove_path_record;
     }
 
     bool last_resolve_follow_final() {
@@ -1500,8 +1506,32 @@ namespace astia::fs {
         return 0;
     }
 
-    long remove_path(const char*, bool) {
+    long remove_path(const char* path, bool directory) {
+        auto& record = ::astia::io::aio::test_support::detail::last_remove_path_record;
+
+        record = {};
+
+        if (path != nullptr)
+            ::astia::io::aio::test_support::detail::copy_text(record.path, fs::path_max,
+                                                              path);
+
+        record.directory = directory;
+        record.called    = true;
+
         return 0;
+    }
+
+    long remove_path_verified(const char* path, bool directory,
+                              const node_identity& expected) {
+        const node_identity current = node_identity_of(path);
+
+        if (expected.device != 0 && current.device != expected.device)
+            return -EAGAIN;
+
+        if (expected.inode != 0 && current.inode != 0 && current.inode != expected.inode)
+            return -EAGAIN;
+
+        return remove_path(path, directory);
     }
 
     long rename_path(const char*, const char*) {

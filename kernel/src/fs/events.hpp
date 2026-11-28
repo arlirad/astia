@@ -7,4 +7,9 @@ namespace astia::fs::events {
     /// before the backend binds a node.  Fault-injection tests swap the
     /// target here to prove the check and the open observe one identity.
     struct open_checked : core::hook::event<open_checked, const char*> {};
+
+    /// Emitted after unlinkat has resolved and checked its pathname, just
+    /// before the VFS removes the node.  Fault-injection tests swap the
+    /// target here to prove the check and the removal observe one identity.
+    struct unlink_checked : core::hook::event<unlink_checked, const char*> {};
 } // namespace astia::fs::events

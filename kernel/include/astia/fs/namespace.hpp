@@ -95,6 +95,13 @@ namespace astia::fs {
                         u32 capacity, file_type* type, u64* inode);
     long make_directory(const char* path, file_mode mode);
     long remove_path(const char* path, bool directory);
+    /// remove_path() counterpart that removes only the node the caller
+    /// checked.  `expected` is the identity captured from the resolution the
+    /// permission checks used; a pathname that now names another node, or
+    /// another mount, fails with -EAGAIN and removes nothing.  A zero
+    /// identity skips the requirement.
+    long remove_path_verified(const char* path, bool directory,
+                              const node_identity& expected);
     /// Atomically rename within one mounted filesystem.  Different mounts
     /// are rejected with -EXDEV; the filesystem owns replacement rules.
     long      rename_path(const char* old_path, const char* new_path);

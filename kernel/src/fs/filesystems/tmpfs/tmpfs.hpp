@@ -184,6 +184,7 @@ namespace astia::fs::filesystems {
                                  file_type* type, u64* inode) override;
         long      mkdir(const char* path, file_mode mode) override;
         long      unlink(const char* path, bool directory) override;
+        long      unlink_verified(const char* path, bool directory, u64 inode) override;
         long      rename(const char* old_path, const char* new_path) override;
         long      link(const char* old_path, const char* new_path) override;
         file_type node_type(const char* path) const override;
@@ -203,6 +204,7 @@ namespace astia::fs::filesystems {
         mm::shptr<open_file> open_node(const char* path, u32 flags, u64 inode,
                                        const creation_attributes* attributes,
                                        long*                      error);
+        long                 unlink_node(const char* path, bool directory, u64 inode);
 
         struct entry {
             bool                  used      = false;
