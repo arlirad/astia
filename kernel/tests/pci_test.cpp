@@ -7,6 +7,7 @@
 #include <astia/dev/driver.hpp>
 #include <astia/dev/mmio.hpp>
 #include <astia/hw/pci.hpp>
+#include <astia/log.hpp>
 
 #include "task_host.hpp"
 #include "test.hpp"
@@ -320,6 +321,12 @@ namespace astia::arch {
         return fake_page_map_ready;
     }
 } // namespace astia::arch
+
+namespace astia::log::detail {
+    void prefix(record_builder&, level, const char*, astia::u32) {}
+
+    void emit(level, const char*, astia::u32) {}
+}
 
 ASTIA_TEST(pci_enumeration_discovers_bar_geometry) {
     astia::hw::driver_handle capture_handle{};

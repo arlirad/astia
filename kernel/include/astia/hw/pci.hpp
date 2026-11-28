@@ -40,6 +40,7 @@ namespace astia::hw {
         bool         prefetchable = false;
         bool         is_64bit     = false;
         bool         present      = false;
+        bool         probe_failed = false;
         bool         mapped_valid = false;
         u8           address_bits = 0;
         u8           index        = 0;

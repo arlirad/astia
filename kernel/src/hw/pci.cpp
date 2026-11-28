@@ -2,6 +2,7 @@
 #include <astia/core/endian.hpp>
 #include <astia/hw/driver.hpp>
 #include <astia/hw/pci.hpp>
+#include <astia/log.hpp>
 
 // Hardware-layer implementation.
 namespace astia::hw {
@@ -31,6 +32,9 @@ namespace astia::hw {
         constexpr u16 ext_cap_start         = 0x100;
         constexpr u16 ext_cap_end           = 0xffc;
         constexpr u32 resource_limit        = resource_limits::policy::pci_resources;
+        constexpr u32 restore_attempts      = 2;
+
+        using logs = log::context<"hw::pci">;
 
         pci_config_backend backend{};
         pci_mmio_map_fn    mmio_map   = nullptr;
@@ -136,6 +140,54 @@ namespace astia::hw {
             raw = (raw & ~(0xffffu << shift)) | (static_cast<u32>(value) << shift);
 
             return write_dword(address, static_cast<u16>(offset & ~3u), raw);
+        }
+
+        bool restore_dword(pci_bdf address, u16 offset, u32 value) {
+            for (u32 attempt = 0; attempt < restore_attempts; ++attempt) {
+                if (!write_dword(address, offset, value))
+                    return false;
+
+                u32 observed = 0;
+
+                if (read_dword(address, offset, observed) && observed == value)
+                    return true;
+            }
+
+            return false;
+        }
+
+        bool restore_word(pci_bdf address, u16 offset, u16 value) {
+            for (u32 attempt = 0; attempt < restore_attempts; ++attempt) {
+                if (!write_word_raw(address, offset, value, false))
+                    return false;
+
+                u16 observed = 0;
+
+                if (read_word(address, offset, observed) && observed == value)
+                    return true;
+            }
+
+            return false;
+        }
+
+        bool restore_bar(pci_bdf address, u16 offset, const pci_bar& bar, u32 original,
+                         u32 original_high) {
+            bool restored = true;
+
+            if (bar.is_64bit &&
+                !restore_dword(address, static_cast<u16>(offset + 4), original_high))
+                restored = false;
+
+            if (!restore_dword(address, offset, original))
+                restored = false;
+
+            return restored;
+        }
+
+        void mark_bar_unusable(pci_device& device, u8 index) {
+            device.bars[index]              = {};
+            device.bars[index].index        = index;
+            device.bars[index].probe_failed = true;
         }
 
         bool overlap(u64 first, u64 size, u64 other, u64 other_size) {
@@ -558,29 +610,38 @@ namespace astia::hw {
                             command & ~(command_io | command_memory), false))
             return false;
 
-        bool ok = write_dword(device.bdf, offset, ~u32{0});
+        bool programmed = write_dword(device.bdf, offset, ~u32{0});
 
-        if (ok && result.is_64bit)
-            ok = write_dword(device.bdf, static_cast<u16>(offset + 4), ~u32{0});
+        if (programmed && result.is_64bit)
+            programmed = write_dword(device.bdf, static_cast<u16>(offset + 4), ~u32{0});
 
-        u32 mask      = 0;
-        u32 mask_high = 0;
+        u32  mask      = 0;
+        u32  mask_high = 0;
+        bool sized     = programmed;
 
-        if (ok)
-            ok = read_dword(device.bdf, offset, mask);
+        if (sized)
+            sized = read_dword(device.bdf, offset, mask);
 
-        if (ok && result.is_64bit)
-            ok = read_dword(device.bdf, static_cast<u16>(offset + 4), mask_high);
+        if (sized && result.is_64bit)
+            sized = read_dword(device.bdf, static_cast<u16>(offset + 4), mask_high);
 
-        if (result.is_64bit)
-            ok = write_dword(device.bdf, static_cast<u16>(offset + 4), original_high) &&
-                 ok;
+        if (!restore_bar(device.bdf, offset, result, original, original_high)) {
+            mark_bar_unusable(device, index);
+            logs::error("bar %u at %u:%u.%u: restore failed; decode left disabled", index,
+                        device.bdf.bus, device.bdf.device, device.bdf.function);
 
-        ok = write_dword(device.bdf, offset, original) && ok;
+            return false;
+        }
 
-        write_word_raw(device.bdf, command_status_offset, command, false);
+        if (!restore_word(device.bdf, command_status_offset, command)) {
+            mark_bar_unusable(device, index);
+            logs::error("bar %u at %u:%u.%u: command restore failed", index,
+                        device.bdf.bus, device.bdf.device, device.bdf.function);
 
-        if (!ok)
+            return false;
+        }
+
+        if (!sized)
             return false;
 
         if (result.io) {
@@ -693,7 +754,8 @@ namespace astia::hw {
     bool pci_map_bar(pci_device& device, u8 index) {
         if (index >= device.bar_count || index >= resource_limits::abi::pci_bar_count ||
             device.bars[index].io || !device.bars[index].present ||
-            device.bars[index].mapped_valid || mmio_map == nullptr)
+            device.bars[index].probe_failed || device.bars[index].mapped_valid ||
+            mmio_map == nullptr)
             return false;
 
         if (!reserve_resource(device, index))
