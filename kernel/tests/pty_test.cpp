@@ -247,3 +247,38 @@ ASTIA_TEST(pty_slave_tcflush_discards_selected_queues) {
     ASTIA_CHECK(terminal.master_read(buffer, sizeof buffer) == 2);
     ASTIA_CHECK(memcmp(buffer, "ok", 2) == 0);
 }
+
+ASTIA_TEST(pty_onlcr_partial_write_emits_single_cr) {
+    astia::dev::pty terminal(8);
+
+    int lock = 0;
+
+    ASTIA_CHECK(terminal.master_ioctl(TIOCSPTLCK, &lock, sizeof lock) == 0);
+    ASTIA_CHECK(terminal.open_slave());
+
+    constexpr astia::u32 queue_capacity = 4096;
+    constexpr astia::u32 filler_length  = queue_capacity - 1;
+
+    char filler[filler_length];
+
+    memset(filler, 'x', sizeof filler);
+
+    ASTIA_CHECK(terminal.write(filler, sizeof filler, 0) ==
+                static_cast<long>(sizeof filler));
+    ASTIA_CHECK(terminal.write("\n", 1, 0) == 0);
+
+    char buffer[queue_capacity]{};
+
+    ASTIA_CHECK(terminal.master_read(buffer, sizeof buffer) ==
+                static_cast<long>(sizeof buffer));
+
+    for (astia::u32 i = 0; i < filler_length; ++i) {
+        ASTIA_CHECK(buffer[i] == 'x');
+    }
+
+    ASTIA_CHECK(buffer[filler_length] == '\r');
+
+    ASTIA_CHECK(terminal.write("\n", 1, 0) == 1);
+    ASTIA_CHECK(terminal.master_read(buffer, 1) == 1);
+    ASTIA_CHECK(buffer[0] == '\n');
+}

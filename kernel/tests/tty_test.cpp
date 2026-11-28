@@ -4,6 +4,7 @@
 #include "chr/tty.hpp"
 #include "support/test.hpp"
 
+#include <cstddef>
 #include <poll.h>
 #include <string>
 
@@ -50,6 +51,7 @@ namespace {
         using tty::tty_receive;
 
         std::string output;
+        std::size_t output_limit        = 0;
         astia::u8   last_signal         = 0;
         unsigned    ready_notifications = 0;
         bool        output_capacity     = true;
@@ -65,7 +67,7 @@ namespace {
 
         protected:
         bool tty_putc(astia::u8 byte) override {
-            if (!output_capacity)
+            if (!output_capacity || (output_limit != 0 && output.size() >= output_limit))
                 return false;
 
             output.push_back(static_cast<char>(byte));
@@ -553,6 +555,45 @@ ASTIA_TEST(tty_canonical_editing_and_output_processing) {
 
     ASTIA_CHECK(tty.write(text, 2, 0) == 2);
     ASTIA_CHECK(tty.output == "x\r\n");
+}
+
+ASTIA_TEST(tty_onlcr_split_write_resumes_without_duplicate_cr) {
+    test_tty tty;
+
+    set_termios(tty, 0, OPOST | ONLCR, ICANON);
+
+    const char text[] = "\n";
+
+    tty.output_limit = 1;
+
+    ASTIA_CHECK(tty.write(text, 1, 0) == 0);
+    ASTIA_CHECK(tty.output == "\r");
+
+    tty.output_limit = 0;
+
+    ASTIA_CHECK(tty.write(text, 1, 0) == 1);
+    ASTIA_CHECK(tty.output == "\r\n");
+}
+
+ASTIA_TEST(tty_onlcr_queue_full_mid_pair_keeps_output_exact) {
+    test_tty tty;
+
+    set_termios(tty, 0, OPOST | ONLCR, ICANON);
+
+    const char text[] = "abcde\nfghij\n";
+
+    tty.output_limit = 6;
+
+    ASTIA_CHECK(tty.write(text, 12, 0) == 5);
+    ASTIA_CHECK(tty.output == "abcde\r");
+
+    ASTIA_CHECK(tty.write(text + 5, 7, 0) == 0);
+    ASTIA_CHECK(tty.output == "abcde\r");
+
+    tty.output_limit = 0;
+
+    ASTIA_CHECK(tty.write(text + 5, 7, 0) == 7);
+    ASTIA_CHECK(tty.output == "abcde\r\nfghij\r\n");
 }
 
 ASTIA_TEST(tty_eof_and_software_flow_control) {
