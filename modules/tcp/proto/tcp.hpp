@@ -1,5 +1,6 @@
 #pragma once
 
+#include <astia/core/completion.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/core/task.hpp>
 #include <astia/net/address.hpp>
@@ -9,6 +10,8 @@
 #include "../headers/tcp.hpp"
 
 namespace astia::tcp {
+    class tcp_protocol;
+
     /// One TCP endpoint address.  The host must be a four-byte INET address.
     struct endpoint {
         net::link_address host{};
@@ -69,9 +72,35 @@ namespace astia::tcp {
         u32  receive_tail  = 0;
         u32  receive_count = 0;
 
+        enum class waiter_state : u8 {
+            free,
+            waiting,
+            delivering,
+        };
+
+        struct waiter {
+            waiter*              next = nullptr;
+            core::completion<u8> done{};
+            u32                  refs  = 0;
+            waiter_state         state = waiter_state::free;
+        };
+
+        static constexpr u32 waiter_limit = 4;
+
         u32 buffered() const {
             return receive_count;
         }
+
+        core::task<i64>         wait_established(core::cltoken token = {});
+        core::task<i64>         send_async(span<const u8> data, core::cltoken token = {});
+        core::task<i64>         receive_async(span<u8> data, core::cltoken token = {});
+        core::task<connection*> accept_async(core::cltoken token = {});
+
+        tcp_protocol*  owner  = nullptr;
+        u32            events = 0;
+        core::spinlock wait_lock{};
+        waiter         waiters[waiter_limit]{};
+        waiter*        waiting = nullptr;
     };
 
     /// Registered as `net::protocol_id::tcp`.  The first implementation is a
@@ -81,6 +110,11 @@ namespace astia::tcp {
         public:
         static constexpr u16 max_connections = 32;
         static constexpr u16 mss             = 1400;
+
+        static constexpr u32 event_established = 1u << 0;
+        static constexpr u32 event_data        = 1u << 1;
+        static constexpr u32 event_closed      = 1u << 2;
+        static constexpr u32 event_child       = 1u << 3;
 
         net::protocol_id id() const override;
 
@@ -106,6 +140,12 @@ namespace astia::tcp {
 
         u32 connection_count() const;
 
+        /// Await one of `events` on `value`; consumes the matching bit.
+        core::task<i64> wait(connection& value, u32 events, core::cltoken token = {});
+
+        /// Record an event and wake waiters.
+        void notify(connection& value, u32 events);
+
         private:
         connection* allocate();
         connection* find_exact(const endpoint& local, const endpoint& remote);
@@ -119,6 +159,9 @@ namespace astia::tcp {
 
         core::task<void> send_segment(connection& value, u16 flags, u32 seq, u32 ack,
                                       span<const u8> payload);
+
+        connection::waiter* acquire_waiter(connection& value);
+        void                release_waiter(connection& value, connection::waiter* waiter);
 
         connection _connections[max_connections]{};
         u32        _next_sequence = 0x1000;

@@ -45,11 +45,13 @@ namespace astia::tcp {
             if (value.used)
                 continue;
 
-            value        = {};
+            new (&value) connection();
+
             value.used   = true;
             value.window = 4096;
             value.state  = connection_state::closed;
             value.parent = 0xffff;
+            value.owner  = this;
 
             return &value;
         }
@@ -235,6 +237,8 @@ namespace astia::tcp {
         value->rcv_nxt          = static_cast<u32>(header.sequence) + 1;
         value->parent           = static_cast<u16>(listener - _connections);
 
+        notify(*listener, event_child);
+
         _next_sequence += 1;
 
         drive(send_segment(*value, flag_syn | flag_ack, value->snd_una, value->rcv_nxt,
@@ -268,6 +272,8 @@ namespace astia::tcp {
                 value.rcv_nxt = seq + 1;
                 value.state   = connection_state::established;
 
+                notify(value, event_established);
+
                 drive(send_segment(value, flag_ack, value.snd_nxt, value.rcv_nxt, {}));
             }
 
@@ -275,8 +281,11 @@ namespace astia::tcp {
         }
 
         if (value.state == connection_state::syn_received) {
-            if ((flags & flag_ack) && ack == value.snd_nxt)
+            if ((flags & flag_ack) && ack == value.snd_nxt) {
                 value.state = connection_state::established;
+
+                notify(value, event_established);
+            }
 
             return;
         }
@@ -294,6 +303,8 @@ namespace astia::tcp {
                 queue(value, data);
 
                 value.rcv_nxt += data.length;
+
+                notify(value, event_data);
             }
 
             drive(send_segment(value, flag_ack, value.snd_nxt, value.rcv_nxt, {}));
@@ -385,8 +396,200 @@ namespace astia::tcp {
     }
 
     void tcp_protocol::close(connection& value) {
+        notify(value, event_closed);
+
         value.state = connection_state::closed;
         value.used  = false;
+    }
+
+    connection::waiter* tcp_protocol::acquire_waiter(connection& value) {
+        core::spinlock_guard guard(value.wait_lock);
+
+        for (connection::waiter& waiter : value.waiters) {
+            if (waiter.refs != 0)
+                continue;
+
+            new (&waiter.done) core::completion<u8>();
+
+            waiter.next  = nullptr;
+            waiter.refs  = 1;
+            waiter.state = connection::waiter_state::free;
+
+            return &waiter;
+        }
+
+        return nullptr;
+    }
+
+    void tcp_protocol::release_waiter(connection& value, connection::waiter* waiter) {
+        if (waiter == nullptr)
+            return;
+
+        core::spinlock_guard guard(value.wait_lock);
+
+        if (waiter->refs == 0)
+            return;
+
+        --waiter->refs;
+
+        if (waiter->refs == 0) {
+            waiter->next  = nullptr;
+            waiter->state = connection::waiter_state::free;
+        }
+    }
+
+    void tcp_protocol::notify(connection& value, u32 events) {
+        connection::waiter* list = nullptr;
+
+        {
+            core::spinlock_guard guard(value.wait_lock);
+
+            value.events |= events;
+            list          = value.waiting;
+            value.waiting = nullptr;
+
+            for (connection::waiter* cursor = list; cursor != nullptr;
+                 cursor                     = cursor->next) {
+                cursor->state = connection::waiter_state::delivering;
+
+                ++cursor->refs;
+            }
+        }
+
+        while (list != nullptr) {
+            connection::waiter* next = list->next;
+
+            list->next = nullptr;
+
+            list->done.complete_deferred(1);
+
+            release_waiter(value, list);
+
+            list = next;
+        }
+    }
+
+    core::task<i64> tcp_protocol::wait(connection& value, u32 events,
+                                       core::cltoken token) {
+        while (true) {
+            if (token.canceled())
+                co_return -ECANCELED;
+
+            {
+                core::spinlock_guard guard(value.wait_lock);
+
+                if ((value.events & events) != 0) {
+                    value.events &= ~events;
+
+                    co_return 0;
+                }
+            }
+
+            connection::waiter* waiter = acquire_waiter(value);
+            if (waiter == nullptr)
+                co_return -EAGAIN;
+
+            bool armed = false;
+
+            {
+                core::spinlock_guard guard(value.wait_lock);
+
+                if ((value.events & events) == 0) {
+                    waiter->next  = value.waiting;
+                    value.waiting = waiter;
+                    waiter->state = connection::waiter_state::waiting;
+                    armed         = true;
+                }
+            }
+
+            if (!armed) {
+                release_waiter(value, waiter);
+
+                continue;
+            }
+
+            const auto result = co_await waiter->done;
+
+            release_waiter(value, waiter);
+
+            if (!result.has_value)
+                co_return -ECANCELED;
+        }
+    }
+
+    core::task<i64> connection::wait_established(core::cltoken token) {
+        if (owner == nullptr)
+            co_return -ENODEV;
+
+        while (true) {
+            if (state == connection_state::established)
+                co_return 0;
+
+            if (state == connection_state::closed || state == connection_state::listen)
+                co_return -ECONNRESET;
+
+            const auto result = co_await owner->wait(
+                *this, tcp_protocol::event_established | tcp_protocol::event_closed,
+                token);
+
+            if (!result.has_value)
+                co_return -ECANCELED;
+
+            if (result.value < 0)
+                co_return result.value;
+        }
+    }
+
+    core::task<i64> connection::send_async(span<const u8> data, core::cltoken token) {
+        if (owner == nullptr)
+            co_return -ENODEV;
+
+        if (token.canceled())
+            co_return -ECANCELED;
+
+        co_return owner->send_data(*this, data);
+    }
+
+    core::task<i64> connection::receive_async(span<u8> data, core::cltoken token) {
+        if (owner == nullptr)
+            co_return -ENODEV;
+
+        while (true) {
+            const i64 result = owner->recv_data(*this, data);
+
+            if (result != -EAGAIN)
+                co_return result;
+
+            if (state == connection_state::closed ||
+                state == connection_state::close_wait)
+                co_return 0;
+
+            const auto waited = co_await owner->wait(
+                *this, tcp_protocol::event_data | tcp_protocol::event_closed, token);
+
+            if (!waited.has_value)
+                co_return -ECANCELED;
+
+            if (waited.value < 0)
+                co_return waited.value;
+        }
+    }
+
+    core::task<connection*> connection::accept_async(core::cltoken token) {
+        if (owner == nullptr || state != connection_state::listen)
+            co_return nullptr;
+
+        while (true) {
+            connection* value = owner->accept(*this);
+            if (value != nullptr)
+                co_return value;
+
+            const auto waited = co_await owner->wait(
+                *this, tcp_protocol::event_child | tcp_protocol::event_closed, token);
+
+            if (!waited.has_value || waited.value < 0)
+                co_return nullptr;
+        }
     }
 
     core::task<void> tcp_protocol::send_segment(connection& value, u16 flags, u32 seq,
