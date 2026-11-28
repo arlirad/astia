@@ -1,29 +1,12 @@
 #include "ext4_reader.hpp"
 
+#include "ext4_disk.hpp"
+
 #include <astia/core/endian.hpp>
 
 namespace astia::ext4 {
     namespace {
-        constexpr u16 super_magic        = 0xEF53;
-        constexpr u32 compat_has_journal = 0x0004;
-        constexpr u32 compat_dir_index   = 0x0020;
-        constexpr u32 incompat_filetype  = 0x0002;
-        constexpr u32 incompat_extents   = 0x0040;
-        constexpr u32 incompat_64bit     = 0x0080;
-        constexpr u32 incompat_csum_seed = 0x2000;
-        constexpr u32 incompat_largedir  = 0x4000;
-        constexpr u32 ro_sparse_super    = 0x0001;
-        constexpr u32 ro_large_file      = 0x0002;
-        constexpr u32 ro_huge_file       = 0x0008;
-        constexpr u32 ro_gdt_csum        = 0x0010;
-        constexpr u32 ro_dir_nlink       = 0x0020;
-        constexpr u32 ro_extra_isize     = 0x0040;
-        constexpr u32 ro_metadata_csum   = 0x0400;
-        constexpr u32 ro_readonly        = 0x1000;
-        constexpr u32 inode_extents      = 0x00080000;
-        constexpr u32 inode_index        = 0x00001000;
-        constexpr u16 extent_magic       = 0xF30A;
-        constexpr u8  dx_hash_last       = 6;
+        constexpr u8 dx_hash_last = 6;
 
         u16 get16(const u8* p) {
             return core::le<u16>::load(p);
@@ -59,19 +42,7 @@ namespace astia::ext4 {
     } // namespace
 
     u32 reader::crc32c(u32 seed, const void* data, usz length) {
-        u32 crc = seed;
-
-        const auto* bytes = static_cast<const u8*>(data);
-
-        for (usz i = 0; i < length; ++i) {
-            crc ^= bytes[i];
-
-            for (u32 bit = 0; bit < 8; ++bit) {
-                crc = (crc >> 1) ^ (0x82F63B78u & static_cast<u32>(-(crc & 1u)));
-            }
-        }
-
-        return crc;
+        return ::astia::ext4::crc32c(seed, data, length);
     }
 
     bool reader::read_bytes(u64 offset, void* buffer, usz length) {

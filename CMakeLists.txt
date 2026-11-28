@@ -449,7 +449,8 @@ if(ASTIA_BUILD_TESTS)
             ps2_keyboard_unit_target
             ip_unit_target
             udp_unit_target
-            ext4_unit_target)
+            ext4_unit_target
+            ext4_disk_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -477,7 +478,8 @@ if(ASTIA_BUILD_TESTS)
             ps2_keyboard_unit_target
             ip_unit_target
             udp_unit_target
-            ext4_unit_target)
+            ext4_unit_target
+            ext4_disk_unit_target)
 
     add_test(NAME astia_module_host_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}

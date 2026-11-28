@@ -1127,6 +1127,7 @@ add_test(NAME astia_kernel_symbol_visibility
 astia_add_host_test(astia_ext4_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/tests/ext4_test.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
 )
 target_include_directories(astia_ext4_test PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/ext4)
@@ -1148,6 +1149,7 @@ if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
     add_executable(astia_ext4_real_test
             ${CMAKE_SOURCE_DIR}/modules/ext4/tests/ext4_real_test.cpp
             ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
+            ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
     )
     set_target_properties(astia_ext4_real_test PROPERTIES LINK_OPTIONS "")
     astia_apply_host_sanitizers(astia_ext4_real_test)
@@ -1294,6 +1296,7 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_mount.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_file.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/module_main.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp

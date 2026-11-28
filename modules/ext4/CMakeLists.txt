@@ -4,11 +4,13 @@ set(ASTIA_EXT4_SOURCES
         module_main.cpp
         ext4_mount.cpp
         ext4_file.cpp
-        ext4_reader.cpp)
+        ext4_reader.cpp
+        ext4_disk.cpp)
 
 set(ASTIA_EXT4_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/ext4.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.hpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.hpp)
 
 set(ASTIA_EXT4_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/aio.h
@@ -90,11 +92,13 @@ add_custom_command(
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/main.cpp
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/main.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/test.hpp
                 ${ASTIA_EXT4_LOCAL_HEADERS}
@@ -103,9 +107,55 @@ add_custom_command(
 
 add_custom_target(ext4_unit_target ALL DEPENDS ${ASTIA_EXT4_UNIT})
 
+set(ASTIA_EXT4_DISK_UNIT ${CMAKE_CURRENT_BINARY_DIR}/ext4_disk_unit)
+
+add_custom_command(
+        OUTPUT ${ASTIA_EXT4_DISK_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -DASTIA_HOST_TEST=1
+                -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_disk_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_EXT4_DISK_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_disk_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${ASTIA_EXT4_LOCAL_HEADERS}
+                ${ASTIA_EXT4_ABI_HEADERS}
+        VERBATIM)
+
+add_custom_target(ext4_disk_unit_target ALL DEPENDS ${ASTIA_EXT4_DISK_UNIT})
+
 if(ASTIA_BUILD_TESTS)
     add_test(NAME ext4_unit COMMAND ${ASTIA_EXT4_UNIT})
     astia_add_test_label(ext4_unit "sanitizer-host")
+
+    find_program(ASTIA_EXT4_MKFS_EXT4 mkfs.ext4)
+    find_program(ASTIA_EXT4_E2FSCK e2fsck)
+    if(ASTIA_EXT4_MKFS_EXT4 AND ASTIA_EXT4_E2FSCK)
+        set(_astia_ext4_disk_work ${CMAKE_CURRENT_BINARY_DIR}/ext4-disk-test)
+        add_custom_target(ext4_disk_test_target
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_astia_ext4_disk_work}
+                COMMAND ${CMAKE_COMMAND} -E env
+                        EXT4_DISK_TOOL=${ASTIA_EXT4_DISK_UNIT}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_disk_test.sh
+                        ${_astia_ext4_disk_work}/fixture.img
+                        ${_astia_ext4_disk_work}
+                DEPENDS ${ASTIA_EXT4_DISK_UNIT}
+                VERBATIM)
+        add_test(NAME ext4_disk_test
+                COMMAND ${CMAKE_COMMAND} -E env
+                        EXT4_DISK_TOOL=${ASTIA_EXT4_DISK_UNIT}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_disk_test.sh
+                        ${_astia_ext4_disk_work}/fixture.img
+                        ${_astia_ext4_disk_work})
+        astia_add_test_label(ext4_disk_test "ext4;filesystem;sanitizer-host")
+    endif()
 endif()
 
 add_custom_target(ext4_qemu_probe_smoke
