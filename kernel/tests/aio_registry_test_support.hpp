@@ -37,6 +37,12 @@ namespace astia::io::aio::test_support {
         bool  follow_final = true;
     };
 
+    struct chmod_record {
+        bool                 called = false;
+        char                 path[fs::path_max]{};
+        fs::file_permissions permissions{};
+    };
+
     struct symlink_record {
         char target[fs::path_max]{};
         char path[fs::path_max]{};
@@ -48,6 +54,7 @@ namespace astia::io::aio::test_support {
     void clear_current_process();
 
     const chown_record&   last_chown_path();
+    const chmod_record&   last_chmod_path();
     const symlink_record& last_symlink();
     void                  set_readlink_target(const char* target);
 
