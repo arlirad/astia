@@ -408,6 +408,22 @@ namespace astia::fs {
         return result;
     }
 
+    mm::shptr<open_file> mount::open_creating(const char* path, u32 flags,
+                                              const creation_attributes& attributes,
+                                              long*                      error) {
+        (void) attributes;
+
+        return open(path, flags, error);
+    }
+
+    mm::shptr<open_file>
+    mount::open_creating_verified(const char* path, u32 flags, u64 inode,
+                                  const creation_attributes& attributes, long* error) {
+        (void) attributes;
+
+        return open_verified(path, flags, inode, error);
+    }
+
     long mount::register_file(const char* path, const mm::shptr<file>& entry) {
         (void) path;
         (void) entry;
@@ -914,21 +930,38 @@ namespace astia::fs {
             relative_path(*operation.entry(), path), entry);
     }
 
-    mm::shptr<open_file> open_path(const char* path, u32 flags, long* error) {
-        char resolved[path_max]{};
+    namespace {
+        mm::shptr<open_file> open_resolved(const char* path, u32 flags,
+                                           const creation_attributes* attributes,
+                                           long*                      error) {
+            char resolved[path_max]{};
 
-        if (resolve_path(path, resolved, sizeof resolved, true) < 0)
-            return {};
+            if (resolve_path(path, resolved, sizeof resolved, true) < 0)
+                return {};
 
-        mount_operation operation(resolved);
+            mount_operation operation(resolved);
 
-        if (!operation)
-            return {};
+            if (!operation)
+                return {};
 
-        mm::shptr<file> unix_endpoint;
+            mm::shptr<file> unix_endpoint;
 
-        if (lookup_unix_path(resolved, unix_endpoint) == 0) {
-            auto result = mm::share<open_file>(unix_endpoint, flags);
+            if (lookup_unix_path(resolved, unix_endpoint) == 0) {
+                auto result = mm::share<open_file>(unix_endpoint, flags);
+                if (result) {
+                    result->set_path(resolved);
+                    result->attach_mount(operation.instance());
+                }
+
+                return result;
+            }
+
+            const char* relative = relative_path(*operation.entry(), resolved);
+
+            auto result = attributes != nullptr
+                              ? operation.instance()->open_creating(relative, flags,
+                                                                    *attributes, error)
+                              : operation.instance()->open(relative, flags, error);
             if (result) {
                 result->set_path(resolved);
                 result->attach_mount(operation.instance());
@@ -936,15 +969,16 @@ namespace astia::fs {
 
             return result;
         }
+    } // namespace
 
-        auto result = operation.instance()->open(
-            relative_path(*operation.entry(), resolved), flags, error);
-        if (result) {
-            result->set_path(resolved);
-            result->attach_mount(operation.instance());
-        }
+    mm::shptr<open_file> open_path(const char* path, u32 flags, long* error) {
+        return open_resolved(path, flags, nullptr, error);
+    }
 
-        return result;
+    mm::shptr<open_file> open_creating(const char* path, u32 flags,
+                                       const creation_attributes& attributes,
+                                       long*                      error) {
+        return open_resolved(path, flags, &attributes, error);
     }
 
     mm::shptr<open_file> open(const char* path, u32 flags, long* error) {
@@ -982,6 +1016,48 @@ namespace astia::fs {
 
         auto result = operation.instance()->open_verified(
             relative_path(*operation.entry(), path), flags, expected.inode, error);
+        if (result) {
+            result->set_path(path);
+            result->attach_mount(operation.instance());
+        }
+
+        return result;
+    }
+
+    mm::shptr<open_file> open_creating_verified(const char* path, u32 flags,
+                                                const node_identity&       expected,
+                                                const creation_attributes& attributes,
+                                                long*                      error) {
+        if (path == nullptr || path[0] != '/')
+            return {};
+
+        mount_operation operation(path);
+
+        if (!operation)
+            return {};
+
+        if (expected.device != 0 && operation.instance()->device() != expected.device) {
+            if (error != nullptr)
+                *error = -EAGAIN;
+
+            return {};
+        }
+
+        mm::shptr<file> unix_endpoint;
+
+        if (lookup_unix_path(path, unix_endpoint) == 0) {
+            auto result = mm::share<open_file>(unix_endpoint, flags);
+            if (result) {
+                result->set_path(path);
+                result->attach_mount(operation.instance());
+            }
+
+            return result;
+        }
+
+        auto result = operation.instance()->open_creating_verified(
+            relative_path(*operation.entry(), path), flags, expected.inode, attributes,
+            error);
         if (result) {
             result->set_path(path);
             result->attach_mount(operation.instance());

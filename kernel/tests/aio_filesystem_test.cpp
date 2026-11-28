@@ -50,7 +50,7 @@ namespace {
         return capture.result(0);
     }
 
-    i32 submit_openat(char* path, u32 flags) {
+    i32 submit_openat(char* path, u32 flags, u32 mode = 0) {
         using namespace aio::test_support;
 
         cq_capture           capture;
@@ -59,6 +59,7 @@ namespace {
 
         sqe.address  = reinterpret_cast<u64>(path);
         sqe.op_flags = flags;
+        sqe.aux      = mode;
 
         if (!aio::registry::dispatch(slot, &capture.ring, sqe))
             return -EIO;
@@ -457,6 +458,48 @@ ASTIA_TEST(aio_filesystem_openat_create_allows_writable_parent) {
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT) == 3);
 
     restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_passes_final_metadata) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_process_umask(0027);
+    set_node_mode(fs::file_mode{});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/shared/private";
+
+    ASTIA_CHECK(submit_openat(path,
+                              ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL | ASTIA_AIO_O_WRONLY,
+                              0666) == 3);
+
+    const creation_record& call = last_creation();
+
+    ASTIA_CHECK(call.called);
+    ASTIA_CHECK(__builtin_strcmp(call.path, path) == 0);
+    ASTIA_CHECK(call.attributes.permissions.raw() == 0640);
+
+    set_process_umask(0);
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_excl_skips_creation_metadata) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/existing", 0666, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/existing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL, 0600) ==
+                -EEXIST);
+    ASTIA_CHECK(!last_creation().called);
 }
 
 ASTIA_TEST(aio_filesystem_openat_create_allows_root_in_writable_parent) {

@@ -60,16 +60,30 @@ namespace astia::fs::filesystems {
     }
 
     mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags, long* error) {
-        return open_node(path, flags, 0, error);
+        return open_node(path, flags, 0, nullptr, error);
     }
 
     mm::shptr<open_file> tmpfs_mount::open_verified(const char* path, u32 flags,
                                                     u64 inode, long* error) {
-        return open_node(path, flags, inode, error);
+        return open_node(path, flags, inode, nullptr, error);
+    }
+
+    mm::shptr<open_file> tmpfs_mount::open_creating(const char* path, u32 flags,
+                                                    const creation_attributes& attributes,
+                                                    long*                      error) {
+        return open_node(path, flags, 0, &attributes, error);
+    }
+
+    mm::shptr<open_file>
+    tmpfs_mount::open_creating_verified(const char* path, u32 flags, u64 inode,
+                                        const creation_attributes& attributes,
+                                        long*                      error) {
+        return open_node(path, flags, inode, &attributes, error);
     }
 
     mm::shptr<open_file> tmpfs_mount::open_node(const char* path, u32 flags, u64 inode,
-                                                long* error) {
+                                                const creation_attributes* attributes,
+                                                long*                      error) {
         if (path == nullptr || path[0] != '/') {
             set_error(error, -EINVAL);
 
@@ -150,13 +164,23 @@ namespace astia::fs::filesystems {
 
         parent[end > 1 ? end - 1 : 1] = '\0';
 
-        auto file = mm::shptr<tmpfs_file>(new tmpfs_file{});
+        const file_mode mode =
+            attributes != nullptr
+                ? file_mode(file_type::regular, attributes->permissions)
+                : file_mode(file_type::regular, default_file_permissions);
+        const uid_t uid = attributes != nullptr ? attributes->uid : uid_t{};
+        const gid_t gid = attributes != nullptr ? attributes->gid : gid_t{};
+
+        auto file = mm::shptr<tmpfs_file>(new tmpfs_file{tmpfs_max_pages, mode});
 
         if (!file || file->memory_region() == nullptr) {
             set_error(error, -ENOMEM);
 
             return {};
         }
+
+        if (attributes != nullptr)
+            (void) file->chown(uid, gid);
 
         {
             core::spinlock_guard guard(_namespace_lock);
@@ -200,12 +224,11 @@ namespace astia::fs::filesystems {
                         return {};
                     }
 
-                    entry_table()[i].used      = true;
+                    entry_table()[i].mode      = mode;
+                    entry_table()[i].target    = file;
                     entry_table()[i].directory = false;
-                    entry_table()[i].mode =
-                        file_mode(file_type::regular, default_file_permissions);
-                    entry_table()[i].target = file;
-                    published               = true;
+                    entry_table()[i].used      = true;
+                    published                  = true;
 
                     break;
                 }

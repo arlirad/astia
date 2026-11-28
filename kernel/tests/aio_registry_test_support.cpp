@@ -45,6 +45,7 @@ namespace astia::io::aio::test_support {
         bool                 memory_allowed = true;
         chown_record         last_chown_path_record;
         chmod_record         last_chmod_path_record;
+        creation_record      last_creation_record;
         symlink_record       last_symlink_record;
         char                 readlink_target[fs::path_max]{};
         usz                  readlink_target_length = 0;
@@ -429,6 +430,7 @@ namespace astia::io::aio::test_support {
         memory_allowed         = true;
         last_chown_path_record = {};
         last_chmod_path_record = {};
+        last_creation_record   = {};
         timer_hz_value         = 1000;
         timer_ticks_value      = 0;
         generation_value       = 0;
@@ -453,6 +455,10 @@ namespace astia::io::aio::test_support {
 
     const chmod_record& last_chmod_path() {
         return detail::last_chmod_path_record;
+    }
+
+    const creation_record& last_creation() {
+        return detail::last_creation_record;
     }
 
     const symlink_record& last_symlink() {
@@ -583,6 +589,11 @@ namespace astia::io::aio::test_support {
 
         (void) current->seteuid(raw_id(uid));
         (void) current->setegid(raw_id(gid));
+    }
+
+    void set_process_umask(u32 mask) {
+        if (current != nullptr)
+            (void) current->set_umask(mask);
     }
 
     void set_memory_allowed(bool allowed) {
@@ -1334,6 +1345,37 @@ namespace astia::fs {
             return {};
 
         return result;
+    }
+
+    mm::shptr<open_file> open_creating(const char* path, u32 flags,
+                                       const creation_attributes& attributes,
+                                       long*                      error) {
+        auto& record = ::astia::io::aio::test_support::detail::last_creation_record;
+
+        record            = {};
+        record.called     = true;
+        record.attributes = attributes;
+
+        ::astia::io::aio::test_support::detail::copy_text(record.path, sizeof record.path,
+                                                          path != nullptr ? path : "");
+
+        return open_path(path, flags, error);
+    }
+
+    mm::shptr<open_file> open_creating_verified(const char* path, u32 flags,
+                                                const node_identity&       expected,
+                                                const creation_attributes& attributes,
+                                                long*                      error) {
+        auto& record = ::astia::io::aio::test_support::detail::last_creation_record;
+
+        record            = {};
+        record.called     = true;
+        record.attributes = attributes;
+
+        ::astia::io::aio::test_support::detail::copy_text(record.path, sizeof record.path,
+                                                          path != nullptr ? path : "");
+
+        return open_verified(path, flags, expected, error);
     }
 
     bool read_only_path(const char*) {
