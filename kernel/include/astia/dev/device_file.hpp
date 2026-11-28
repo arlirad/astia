@@ -38,7 +38,7 @@ namespace astia::dev {
                                                u64 generation);
         bool            quiescent() const;
         core::task<i64> readv(span<const fs::buffer> buffers, u64 offset,
-                              core::cltoken token) override;
+                              core::cltoken token, bool nonblock) override;
         core::task<i64> writev(span<const fs::buffer> buffers, u64 offset,
                                core::cltoken token, bool nonblock) override;
         long            submit(io::request& request) override;

@@ -18,7 +18,8 @@
 using namespace astia;
 
 namespace {
-    constexpr u32 dgram_queue_capacity = resource_limits::queue::unix_datagrams;
+    constexpr u32 dgram_queue_capacity  = resource_limits::queue::unix_datagrams;
+    constexpr u32 stream_capacity_bytes = 4096;
 
     template <typename T>
     T drive_task(core::task<T> task) {
@@ -53,6 +54,30 @@ namespace {
 
     i64 read_datagram(fs::open_file& socket, u8& value) {
         auto task = socket.read(span<u8>(&value, 1));
+
+        while (!task.done()) {
+            task.resume();
+        }
+
+        if (task.failed())
+            return -1;
+
+        return *task.value();
+    }
+
+    bool make_stream_pair(mm::shptr<fs::open_file>& left,
+                          mm::shptr<fs::open_file>& right) {
+        return fs::unix_socketpair(left, right, SOCK_STREAM) == 0 && left && right;
+    }
+
+    i64 fill_stream(fs::open_file& socket) {
+        u8 data[stream_capacity_bytes]{};
+
+        for (u32 i = 0; i < stream_capacity_bytes; ++i) {
+            data[i] = static_cast<u8>(i);
+        }
+
+        auto task = socket.write(span<const u8>(data, sizeof data));
 
         while (!task.done()) {
             task.resume();
@@ -1060,4 +1085,165 @@ ASTIA_TEST(unix_stream_sendmsg_recvmsg_roundtrip) {
 
     ASTIA_CHECK(message.length == 6);
     ASTIA_CHECK(output[0] == 's' && output[5] == 'm');
+}
+
+ASTIA_TEST(unix_stream_nonblocking_empty_read_returns_eagain) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    if (!make_stream_pair(left, right))
+        return;
+
+    right->set_status_flags(static_cast<u32>(fs::open_file_status_flags::nonblock));
+
+    u8 value = 0;
+
+    auto read = right->read(span<u8>(&value, 1));
+
+    ASTIA_CHECK(read.resume());
+    ASTIA_CHECK(read.done());
+    ASTIA_CHECK(read.failed());
+    ASTIA_CHECK(read.error() == astia::error_t::eagain);
+}
+
+ASTIA_TEST(unix_stream_nonblocking_full_write_returns_eagain) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    if (!make_stream_pair(left, right))
+        return;
+
+    ASTIA_CHECK(fill_stream(*left) == stream_capacity_bytes);
+
+    left->set_status_flags(static_cast<u32>(fs::open_file_status_flags::nonblock));
+
+    const u8 overflow = 0xee;
+
+    auto write = left->write(span<const u8>(&overflow, 1));
+
+    ASTIA_CHECK(write.resume());
+    ASTIA_CHECK(write.done());
+    ASTIA_CHECK(write.failed());
+    ASTIA_CHECK(write.error() == astia::error_t::eagain);
+}
+
+ASTIA_TEST(unix_stream_blocking_read_parks_and_wakes) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    if (!make_stream_pair(left, right))
+        return;
+
+    u8 value = 0;
+
+    auto blocked = left->read(span<u8>(&value, 1));
+
+    ASTIA_CHECK(blocked.resume());
+    ASTIA_CHECK(!blocked.done());
+    ASTIA_CHECK(!left->parent()->pending().full());
+
+    const u8 payload = 0x5a;
+
+    auto sent = right->write(span<const u8>(&payload, 1));
+
+    ASTIA_CHECK(sent.resume());
+    ASTIA_CHECK(sent.done());
+    ASTIA_CHECK(!sent.failed());
+
+    left->parent()->pending().service();
+
+    ASTIA_CHECK(blocked.done());
+    ASTIA_CHECK(!blocked.failed());
+    ASTIA_CHECK(*blocked.value() == 1);
+    ASTIA_CHECK(value == payload);
+}
+
+ASTIA_TEST(unix_stream_blocking_full_write_parks_and_wakes) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    if (!make_stream_pair(left, right))
+        return;
+
+    ASTIA_CHECK(fill_stream(*left) == stream_capacity_bytes);
+
+    const u8 overflow = 0x77;
+
+    auto blocked = left->write(span<const u8>(&overflow, 1));
+
+    ASTIA_CHECK(blocked.resume());
+    ASTIA_CHECK(!blocked.done());
+
+    u8 drained = 0;
+
+    auto read = right->read(span<u8>(&drained, 1));
+
+    ASTIA_CHECK(read.resume());
+    ASTIA_CHECK(read.done());
+    ASTIA_CHECK(!read.failed());
+
+    left->parent()->pending().service();
+
+    ASTIA_CHECK(blocked.done());
+    ASTIA_CHECK(!blocked.failed());
+    ASTIA_CHECK(*blocked.value() == 1);
+}
+
+ASTIA_TEST(unix_stream_poll_tracks_readiness) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    mm::shptr<fs::open_file> left;
+    mm::shptr<fs::open_file> right;
+
+    if (!make_stream_pair(left, right))
+        return;
+
+    ASTIA_CHECK(left->poll(POLLIN) == 0);
+    ASTIA_CHECK(left->poll(POLLOUT) == POLLOUT);
+
+    const u8 payload = 0x11;
+
+    auto sent = right->write(span<const u8>(&payload, 1));
+
+    ASTIA_CHECK(sent.resume());
+    ASTIA_CHECK(sent.done());
+    ASTIA_CHECK(!sent.failed());
+
+    ASTIA_CHECK(left->poll(POLLIN) == POLLIN);
+
+    ASTIA_CHECK(fill_stream(*left) == stream_capacity_bytes);
+    ASTIA_CHECK(left->poll(POLLOUT) == 0);
+
+    u8 drained = 0;
+
+    auto read = right->read(span<u8>(&drained, 1));
+
+    ASTIA_CHECK(read.resume());
+    ASTIA_CHECK(read.done());
+    ASTIA_CHECK(!read.failed());
+
+    ASTIA_CHECK(left->poll(POLLOUT) == POLLOUT);
 }
