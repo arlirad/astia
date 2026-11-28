@@ -11,6 +11,7 @@ import hashlib
 import html
 import json
 import os
+import posixpath
 import re
 import stat
 import sys
@@ -192,13 +193,17 @@ def overview_pages(records: tuple[dict, ...]) -> list[tuple[str, str, str]]:
     return pages
 
 
-def render_overview(name: str, title: str, body: str) -> str:
+def stylesheet_href(page_name: str) -> str:
+    return posixpath.relpath("nodivia.css", posixpath.dirname(page_name) or ".")
+
+
+def render_overview(name: str, title: str, body: str, stylesheet: str) -> str:
     page_title = f"{name}(7)"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(page_title)} - Astia manual</title>
-<link rel="stylesheet" href="nodivia.css"></head>
+<link rel="stylesheet" href="{html.escape(stylesheet, quote=True)}"></head>
 <body><main class="surface surface__flex">
 <article class="surface__level__1 surface__minor">
 <h1>{html.escape(page_title)}</h1>
@@ -208,14 +213,14 @@ def render_overview(name: str, title: str, body: str) -> str:
 """
 
 
-def render_markdown_page(name: str, markdown: str, section: int) -> str:
+def render_markdown_page(name: str, markdown: str, section: int, stylesheet: str) -> str:
     _, body = markdown_page(markdown, name)
     page_title = f"{name}({section})"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(page_title)} - Astia manual</title>
-<link rel="stylesheet" href="../nodivia.css"></head>
+<link rel="stylesheet" href="{html.escape(stylesheet, quote=True)}"></head>
 <body><main class="surface surface__flex">
 <article class="surface__level__1 surface__minor">
 <h1>{html.escape(page_title)}</h1>
@@ -1462,7 +1467,7 @@ def export_section2(
         transaction.commit()
 
 
-def render(name: str, body: str, section: int) -> str:
+def render(name: str, body: str, section: int, stylesheet: str) -> str:
     sections = []
     for heading, lines in body_sections(body).items():
         content = "\n".join(lines).strip()
@@ -1500,7 +1505,7 @@ def render(name: str, body: str, section: int) -> str:
 <html lang=\"en\"><head><meta charset=\"utf-8\">
 <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
 <title>{html.escape(title)} - Astia manual</title>
-<link rel=\"stylesheet\" href=\"../nodivia.css\"></head>
+<link rel=\"stylesheet\" href=\"{html.escape(stylesheet, quote=True)}\"></head>
 <body><main class=\"surface surface__flex\">
 <article class=\"surface__level__1 surface__minor\">
 <h1>{html.escape(title)}</h1>
@@ -1653,21 +1658,25 @@ def main() -> int:
         output = transaction.output
         output.write_atomic("nodivia.css", args.css.read_text())
         for (name, section), (body, _) in sorted(pages.items()):
+            page_name = f"{name}.{section}.html"
+            stylesheet = stylesheet_href(page_name)
             output.write_atomic(
-                f"{name}.{section}.html",
-                render_markdown_page(name, body, section)
+                page_name,
+                render_markdown_page(name, body, section, stylesheet)
                 if section == 2
-                else render(name, body, section),
+                else render(name, body, section, stylesheet),
             )
         for name, title, body in overviews:
+            page_name = f"{name}.7.html"
             output.write_atomic(
-                f"{name}.7.html",
-                render_overview(name, title, body),
+                page_name,
+                render_overview(name, title, body, stylesheet_href(page_name)),
             )
         output.write_atomic(
             "index.html",
             "<!doctype html><html><head><meta charset='utf-8'><title>Astia manual</title>"
-            "<link rel='stylesheet' href='nodivia.css'></head><body><main class='surface'>"
+            f"<link rel='stylesheet' href='{html.escape(stylesheet_href('index.html'), quote=True)}'>"
+            "</head><body><main class='surface'>"
             "<h1>Astia manual</h1>" + grouped + "</main></body></html>\n",
         )
         write_man_manifest(output, current_owned)

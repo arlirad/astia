@@ -467,6 +467,46 @@ class GenerateTest(unittest.TestCase):
             for page in docs.section7:
                 self.assertTrue((root / "site" / f"{page['name']}.7.html").is_file())
 
+    def test_generated_pages_resolve_their_stylesheet(self):
+        class StylesheetParser(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.hrefs: list[str] = []
+
+            def handle_starttag(self, tag, attrs):
+                values = dict(attrs)
+                if tag == "link" and values.get("rel") == "stylesheet":
+                    self.hrefs.append(values["href"])
+
+        self.assertEqual(generate.stylesheet_href("index.html"), "nodivia.css")
+        self.assertEqual(generate.stylesheet_href("io_setup.2.html"), "nodivia.css")
+        self.assertEqual(generate.stylesheet_href("group/page.2.html"), "../nodivia.css")
+
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
+            root = Path(temporary)
+            site = root / "site"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(TOOLS_MAN / "generate.py"),
+                    str(REPO_ROOT / "kernel/src"),
+                    str(site),
+                    "--docs",
+                    str(REPO_ROOT / "docs"),
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+            )
+            pages = sorted(site.glob("*.html"))
+            self.assertGreater(len(pages), 1)
+            for page in pages:
+                parser = StylesheetParser()
+                parser.feed(page.read_text())
+                self.assertTrue(parser.hrefs, page.name)
+                for href in parser.hrefs:
+                    with self.subTest(page=page.name, href=href):
+                        self.assertTrue((page.parent / href).is_file())
+
     def test_static_man_index_nests_proc_taxonomy_with_exact_counts(self):
         class IndexParser(HTMLParser):
             def __init__(self) -> None:
