@@ -13,7 +13,7 @@ namespace astia::acpi::detail {
         added.name                 = name;
         added.parent               = parent;
         added.kind                 = static_cast<u8>(kind);
-        added.transient            = _static_values != 0;
+        added.transient            = !_building;
         added.value                = no_value;
         added.target               = no_node;
         added.next_sibling         = _nodes[parent].first_child;

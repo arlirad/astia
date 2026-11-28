@@ -432,6 +432,10 @@ namespace {
         0x4d, 0x31, 0x5f, 0x5f, 0x00, 0xa4, 0x5e, 0x5e, 0x46, 0x4f, 0x4f, 0x5f, 0x14,
         0x0b, 0x4d, 0x32, 0x5f, 0x5f, 0x00, 0xa4, 0x46, 0x4f, 0x4f, 0x5f};
 
+    constexpr u8 zero_value_aml[] = {0x10, 0x17, 0x5f, 0x53, 0x42, 0x5f, 0x14, 0x11,
+                                     0x4d, 0x5f, 0x5f, 0x5f, 0x00, 0x08, 0x54, 0x4d,
+                                     0x50, 0x5f, 0x01, 0xa4, 0x54, 0x4d, 0x50, 0x5f};
+
     constexpr u8 pci_bound_aml[] = {
         0x10, 0x49, 0x04, 0x5f, 0x53, 0x42, 0x5f, 0x5b, 0x82, 0x41, 0x04, 0x50, 0x43,
         0x49, 0x30, 0x08, 0x5f, 0x48, 0x49, 0x44, 0x0c, 0x41, 0xd0, 0x0a, 0x08, 0x08,
@@ -1979,6 +1983,62 @@ ASTIA_TEST(acpi_aml_evaluates_paths_and_buffers) {
 
     ASTIA_CHECK(target.interpreter.package(value, package));
     ASTIA_CHECK(package != nullptr && package->count == 9);
+}
+
+ASTIA_TEST(acpi_aml_method_local_nodes_removed_with_zero_static_values) {
+    table_image target;
+
+    build_aml_tables(target, zero_value_aml, sizeof(zero_value_aml));
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    const usz nodes = target.interpreter.node_count();
+
+    astia::acpi::detail::value_id value = astia::acpi::detail::no_value;
+    astia::acpi::detail::node_id  node  = astia::acpi::detail::no_node;
+
+    u64 number = 0;
+
+    ASTIA_CHECK(target.interpreter.evaluate("\\_SB.M", value));
+    ASTIA_CHECK(target.interpreter.integer(value, number));
+    ASTIA_CHECK(number == 1);
+    ASTIA_CHECK(!target.interpreter.find("\\_SB.TMP", 0, node));
+    ASTIA_CHECK(target.interpreter.node_count() == nodes);
+
+    ASTIA_CHECK(target.interpreter.evaluate("\\_SB.M", value));
+    ASTIA_CHECK(target.interpreter.integer(value, number));
+    ASTIA_CHECK(number == 1);
+    ASTIA_CHECK(!target.interpreter.find("\\_SB.TMP", 0, node));
+    ASTIA_CHECK(target.interpreter.node_count() == nodes);
+}
+
+ASTIA_TEST(acpi_prt_removes_method_local_nodes_after_routing) {
+    table_image target;
+
+    build_aml_tables(target, prt_aml, sizeof(prt_aml));
+
+    fake_region_io io{};
+
+    target.interpreter.set_region_io({&io, fake_read_region, fake_write_region});
+
+    ASTIA_CHECK(target.interpreter.build(target.tables));
+
+    const usz nodes = target.interpreter.node_count();
+
+    astia::acpi::detail::prt_route route{};
+    auto                           error = astia::acpi::detail::prt_error::none;
+
+    for (u32 i = 0; i < 2000; ++i) {
+        ASTIA_CHECK(astia::acpi::detail::resolve_prt_route(target.interpreter, 0, 2, 1, 1,
+                                                           route, error));
+        ASTIA_CHECK(route.valid && !route.direct && route.irq == 10);
+    }
+
+    astia::acpi::detail::node_id node = astia::acpi::detail::no_node;
+
+    ASTIA_CHECK(!target.interpreter.find("\\_SB.LNKA.PRR0", 0, node));
+    ASTIA_CHECK(!target.interpreter.find("\\_SB.LNKA.PRRI", 0, node));
+    ASTIA_CHECK(target.interpreter.node_count() == nodes);
 }
 
 ASTIA_TEST(acpi_aml_method_scope_uses_containing_scope) {

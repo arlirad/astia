@@ -1044,7 +1044,8 @@ namespace astia::acpi::detail {
         if (_call_depth == max_aml_call_depth)
             return fail(aml_error::recursion_limit);
 
-        execution e{};
+        const node_id node_watermark = _node_count;
+        execution     e{};
 
         e.scope = _nodes[method].parent;
 
@@ -1074,6 +1075,8 @@ namespace astia::acpi::detail {
         }
 
         --_call_depth;
+
+        cleanup_transient(node_watermark);
 
         if (!ok)
             return false;

@@ -224,6 +224,7 @@ namespace astia::acpi::detail {
         bool read_target(const target& destination, u64& out);
         bool write_target(const target& destination, value_id source);
         u8*  writable_buffer(value_id id, u32& length);
+        void cleanup_transient(node_id watermark);
         bool at_end(const cursor& c) const;
         bool enter_term();
         void leave_term();
@@ -328,6 +329,7 @@ namespace astia::acpi::detail {
         usz       _value_count = 0;
         name_ref  _references[max_aml_name_refs]{};
         usz       _reference_count   = 0;
+        bool      _building          = false;
         usz       _static_values     = 0;
         usz       _static_references = 0;
         aml_error _error             = aml_error::none;

@@ -63,13 +63,50 @@ namespace astia::acpi::detail {
         if (tables.dsdt.bytes.size() <= sdt_header_size)
             return fail(aml_error::truncated);
 
-        if (!parse_scope(tables))
+        _building = true;
+
+        const bool parsed = parse_scope(tables);
+
+        _building = false;
+
+        if (!parsed)
             return false;
 
         _static_values     = _value_count;
         _static_references = _reference_count;
 
         return _error == aml_error::none;
+    }
+
+    void interpreter::cleanup_transient(node_id watermark) {
+        if (watermark >= _node_count)
+            return;
+
+        for (node_id id = _node_count; id-- > watermark;) {
+            node& entry = _nodes[id];
+
+            if (entry.parent != no_node && entry.parent < _node_count) {
+                node& parent = _nodes[entry.parent];
+
+                if (parent.first_child == id) {
+                    parent.first_child = entry.next_sibling;
+                }
+                else {
+                    for (node_id child = parent.first_child; child != no_node;
+                         child         = _nodes[child].next_sibling) {
+                        if (_nodes[child].next_sibling == id) {
+                            _nodes[child].next_sibling = entry.next_sibling;
+
+                            break;
+                        }
+                    }
+                }
+            }
+
+            _nodes[id] = node{};
+        }
+
+        _node_count = watermark;
     }
 
     void interpreter::reset_evaluation() {
