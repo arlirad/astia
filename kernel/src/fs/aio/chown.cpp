@@ -74,8 +74,13 @@ namespace astia::io::aio::operations {
                 if (!handle)
                     co_return -EBADF;
 
-                const uid_t existing_uid = handle->parent()->uid();
-                const gid_t existing_gid = handle->parent()->gid();
+                const char* const path_only = path_only_path(*handle);
+
+                if (!handle->parent() && path_only == nullptr)
+                    co_return -ENOSYS;
+
+                const uid_t existing_uid = handle_uid(*handle);
+                const gid_t existing_gid = handle_gid(*handle);
                 const uid_t target_uid   = owner_unchanged ? existing_uid : owner;
                 const gid_t target_gid   = group_unchanged ? existing_gid : group;
 
@@ -83,8 +88,12 @@ namespace astia::io::aio::operations {
                                 group_unchanged, group))
                     co_return -EPERM;
 
+                if (handle->parent())
+                    co_return static_cast<i32>(
+                        handle->parent()->chown(target_uid, target_gid));
+
                 co_return static_cast<i32>(
-                    handle->parent()->chown(target_uid, target_gid));
+                    fs::chown_path(path_only, target_uid, target_gid, true));
             }
 
             char path[256];

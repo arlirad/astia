@@ -312,6 +312,12 @@ namespace {
         set_node_owner(path, owner, group);
     }
 
+    mm::shptr<fs::open_file> path_only_directory(const char* path) {
+        return mm::share<fs::open_file>(
+            path,
+            fs::file_mode(fs::file_type::directory, fs::default_directory_permissions));
+    }
+
     void restore_credentials() {
         aio::test_support::set_process_credentials(uid_t{0}, gid_t{0});
     }
@@ -1592,6 +1598,55 @@ ASTIA_TEST(aio_filesystem_statx_fstat_uses_handle_device) {
     ASTIA_CHECK(stat.ino == 123);
 }
 
+ASTIA_TEST(aio_filesystem_statx_fstat_path_only_handle_uses_node_identity) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_owner("/dev/pts", uid_t{1000}, gid_t{2000});
+    set_node_identity("/dev/pts", 4, 4242);
+
+    const i32 fd = install_descriptor(path_only_directory("/dev/pts"));
+
+    astia_stat           stat{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_STATX, fd);
+
+    sqe.offset = reinterpret_cast<u64>(&stat);
+    sqe.length = sizeof(stat);
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(stat.dev == 4);
+    ASTIA_CHECK(stat.ino == 4242);
+    ASTIA_CHECK(stat.nlink == 1);
+    ASTIA_CHECK(stat.uid == 1000);
+    ASTIA_CHECK(stat.gid == 2000);
+    ASTIA_CHECK(stat.size == 0);
+}
+
+ASTIA_TEST(aio_filesystem_statx_fstat_path_only_handle_without_path_is_rejected) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    const i32 fd =
+        install_descriptor(mm::share<fs::open_file>(mm::shptr<fs::file>{}, 0u));
+
+    astia_stat           stat{};
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = sqe_for(OP_STATX, fd);
+
+    sqe.offset = reinterpret_cast<u64>(&stat);
+    sqe.length = sizeof(stat);
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == -ENOSYS);
+}
+
 ASTIA_TEST(aio_filesystem_statx_reports_production_size) {
     using namespace aio::test_support;
 
@@ -1771,6 +1826,57 @@ ASTIA_TEST(aio_filesystem_fchown_group_sentinel_keeps_existing_group) {
     ASTIA_CHECK(node->chown_called);
     ASTIA_CHECK(node->chown_uid == uid_t{1000});
     ASTIA_CHECK(node->chown_gid == gid_t{4242});
+}
+
+ASTIA_TEST(aio_filesystem_fchown_path_only_handle_uses_node_owner) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1234});
+    set_node_owner("/dev/pts", uid_t{1000}, gid_t{4242});
+
+    const i32 fd = install_descriptor(path_only_directory("/dev/pts"));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchown(fd, 0xffffffffu, 1234) == 0);
+
+    const chown_record& call = last_chown_path();
+
+    ASTIA_CHECK(call.called);
+    ASTIA_CHECK(call.uid == uid_t{1000});
+    ASTIA_CHECK(call.gid == gid_t{1234});
+    ASTIA_CHECK(call.follow_final);
+}
+
+ASTIA_TEST(aio_filesystem_fchown_path_only_handle_checks_node_permissions) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_node_owner("/dev/pts", uid_t{0}, gid_t{0});
+
+    const i32 fd = install_descriptor(path_only_directory("/dev/pts"));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchown(fd, 0xffffffffu, 0xffffffffull) == -EPERM);
+    ASTIA_CHECK(!last_chown_path().called);
+}
+
+ASTIA_TEST(aio_filesystem_fchown_path_only_handle_without_path_is_rejected) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+
+    const i32 fd =
+        install_descriptor(mm::share<fs::open_file>(mm::shptr<fs::file>{}, 0u));
+
+    ASTIA_CHECK(fd >= 3);
+    ASTIA_CHECK(submit_fchown(fd, 0xffffffffu, 0xffffffffull) == -ENOSYS);
+    ASTIA_CHECK(!last_chown_path().called);
 }
 
 ASTIA_TEST(aio_filesystem_utimensat_applies_requested_times) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <astia/api/errno.h>
+#include <astia/fs/open_file.hpp>
 
 #include "../../io/aio/dispatch.hpp"
 #include "../../io/aio/memory.hpp"
@@ -31,5 +32,27 @@ namespace astia::io::aio::operations {
             return 0;
 
         return source.validate(capacity) ? -ENAMETOOLONG : -EFAULT;
+    }
+
+    inline const char* path_only_path(const fs::open_file& handle) {
+        return handle.parent() ? nullptr : handle.path();
+    }
+
+    inline uid_t handle_uid(const fs::open_file& handle) {
+        if (handle.parent())
+            return handle.parent()->uid();
+
+        return handle.path() != nullptr ? fs::node_uid(handle.path()) : uid_t{};
+    }
+
+    inline gid_t handle_gid(const fs::open_file& handle) {
+        if (handle.parent())
+            return handle.parent()->gid();
+
+        return handle.path() != nullptr ? fs::node_gid(handle.path()) : gid_t{};
+    }
+
+    inline u32 handle_nlink(const fs::open_file& handle) {
+        return handle.parent() ? handle.parent()->nlink() : 1u;
     }
 } // namespace astia::io::aio::operations
