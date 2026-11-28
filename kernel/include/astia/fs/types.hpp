@@ -28,6 +28,15 @@ namespace astia::fs {
     inline constexpr u32 pipe_write_endpoint_flag = 1u << 30;
     inline constexpr u32 open_file_private_mask =
         pipe_read_endpoint_flag | pipe_write_endpoint_flag;
+
+    /// A descriptor's access mode permits writing unless it is read-only.
+    /// Pipe write endpoints carry no access bits, so their private flag is
+    /// the mode.
+    constexpr bool open_file_writable(u32 flags) {
+        return (flags & open_file_access_mask) != ASTIA_AIO_O_RDONLY ||
+               (flags & pipe_write_endpoint_flag) != 0;
+    }
+
     constexpr u32 open_file_status_mask =
         static_cast<u32>(open_file_status_flags::append) |
         static_cast<u32>(open_file_status_flags::nonblock);

@@ -1937,6 +1937,9 @@ namespace astia::fs {
         if (!_parent)
             return -EBADF;
 
+        if (!access_allows(request.direction()))
+            return -EBADF;
+
         request.nonblock((_flags & static_cast<u32>(open_file_status_flags::nonblock)) !=
                          0);
 

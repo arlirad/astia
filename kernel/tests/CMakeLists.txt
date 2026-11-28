@@ -1369,6 +1369,23 @@ target_include_directories(astia_ext4_vfs_test PRIVATE
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
 
+astia_add_arena_test(astia_devfs_tty_test
+        devfs_tty_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_devfs_tty_test PRIVATE fs)
+target_compile_options(astia_devfs_tty_test PRIVATE -fno-rtti)
+target_include_directories(astia_devfs_tty_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_devfs_tty_test "sanitizer-host")
+astia_add_test_label(astia_devfs_tty_test "sanitizer-host-partial")
+
 astia_add_arena_test(astia_pty_vfs_test
         pty_vfs_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/chr/tty/pty_vfs.cpp

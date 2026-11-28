@@ -67,6 +67,22 @@ namespace {
         return capture.result(0);
     }
 
+    i32 submit_data(u32 op, i32 fd, void* buffer, u32 length) {
+        using namespace aio::test_support;
+
+        cq_capture           capture;
+        aio::ring::ring_slot slot{};
+        astia_sqe            sqe = sqe_for(op, fd);
+
+        sqe.address = reinterpret_cast<u64>(buffer);
+        sqe.length  = length;
+
+        if (!aio::registry::dispatch(slot, &capture.ring, sqe))
+            return -EIO;
+
+        return capture.result(0);
+    }
+
     i32 submit_linkat(char* old_path, char* new_path) {
         using namespace aio::test_support;
 
@@ -376,6 +392,54 @@ ASTIA_TEST(aio_filesystem_openat_installs_production_descriptor) {
     ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
     ASTIA_CHECK(capture.result(0) == 3);
     ASTIA_CHECK(descriptor_present(3));
+}
+
+ASTIA_TEST(aio_filesystem_character_device_access_mode_matches_open) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    auto* ro_node = new aio_test::fake_file(astia::fs::file_type::character);
+    auto* wo_node = new aio_test::fake_file(astia::fs::file_type::character);
+    auto* rw_node = new aio_test::fake_file(astia::fs::file_type::character);
+
+    ro_node->submit_result = 1;
+    wo_node->submit_result = 1;
+    rw_node->submit_result = 1;
+
+    const i32 ro =
+        install_descriptor(aio_test::make_open_file(ro_node, ASTIA_AIO_O_RDONLY));
+    const i32 wo =
+        install_descriptor(aio_test::make_open_file(wo_node, ASTIA_AIO_O_WRONLY));
+    const i32 rw =
+        install_descriptor(aio_test::make_open_file(rw_node, ASTIA_AIO_O_RDWR));
+
+    char byte = 0;
+
+    ASTIA_CHECK(submit_data(OP_READ, ro, &byte, 1) == 1);
+    ASTIA_CHECK(submit_data(OP_WRITE, ro, &byte, 1) == -EBADF);
+    ASTIA_CHECK(submit_data(OP_READ, wo, &byte, 1) == -EBADF);
+    ASTIA_CHECK(submit_data(OP_WRITE, wo, &byte, 1) == 1);
+    ASTIA_CHECK(submit_data(OP_READ, rw, &byte, 1) == 1);
+    ASTIA_CHECK(submit_data(OP_WRITE, rw, &byte, 1) == 1);
+
+    clear_descriptor(ro);
+    clear_descriptor(wo);
+    clear_descriptor(rw);
+}
+
+ASTIA_TEST(aio_filesystem_openat_tty_without_controlling_terminal_is_enxio) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode("/dev", astia::fs::file_mode(astia::fs::file_type::directory,
+                                               astia::fs::default_directory_permissions));
+
+    char path[] = "/dev/tty";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_RDWR) == -ENXIO);
 }
 
 ASTIA_TEST(aio_filesystem_openat_reuses_lowest_free_descriptor) {

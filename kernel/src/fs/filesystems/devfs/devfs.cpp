@@ -91,11 +91,13 @@ namespace astia::fs::filesystems {
             if (!terminal)
                 return {};
 
-            auto result = mm::share<open_file>(*terminal);
-            if (result)
-                result->set_status_flags(flags);
+            // /dev/tty is a fresh open file description over the same
+            // terminal. Its access mode is the caller's, never the mode the
+            // controlling terminal itself happened to be opened with.
+            if (!terminal->parent())
+                return {};
 
-            return result;
+            return mm::share<open_file>(terminal->parent(), flags);
         }
 
         mm::shptr<file> target;
