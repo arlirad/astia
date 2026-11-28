@@ -55,6 +55,12 @@ namespace astia::io::aio::test_support {
         bool called = false;
     };
 
+    struct remove_record {
+        bool called = false;
+        char path[fs::path_max]{};
+        bool directory = false;
+    };
+
     void reset_environment();
     void install_current_process();
     void clear_current_process();
@@ -63,6 +69,7 @@ namespace astia::io::aio::test_support {
     const chmod_record&    last_chmod_path();
     const creation_record& last_creation();
     const symlink_record&  last_symlink();
+    const remove_record&   last_remove_path();
     bool                   last_resolve_follow_final();
     void                   set_readlink_target(const char* target);
 

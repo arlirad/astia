@@ -67,8 +67,14 @@ namespace astia::fs {
                                     file_type* type, u64* inode);
         virtual long mkdir(const char* path, file_mode mode);
         virtual long unlink(const char* path, bool directory);
-        virtual long rename(const char* old_path, const char* new_path);
-        virtual long link(const char* old_path, const char* new_path);
+        /// Unlink `path` only when the filesystem still reports `inode` for
+        /// it.  A backend that resolves and removes under one namespace lock
+        /// overrides this so a name that changed since the caller checked it
+        /// fails with -EAGAIN instead of removing the replacement.  A zero
+        /// inode skips the requirement.
+        virtual long      unlink_verified(const char* path, bool directory, u64 inode);
+        virtual long      rename(const char* old_path, const char* new_path);
+        virtual long      link(const char* old_path, const char* new_path);
         virtual file_type node_type(const char* path) const;
         virtual file_mode node_mode(const char* path) const;
         virtual u64       node_inode(const char* path) const;

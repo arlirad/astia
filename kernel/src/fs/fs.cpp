@@ -468,6 +468,17 @@ namespace astia::fs {
         return -ENOSYS;
     }
 
+    long mount::unlink_verified(const char* path, bool directory, u64 inode) {
+        if (inode != 0) {
+            const u64 actual = node_inode(path);
+
+            if (actual != 0 && actual != inode)
+                return -EAGAIN;
+        }
+
+        return unlink(path, directory);
+    }
+
     long mount::rename(const char*, const char*) {
         return -ENOSYS;
     }
@@ -1236,29 +1247,50 @@ namespace astia::fs {
                                            mode);
     }
 
+    namespace {
+        long remove_resolved(const char* path, bool directory,
+                             const node_identity* expected) {
+            if (path == nullptr || path[0] != '/')
+                return -EINVAL;
+
+            char resolved[path_max]{};
+            long rc = resolve_path(path, resolved, sizeof resolved, false);
+            if (rc < 0)
+                return rc;
+
+            mount_operation operation(resolved);
+
+            if (!operation)
+                return -ENOENT;
+
+            if (operation.instance()->read_only())
+                return -EROFS;
+
+            if (expected != nullptr && expected->device != 0 &&
+                operation.instance()->device() != expected->device)
+                return -EAGAIN;
+
+            long unix_rc = remove_unix_path(resolved, operation.instance(), directory);
+            if (unix_rc != 0)
+                return unix_rc > 0 ? 0 : unix_rc;
+
+            const char* relative = relative_path(*operation.entry(), resolved);
+
+            if (expected == nullptr)
+                return operation.instance()->unlink(relative, directory);
+
+            return operation.instance()->unlink_verified(relative, directory,
+                                                         expected->inode);
+        }
+    } // namespace
+
     long remove_path(const char* path, bool directory) {
-        if (path == nullptr || path[0] != '/')
-            return -EINVAL;
+        return remove_resolved(path, directory, nullptr);
+    }
 
-        char resolved[path_max]{};
-        long rc = resolve_path(path, resolved, sizeof resolved, false);
-        if (rc < 0)
-            return rc;
-
-        mount_operation operation(resolved);
-
-        if (!operation)
-            return -ENOENT;
-
-        if (operation.instance()->read_only())
-            return -EROFS;
-
-        long unix_rc = remove_unix_path(resolved, operation.instance(), directory);
-        if (unix_rc != 0)
-            return unix_rc > 0 ? 0 : unix_rc;
-
-        return operation.instance()->unlink(relative_path(*operation.entry(), resolved),
-                                            directory);
+    long remove_path_verified(const char* path, bool directory,
+                              const node_identity& expected) {
+        return remove_resolved(path, directory, &expected);
     }
 
     long rename_path(const char* old_path, const char* new_path) {

@@ -368,6 +368,20 @@ namespace {
         return core::hook::outcome::pass;
     }
 
+    bool unlink_swap_armed = false;
+
+    core::hook::outcome swap_unlink_target(const char* path) {
+        if (!unlink_swap_armed || path == nullptr ||
+            !same_text(path, "/tmp/shared/victim"))
+            return core::hook::outcome::pass;
+
+        unlink_swap_armed = false;
+
+        aio::test_support::set_node_identity(path, 7, 99);
+
+        return core::hook::outcome::pass;
+    }
+
     void check_device_access_mode(astia::fs::file_type type) {
         using namespace aio::test_support;
 
@@ -1167,6 +1181,33 @@ ASTIA_TEST(aio_filesystem_unlinkat_non_sticky_directory_ignores_entry_owner) {
     char path[] = "/tmp/shared/victim";
 
     ASTIA_CHECK(submit_unlinkat(path) == 0);
+
+    restore_credentials();
+}
+
+ASTIA_TEST(aio_filesystem_unlinkat_rejects_target_swapped_after_check) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_process_credentials(uid_t{1000}, gid_t{1000});
+    set_directory("/tmp/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/tmp/shared/victim", 0644, uid_t{2000}, gid_t{2000});
+    set_node_identity("/tmp/shared/victim", 7, 42);
+
+    unlink_swap_armed = true;
+
+    ASTIA_CHECK(fs::events::unlink_checked::add("issue1003", core::hook::priority::normal,
+                                                &swap_unlink_target));
+
+    char path[] = "/tmp/shared/victim";
+
+    ASTIA_CHECK(submit_unlinkat(path) == -EAGAIN);
+    ASTIA_CHECK(!last_remove_path().called);
+
+    ASTIA_CHECK(fs::events::unlink_checked::remove("issue1003"));
+
+    unlink_swap_armed = false;
 
     restore_credentials();
 }

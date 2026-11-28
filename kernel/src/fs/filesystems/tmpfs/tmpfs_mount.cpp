@@ -555,6 +555,14 @@ namespace astia::fs::filesystems {
     }
 
     long tmpfs_mount::unlink(const char* path, bool directory) {
+        return unlink_node(path, directory, 0);
+    }
+
+    long tmpfs_mount::unlink_verified(const char* path, bool directory, u64 inode) {
+        return unlink_node(path, directory, inode);
+    }
+
+    long tmpfs_mount::unlink_node(const char* path, bool directory, u64 inode) {
         // The mount root already exists.  Report EEXIST so `mkdir -p` can
         // walk through a mounted directory such as /tmp.
         if (path == nullptr || path[0] != '/')
@@ -573,6 +581,10 @@ namespace astia::fs::filesystems {
             for (u32 i = 0; i < node_capacity(); ++i) {
                 if (!entry_table()[i].used || !string_equal(entry_table()[i].path, path))
                     continue;
+
+                if (inode != 0 && (!entry_table()[i].target ||
+                                   entry_table()[i].target->inode() != inode))
+                    return -EAGAIN;
 
                 if (entry_table()[i].directory != directory)
                     return directory ? -ENOTDIR : -EISDIR;
