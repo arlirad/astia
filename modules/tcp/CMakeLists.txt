@@ -15,7 +15,10 @@ set(ASTIA_TCP_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/error.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/log.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/module.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/core/spinlock.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/address.hpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/builder.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/checksum.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/header.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/link.hpp
@@ -75,11 +78,28 @@ add_custom_command(
                 ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
                 -I${ASTIA_KERNEL_SOURCE_DIR}/include
                 -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/tests
                 -I${CMAKE_CURRENT_SOURCE_DIR}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/proto/tcp.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/net/protocol.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/core/rcu_runtime.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/cpu_relax_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_TCP_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/proto/tcp.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/net/protocol.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/core/rcu_runtime.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/cpu_relax_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/timer_host.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/freestanding_new.cpp
+                ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
                 ${ASTIA_TCP_LOCAL_HEADERS}
                 ${ASTIA_TCP_ABI_HEADERS}
         VERBATIM)
