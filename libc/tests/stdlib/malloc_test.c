@@ -303,6 +303,7 @@ static void test_realloc_memalign(void) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuse-after-free"
         CHECK(realloc(q, 4u << 20) == NULL);
+        CHECK(errno == ENOMEM);
         CHECK(((uintptr_t) q % alignment) == 0);
 
         ok = 1;
@@ -410,6 +411,130 @@ static void test_exhaustion(void) {
     }
 }
 
+static void test_errno(void) {
+    enum { CHUNK = 65536, MAXC = 64 };
+
+    void* chunks[MAXC];
+
+    int n = 0;
+
+    volatile size_t huge = (size_t) -1;
+
+    errno = EACCES;
+
+    {
+        void* p = malloc(64);
+
+        CHECK(p != NULL);
+        CHECK(errno == EACCES); /* success leaves errno alone */
+        free(p);
+    }
+
+    errno = 0;
+
+    CHECK(malloc(2u << 20) == NULL);
+    CHECK(errno == ENOMEM);
+
+    errno = 0;
+
+    CHECK(calloc(huge, 4) == NULL);
+    CHECK(errno == ENOMEM); /* multiplication overflow */
+
+    errno = 0;
+
+    CHECK(calloc(1u << 20, 4) == NULL);
+    CHECK(errno == ENOMEM); /* allocation failure without overflow */
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+    {
+        char* q = malloc(64);
+
+        CHECK(q != NULL);
+
+        if (q) {
+            strcpy(q, "keep");
+
+            errno = 0;
+
+            CHECK(realloc(q, 2u << 20) == NULL);
+            CHECK(errno == ENOMEM);
+            CHECK(strcmp(q, "keep") == 0); /* the old block survives */
+            free(q);
+        }
+    }
+#pragma GCC diagnostic pop
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+    {
+        char* r = malloc(64);
+
+        CHECK(r != NULL);
+
+        if (r) {
+            strcpy(r, "alive");
+
+            for (; n < MAXC; n++) {
+                chunks[n] = malloc(CHUNK);
+
+                if (chunks[n] == NULL)
+                    break;
+            }
+
+            CHECK(n > 0);
+            CHECK(n < MAXC);
+
+            errno = 0;
+
+            CHECK(realloc(r, 256 * 1024) == NULL);
+            CHECK(errno == ENOMEM);
+            CHECK(strcmp(r, "alive") == 0); /* relocation failed cleanly */
+
+            free(r);
+
+            for (int i = 0; i < n; i++) {
+                free(chunks[i]);
+
+                chunks[i] = NULL;
+            }
+        }
+    }
+#pragma GCC diagnostic pop
+
+    {
+        void* p = (void*) (uintptr_t) 0x1234;
+
+        errno = EACCES;
+
+        CHECK(posix_memalign(&p, sizeof(void*), (size_t) -1) == ENOMEM);
+        CHECK(errno == EACCES); /* posix_memalign must not touch errno */
+    }
+
+    {
+        char* p = realloc(NULL, 32);
+
+        CHECK(p != NULL);
+
+        if (p) {
+            errno = EACCES;
+
+            p = realloc(p, 64);
+
+            CHECK(p != NULL);
+            CHECK(errno == EACCES); /* success leaves errno alone */
+            free(p);
+        }
+    }
+
+    {
+        void* p = malloc(CHUNK); /* the whole arena is back */
+
+        CHECK(p != NULL);
+        free(p);
+    }
+}
+
 static void test_stress(void) {
     enum { SLOTS = 128, ITERS = 3000 };
 
@@ -490,6 +615,7 @@ int main(void) {
     test_realloc_memalign();
     test_coalesce(); /* needs a drained arena */
     test_exhaustion();
+    test_errno();
     test_stress();
 
     if (fails)
