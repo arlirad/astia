@@ -3027,6 +3027,68 @@ int main(int argc, char** argv) {
             if (direct_chdir("/") != 0)
                 return 284;
         }
+
+        if (direct_chdir("/bin") != 0)
+            return 228;
+
+        char* allocated = getcwd(NULL, 0);
+
+        if (allocated == NULL || strcmp(allocated, "/bin") != 0)
+            return 228;
+
+        free(allocated);
+
+        allocated = getcwd(NULL, 1);
+
+        if (allocated == NULL || strcmp(allocated, "/bin") != 0)
+            return 229;
+
+        free(allocated);
+
+        char tiny[2];
+
+        errno = 0;
+
+        if (getcwd(tiny, sizeof tiny) != NULL || errno != ERANGE)
+            return 228;
+
+        char long_component[241];
+        char long_directory[300];
+
+        for (size_t i = 0; i < sizeof long_component - 1; ++i) {
+            long_component[i] = (char) ('a' + i % 26);
+        }
+
+        long_component[sizeof long_component - 1] = '\0';
+
+        if (snprintf(long_directory, sizeof long_directory, "/tmp/%s", long_component) <
+            0)
+            return 229;
+
+        (void) rmdir(long_directory);
+
+        if (mkdir(long_directory, 0755) != 0 || direct_chdir(long_directory) != 0)
+            return 228;
+
+        allocated = getcwd(NULL, 0);
+
+        if (allocated == NULL || strcmp(allocated, long_directory) != 0)
+            return 229;
+
+        free(allocated);
+
+        allocated = getcwd(NULL, 1);
+
+        if (allocated == NULL || strcmp(allocated, long_directory) != 0)
+            return 229;
+
+        free(allocated);
+
+        if (direct_chdir("/") != 0 || rmdir(long_directory) != 0)
+            return 229;
+
+        printf("astia: getcwd alloc ok\n");
+        fflush(NULL);
     }
 
     /* 5-8: anonymous mmap through the kernel — fresh memory that is
