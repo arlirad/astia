@@ -5,6 +5,7 @@
 namespace astia::fs::filesystems {
     using tmpfs_detail::copy_path;
     using tmpfs_detail::oflag_creat;
+    using tmpfs_detail::oflag_directory;
     using tmpfs_detail::oflag_excl;
     using tmpfs_detail::oflag_rdwr;
     using tmpfs_detail::oflag_trunc;
@@ -46,7 +47,6 @@ namespace astia::fs::filesystems {
         }
 
         entry* entries = new entry[capacity];
-
         if (entries == nullptr)
             return;
 
@@ -61,6 +61,15 @@ namespace astia::fs::filesystems {
 
     mm::shptr<open_file> tmpfs_mount::open(const char* path, u32 flags, long* error) {
         if (path == nullptr || path[0] != '/') {
+            set_error(error, -EINVAL);
+
+            return {};
+        }
+
+        // The create path below publishes regular files, so a directory-only
+        // open that also requires creation can never be satisfied.
+        if ((flags & (oflag_directory | oflag_creat)) ==
+            (oflag_directory | oflag_creat)) {
             set_error(error, -EINVAL);
 
             return {};

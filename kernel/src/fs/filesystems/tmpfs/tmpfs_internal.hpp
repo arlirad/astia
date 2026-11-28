@@ -6,11 +6,12 @@
 #include "tmpfs.hpp"
 
 namespace astia::fs::filesystems::tmpfs_detail {
-    inline constexpr u32 oflag_write = ASTIA_AIO_O_WRONLY;
-    inline constexpr u32 oflag_rdwr  = ASTIA_AIO_O_RDWR;
-    inline constexpr u32 oflag_creat = ASTIA_AIO_O_CREAT;
-    inline constexpr u32 oflag_excl  = ASTIA_AIO_O_EXCL;
-    inline constexpr u32 oflag_trunc = ASTIA_AIO_O_TRUNC;
+    inline constexpr u32 oflag_write     = ASTIA_AIO_O_WRONLY;
+    inline constexpr u32 oflag_rdwr      = ASTIA_AIO_O_RDWR;
+    inline constexpr u32 oflag_creat     = ASTIA_AIO_O_CREAT;
+    inline constexpr u32 oflag_excl      = ASTIA_AIO_O_EXCL;
+    inline constexpr u32 oflag_trunc     = ASTIA_AIO_O_TRUNC;
+    inline constexpr u32 oflag_directory = ASTIA_AIO_O_DIRECTORY;
 
     inline void set_error(long* error, long value) {
         if (error != nullptr)
@@ -44,7 +45,6 @@ namespace astia::fs::filesystems::tmpfs_detail {
                 return false;
 
             value = value * 10 + static_cast<u32>(source[at] - '0');
-
             if (value > tmpfs_max_entries)
                 break;
         }

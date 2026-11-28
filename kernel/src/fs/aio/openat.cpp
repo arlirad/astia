@@ -14,6 +14,13 @@ namespace astia::io::aio::operations {
                                         memory::user_ptr<char>(sqe.address)))
                 co_return -EFAULT;
 
+            // A directory-only open cannot also demand creation: the create
+            // branch publishes regular files, so the combination is invalid
+            // regardless of whether the target already exists.
+            if ((sqe.op_flags & (ASTIA_AIO_O_DIRECTORY | ASTIA_AIO_O_CREAT)) ==
+                (ASTIA_AIO_O_DIRECTORY | ASTIA_AIO_O_CREAT))
+                co_return -EINVAL;
+
             auto* current = proc::current_process();
 
             char resolved[256];
