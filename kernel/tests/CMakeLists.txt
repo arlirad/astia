@@ -1247,7 +1247,8 @@ set(ASTIA_ARENA_ASLR_TEST_NAMES
         astia_ext4_vfs_test
         astia_tmpfs_readdir_test
         astia_tmpfs_timestamps_test
-        astia_tmpfs_ownership_test)
+        astia_tmpfs_ownership_test
+        astia_tmpfs_create_test)
 
 function(astia_add_arena_test name)
     if (name IN_LIST ASTIA_ARENA_ASLR_TEST_NAMES)
@@ -1433,6 +1434,23 @@ target_include_directories(astia_tmpfs_ownership_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
 astia_remove_test_label(astia_tmpfs_ownership_test "sanitizer-host")
 astia_add_test_label(astia_tmpfs_ownership_test "sanitizer-host-partial")
+
+astia_add_arena_test(astia_tmpfs_create_test
+        tmpfs_create_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+)
+target_link_libraries(astia_tmpfs_create_test PRIVATE fs Threads::Threads)
+target_compile_options(astia_tmpfs_create_test PRIVATE -fno-rtti)
+target_include_directories(astia_tmpfs_create_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev)
+astia_remove_test_label(astia_tmpfs_create_test "sanitizer-host")
+astia_add_test_label(astia_tmpfs_create_test "sanitizer-host-partial")
 
 # On-target integration test: boot the real kernel under QEMU and let its
 # isa-debug-exit status decide pass/fail. Covers what host tests cannot (CR3,

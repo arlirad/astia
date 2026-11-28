@@ -169,6 +169,13 @@ namespace astia::fs::filesystems {
                                   long* error = nullptr) override;
         mm::shptr<open_file> open_verified(const char* path, u32 flags, u64 inode,
                                            long* error = nullptr) override;
+        mm::shptr<open_file> open_creating(const char* path, u32 flags,
+                                           const creation_attributes& attributes,
+                                           long* error = nullptr) override;
+        mm::shptr<open_file> open_creating_verified(const char* path, u32 flags,
+                                                    u64                        inode,
+                                                    const creation_attributes& attributes,
+                                                    long* error = nullptr) override;
         long      open_shared(const char* path, u32 flags, file_mode mode, uid_t uid,
                               gid_t gid, uid_t euid, gid_t egid, bool privileged,
                               mm::shptr<open_file>& result);
@@ -194,7 +201,8 @@ namespace astia::fs::filesystems {
         private:
         file_type            node_type_unlocked(const char* path) const;
         mm::shptr<open_file> open_node(const char* path, u32 flags, u64 inode,
-                                       long* error);
+                                       const creation_attributes* attributes,
+                                       long*                      error);
 
         struct entry {
             bool                  used      = false;

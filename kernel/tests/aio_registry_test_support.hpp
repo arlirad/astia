@@ -43,6 +43,12 @@ namespace astia::io::aio::test_support {
         fs::file_permissions permissions{};
     };
 
+    struct creation_record {
+        bool                    called = false;
+        char                    path[fs::path_max]{};
+        fs::creation_attributes attributes{};
+    };
+
     struct symlink_record {
         char target[fs::path_max]{};
         char path[fs::path_max]{};
@@ -53,11 +59,12 @@ namespace astia::io::aio::test_support {
     void install_current_process();
     void clear_current_process();
 
-    const chown_record&   last_chown_path();
-    const chmod_record&   last_chmod_path();
-    const symlink_record& last_symlink();
-    bool                  last_resolve_follow_final();
-    void                  set_readlink_target(const char* target);
+    const chown_record&    last_chown_path();
+    const chmod_record&    last_chmod_path();
+    const creation_record& last_creation();
+    const symlink_record&  last_symlink();
+    bool                   last_resolve_follow_final();
+    void                   set_readlink_target(const char* target);
 
     i32  install_descriptor(const mm::shptr<fs::open_file>& file, u32 flags = 0);
     bool descriptor_present(i32 fd);
@@ -76,6 +83,7 @@ namespace astia::io::aio::test_support {
     void set_node_identity(const char* path, u32 device, u64 inode);
     void set_directory_entry_inode(u64 inode);
     void set_process_credentials(uid_t uid, gid_t gid);
+    void set_process_umask(u32 mask);
     void set_process_root(const char* root);
     void set_process_cwd(const char* cwd);
     void set_memory_allowed(bool allowed);

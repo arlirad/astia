@@ -117,6 +117,15 @@ namespace astia::fs {
         return file_permissions(static_cast<u16>(permissions.raw() & allowed));
     }
 
+    /// Final metadata for a node created by an open.  A filesystem applies it
+    /// while the node is still unpublished, so no observer can see the
+    /// temporary default permissions.
+    struct creation_attributes {
+        file_permissions permissions{};
+        uid_t            uid{};
+        gid_t            gid{};
+    };
+
     // Filesystem policy modes.  Keep these in the kernel VFS namespace so
     // callers do not have to repeat unexplained octal permission literals.
     inline constexpr file_permissions default_file_permissions{0666};

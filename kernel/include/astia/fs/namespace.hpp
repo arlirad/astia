@@ -31,6 +31,13 @@ namespace astia::fs {
     mm::shptr<open_file> open_path(const char* path, u32 flags = 0,
                                    long* error = nullptr);
 
+    /// Open a path, creating it with `attributes` when it is absent.  The
+    /// mount applies the metadata before publishing the new node, so a
+    /// concurrent lookup never sees the default permissions.
+    mm::shptr<open_file> open_creating(const char* path, u32 flags,
+                                       const creation_attributes& attributes,
+                                       long*                      error = nullptr);
+
     /// Open a registered path.  Descriptor allocation belongs to the
     /// syscall/ring layer; the VFS returns an open file description.
     mm::shptr<open_file> open(const char* path, u32 flags = 0, long* error = nullptr);
@@ -59,6 +66,13 @@ namespace astia::fs {
     mm::shptr<open_file> open_verified(const char* path, u32 flags,
                                        const node_identity& expected,
                                        long*                error = nullptr);
+
+    /// Verified create: bind `expected` when the node exists, or publish a new
+    /// node with `attributes` already applied when the name is absent.
+    mm::shptr<open_file> open_creating_verified(const char* path, u32 flags,
+                                                const node_identity&       expected,
+                                                const creation_attributes& attributes,
+                                                long* error = nullptr);
 
     /// open_directory() counterpart of open_verified().
     mm::shptr<open_file> open_directory_verified(const char*          path,

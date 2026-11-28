@@ -120,10 +120,32 @@ namespace astia::io::aio::operations {
 
             long open_error = 0;
 
-            mm::shptr<fs::open_file> handle =
-                existing_mode.is_directory()
-                    ? fs::open_directory_verified(resolved, checked)
-                    : fs::open_verified(resolved, sqe.op_flags, checked, &open_error);
+            const bool creating =
+                !existing_mode.exists() && (sqe.op_flags & ASTIA_AIO_O_CREAT) != 0;
+
+            mm::shptr<fs::open_file> handle;
+
+            if (existing_mode.is_directory()) {
+                handle = fs::open_directory_verified(resolved, checked);
+            }
+            else if (creating) {
+                const auto requested = mapper<fs::file_permissions>::from(
+                    sqe.aux == 0 ? fs::default_file_permissions.raw() : sqe.aux);
+
+                if (!requested.has_value)
+                    co_return -EINVAL;
+
+                const fs::creation_attributes attributes{
+                    fs::apply_umask(requested.value, current->umask()),
+                    uid_t{current->uid()}, gid_t{current->gid()}};
+
+                handle = fs::open_creating_verified(resolved, sqe.op_flags, checked,
+                                                    attributes, &open_error);
+            }
+            else {
+                handle = fs::open_verified(resolved, sqe.op_flags, checked, &open_error);
+            }
+
             if (!handle) {
                 if (exclusive)
                     co_return -EEXIST;
@@ -141,19 +163,6 @@ namespace astia::io::aio::operations {
             if (!access_allowed(*cred, handle->mode(), handle_uid(*handle),
                                 handle_gid(*handle), access))
                 co_return -EACCES;
-
-            if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
-                const auto requested = mapper<fs::file_permissions>::from(
-                    sqe.aux == 0 ? fs::default_file_permissions.raw() : sqe.aux);
-
-                if (!requested.has_value)
-                    co_return -EINVAL;
-
-                (void) fs::chmod_path(resolved,
-                                      fs::apply_umask(requested.value, current->umask()));
-                (void) fs::chown_path(resolved, uid_t{current->uid()},
-                                      gid_t{current->gid()});
-            }
 
             current = proc::current_process();
             if (current == nullptr)

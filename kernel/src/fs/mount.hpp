@@ -48,6 +48,19 @@ namespace astia::fs {
         /// the replacement.
         virtual mm::shptr<open_file> open_verified(const char* path, u32 flags, u64 inode,
                                                    long* error = nullptr);
+        /// Open `path`, creating it with `attributes` when it is absent.  A
+        /// filesystem with a create path overrides this so the new node is
+        /// published with its final metadata instead of a temporary default.
+        virtual mm::shptr<open_file> open_creating(const char* path, u32 flags,
+                                                   const creation_attributes& attributes,
+                                                   long* error = nullptr);
+        /// Verified create: bind the node in `inode` when it already exists,
+        /// or publish a new node with `attributes` when the name is absent.
+        /// A create-capable backend applies the metadata before publication.
+        virtual mm::shptr<open_file>
+                     open_creating_verified(const char* path, u32 flags, u64 inode,
+                                            const creation_attributes& attributes,
+                                            long*                      error = nullptr);
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,
