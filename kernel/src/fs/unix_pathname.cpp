@@ -24,23 +24,21 @@ namespace astia::fs {
         bool parent_of(const char* directory, const char* path, u32& start);
     }
 
-    long register_unix_path(const char* path, const mm::shptr<file>& endpoint, uid_t uid,
-                            gid_t gid, astia::span<char> canonical) {
-        if (!path || !endpoint || canonical.data() == nullptr || canonical.empty())
+    long register_unix_path(const char* canonical, const mm::shptr<file>& endpoint,
+                            uid_t uid, gid_t gid) {
+        if (!canonical || !endpoint || canonical[0] != '/')
             return -EINVAL;
-
-        long rc = resolve_path(path, canonical.data(), static_cast<u32>(canonical.size()),
-                               false);
-        if (rc < 0)
-            return rc;
 
         u32 length = 0;
 
-        while (canonical.data()[length]) {
+        while (canonical[length]) {
+            if (length + 1 >= path_max)
+                return -ENAMETOOLONG;
+
             ++length;
         }
 
-        mount* owner = retain_mount_for_unix_path(canonical.data());
+        mount* owner = retain_mount_for_unix_path(canonical);
         if (!owner)
             return -ENOENT;
 
@@ -49,7 +47,7 @@ namespace astia::fs {
         core::spinlock_guard guard(lock);
 
         for (auto& item : entries) {
-            if (item.used && string_equal(item.path, canonical.data())) {
+            if (item.used && string_equal(item.path, canonical)) {
                 result = -EADDRINUSE;
 
                 break;
@@ -79,7 +77,7 @@ namespace astia::fs {
             free->gid      = gid;
 
             for (u32 i = 0; i <= length; ++i) {
-                free->path[i] = canonical.data()[i];
+                free->path[i] = canonical[i];
             }
         }
 
@@ -91,19 +89,14 @@ namespace astia::fs {
         return result;
     }
 
-    long lookup_unix_path(const char* path, mm::shptr<file>& endpoint) {
-        if (!path)
+    long lookup_unix_path(const char* canonical, mm::shptr<file>& endpoint) {
+        if (!canonical || canonical[0] != '/')
             return -EINVAL;
-
-        char resolved[path_max]{};
-        long rc = resolve_path(path, resolved, sizeof resolved, false);
-        if (rc < 0)
-            return rc;
 
         core::spinlock_guard guard(lock);
 
         for (auto& item : entries) {
-            if (item.used && string_equal(item.path, resolved)) {
+            if (item.used && string_equal(item.path, canonical)) {
                 endpoint = item.endpoint;
 
                 return endpoint ? 0 : -ECONNREFUSED;

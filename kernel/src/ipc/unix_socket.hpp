@@ -13,15 +13,17 @@ namespace astia::fs {
     /// Private protocol capability.  The callbacks operate on the original
     /// open file description, preserving descriptor identity and lifetime;
     /// the AIO layer never needs to know the concrete socket implementation.
+    /// Pathname operations take the caller-resolved canonical path, so the
+    /// socket layer never resolves a raw address against the global root.
     struct unix_socket_operations {
-        long (*bind)(open_file&, const astia_sockaddr&);
+        long (*bind)(open_file&, const astia_sockaddr&, const char* canonical);
         long (*listen)(open_file&, u32);
         long (*accept)(open_file&, io::request&);
         bool (*accept_address)(open_file&, astia_sockaddr&);
-        long (*connect)(open_file&, const astia_sockaddr&);
+        long (*connect)(open_file&, const astia_sockaddr&, const char* canonical);
         long (*shutdown)(open_file&, u32);
         long (*getsockopt)(open_file&, u32, u32, u32*);
-        long (*sendto)(open_file&, const astia_sockaddr*);
+        long (*sendto)(open_file&, const char* canonical);
         long (*recvfrom)(open_file&);
         bool (*recvfrom_address)(open_file&, astia_sockaddr&);
         long (*set_send_control)(open_file&, const mm::shptr<unix_control>&);

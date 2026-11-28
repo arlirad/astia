@@ -4,12 +4,12 @@
 #include <astia/span.hpp>
 
 namespace astia::fs {
-    long register_unix_path(const char* path, const mm::shptr<file>& endpoint, uid_t uid,
-                            gid_t gid, astia::span<char> canonical);
-    long lookup_unix_path(const char* path, mm::shptr<file>& endpoint);
-    void unregister_unix_path(const char* canonical, file* endpoint);
-    long remove_unix_path(const char* canonical, mount* owner, bool directory);
-    long rename_unix_path(const char* old_path, const char* new_path, mount* owner);
+    long      register_unix_path(const char* canonical, const mm::shptr<file>& endpoint,
+                                 uid_t uid, gid_t gid);
+    long      lookup_unix_path(const char* canonical, mm::shptr<file>& endpoint);
+    void      unregister_unix_path(const char* canonical, file* endpoint);
+    long      remove_unix_path(const char* canonical, mount* owner, bool directory);
+    long      rename_unix_path(const char* old_path, const char* new_path, mount* owner);
     file_type unix_node_type(const char* canonical, mount* owner);
     file_mode unix_node_mode(const char* canonical, mount* owner);
     uid_t     unix_node_uid(const char* canonical, mount* owner);

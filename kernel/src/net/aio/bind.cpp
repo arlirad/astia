@@ -20,25 +20,19 @@ namespace astia::io::aio::operations {
                 co_return -EFAULT;
 
             char socket_path[fs::path_max]{};
-            long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
+            long path_rc = resolve_unix_path(a, socket_path, sizeof socket_path);
             if (path_rc < 0)
                 co_return static_cast<i32>(path_rc);
 
             auto* current = proc::current_process();
-            if (current == nullptr)
-                co_return -ESRCH;
-
-            path_rc = current->resolve_path(socket_path, socket_path, sizeof socket_path,
-                                            false);
-            if (path_rc < 0)
-                co_return static_cast<i32>(path_rc);
 
             if (!parent_writable(current, socket_path))
                 co_return -EACCES;
 
             const auto* socket = handle->parent()->unix_socket_capability();
 
-            long rc = socket == nullptr ? -EOPNOTSUPP : socket->bind(*handle, a);
+            long rc =
+                socket == nullptr ? -EOPNOTSUPP : socket->bind(*handle, a, socket_path);
 
             co_return static_cast<i32>(rc);
         }
