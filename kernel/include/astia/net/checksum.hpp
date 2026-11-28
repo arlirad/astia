@@ -73,16 +73,16 @@ namespace astia::net {
         u8 _bytes[Width / 8]{};
     };
 
-    /// Incremental one's-complement checksum accumulator.  The parameters
-    /// match `checksum`: feed wire bytes in order and fold them at the field
-    /// width; the odd-byte carry is kept across segment boundaries, so a
-    /// pseudo-header and a split datagram need no copy.
-    template <u32 Polynomial, u8 Width, core::byte_order Order = core::byte_order::big>
+    /// Incremental one's-complement checksum accumulator for a concrete
+    /// checksum field type.  Feed wire bytes in order and fold them at the
+    /// field width; the odd-byte carry is kept across segment boundaries, so
+    /// a pseudo-header and a split datagram need no copy.
+    template <typename Field>
     class acc_checksum {
-        static_assert(Width == 16 || Width == 32);
+        static_assert(Field::width == 16 || Field::width == 32);
 
         public:
-        using value_type = typename detail::checksum_value<Width>::type;
+        using value_type = typename Field::value_type;
 
         void add(const u8* data, usz length) {
             if (data == nullptr)
@@ -128,10 +128,10 @@ namespace astia::net {
             if (_have_high)
                 sum += static_cast<u64>(_high) << 8;
 
-            constexpr u64 mask = (u64{1} << Width) - 1;
+            constexpr u64 mask = (u64{1} << Field::width) - 1;
 
-            while ((sum >> Width) != 0) {
-                sum = (sum & mask) + (sum >> Width);
+            while ((sum >> Field::width) != 0) {
+                sum = (sum & mask) + (sum >> Field::width);
             }
 
             return static_cast<value_type>(~sum & mask);
@@ -144,14 +144,13 @@ namespace astia::net {
     };
 
     /// RFC 1071 Internet checksum field, and its matching accumulator.
-    using internet_checksum     = checksum<0x10001, 16, core::byte_order::big>;
-    using internet_acc_checksum = acc_checksum<0x10001, 16, core::byte_order::big>;
+    using internet_checksum = checksum<0x10001, 16, core::byte_order::big>;
 
     /// RFC 1071 one's-complement checksum over wire bytes.  The result is in
     /// host order; a valid checksum field makes this return 0 over the whole
     /// header or datagram (including the field itself).
     inline u16 internet_checksum_value(const u8* data, usz length) {
-        internet_acc_checksum accumulator;
+        acc_checksum<internet_checksum> accumulator;
 
         accumulator.add(data, length);
 
@@ -162,7 +161,7 @@ namespace astia::net {
     /// packet view; pairs bytes by absolute offset, so split payloads need no
     /// copy.
     inline u16 internet_checksum_value(const packet_view& packet, usz length) {
-        internet_acc_checksum accumulator;
+        acc_checksum<internet_checksum> accumulator;
 
         accumulator.add(packet, length);
 

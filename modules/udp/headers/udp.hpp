@@ -37,7 +37,7 @@ namespace astia::udp {
     /// result zero.
     inline u16 checksum(const udp_pseudo_header& pseudo,
                         const net::packet_view&  datagram) {
-        net::internet_acc_checksum accumulator;
+        net::acc_checksum<net::internet_checksum> accumulator;
 
         accumulator.add(reinterpret_cast<const u8*>(&pseudo), sizeof pseudo);
         accumulator.add(datagram, datagram.length);
