@@ -16,6 +16,7 @@
 #include "events.hpp"
 #include "exec_hooks.hpp"
 #include "proc.hpp"
+#include "rlimit_policy.hpp"
 #include "scheduler.hpp"
 #include "search_permission.hpp"
 
@@ -1415,31 +1416,19 @@ namespace astia::proc {
     i64 process::set_rlimit(i32 resource, const astia_rlimit& value) {
         arch::interrupt_spinlock_guard guard(_metadata_lock);
 
-        if (value.current > value.maximum)
-            return -EINVAL;
+        const rlimit_policy_state state{_rlimit_nofile, _rlimit_as, _mapped_bytes,
+                                        max_process_fds};
+        const auto result = evaluate_rlimit(resource, value, state, _euid == 0);
 
-        if (resource == RLIMIT_NOFILE) {
-            if (value.maximum > max_process_fds)
-                return -EINVAL;
+        if (!result)
+            return result.error;
 
-            if (value.maximum > _rlimit_nofile.maximum)
-                return -EPERM;
+        if (resource == RLIMIT_NOFILE)
+            _rlimit_nofile = result.value;
+        else
+            _rlimit_as = result.value;
 
-            _rlimit_nofile = value;
-
-            return 0;
-        }
-
-        if (resource == RLIMIT_AS) {
-            if (value.maximum > _rlimit_as.maximum || value.current < _mapped_bytes)
-                return value.maximum > _rlimit_as.maximum ? -EPERM : -EINVAL;
-
-            _rlimit_as = value;
-
-            return 0;
-        }
-
-        return -EINVAL;
+        return 0;
     }
 
     bool process::build_user_stack(char* const argv[], char* const envp[], u64* rsp_out) {

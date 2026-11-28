@@ -23,4 +23,6 @@ Returns zero, or a negative errno.
 
 ## NOTES
 
-A process may lower its limits but cannot raise a hard limit.
+A process may lower its limits, and an unprivileged process cannot raise a hard
+limit. A privileged process (effective UID 0) may raise a hard limit up to the
+kernel maximum; `RLIMIT_NOFILE` remains capped by the kernel descriptor limit.

@@ -54,7 +54,7 @@ tests are omitted when their host tools are unavailable. Set
 repository smoke tests without compiling the host test tree.
 
 With `ASTIA_BUILD_TESTS=ON`, `ASTIA_CROSS_USERSPACE=ON`, and both external and
-manual suites disabled, the current tree discovers 224 tests: 214 enabled and
+manual suites disabled, the current tree discovers 225 tests: 215 enabled and
 10 intentionally disabled. The ten disabled entries are
 `astia_ncurses_qemu_smoke`, `astia_zsh_pty_regression`,
 `astia_zsh_signal_regression`, `astia_zsh_interactive_manual`,
