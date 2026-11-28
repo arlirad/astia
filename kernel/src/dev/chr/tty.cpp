@@ -118,6 +118,18 @@ namespace astia::dev {
         return read_available(buf, len, off, false);
     }
 
+    bool tty::onlcr_lf_pending() {
+        arch::interrupt_spinlock_guard guard(_state_lock);
+
+        return _onlcr_lf_pending;
+    }
+
+    void tty::set_onlcr_lf_pending(bool pending) {
+        arch::interrupt_spinlock_guard guard(_state_lock);
+
+        _onlcr_lf_pending = pending;
+    }
+
     long tty::write(const void* buf, u32 len, u64 off) {
         (void) off;
 
@@ -150,15 +162,33 @@ namespace astia::dev {
 
         const auto* source = static_cast<const u8*>(buf);
 
+        const bool translate_newline =
+            (termios.c_oflag & OPOST) != 0 && (termios.c_oflag & ONLCR) != 0;
+
         u32 sent = 0;
+
+        if (onlcr_lf_pending()) {
+            if (!tty_putc('\n'))
+                return 0;
+
+            set_onlcr_lf_pending(false);
+
+            if (len != 0 && source[0] == '\n')
+                sent = 1;
+        }
 
         for (; sent < len; ++sent) {
             const u8 byte = source[sent];
 
-            if ((termios.c_oflag & OPOST) != 0 && (termios.c_oflag & ONLCR) != 0 &&
-                byte == '\n') {
-                if (!tty_putc('\r') || !tty_putc('\n'))
+            if (translate_newline && byte == '\n') {
+                if (!tty_putc('\r'))
                     break;
+
+                if (!tty_putc('\n')) {
+                    set_onlcr_lf_pending(true);
+
+                    break;
+                }
             }
             else if (!tty_putc(byte)) {
                 break;

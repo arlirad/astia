@@ -91,6 +91,8 @@ namespace astia::dev {
         virtual void     tty_signal(u8 byte);
 
         long read_available(void* buf, u32 len, u64 off, bool allow_short);
+        bool onlcr_lf_pending();
+        void set_onlcr_lf_pending(bool pending);
 
         /// Called per flag TCSETS changes, with the flag bit and its
         /// new state — the driver reacts without the tty layer knowing
@@ -129,6 +131,7 @@ namespace astia::dev {
         // read, not "not ready".  Keep that fact until the next read.
         bool _eof_pending                      = false;
         bool _output_stopped                   = false;
+        bool _onlcr_lf_pending                 = false;
         alignas(cache_line_bytes) u32 _rx_head = 0;
         alignas(cache_line_bytes) u32 _rx_tail = 0;
     };
