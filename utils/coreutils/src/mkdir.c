@@ -5,14 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static unsigned int current_umask(void) {
-    unsigned int value = umask(0);
-
-    (void) umask(value);
-
-    return value;
-}
-
 static int make_parents(const char* path) {
     size_t length = strlen(path);
     if (length == 0)
@@ -54,13 +46,6 @@ static int make_parents(const char* path) {
 
                     goto done;
                 }
-            }
-            else if (chmod(parent, 0300 | (0777 & ~current_umask())) < 0) {
-                parent[i] = '/';
-
-                status = cu_error("mkdir", strerror(errno));
-
-                goto done;
             }
         }
 

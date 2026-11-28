@@ -269,6 +269,41 @@ if "$out/host/mkdir" -p "$overlong_path" 2>"$out/host/mkdir_too_long.err"; then
 fi
 grep -qF 'File name too long' "$out/host/mkdir_too_long.err"
 
+# mkdir -p applies the umask to intermediate components exactly as it does to
+# the final component; it must not add owner write/execute bits.  Scratch
+# space lives outside the build tree because the mode-0 intermediate is not
+# readable by the artifact uploader.
+mkdir_modes_root=$(mktemp -d "${TMPDIR:-/tmp}/astia-mkdir-modes.XXXXXX")
+cleanup_mkdir_scratch() {
+    chmod -R u+rwX "$long_path_root" "$mkdir_modes_root" 2>/dev/null || true
+    rm -rf "$long_path_root" "$mkdir_modes_root"
+}
+trap cleanup_mkdir_scratch EXIT
+trap 'cleanup_mkdir_scratch; exit 1' HUP INT TERM
+( umask 0077; "$out/host/mkdir" -p "$mkdir_modes_root/a/b/c" )
+for directory in a a/b a/b/c; do
+    test "$(stat -c %a "$mkdir_modes_root/$directory")" = 700
+done
+mkdir -p "$mkdir_modes_root/existing"
+chmod 0700 "$mkdir_modes_root/existing"
+( umask 0077; "$out/host/mkdir" -p "$mkdir_modes_root/existing/child" )
+test "$(stat -c %a "$mkdir_modes_root/existing")" = 700
+test "$(stat -c %a "$mkdir_modes_root/existing/child")" = 700
+# A umask that removes owner write/execute leaves the created level at mode 0.
+# Whether the child can then be created depends on privileges, so only the
+# mode is asserted; the unconditional owner-bit widening this guards against
+# used to produce 0300 regardless of the umask.
+set +e
+( umask 0777; "$out/host/mkdir" -p "$mkdir_modes_root/restricted/child" ) \
+    2>"$out/host/mkdir_restricted.err"
+set -e
+test "$(stat -c %a "$mkdir_modes_root/restricted")" = 0
+if [ -e "$mkdir_modes_root/restricted/child" ]; then
+    test "$(stat -c %a "$mkdir_modes_root/restricted/child")" = 0
+fi
+
+# ls -l must print complete symlink targets; the old 256-byte buffer cut
+
 # ls -l must print complete symlink targets; the old 256-byte buffer cut
 # targets longer than 255 bytes short.
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
