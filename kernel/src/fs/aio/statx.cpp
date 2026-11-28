@@ -2,17 +2,6 @@
 #include "common.hpp"
 
 namespace astia::io::aio::operations {
-    namespace {
-        /// st_ino for an open handle: the backing file's own inode, with
-        /// the VFS node identity taking over for filesystems whose file
-        /// objects carry none.
-        u64 handle_inode(const fs::open_file& handle) {
-            const u64 inode = handle.parent() ? handle.parent()->inode() : 0;
-
-            return inode != 0 ? inode : fs::node_inode(handle.path());
-        }
-    } // namespace
-
     struct statx : handler<statx, opcode::statx> {
         static core::task<aio_result>
         invoke([[maybe_unused]] ring::ring_slot& slot, [[maybe_unused]] astia_rings* ring,
@@ -173,7 +162,7 @@ namespace astia::io::aio::operations {
                                                   : handle->timestamps();
 
             stat_out->dev        = fs::node_device(*handle);
-            stat_out->ino        = handle_inode(*handle);
+            stat_out->ino        = fs::node_inode(*handle);
             stat_out->nlink      = handle_nlink(*handle);
             stat_out->size       = static_cast<u64>(size);
             stat_out->blocks     = (static_cast<u64>(size) + 511u) / 512u;

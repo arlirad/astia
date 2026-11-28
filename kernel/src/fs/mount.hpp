@@ -41,6 +41,13 @@ namespace astia::fs {
         /// instead of leaving the caller to guess from an empty handle.
         virtual mm::shptr<open_file> open(const char* path, u32 flags,
                                           long* error = nullptr);
+        /// Open `path`, binding only the node whose inode is `inode` (zero
+        /// when the mount cannot identify one).  Backends that resolve and
+        /// open under one namespace lock override this so a name that changed
+        /// since the caller checked it fails with -EAGAIN instead of binding
+        /// the replacement.
+        virtual mm::shptr<open_file> open_verified(const char* path, u32 flags, u64 inode,
+                                                   long* error = nullptr);
         virtual long register_file(const char* path, const mm::shptr<file>& entry);
         virtual long unregister_file(const char* path, const mm::shptr<file>& entry = {});
         virtual long read_directory(const char* path, u64 index, char* name, u32 capacity,

@@ -74,6 +74,10 @@ namespace aio_test {
             return fs::file_mode(type_, fs::default_file_permissions);
         }
 
+        u64 inode() const override {
+            return inode_value;
+        }
+
         long size() const override {
             return size_value;
         }
@@ -121,6 +125,7 @@ namespace aio_test {
 
         fs::file_timestamps  recorded_timestamps{};
         fs::file_type        type_           = fs::file_type::regular;
+        u64                  inode_value     = 0;
         long                 submit_result   = 0;
         long                 size_value      = 0;
         long                 truncate_result = 0;

@@ -36,6 +36,34 @@ namespace astia::fs {
     mm::shptr<open_file> open(const char* path, u32 flags = 0, long* error = nullptr);
     mm::shptr<open_file> open_directory(const char* path);
 
+    /// Identity of one namespace node: the backing mount and the inode the
+    /// filesystem reports for it.  Callers that must check a node before
+    /// opening it capture this once and pass it to open_verified(), so the
+    /// open binds the checked object instead of whatever the name points at
+    /// by the time the backend looks it up again.
+    struct node_identity {
+        u32 device = 0;
+        u64 inode  = 0;
+    };
+
+    node_identity node_identity_of(const char* path);
+
+    /// Inode of the node an open descriptor is bound to.  A path-only handle
+    /// reports the identity of the path it captured.
+    u64 node_inode(const open_file& handle);
+
+    /// Open an already resolved canonical path, requiring the backend to bind
+    /// the node in `expected`.  A zero identity skips the requirement, which
+    /// is what create-new callers need.  A name that now resolves to another
+    /// node fails with -EAGAIN and binds no descriptor.
+    mm::shptr<open_file> open_verified(const char* path, u32 flags,
+                                       const node_identity& expected,
+                                       long*                error = nullptr);
+
+    /// open_directory() counterpart of open_verified().
+    mm::shptr<open_file> open_directory_verified(const char*          path,
+                                                 const node_identity& expected);
+
     /// True when the path resolves to a read-only mount.
     bool read_only_path(const char* path);
 
