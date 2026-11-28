@@ -158,7 +158,7 @@ namespace {
 
     usz build_segment(u8* segment, u16 source_port, u16 destination_port, u32 seq,
                       u32 ack, u16 flags, const void* payload, usz payload_length,
-                      const u8* source_ip, const u8* destination_ip) {
+                      const u8* source_ip, const u8* destination_ip, u16 window = 4096) {
         astia::tcp::tcp_header header{};
 
         header.source_port       = source_port;
@@ -166,7 +166,7 @@ namespace {
         header.sequence          = seq;
         header.acknowledgement   = ack;
         header.data_offset_flags = static_cast<u16>(0x5000u | flags);
-        header.window            = 4096;
+        header.window            = window;
         header.checksum_value    = 0;
         header.urgent            = 0;
 
@@ -841,6 +841,69 @@ void test_mss_negotiation() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_peer_window_blocks_send() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    u8  segment[128]{};
+    usz length = build_segment(segment, 40000, 80, 100, 0, astia::tcp::flag_syn, nullptr,
+                               0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    auto* child = protocol.accept(*listener);
+
+    assert(child != nullptr);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->state == astia::tcp::connection_state::established);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_una,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip, 0);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->peer_window == 0);
+
+    u8 payload[10]{};
+
+    for (usz index = 0; index < sizeof payload; ++index) {
+        payload[index] = static_cast<u8>(index);
+    }
+
+    auto send_task = child->send(astia::span<const u8>(payload, sizeof payload));
+
+    assert(!send_task.done());
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_una,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip, 100);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    while (!send_task.done()) {
+        assert(send_task.resume());
+    }
+
+    assert(send_task.value() != nullptr);
+    assert(*send_task.value() == 10);
+    assert(ipv4.length == 20 + 10);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -855,6 +918,7 @@ int main() {
     test_out_of_order_reassembly();
     test_reset_unknown_and_rst_abort();
     test_mss_negotiation();
+    test_peer_window_blocks_send();
 
     return 0;
 }
