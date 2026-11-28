@@ -609,6 +609,11 @@ FILE* open_memstream(char** bufp, size_t* sizep) {
     f->next            = g_open;
     g_open             = f;
 
+    /* POSIX: the caller can read a valid empty string immediately, not
+       only after the first fflush/fclose. */
+    *bufp  = data;
+    *sizep = 0;
+
     return f;
 }
 
