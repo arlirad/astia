@@ -419,6 +419,27 @@ class GenerateTest(unittest.TestCase):
         self.assertIn("EAGAIN", sigsuspend)
         self.assertIn("libc/src/process/signal.c", sigsuspend)
 
+    def test_libc_pages_match_current_lstat_isatty_access_and_chown(self):
+        lstat = generate.LIBC_PAGES["lstat"]
+        self.assertIn("final component is not followed", lstat[1])
+        self.assertIn("STATX_NOFOLLOW", lstat[4])
+        self.assertNotIn("alias of stat", " ".join(lstat))
+
+        isatty = generate.LIBC_PAGES["isatty"]
+        self.assertIn("TIOCGPGRP", isatty[1])
+        self.assertIn("-EBADF", isatty[3])
+        self.assertNotIn("0 through 2 and zero", " ".join(isatty))
+
+        access = generate.LIBC_PAGES["access"]
+        self.assertIn("real user and group credentials", access[1])
+        self.assertIn("supplementary group", access[4])
+        self.assertNotIn("Checks whether the effective", " ".join(access))
+
+        chown = generate.LIBC_PAGES["chown"]
+        self.assertIn("-EPERM", chown[3])
+        self.assertIn("effective UID of zero", chown[4])
+        self.assertNotIn("does not reject", " ".join(chown))
+
     def test_generator_exports_authored_markdown_verbatim(self):
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temporary:
             root = Path(temporary)
