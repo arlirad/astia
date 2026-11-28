@@ -15,8 +15,14 @@ namespace astia::io::aio::operations {
 
             const auto address = memory::user_ptr<astia_sockaddr>(sqe.offset).validate();
 
-            if (!memory::user_span_ok_for(span<u8>::bytes(sqe.address, sqe.length)) ||
-                !address)
+            auto* current = proc::current_process();
+            if (!current)
+                co_return -ESRCH;
+
+            if (!memory::user_span_writable_ok_for(
+                    current, span<u8>::bytes(sqe.address, sqe.length)) ||
+                !address ||
+                !memory::user_span_writable_ok_for(current, address.value.bytes()))
                 co_return -EFAULT;
 
             if (sqe.length > max_operation_bytes)
@@ -24,10 +30,6 @@ namespace astia::io::aio::operations {
 
             if (sqe.length == 0)
                 co_return 0;
-
-            auto* current = proc::current_process();
-            if (!current)
-                co_return -ESRCH;
 
             auto* socket = dgram_for(handle);
             if (socket == nullptr)

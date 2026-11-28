@@ -437,6 +437,37 @@ ASTIA_TEST(aio_filesystem_block_device_access_mode_matches_open) {
     check_device_access_mode(astia::fs::file_type::block);
 }
 
+ASTIA_TEST(aio_filesystem_read_destination_must_be_writable) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+
+    auto* node = new aio_test::fake_file;
+
+    node->submit_result = 4;
+
+    const i32 fd = install_descriptor(aio_test::make_open_file(node, ASTIA_AIO_O_RDWR));
+
+    char buffer[4] = {'a', 'b', 'c', 'd'};
+
+    set_memory_writable(false);
+
+    ASTIA_CHECK(submit_data(OP_READ, fd, buffer, sizeof buffer) == -EFAULT);
+    ASTIA_CHECK(buffer[0] == 'a' && buffer[1] == 'b' && buffer[2] == 'c' &&
+                buffer[3] == 'd');
+
+    ASTIA_CHECK(submit_data(OP_WRITE, fd, buffer, sizeof buffer) == 4);
+
+    set_memory_writable(true);
+
+    ASTIA_CHECK(submit_data(OP_READ, fd, buffer, sizeof buffer) == 4);
+    ASTIA_CHECK(buffer[0] == 0x5a && buffer[1] == 0x5a && buffer[2] == 0x5a &&
+                buffer[3] == 0x5a);
+
+    clear_descriptor(fd);
+}
+
 ASTIA_TEST(aio_filesystem_openat_tty_without_controlling_terminal_is_enxio) {
     using namespace aio::test_support;
 

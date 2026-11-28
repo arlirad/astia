@@ -42,7 +42,8 @@ namespace astia::io::aio::test_support {
         mm::shptr<open_file> socketpair_first;
         mm::shptr<open_file> socketpair_second;
         file_mode            node_mode{file_type::regular, fs::default_file_permissions};
-        bool                 memory_allowed = true;
+        bool                 memory_allowed  = true;
+        bool                 memory_writable = true;
         chown_record         last_chown_path_record;
         chmod_record         last_chmod_path_record;
         creation_record      last_creation_record;
@@ -284,7 +285,7 @@ namespace astia::io::aio::test_support {
         }
 
         bool user_span_writable_ok(proc::process*, span<u8> range) {
-            return inside_range(range);
+            return memory_writable && inside_range(range);
         }
 
         bool kernel_span_ok(span<u8>) {
@@ -428,6 +429,7 @@ namespace astia::io::aio::test_support {
         set_node_owner("/tmp", uid_t{0}, gid_t{0});
 
         memory_allowed         = true;
+        memory_writable        = true;
         last_chown_path_record = {};
         last_chmod_path_record = {};
         last_creation_record   = {};
@@ -598,6 +600,10 @@ namespace astia::io::aio::test_support {
 
     void set_memory_allowed(bool allowed) {
         memory_allowed = allowed;
+    }
+
+    void set_memory_writable(bool allowed) {
+        memory_writable = allowed;
     }
 
     bool touch_called() {

@@ -36,6 +36,10 @@
  *   24    WRITEV the same way, then read the file back and compare the
  *         bytes: the direction that fills pages is checked by content,
  *         not only by count
+ *   27    a read into a read-only mapping is -EFAULT and writes nothing
+ *   28    the same read into a writable mapping still fills it
+ *   29    a half-writable READ range is refused whole: -EFAULT, and the
+ *         writable half keeps its bytes
  */
 
 #include <astia/api/aio.h>
@@ -341,6 +345,103 @@ void c_main(const long* frame) {
             if (part2[i] != expect[sizeof part0 + sizeof part1 + i])
                 astia_exit(22);
         }
+    }
+
+    /* --- a read fills its buffer, so the buffer must be writable -------
+       A mapping that is readable but not writable is a legal source and
+       not a legal destination.  The kernel must refuse the whole range
+       with -EFAULT before the device writes anything: a partially
+       writable range must not leave the writable head filled. */
+    {
+        const long read_only = astia_mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (read_only < 0)
+            astia_exit(27);
+
+        unsigned char* page = (unsigned char*) (uintptr_t) read_only;
+
+        page[0] = 0xA5;
+        page[1] = 0x5A;
+
+        if (astia_mprotect(page, 4096, PROT_READ) != 0)
+            astia_exit(27);
+
+        if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) page, 0, 16, tag) ==
+            NULL)
+            astia_exit(27);
+
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != -EFAULT)
+            astia_exit(27);
+
+        if (astia_mprotect(page, 4096, PROT_READ | PROT_WRITE) != 0)
+            astia_exit(27);
+
+        if (page[0] != 0xA5 || page[1] != 0x5A)
+            astia_exit(27);
+
+        if (astia_munmap(page, 4096) != 0)
+            astia_exit(27);
+    }
+
+    /* A writable mapping is still a legal read destination. */
+    {
+        const long writable = astia_mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (writable < 0)
+            astia_exit(28);
+
+        unsigned char* page = (unsigned char*) (uintptr_t) writable;
+
+        memset(page, 0, 4096);
+
+        if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) page, 0, 4, tag) ==
+            NULL)
+            astia_exit(28);
+
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != 4)
+            astia_exit(28);
+
+        if (page[0] != 0x7F || page[1] != 'E' || page[2] != 'L' || page[3] != 'F')
+            astia_exit(28);
+
+        if (astia_munmap(page, 4096) != 0)
+            astia_exit(28);
+    }
+
+    /* Half writable, half read-only: refused whole, with the writable
+       half left exactly as it was. */
+    {
+        const long mixed = astia_mmap(NULL, 2 * 4096, PROT_READ | PROT_WRITE,
+                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+        if (mixed < 0)
+            astia_exit(29);
+
+        unsigned char* pages = (unsigned char*) (uintptr_t) mixed;
+
+        pages[0]    = 0x11;
+        pages[4096] = 0x22;
+
+        if (astia_mprotect(pages + 4096, 4096, PROT_READ) != 0)
+            astia_exit(29);
+
+        if (fill(ring, OP_READ, (int32_t) fd, (uint64_t) (uintptr_t) pages, 0, 2 * 4096,
+                 tag) == NULL)
+            astia_exit(29);
+
+        if (kick(ring, (uint64_t) tag++, &(long){0}) != -EFAULT)
+            astia_exit(29);
+
+        if (astia_mprotect(pages + 4096, 4096, PROT_READ | PROT_WRITE) != 0)
+            astia_exit(29);
+
+        if (pages[0] != 0x11 || pages[4096] != 0x22)
+            astia_exit(29);
+
+        if (astia_munmap(pages, 2 * 4096) != 0)
+            astia_exit(29);
     }
 
     /* --- past the entry cap the list is refused whole ----------------- */
