@@ -118,8 +118,15 @@ namespace astia::arch {
         explicit page_map(paddr_t root, const page_map* parent)
             : _root(root), _parent(parent) {}
 
-        paddr_t         _root   = 0;
-        const page_map* _parent = nullptr;
+        void unlink_from_parent();
+        void migrate_registry(page_map& source);
+        void publish_kernel_entry(usz slot, u64 entry);
+        void publish_kernel_entry_locked(usz slot, u64 entry);
+
+        paddr_t         _root         = 0;
+        const page_map* _parent       = nullptr;
+        page_map*       _first_child  = nullptr;
+        page_map*       _next_sibling = nullptr;
     };
 
     /// The kernel's own address space, installed by the arch paging init
