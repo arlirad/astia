@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -54,6 +55,42 @@ static void sleep_ms(long milliseconds) {
     delay.tv_nsec = (milliseconds % 1000) * 1000000L;
 
     (void) nanosleep(&delay, 0);
+}
+
+static int spawn_daemon(const char* rc_path) {
+    int daemon = fork();
+    if (daemon == 0) {
+        int result = astia_daemon_run(rc_path);
+
+        _exit(result == 0 ? 0 : 1);
+    }
+
+    return daemon;
+}
+
+static int open_listener(const char* path) {
+    struct sockaddr_un address;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    memset(&address, 0, sizeof address);
+
+    address.sun_family = AF_UNIX;
+
+    strcpy(address.sun_path, path);
+
+    if (bind(fd, (struct sockaddr*) &address,
+             (unsigned) (offsetof(struct sockaddr_un, sun_path) + strlen(path) + 1)) <
+            0 ||
+        listen(fd, 4) < 0) {
+        close(fd);
+
+        return -1;
+    }
+
+    return fd;
 }
 
 static int service_main(int argc, char** argv) {
@@ -240,6 +277,16 @@ static void remove_case(const char* directory) {
     rmdir(directory);
 }
 
+static int prepare_empty_case(const char* tag, char* rc_path, size_t rc_size) {
+    snprintf(rc_path, rc_size, "/tmp/astia-daemond-%s-%d", tag, (int) getpid());
+
+    remove_case(rc_path);
+    unlink(DAEMON_SOCKET_PATH);
+    unlink(DAEMON_SOCKET_FALLBACK);
+
+    return mkdir(rc_path, 0700);
+}
+
 static int prepare_case(const char* self, const char* mode, char* rc_path, size_t rc_size,
                         char* service_path, size_t service_size) {
     snprintf(rc_path, rc_size, "/tmp/astia-daemond-stop-%d-%s", (int) getpid(), mode);
@@ -301,12 +348,7 @@ static void run_case(const char* self, const char* mode) {
     if (prepared < 0)
         return;
 
-    daemon = fork();
-    if (daemon == 0) {
-        int result = astia_daemon_run(rc_path);
-
-        _exit(result == 0 ? 0 : 1);
-    }
+    daemon = spawn_daemon(rc_path);
 
     CHECK(daemon > 0);
 
@@ -396,12 +438,7 @@ static void run_protocol_case(void) {
     if (prepared < 0)
         return;
 
-    daemon = fork();
-    if (daemon == 0) {
-        int result = astia_daemon_run(rc_path);
-
-        _exit(result == 0 ? 0 : 1);
-    }
+    daemon = spawn_daemon(rc_path);
 
     CHECK(daemon > 0);
 
@@ -477,6 +514,216 @@ static void run_protocol_case(void) {
     unlink(DAEMON_SOCKET_FALLBACK);
 }
 
+static void run_live_socket_case(void) {
+    char rc_path[PATH_MAX];
+
+    struct stat before = {0};
+    struct stat after  = {0};
+
+    int listener;
+    int daemon;
+    int exited;
+    int status = 0;
+
+    CHECK(prepare_empty_case("live", rc_path, sizeof rc_path) == 0);
+
+    listener = open_listener(DAEMON_SOCKET_PATH);
+
+    CHECK(listener >= 0);
+
+    if (listener < 0) {
+        remove_case(rc_path);
+
+        return;
+    }
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &before) == 0);
+
+    daemon = spawn_daemon(rc_path);
+
+    CHECK(daemon > 0);
+
+    if (daemon <= 0) {
+        close(listener);
+        remove_case(rc_path);
+
+        return;
+    }
+
+    exited = wait_for_child(daemon, DAEMON_TIMEOUT_MS, &status);
+
+    CHECK(exited);
+
+    if (!exited) {
+        kill(daemon, SIGKILL);
+        (void) wait_for_child(daemon, 1000, &status);
+    }
+    else {
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) != 0);
+    }
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &after) == 0);
+    CHECK(S_ISSOCK(after.st_mode));
+    CHECK(before.st_dev == after.st_dev && before.st_ino == after.st_ino);
+
+    int probe = try_connect();
+
+    CHECK(probe >= 0);
+
+    if (probe >= 0)
+        close(probe);
+
+    fprintf(stderr, "daemond_stop_test: live socket case done\n");
+
+    close(listener);
+    remove_case(rc_path);
+    unlink(DAEMON_SOCKET_PATH);
+}
+
+static void run_stale_socket_case(void) {
+    char rc_path[PATH_MAX];
+    char reply[REPLY_BYTES] = "";
+
+    struct stat status = {0};
+
+    long long elapsed = 0;
+    int       listener;
+    int       daemon;
+    int       exited;
+    int       fd;
+    int       wait_status = 0;
+
+    CHECK(prepare_empty_case("stale", rc_path, sizeof rc_path) == 0);
+
+    listener = open_listener(DAEMON_SOCKET_PATH);
+
+    CHECK(listener >= 0);
+
+    if (listener < 0) {
+        remove_case(rc_path);
+
+        return;
+    }
+
+    close(listener);
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &status) == 0);
+    CHECK(S_ISSOCK(status.st_mode));
+
+    daemon = spawn_daemon(rc_path);
+
+    CHECK(daemon > 0);
+
+    if (daemon <= 0) {
+        remove_case(rc_path);
+        unlink(DAEMON_SOCKET_PATH);
+
+        return;
+    }
+
+    fd = connect_control(START_TIMEOUT_MS);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0)
+        close(fd);
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &status) == 0);
+    CHECK(S_ISSOCK(status.st_mode));
+
+    CHECK(request("STOP\n", reply, sizeof reply, &elapsed) == 0);
+    CHECK(!strcmp(reply, "OK stopped\n"));
+
+    exited = wait_for_child(daemon, DAEMON_TIMEOUT_MS, &wait_status);
+
+    CHECK(exited);
+
+    if (!exited) {
+        kill(daemon, SIGKILL);
+        (void) wait_for_child(daemon, 1000, &wait_status);
+    }
+    else {
+        CHECK(WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0);
+    }
+
+    fprintf(stderr, "daemond_stop_test: stale socket case done\n");
+
+    remove_case(rc_path);
+    unlink(DAEMON_SOCKET_PATH);
+    unlink(DAEMON_SOCKET_FALLBACK);
+}
+
+static void run_regular_file_case(void) {
+    char rc_path[PATH_MAX];
+    char contents[8] = "";
+
+    struct stat before = {0};
+    struct stat after  = {0};
+
+    int daemon;
+    int exited;
+    int fd;
+    int status = 0;
+
+    CHECK(prepare_empty_case("regular", rc_path, sizeof rc_path) == 0);
+
+    fd = open(DAEMON_SOCKET_PATH, O_WRONLY | O_CREAT | O_EXCL, 0600);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0) {
+        CHECK(write(fd, "keep\n", 5) == 5);
+        close(fd);
+    }
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &before) == 0);
+    CHECK(S_ISREG(before.st_mode));
+
+    daemon = spawn_daemon(rc_path);
+
+    CHECK(daemon > 0);
+
+    if (daemon <= 0) {
+        remove_case(rc_path);
+        unlink(DAEMON_SOCKET_PATH);
+
+        return;
+    }
+
+    exited = wait_for_child(daemon, DAEMON_TIMEOUT_MS, &status);
+
+    CHECK(exited);
+
+    if (!exited) {
+        kill(daemon, SIGKILL);
+        (void) wait_for_child(daemon, 1000, &status);
+    }
+    else {
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) != 0);
+    }
+
+    CHECK(lstat(DAEMON_SOCKET_PATH, &after) == 0);
+    CHECK(S_ISREG(after.st_mode));
+    CHECK(before.st_dev == after.st_dev && before.st_ino == after.st_ino);
+
+    fd = open(DAEMON_SOCKET_PATH, O_RDONLY);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0) {
+        CHECK(read(fd, contents, sizeof contents - 1) == 5);
+        CHECK(!strcmp(contents, "keep\n"));
+
+        close(fd);
+    }
+
+    fprintf(stderr, "daemond_stop_test: regular file case done\n");
+
+    remove_case(rc_path);
+    unlink(DAEMON_SOCKET_PATH);
+    unlink(DAEMON_SOCKET_FALLBACK);
+}
+
 int main(int argc, char** argv) {
     char self[PATH_MAX];
     int  mode = service_main(argc, argv);
@@ -491,6 +738,9 @@ int main(int argc, char** argv) {
     }
 
     run_protocol_case();
+    run_live_socket_case();
+    run_stale_socket_case();
+    run_regular_file_case();
     run_case(self, "graceful");
     run_case(self, "ignore");
     run_case(self, "restart");

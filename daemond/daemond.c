@@ -44,6 +44,8 @@ struct command {
 
 static volatile sig_atomic_t shutdown_pending;
 
+static const char* bound_control_path;
+
 static void terminate_signal(int signal_number) {
     (void) signal_number;
 
@@ -222,27 +224,135 @@ static int stop_all_services(struct service* services, int count, int restart) {
     return 0;
 }
 
+/* A path is safe to bind only when it is absent or holds a socket that no
+ * process is listening on.  Probe first so a live listener is never touched,
+ * then remove only a stale socket; never remove a non-socket. */
+static int claim_control_path(const char* path) {
+    struct sockaddr_un address;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0)
+        return -1;
+
+    int flags = fcntl(fd, F_GETFL);
+
+    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        int saved = errno;
+
+        close(fd);
+
+        errno = saved;
+
+        return -1;
+    }
+
+    memset(&address, 0, sizeof address);
+
+    address.sun_family = AF_UNIX;
+
+    if (strlen(path) >= sizeof address.sun_path) {
+        close(fd);
+
+        errno = ENAMETOOLONG;
+
+        return -1;
+    }
+
+    strcpy(address.sun_path, path);
+
+    int connected =
+        connect(fd, (struct sockaddr*) &address, (unsigned) (2 + strlen(path)));
+    int saved = errno;
+
+    close(fd);
+
+    if (connected == 0 || saved == EINPROGRESS || saved == EAGAIN) {
+        errno = EADDRINUSE;
+
+        return -1;
+    }
+
+    if (saved != ECONNREFUSED && saved != ENOENT) {
+        errno = saved;
+
+        return -1;
+    }
+
+    struct stat status;
+
+    if (lstat(path, &status) < 0)
+        return errno == ENOENT ? 0 : -1;
+
+    if (!S_ISSOCK(status.st_mode)) {
+        errno = ENOTSOCK;
+
+        return -1;
+    }
+
+    if (saved != ECONNREFUSED) {
+        errno = EADDRINUSE;
+
+        return -1;
+    }
+
+    if (unlink(path) < 0 && errno != ENOENT)
+        return -1;
+
+    return 0;
+}
+
+static void remove_control_socket(void) {
+    if (bound_control_path)
+        unlink(bound_control_path);
+}
+
 static int open_control(void) {
     const char* paths[] = {DAEMON_SOCKET_PATH, DAEMON_SOCKET_FALLBACK};
 
+    int error = 0;
+
     for (int i = 0; i < 2; ++i) {
+        if (claim_control_path(paths[i]) < 0) {
+            int saved = errno;
+            if (saved == EADDRINUSE)
+                fprintf(stderr, "daemond: control socket %s is already in use\n",
+                        paths[i]);
+            else if (saved == ENOTSOCK)
+                fprintf(stderr, "daemond: refusing to replace non-socket %s\n", paths[i]);
+            else
+                error = saved;
+
+            errno = saved;
+
+            if (saved == EADDRINUSE || saved == ENOTSOCK)
+                return -1;
+
+            continue;
+        }
+
         struct sockaddr_un address;
 
         int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (fd < 0)
+        if (fd < 0) {
+            error = errno;
+
             continue;
+        }
 
         if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+            error = errno;
+
             close(fd);
             continue;
         }
 
-        unlink(paths[i]);
         memset(&address, 0, sizeof address);
 
         address.sun_family = AF_UNIX;
 
         if (strlen(paths[i]) >= sizeof address.sun_path) {
+            error = ENAMETOOLONG;
+
             close(fd);
             continue;
         }
@@ -252,12 +362,29 @@ static int open_control(void) {
         if (bind(fd, (struct sockaddr*) &address, (unsigned) (2 + strlen(paths[i]))) ==
                 0 &&
             listen(fd, 4) == 0) {
-            if (chmod(paths[i], 0600) == 0)
+            if (chmod(paths[i], 0600) == 0) {
+                bound_control_path = paths[i];
+
                 return fd;
+            }
+
+            error = errno;
+        }
+        else {
+            error = errno;
         }
 
         close(fd);
+
+        if (error == EADDRINUSE) {
+            errno = error;
+
+            return -1;
+        }
     }
+
+    if (error)
+        errno = error;
 
     return -1;
 }
@@ -555,7 +682,8 @@ int astia_daemon_run(const char* unit_directory) {
 
     control = open_control();
     if (control < 0) {
-        fprintf(stderr, "daemond: control socket failed: errno=%d\n", errno);
+        fprintf(stderr, "daemond: control socket failed: errno=%d (%s)\n", errno,
+                strerror(errno));
 
         return -1;
     }
@@ -656,8 +784,7 @@ int astia_daemon_run(const char* unit_directory) {
     }
 
     close(control);
-    unlink(DAEMON_SOCKET_PATH);
-    unlink(DAEMON_SOCKET_FALLBACK);
+    remove_control_socket();
 
     if (failures)
         fprintf(stderr, "daemond: shutdown with failures\n");
