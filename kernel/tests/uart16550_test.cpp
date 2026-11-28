@@ -6,6 +6,7 @@
 #include "support/test.hpp"
 
 #include <cstring>
+#include <poll.h>
 
 namespace astia::arch {
     namespace {
@@ -49,6 +50,7 @@ namespace {
         astia::u8  ier        = 0;
         astia::u8  lcr        = 0;
         astia::u8  mcr        = 0;
+        astia::u8  lsr        = 0x60;
         astia::u8  divisor_lo = 0;
         astia::u8  divisor_hi = 0;
         astia::u8  rx[rx_capacity]{};
@@ -90,7 +92,7 @@ namespace {
         case 4:
             return fake.mcr;
         case 5:
-            return static_cast<astia::u8>(0x60 | (fake.head == fake.tail ? 0 : 0x01));
+            return static_cast<astia::u8>(fake.lsr | (fake.head == fake.tail ? 0 : 0x01));
         default:
             return 0xFF;
         }
@@ -450,6 +452,24 @@ ASTIA_TEST(uart16550_tcflsh_selects_input_and_output) {
 
     ASTIA_CHECK(uart.ioctl(TCFLSH, &selector, sizeof(selector)) == 0);
     ASTIA_CHECK(uart.read(result, sizeof(result), 0) == 0);
+}
+
+ASTIA_TEST(uart16550_poll_tracks_transmitter_ready) {
+    fake_uart             fake;
+    astia::dev::pio_bus   bus = fake_bus(fake);
+    astia::dev::irq_line  irq;
+    astia::dev::uart16550 uart("uart-test", bus, irq, fake_base);
+
+    ASTIA_CHECK(uart.init_uart());
+
+    fake.lsr = 0;
+
+    ASTIA_CHECK((uart.poll(POLLOUT, 0) & POLLOUT) == 0);
+    ASTIA_CHECK((fake.ier & 0x02) != 0);
+
+    fake.lsr = 0x60;
+
+    ASTIA_CHECK((uart.poll(POLLOUT, 0) & POLLOUT) != 0);
 }
 
 ASTIA_TEST(uart16550_tcflsh_reports_port_failure) {

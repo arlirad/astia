@@ -106,6 +106,7 @@ namespace astia::dev {
         /// rate accepts exactly that one.
         virtual long tty_speed(speed_t speed);
         virtual bool tty_putc(u8 byte) = 0;
+        virtual bool tty_output_ready() const;
         virtual void tty_ready();
 
         // This lock covers the line discipline and RX ring.  It is always

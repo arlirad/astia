@@ -593,6 +593,19 @@ namespace astia::dev {
         return tx_byte(byte);
     }
 
+    bool uart16550::tty_output_ready() const {
+        const auto status = _ports.read8(reg_lsr);
+        if (!status)
+            return false;
+
+        if ((status.value & lsr_thre) != 0)
+            return true;
+
+        (void) _ports.write8(reg_ier, static_cast<u8>(ier_rx_ready | ier_tx_empty));
+
+        return false;
+    }
+
     bool uart16550::write_byte(u8 byte) {
         return tx_byte(byte);
     }

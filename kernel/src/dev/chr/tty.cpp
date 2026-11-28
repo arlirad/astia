@@ -230,7 +230,8 @@ namespace astia::dev {
         const u32  tail = _rx_tail;
         const bool readable =
             ((head - tail) & (rx_capacity_bytes - 1)) != 0 || _eof_pending;
-        u32 result = POLLOUT;
+        const bool writable = !_output_stopped && tty_output_ready();
+        u32        result   = writable ? static_cast<u32>(POLLOUT) : 0;
 
         if (readable)
             result |= POLLIN;
@@ -697,6 +698,10 @@ namespace astia::dev {
     }
 
     void tty::tty_ready() {}
+
+    bool tty::tty_output_ready() const {
+        return true;
+    }
 
     void tty::tty_signal(u8 byte) {
         pgrp_t  foreground;

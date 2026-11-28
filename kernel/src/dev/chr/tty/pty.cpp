@@ -370,6 +370,12 @@ namespace astia::dev {
         return inserted;
     }
 
+    bool pty::tty_output_ready() const {
+        arch::interrupt_spinlock_guard guard(_pty_lock);
+
+        return _master_open && (_master_head - _master_tail) < queue_capacity;
+    }
+
     void pty::tty_ready() {
         fs::file* slave;
 
