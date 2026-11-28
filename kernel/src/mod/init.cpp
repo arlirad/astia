@@ -7,6 +7,7 @@
 #include "boot.hpp"
 #include "initrd.hpp"
 #include "module.hpp"
+#include "syscall_abi.hpp"
 
 // The "mod" init step: turn the bootloader's handoff into running code.
 //
@@ -51,6 +52,9 @@ namespace astia::mod {
             module_load_options options{};
 
             options.resident = true;
+
+            if (name != nullptr)
+                module_name_from_path(name, options.name);
 
             module_id id{};
 
