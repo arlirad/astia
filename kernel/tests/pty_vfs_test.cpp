@@ -84,4 +84,7 @@ ASTIA_TEST(pty_index_overflow_cannot_alias_an_existing_slave) {
     ASTIA_CHECK(slave);
     ASTIA_CHECK(!astia::dev::pty_open_slave("/pts/4294967296", 0));
     ASTIA_CHECK(!astia::dev::pty_open_slave("/pts/4294967307", 0));
+
+    slave  = {};
+    master = {};
 }
