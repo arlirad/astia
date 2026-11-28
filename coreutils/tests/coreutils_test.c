@@ -1100,6 +1100,35 @@ static int sort_empty_checks(void) {
     return status;
 }
 
+static int sort_operand_checks(void) {
+    char* sort_default[]         = {"sort", NULL};
+    char* sort_reverse[]         = {"sort", "-r", NULL};
+    char* sort_unique[]          = {"sort", "-u", NULL};
+    char* sort_reverse_unique[]  = {"sort", "-r", "-u", NULL};
+    char* sort_dash[]            = {"sort", "-", NULL};
+    char* sort_separator[]       = {"sort", "--", NULL};
+    char* sort_file_and_stdin[]  = {"sort", "/tmp/coreutils_sort_operand", "-", NULL};
+    char* sort_option_and_file[] = {"sort", "-r", "/tmp/coreutils_sort_operand", NULL};
+
+    if (put_file("/tmp/coreutils_sort_operand", "mike\n") != 0)
+        return fail("sort operand fixture setup");
+
+    int status =
+        check("sort stdin default", sort_default, "b\na\n", 0, "a\nb\n", 1) ||
+        check("sort -r stdin", sort_reverse, "alpha\nzulu\n", 0, "zulu\nalpha\n", 1) ||
+        check("sort -u stdin", sort_unique, "b\na\n", 0, "a\nb\n", 1) ||
+        check("sort -r -u stdin", sort_reverse_unique, "b\na\n", 0, "b\na\n", 1) ||
+        check("sort - stdin", sort_dash, "b\na\n", 0, "a\nb\n", 1) ||
+        check("sort -- stdin", sort_separator, "b\na\n", 0, "a\nb\n", 1) ||
+        check("sort file and stdin", sort_file_and_stdin, "alpha\nzulu\n", 0,
+              "alpha\nmike\nzulu\n", 1) ||
+        check("sort -r file", sort_option_and_file, NULL, 0, "mike\n", 1);
+
+    (void) unlink("/tmp/coreutils_sort_operand");
+
+    return status;
+}
+
 static int long_line_checks(void) {
     static char grep_line[LONG_LINE_PADDING + 64];
     static char cut_line[LONG_LINE_PADDING + 64];
@@ -1631,6 +1660,9 @@ int main(void) {
         return 1;
 
     if (sort_empty_checks() != 0)
+        return 1;
+
+    if (sort_operand_checks() != 0)
         return 1;
 
     if (long_line_checks() != 0)
