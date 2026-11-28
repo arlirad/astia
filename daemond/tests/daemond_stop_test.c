@@ -109,19 +109,21 @@ static int connect_control(long timeout_ms) {
     }
 }
 
-static int send_all(int fd, const char* text) {
-    size_t remaining = strlen(text);
-
-    while (remaining) {
-        long written = send(fd, text, remaining, 0);
+static int send_all_flags(int fd, const char* text, size_t size, int flags) {
+    while (size) {
+        long written = send(fd, text, size, flags);
         if (written <= 0)
             return -1;
 
         text += written;
-        remaining -= (size_t) written;
+        size -= (size_t) written;
     }
 
     return 0;
+}
+
+static int send_all(int fd, const char* text) {
+    return send_all_flags(fd, text, strlen(text), 0);
 }
 
 static int read_reply(int fd, char* buffer, size_t size) {
@@ -346,6 +348,119 @@ static void run_case(const char* self, const char* mode) {
     unlink(DAEMON_SOCKET_FALLBACK);
 }
 
+static int prepare_protocol_case(char* rc_path, size_t rc_size) {
+    snprintf(rc_path, rc_size, "/tmp/astia-daemond-protocol-%d.rc", (int) getpid());
+
+    unlink(DAEMON_SOCKET_PATH);
+    unlink(DAEMON_SOCKET_FALLBACK);
+
+    FILE* file = fopen(rc_path, "w");
+    if (!file)
+        return -1;
+
+    fprintf(file, "# protocol framing cases only\n");
+    fclose(file);
+
+    return 0;
+}
+
+static void run_protocol_case(void) {
+    char      rc_path[PATH_MAX];
+    char      reply[REPLY_BYTES] = "";
+    char      oversized[DAEMON_PROTOCOL_MAX + 64];
+    long long elapsed = 0;
+    int       daemon;
+    int       exited;
+    int       fd;
+    int       status   = 0;
+    const int prepared = prepare_protocol_case(rc_path, sizeof rc_path);
+
+    CHECK(prepared == 0);
+
+    if (prepared < 0)
+        return;
+
+    daemon = fork();
+    if (daemon == 0) {
+        int result = astia_daemon_run(rc_path);
+
+        _exit(result == 0 ? 0 : 1);
+    }
+
+    CHECK(daemon > 0);
+
+    if (daemon <= 0)
+        return;
+
+    fd = connect_control(START_TIMEOUT_MS);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0) {
+        CHECK(send_all(fd, "ST") == 0);
+        sleep_ms(100);
+        CHECK(send_all(fd, "ATUS\n") == 0);
+        CHECK(read_reply(fd, reply, sizeof reply) == 0);
+        CHECK(!strcmp(reply, "OK services=0\n"));
+
+        close(fd);
+    }
+
+    fd = connect_control(START_TIMEOUT_MS);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0) {
+        reply[0] = '\0';
+
+        CHECK(send_all(fd, "STATUS") == 0);
+        CHECK(shutdown(fd, SHUT_WR) == 0);
+        CHECK(read_reply(fd, reply, sizeof reply) == 0);
+        CHECK(!strcmp(reply, "OK services=0\n"));
+
+        close(fd);
+    }
+
+    memset(oversized, 'A', sizeof oversized - 1);
+
+    oversized[sizeof oversized - 1] = '\n';
+
+    fd = connect_control(START_TIMEOUT_MS);
+
+    CHECK(fd >= 0);
+
+    if (fd >= 0) {
+        reply[0] = '\0';
+
+        CHECK(send_all_flags(fd, oversized, sizeof oversized, MSG_NOSIGNAL) == 0);
+        CHECK(read_reply(fd, reply, sizeof reply) == 0);
+        CHECK(!strcmp(reply, "ERR malformed request\n"));
+
+        close(fd);
+    }
+
+    CHECK(request("STOP\n", reply, sizeof reply, &elapsed) == 0);
+    CHECK(!strcmp(reply, "OK stopped\n"));
+
+    exited = wait_for_child(daemon, DAEMON_TIMEOUT_MS, &status);
+
+    CHECK(exited);
+
+    if (!exited) {
+        kill(daemon, SIGKILL);
+        (void) wait_for_child(daemon, 1000, &status);
+    }
+    else {
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+
+    fprintf(stderr, "daemond_stop_test: protocol case done\n");
+
+    unlink(rc_path);
+    unlink(DAEMON_SOCKET_PATH);
+    unlink(DAEMON_SOCKET_FALLBACK);
+}
+
 int main(int argc, char** argv) {
     char self[PATH_MAX];
     int  mode = service_main(argc, argv);
@@ -359,6 +474,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    run_protocol_case();
     run_case(self, "graceful");
     run_case(self, "ignore");
     run_case(self, "restart");
