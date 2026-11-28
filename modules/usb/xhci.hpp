@@ -50,6 +50,7 @@ namespace astia::usb::xhci {
         status_stage             = 4,
         link                     = 6,
         enable_slot              = 9,
+        disable_slot             = 10,
         address_device           = 11,
         configure_endpoint       = 12,
         evaluate_context         = 13,
@@ -105,6 +106,20 @@ namespace astia::usb::xhci {
         }
 
         return 0;
+    }
+
+    constexpr uint16_t initial_control_packet_size(usb_speed speed) {
+        switch (speed) {
+        case usb_speed::high:
+            return 64;
+        case usb_speed::super:
+        case usb_speed::super_plus:
+            return 512;
+        case usb_speed::low:
+        case usb_speed::full:
+        default:
+            return 8;
+        }
     }
 
     inline trb make_setup_trb(const setup_packet& setup, bool cycle) {
@@ -187,17 +202,23 @@ namespace astia::usb::xhci {
         void initialize(void* virtual_address, uint64_t physical_address) {
             entries_  = static_cast<trb*>(virtual_address);
             physical_ = physical_address;
-            enqueue_  = 0;
-            cycle_    = true;
-            busy_     = false;
 
-            if (entries_ != nullptr) {
-                for (unsigned i = 0; i < Capacity; ++i) {
-                    entries_[i] = {};
-                }
+            reset();
+        }
 
-                entries_[Capacity - 1] = make_link_trb(physical_, true);
+        void reset() {
+            enqueue_ = 0;
+            cycle_   = true;
+            busy_    = false;
+
+            if (entries_ == nullptr)
+                return;
+
+            for (unsigned i = 0; i < Capacity; ++i) {
+                entries_[i] = {};
             }
+
+            entries_[Capacity - 1] = make_link_trb(physical_, true);
         }
 
         bool ready() const {
@@ -338,6 +359,17 @@ namespace astia::usb::xhci {
             ring_.initialize(virtual_address, physical_address);
 
             return ring_.ready();
+        }
+
+        void reset() {
+            for (control_request& request : requests_) {
+                const uint16_t generation = request.generation;
+
+                request            = {};
+                request.generation = generation;
+            }
+
+            ring_.reset();
         }
 
         const control_ring<RingCapacity>& ring() const {
@@ -810,6 +842,129 @@ namespace astia::usb::xhci {
                 return false;
 
             phase_ = enumeration_phase::configuration_header;
+
+            return true;
+        }
+    };
+
+    class enumeration_transport {
+        public:
+        virtual ~enumeration_transport() = default;
+
+        virtual bool reset_port(uint8_t port, usb_speed& speed) = 0;
+
+        virtual bool enable_slot(uint8_t& slot) = 0;
+
+        virtual bool address_device(uint8_t slot, bool block_address, uint8_t port,
+                                    usb_speed speed, uint16_t max_packet_size) = 0;
+
+        virtual int control_transfer(uint8_t slot, const setup_packet& setup,
+                                     uint16_t max_packet_size, uint8_t* buffer,
+                                     uint16_t capacity) = 0;
+
+        virtual bool release_slot(uint8_t slot) = 0;
+    };
+
+    class slot_transaction {
+        enumeration_transport& transport_;
+        uint8_t                slot_;
+        bool                   active_ = true;
+
+        public:
+        slot_transaction(enumeration_transport& transport, uint8_t slot)
+            : transport_(transport), slot_(slot) {}
+
+        ~slot_transaction() {
+            if (active_)
+                (void) transport_.release_slot(slot_);
+        }
+
+        void commit() {
+            active_ = false;
+        }
+
+        slot_transaction(const slot_transaction&)            = delete;
+        slot_transaction& operator=(const slot_transaction&) = delete;
+    };
+
+    class enumeration_engine {
+        enumeration_transport& transport_;
+        enumeration_session    session_{};
+        uint8_t                descriptor_[4096]{};
+
+        public:
+        explicit enumeration_engine(enumeration_transport& transport)
+            : transport_(transport) {}
+
+        bool run(uint8_t port, uint8_t address, device_model& result) {
+            session_.clear();
+
+            for (uint8_t& byte : descriptor_) {
+                byte = 0;
+            }
+
+            usb_speed speed = usb_speed::full;
+
+            if (!transport_.reset_port(port, speed))
+                return false;
+
+            uint8_t slot = 0;
+
+            if (!transport_.enable_slot(slot))
+                return false;
+
+            slot_transaction transaction(transport_, slot);
+
+            if (!transport_.address_device(slot, true, port, speed,
+                                           initial_control_packet_size(speed)))
+                return false;
+
+            if (!session_.begin(slot, port, address, speed))
+                return false;
+
+            while (true) {
+                if (session_.phase() == enumeration_phase::set_address) {
+                    if (!transport_.address_device(
+                            slot, false, port, speed,
+                            session_.device().descriptor.max_packet_size0) ||
+                        !session_.complete_address())
+                        return false;
+
+                    continue;
+                }
+
+                setup_packet setup{};
+                uint16_t     length = 0;
+
+                if (!session_.next(setup, length))
+                    break;
+
+                const uint16_t max_packet_size =
+                    session_.device().descriptor.max_packet_size0 == 0
+                        ? 8
+                        : session_.device().descriptor.max_packet_size0;
+
+                const int transferred = transport_.control_transfer(
+                    slot, setup, max_packet_size, descriptor_,
+                    static_cast<uint16_t>(sizeof descriptor_));
+
+                if (transferred < 0 || static_cast<unsigned>(transferred) > length)
+                    return false;
+
+                if (!session_.complete(length == 0 ? nullptr : descriptor_,
+                                       static_cast<uint16_t>(transferred)))
+                    return false;
+
+                if (session_.phase() == enumeration_phase::complete)
+                    break;
+            }
+
+            if (session_.phase() != enumeration_phase::complete)
+                return false;
+
+            result = session_.device();
+
+            transaction.commit();
 
             return true;
         }

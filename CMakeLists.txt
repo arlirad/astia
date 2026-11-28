@@ -440,6 +440,7 @@ if(ASTIA_BUILD_TESTS)
             nvme_start_target
             nvme_async_target
             usb_unit_target
+            usb_enumeration_unit_target
             rtl8139_unit_target
             ps2_controller_unit_target
             ps2_scancode_unit_target
@@ -465,6 +466,7 @@ if(ASTIA_BUILD_TESTS)
             nvme_start_target
             nvme_async_target
             usb_unit_target
+            usb_enumeration_unit_target
             rtl8139_unit_target
             ps2_controller_unit_target
             ps2_scancode_unit_target
