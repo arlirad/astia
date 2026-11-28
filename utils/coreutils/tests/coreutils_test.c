@@ -1143,6 +1143,49 @@ static int tree_walk_checks(void) {
     return status;
 }
 
+static void remove_cp_symlink_fixture(void) {
+    (void) unlink("/tmp/coreutils_cp_links/out/link");
+    (void) unlink("/tmp/coreutils_cp_links/out/sub/up");
+    (void) unlink("/tmp/coreutils_cp_links/out/sub/file");
+    (void) rmdir("/tmp/coreutils_cp_links/out/sub");
+    (void) rmdir("/tmp/coreutils_cp_links/out");
+    (void) unlink("/tmp/coreutils_cp_links/tree/link");
+    (void) unlink("/tmp/coreutils_cp_links/tree/sub/up");
+    (void) unlink("/tmp/coreutils_cp_links/tree/sub/file");
+    (void) rmdir("/tmp/coreutils_cp_links/tree/sub");
+    (void) rmdir("/tmp/coreutils_cp_links/tree");
+    (void) rmdir("/tmp/coreutils_cp_links");
+}
+
+static int cp_symlink_checks(void) {
+    char* cp_links[] = {"cp", "-r", "/tmp/coreutils_cp_links/tree",
+                        "/tmp/coreutils_cp_links/out", NULL};
+
+    remove_cp_symlink_fixture();
+
+    if (mkdir("/tmp/coreutils_cp_links", 0777) != 0 ||
+        mkdir("/tmp/coreutils_cp_links/tree", 0777) != 0 ||
+        mkdir("/tmp/coreutils_cp_links/tree/sub", 0777) != 0 ||
+        put_file("/tmp/coreutils_cp_links/tree/sub/file", "linked\n") != 0 ||
+        symlink("sub/file", "/tmp/coreutils_cp_links/tree/link") != 0 ||
+        symlink("..", "/tmp/coreutils_cp_links/tree/sub/up") != 0)
+        return fail("cp symlink fixture setup");
+
+    int status = 0;
+
+    if (check("cp -r symlinks in tree", cp_links, NULL, 0, NULL, 0) != 0 ||
+        !is_symlink("/tmp/coreutils_cp_links/out/link") ||
+        !symlink_target_is("/tmp/coreutils_cp_links/out/link", "sub/file") ||
+        !is_symlink("/tmp/coreutils_cp_links/out/sub/up") ||
+        !symlink_target_is("/tmp/coreutils_cp_links/out/sub/up", "..") ||
+        !file_equals("/tmp/coreutils_cp_links/out/sub/file", "linked\n"))
+        status = 1;
+
+    remove_cp_symlink_fixture();
+
+    return status;
+}
+
 static int id_checks(void) {
     char* id[]         = {"id", NULL};
     char* id_help[]    = {"id", "--help", NULL};
@@ -1935,6 +1978,9 @@ int main(void) {
         return 1;
 
     if (tree_walk_checks() != 0)
+        return 1;
+
+    if (cp_symlink_checks() != 0)
         return 1;
 
     const char* help[] = {"cat",    "head",  "wc",    "ls",       "find",    "pwd",

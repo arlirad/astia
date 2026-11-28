@@ -140,7 +140,7 @@ static int chmod_case(void) {
 }
 
 static int cp_case(void) {
-    return copy_tree(source_root, copy_root);
+    return copy_tree(source_root, copy_root, 0);
 }
 
 static int deepest_path(char* path, size_t capacity, const char* root) {
