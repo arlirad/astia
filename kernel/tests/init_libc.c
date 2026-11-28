@@ -5190,7 +5190,7 @@ int main(int argc, char** argv) {
             fseeko(stream, 0, SEEK_SET) != 0)
             return 67;
 
-        if (fwrite("y", 1, 1, stream) != 1 || ftello(stream) != 1 ||
+        if (fwrite("y", 1, 1, stream) != 1 || ftello(stream) != 2 ||
             fseeko(stream, 0, SEEK_END) != 0 || ftello(stream) != 2)
             return 68;
 

@@ -217,6 +217,33 @@ static long file_sink_size(FILE* f, uint64_t* out) {
     return __astia_fio_size(f->fd, out);
 }
 
+/* Append writes land at the kernel's end of file, not at `pos`, so the
+ * logical position must be re-anchored after them.  Without this an "a+"
+ * stream that started at 0 reported the byte count instead of the offset. */
+static int append_resync(FILE* f) {
+    uint64_t sz;
+
+    long rc = file_sink_size(f, &sz);
+
+    if (rc < 0) {
+        errno = (int) -rc;
+        f->state |= ST_ERR;
+
+        return -1;
+    }
+
+    if (sz > (uint64_t) LONG_MAX) {
+        errno = EOVERFLOW;
+        f->state |= ST_ERR;
+
+        return -1;
+    }
+
+    f->pos = (long) sz;
+
+    return 0;
+}
+
 char* cuserid(char* buffer) {
     static char fallback[] = "astia";
 
@@ -285,6 +312,9 @@ static int flush_pending(FILE* f) {
     }
 
     f->len = 0;
+
+    if ((f->io_flags & FIO_APPEND) && append_resync(f) < 0)
+        return -1;
 
     return 0;
 }
@@ -413,6 +443,9 @@ static size_t stream_write(FILE* f, const void* src, size_t n) {
 
     if (f->reading)
         drop_read(f); /* direction switch: read-ahead was unconsumed */
+
+    if ((f->io_flags & FIO_APPEND) && f->len == 0 && append_resync(f) < 0)
+        return 0;
 
     if (f->cap == 0) { /* unbuffered: straight through, offset explicit */
         while (put < n) {
@@ -714,9 +747,10 @@ FILE* fopen(const char* path, const char* mode) {
         return NULL;
     }
 
-    /* POSIX: a *pure* append stream starts at the end of the file, so
+    /* POSIX: a pure append stream starts at the end of the file, so
        ftell agrees with SEEK_END from the first call; "a+" keeps 0
-       because its reads start at the beginning. */
+       because its reads start at the beginning.  Append writes re-anchor
+       pos to the kernel's end of file as they happen. */
     if ((flags & FIO_APPEND) && !(flags & FIO_READ)) {
         uint64_t sz;
 
