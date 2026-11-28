@@ -2,9 +2,16 @@
 #include "../src/chmod.c"
 #undef main
 
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 static int failures;
+
+static char         fixture_template[] = "/tmp/chmod-mode-XXXXXX";
+static char*        fixture_root;
+static unsigned int fixture_count;
 
 static void expect(const char* what, const char* mode_text, mode_t start, int directory,
                    mode_t expected) {
@@ -19,6 +26,51 @@ static void expect(const char* what, const char* mode_text, mode_t start, int di
            what, mode_text, (unsigned int) start, (unsigned int) actual, status,
            (unsigned int) expected);
     ++failures;
+}
+
+static void expect_program(const char* what, const char* option, const char* mode_text,
+                           mode_t start, int expected_status, mode_t expected) {
+    char path[512];
+
+    char* argv[5];
+
+    int argc = 0;
+
+    snprintf(path, sizeof(path), "%s/file-%u", fixture_root, ++fixture_count);
+
+    int fd = open(path, O_CREAT | O_WRONLY | O_TRUNC, 0600);
+
+    if (fd < 0 || close(fd) != 0 || chmod(path, start) != 0) {
+        printf("chmod mode test failed: %s: fixture setup\n", what);
+        ++failures;
+
+        return;
+    }
+
+    argv[argc++] = "chmod";
+
+    if (option != 0)
+        argv[argc++] = (char*) option;
+
+    argv[argc++] = (char*) mode_text;
+    argv[argc++] = path;
+    argv[argc]   = 0;
+
+    int status = chmod_program_main(argc, argv);
+
+    struct stat info;
+
+    if (status != expected_status || stat(path, &info) != 0 ||
+        (info.st_mode & 07777) != expected) {
+        printf("chmod mode test failed: %s: %s on %04o got status %d mode %04o expected "
+               "status %d mode %04o\n",
+               what, mode_text, (unsigned int) start, status,
+               (unsigned int) (info.st_mode & 07777), expected_status,
+               (unsigned int) expected);
+        ++failures;
+    }
+
+    unlink(path);
 }
 
 int main(void) {
@@ -55,6 +107,30 @@ int main(void) {
 
     expect("numeric mode", "4755", 0, 0, 04755);
     expect("numeric mode ignores current", "600", 04755, 0, 0600);
+
+    fixture_root = mkdtemp(fixture_template);
+    if (fixture_root == 0) {
+        printf("chmod mode test failed: fixture directory\n");
+
+        return 1;
+    }
+
+    saved = umask(0);
+
+    expect_program("leading -w", 0, "-w", 0666, 0, 0444);
+    expect_program("leading +x", 0, "+x", 0644, 0, 0755);
+    expect_program("leading =rx", 0, "=rx", 0644, 0, 0555);
+    expect_program("invalid leading mode", 0, "-z", 0644, 1, 0644);
+    expect_program("numeric mode", 0, "600", 0777, 0, 0600);
+    expect_program("who mode", 0, "u-x", 0777, 0, 0677);
+    expect_program("double dash", "--", "600", 0777, 0, 0600);
+
+    umask(saved);
+
+    if (rmdir(fixture_root) != 0) {
+        printf("chmod mode test failed: fixture cleanup\n");
+        ++failures;
+    }
 
     if (failures != 0) {
         printf("%d chmod mode test(s) failed\n", failures);
