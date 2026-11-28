@@ -7,9 +7,9 @@
 #include <astia/log.hpp>
 #include <astia/memory.hpp>
 #include <astia/mm/heap.hpp>
+#include <astia/plat/firmware.hpp>
 #include <astia/shutdown.hpp>
 
-#include "../plat/virt/fwcfg.hpp"
 #include "aml.hpp"
 #include "io.hpp"
 #include "physical.hpp"
@@ -90,10 +90,10 @@ namespace astia::acpi {
             }
         }
 
-        bool load_madt_from_fw_cfg() {
+        bool load_madt_from_platform() {
             u32 size = 0;
 
-            if (!plat::fw_cfg::file_size("etc/acpi/tables", size) || size > (1u << 20))
+            if (!plat::acpi_tables_size(size) || size > (1u << 20))
                 return false;
 
             auto allocation = mm::heap::alloc(size);
@@ -102,7 +102,7 @@ namespace astia::acpi {
 
             auto* data = static_cast<u8*>(allocation.value);
 
-            const bool read = plat::fw_cfg::read_file("etc/acpi/tables", data, size);
+            const bool read = plat::acpi_tables_read(data, size);
 
             if (read)
                 parse_madt(data, size);
@@ -242,7 +242,7 @@ namespace astia::acpi {
                 astia_acpi_test_override(ctx.info->cmdline, access, rsdp_address);
 
             if (rsdp_address == 0) {
-                if (!load_madt_from_fw_cfg())
+                if (!load_madt_from_platform())
                     logs::info("unavailable: no RSDP");
 
                 return true;

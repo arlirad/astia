@@ -1,5 +1,6 @@
 add_library(plat_virt STATIC
         fwcfg.cpp
+        acpi_tables.cpp
 )
 
 target_include_directories(plat_virt PUBLIC
