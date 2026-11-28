@@ -306,6 +306,10 @@ long sendmsg(int f, const struct msghdr* m, int flags) {
 
     size_t total = 0;
 
+    astia_sockaddr destination;
+
+    int has_destination = 0;
+
     if (m == NULL) {
         errno = EFAULT;
 
@@ -324,6 +328,13 @@ long sendmsg(int f, const struct msghdr* m, int flags) {
         return -1;
     }
 
+    if (m->msg_name != NULL) {
+        if (addr(m->msg_name, m->msg_namelen, &destination) < 0)
+            return -1;
+
+        has_destination = 1;
+    }
+
     if (msg_data(m, &data, &total) < 0)
         return -1;
 
@@ -339,6 +350,9 @@ long sendmsg(int f, const struct msghdr* m, int flags) {
 
     struct __astia_socket_msghdr wire = {m->msg_control, (uint32_t) m->msg_controllen,
                                          (uint32_t) flags, 0, 0};
+
+    if (has_destination)
+        __astia_socket_msghdr_set_name(&wire, &destination);
 
     long rc = __astia_fio_sendmsg(f, data, total, &wire);
 

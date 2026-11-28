@@ -34,6 +34,23 @@ namespace astia::io::aio::operations {
                 socket->sendmsg == nullptr)
                 co_return -EOPNOTSUPP;
 
+            const u64 destination = msghdr_destination(header);
+            if (destination != 0) {
+                const auto name =
+                    memory::user_ptr<astia_sockaddr>(destination).validate();
+                if (!name)
+                    co_return -EFAULT;
+
+                astia_sockaddr address{};
+
+                if (!memory::copy_in(&address, name.value.bytes()))
+                    co_return -EFAULT;
+
+                const long selected = select_unix_destination(*handle, address);
+                if (selected < 0)
+                    co_return static_cast<i32>(selected);
+            }
+
             mm::shptr<fs::unix_control> control{};
 
             if (header.controllen != 0) {
