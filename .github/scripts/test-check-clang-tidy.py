@@ -211,6 +211,30 @@ def test_missing_compile_entry_fails():
     )
 
 
+def test_custom_command_source_is_skipped():
+    repo = repo_fixture()
+    tests = repo / "kernel/tests"
+    tests.mkdir(parents=True)
+    (tests / "CMakeLists.txt").write_text(
+        "add_custom_command(\n"
+        "        OUTPUT ${_fix_dir}/power_fixture\n"
+        "        COMMAND ${CMAKE_C_COMPILER} -c "
+        "${CMAKE_CURRENT_SOURCE_DIR}/power_fixture.c\n"
+        "        COMMAND ${CMAKE_C_COMPILER} -o ${_fix_dir}/power_fixture "
+        "${_fix_dir}/power_fixture.o)\n",
+        encoding="utf-8",
+    )
+    src = tests / "power_fixture.c"
+    src.write_text("int x;\n", encoding="utf-8")
+    base = commit(repo, "base")
+    src.write_text("int x;\nint y;\n", encoding="utf-8")
+    head = commit(repo, "change")
+    result = check(repo, database(repo, []), base, head, fake_tidy(repo))
+    assert result.returncode == 0 and "custom-command source" in result.stdout, (
+        result.stdout
+    )
+
+
 def test_relative_compile_database_directory():
     repo = repo_fixture()
     source = repo / "kernel/src/main.cpp"

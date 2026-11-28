@@ -46,6 +46,38 @@ UNSUPPORTED_FILES = {
     "kernel/tests/fixture_exec.c",
     "kernel/tests/support/file_host.cpp",
 }
+
+# Fixtures that are compiled by an `add_custom_command` recipe never appear in
+# the compilation database: they are built with bespoke flags (freestanding,
+# -nostdlib, custom linkers) by design.  Detect them from the build files
+# instead of keeping a hand-maintained deny list that every new fixture has to
+# extend.
+CUSTOM_COMMAND_PATTERN = re.compile(
+    r"add_custom_command\s*\(((?:[^()]|\([^()]*\))*)\)", re.S
+)
+_CUSTOM_COMMAND_CACHE: dict[str, set[tuple[str, str]]] = {}
+
+
+def custom_command_sources(root: pathlib.Path) -> set[tuple[str, str]]:
+    key = str(root)
+    cached = _CUSTOM_COMMAND_CACHE.get(key)
+    if cached is not None:
+        return cached
+    sources: set[tuple[str, str]] = set()
+    for cmake in root.rglob("CMakeLists.txt"):
+        try:
+            text = cmake.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        try:
+            directory = str(cmake.parent.relative_to(root))
+        except ValueError:
+            continue
+        for block in CUSTOM_COMMAND_PATTERN.findall(text):
+            for match in re.finditer(r"[\w.+-]+\.(?:c|cc|cpp)", block):
+                sources.add((directory, match.group(0)))
+    _CUSTOM_COMMAND_CACHE[key] = sources
+    return sources
 CONFIG = pathlib.Path(__file__).with_name("clang-tidy-config.yml").resolve()
 HEADER_FILTER = r"(^|/)kernel/(include|src|tests)/"
 SKIPPED_COMPILE_COMMAND = re.compile(
@@ -375,6 +407,11 @@ def main():
             sources.append((path, absolute))
         elif path.startswith(UNSUPPORTED_PREFIXES) or path in UNSUPPORTED_FILES:
             print(f"clang-tidy: explicitly unsupported source: {path}")
+        elif (
+            str(pathlib.PurePosixPath(path).parent),
+            pathlib.PurePosixPath(path).name,
+        ) in custom_command_sources(pathlib.Path(args.root)):
+            print(f"clang-tidy: custom-command source not analyzed: {path}")
         else:
             missing_sources.append(path)
     if unanalyzable_renames:
