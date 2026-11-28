@@ -126,6 +126,19 @@ target_include_directories(acpi_host_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
 target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
 astia_add_test_label(acpi_host_test "acpi;host;deterministic")
+astia_add_host_test(acpi_corpus_test acpi_corpus_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/support/acpi_corpus.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/madt.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/core.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/decode.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/eval.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/namespace.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/parse.cpp)
+target_include_directories(acpi_corpus_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
+target_compile_definitions(acpi_corpus_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(acpi_corpus_test "acpi;host;deterministic")
 astia_add_host_test(astia_shutdown_host_test shutdown_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
 target_compile_definitions(astia_shutdown_host_test PRIVATE ASTIA_HOST_TEST=1)
