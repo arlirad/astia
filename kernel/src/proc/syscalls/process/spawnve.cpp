@@ -39,8 +39,9 @@ namespace astia::proc::syscalls {
             if (resolve_rc < 0)
                 co_return resolve_rc;
 
-            if (exec_permission_denied(*owner, resolved))
-                co_return -EACCES;
+            const i64 permission_rc = exec_path_check(*owner, resolved);
+            if (permission_rc < 0)
+                co_return permission_rc;
 
             auto file = fs::open_path(resolved);
             if (!file)

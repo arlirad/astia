@@ -1579,6 +1579,179 @@ static int create_plain_file(const char* path) {
     return chmod(path, 0644);
 }
 
+static int copy_image_file(const char* source, const char* target, mode_t mode) {
+    struct stat metadata;
+
+    char buffer[4096];
+
+    (void) unlink(target);
+
+    int in = open(source, O_RDONLY);
+    if (in < 0)
+        return -1;
+
+    if (fstat(in, &metadata) != 0 || metadata.st_size <= 0) {
+        close(in);
+
+        return -1;
+    }
+
+    int out = open(target, O_WRONLY | O_CREAT | O_TRUNC, mode);
+    if (out < 0) {
+        close(in);
+
+        return -1;
+    }
+
+    off_t copied = 0;
+
+    while (copied < metadata.st_size) {
+        size_t want = (size_t) (metadata.st_size - copied);
+
+        if (want > sizeof buffer)
+            want = sizeof buffer;
+
+        const ssize_t got = read(in, buffer, want);
+        if (got <= 0)
+            break;
+
+        ssize_t written = 0;
+
+        while (written < got) {
+            const ssize_t step = write(out, buffer + written, (size_t) (got - written));
+            if (step <= 0)
+                break;
+
+            written += step;
+        }
+
+        if (written != got)
+            break;
+
+        copied += got;
+    }
+
+    const int read_ok = copied == metadata.st_size;
+
+    int close_rc = 0;
+
+    if (close(in) != 0)
+        close_rc = -1;
+
+    if (close(out) != 0)
+        close_rc = -1;
+
+    if (!read_ok || close_rc != 0 || chmod(target, mode) != 0) {
+        (void) unlink(target);
+
+        return -1;
+    }
+
+    return 0;
+}
+
+static int drop_to_unprivileged_user(void) {
+    if (setgroups(0, NULL) != 0)
+        return -1;
+
+    if (setgid(1000) != 0)
+        return -1;
+
+    if (setuid(1000) != 0)
+        return -1;
+
+    return 0;
+}
+
+static int exec_as_unprivileged_user(const char* path) {
+    const pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        if (drop_to_unprivileged_user() != 0)
+            _Exit(126);
+
+        char* child_argv[] = {(char*) path, NULL};
+
+        execv(path, child_argv);
+        _Exit(errno == EACCES ? 42 : 3);
+    }
+
+    int status = 0;
+
+    if (waitpid(child, &status, 0) != child)
+        return -1;
+
+    return status;
+}
+
+static int exec_search_permission_check(void) {
+    const char* source         = "/bin/interp_main";
+    const char* interp_source  = "/bin/interp_exec_search";
+    const char* stub_source    = "/lib/ld.stub.so";
+    const char* exec_dir       = "/tmp/exec-search-exec";
+    const char* exec_path      = "/tmp/exec-search-exec/payload";
+    const char* interp_dir     = "/tmp/exec-search-interp";
+    const char* interp_path    = "/tmp/exec-search-interp/ld.stub.so";
+    const char* interp_payload = "/tmp/exec-search-payload";
+
+    struct stat metadata;
+
+    if (stat(source, &metadata) != 0 || stat(interp_source, &metadata) != 0 ||
+        stat(stub_source, &metadata) != 0) {
+        printf("astia: exec search permission skipped\n");
+
+        return 0;
+    }
+
+    (void) unlink(exec_path);
+    (void) unlink(interp_payload);
+    (void) unlink(interp_path);
+    (void) rmdir(exec_dir);
+    (void) rmdir(interp_dir);
+
+    if (mkdir(exec_dir, 0700) != 0 || mkdir(interp_dir, 0700) != 0)
+        return 288;
+
+    if (copy_image_file(source, exec_path, 0755) != 0 ||
+        copy_image_file(interp_source, interp_payload, 0755) != 0 ||
+        copy_image_file(stub_source, interp_path, 0755) != 0)
+        return 289;
+
+    int status = exec_as_unprivileged_user(exec_path);
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 42)
+        return 290;
+
+    if (chmod(exec_dir, 0755) != 0)
+        return 291;
+
+    status = exec_as_unprivileged_user(exec_path);
+    if (status != 0)
+        return 292;
+
+    status = exec_as_unprivileged_user(interp_payload);
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 42)
+        return 293;
+
+    if (chmod(interp_dir, 0755) != 0)
+        return 294;
+
+    status = exec_as_unprivileged_user(interp_payload);
+    if (status != 0)
+        return 295;
+
+    if (unlink(exec_path) != 0 || unlink(interp_payload) != 0 ||
+        unlink(interp_path) != 0 || rmdir(exec_dir) != 0 || rmdir(interp_dir) != 0)
+        return 296;
+
+    printf("astia: exec search permission ok");
+
+    return 0;
+}
+
 static int interp_exec_permission_check(void) {
     const char* source  = "/lib/ld.stub.so";
     const char* interp  = "/tmp/ld.stub.so";
@@ -5835,6 +6008,16 @@ int main(int argc, char** argv) {
         const int interp_permission = interp_exec_permission_check();
         if (interp_permission != 0)
             return interp_permission;
+    }
+
+    /* execve must also require search permission on every parent directory of
+       the executable and of its PT_INTERP target: a 0755 image below a 0700
+       directory is EACCES for another uid, and runs once the directory grants
+       search. */
+    {
+        const int search_permission = exec_search_permission_check();
+        if (search_permission != 0)
+            return search_permission;
     }
 
     /* A write to a pipe with no reader must fail with EPIPE and raise
