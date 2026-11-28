@@ -14,6 +14,7 @@ using Pkgsrv.Infrastructure.Events.Outbox;
 using Pkgsrv.Infrastructure.Packages;
 using Pkgsrv.Infrastructure.Persistence;
 using Pkgsrv.Infrastructure.Persistence.Postgres;
+using Pkgsrv.Infrastructure.Security;
 using Pkgsrv.Presentation.Caching;
 using Pkgsrv.Presentation.Composition;
 using Pkgsrv.Presentation.Configuration;
@@ -146,7 +147,7 @@ public sealed class PkgsrvCompositionTests
             descriptor => descriptor.ImplementationType == typeof(PackageOutboxDispatcher));
     }
 
-    [Fact]
+    [DefaultIrvaBuildFact]
     public async Task AddPkgsrv_EnabledWithoutWiredIrvaDeniesWithToken()
     {
         var services = new ServiceCollection();
@@ -170,7 +171,7 @@ public sealed class PkgsrvCompositionTests
         Assert.Contains("not supplied at build time", decision.Reason, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [DefaultIrvaBuildFact]
     public void AddPkgsrv_EnabledWithoutWiredIrvaAndRequiredFailsComposition()
     {
         var services = new ServiceCollection();
@@ -179,6 +180,31 @@ public sealed class PkgsrvCompositionTests
             () => services.AddPkgsrv([], irvaOptions: CreateIrvaOptions(required: true)));
 
         Assert.Contains("Irva.Client project", exception.Message, StringComparison.Ordinal);
+    }
+
+    [RealIrvaBuildFact]
+    public void AddPkgsrv_RealIrvaBuildReportsAdapterAvailable()
+    {
+        Assert.True(IrvaClientAdapterFactory.IsAvailable);
+    }
+
+    [RealIrvaBuildFact]
+    public void AddPkgsrv_RealIrvaBuildComposesEnabledIrvaAndRequired()
+    {
+        var services = new ServiceCollection();
+
+        services.AddPkgsrv([], irvaOptions: CreateIrvaOptions(required: true));
+
+        using var provider = services.BuildServiceProvider();
+        var adapter = provider.GetRequiredService<IIrvaClientAdapter>();
+
+        Assert.IsNotType<UnavailableIrvaClientAdapter>(adapter);
+        Assert.Equal("RealIrvaClientAdapter", adapter.GetType().Name);
+        Assert.False(adapter.HasPermission(Guid.NewGuid(), "read"));
+        Assert.IsType<IrvaClientIdentityVerifier>(
+            provider.GetRequiredService<IIrvaIdentityVerifier>());
+        Assert.IsType<IrvaClientAuthorizationBoundary>(
+            provider.GetRequiredService<IIrvaClientAuthorizationBoundary>());
     }
 
     [Fact]

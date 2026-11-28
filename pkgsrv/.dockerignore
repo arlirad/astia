@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+tests/
+test-support/
+tools/
+Pkgsrv.sln
+README.md
+DEPLOY.md
+pkgsrv.env.example
+*.container
+.git/
+.gitignore
