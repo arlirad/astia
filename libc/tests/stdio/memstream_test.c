@@ -24,6 +24,32 @@ static int fails;
         }                                                          \
     } while (0)
 
+/* POSIX: both outputs are usable as soon as open_memstream returns; the
+ * published buffer is a valid empty string holding no bytes. */
+static void test_initial_publish(void) {
+    char sentinel = 'x';
+
+    char* buf = &sentinel;
+
+    size_t size = 123;
+
+    FILE* f = open_memstream(&buf, &size);
+
+    CHECK(f != NULL);
+
+    if (f == NULL)
+        return;
+
+    CHECK(buf != &sentinel);
+    CHECK(buf != NULL);
+    CHECK(size == 0);
+    CHECK(buf != NULL && buf[0] == '\0');
+    CHECK(fclose(f) == 0);
+    CHECK(size == 0);
+    CHECK(buf != NULL && buf[0] == '\0');
+    free(buf);
+}
+
 static void test_basic(void) {
     char* buf = NULL;
 
@@ -106,6 +132,98 @@ static void test_growth(void) {
     CHECK(fclose(f) == 0);
     CHECK(size == sizeof pattern);
     CHECK(memcmp(buf, pattern, sizeof pattern) == 0);
+    free(buf);
+}
+
+/* Every flush republishes the caller's pointer after the backing buffer
+ * may have moved, and growth never loses already written bytes. */
+static void test_growth_republishes(void) {
+    char chunk[4096];
+
+    char* buf = NULL;
+
+    size_t size = 0;
+
+    size_t total = 0;
+
+    int round;
+
+    FILE* f;
+
+    memset(chunk, 'g', sizeof chunk);
+
+    f = open_memstream(&buf, &size);
+
+    CHECK(f != NULL);
+
+    if (f == NULL)
+        return;
+
+    for (round = 0; round < 4; round++) {
+        size_t n    = (size_t) 16 << (round * 4);
+        size_t done = 0;
+
+        while (done < n) {
+            size_t take = n - done < sizeof chunk ? n - done : sizeof chunk;
+
+            CHECK(fwrite(chunk, 1, take, f) == take);
+
+            done += take;
+        }
+
+        CHECK(fflush(f) == 0);
+
+        total += n;
+
+        CHECK(size == total);
+        CHECK(buf != NULL);
+        CHECK(buf[0] == 'g');
+        CHECK(buf[total - 1] == 'g');
+        CHECK(buf[total] == '\0');
+    }
+
+    CHECK(fclose(f) == 0);
+    CHECK(size == total);
+    CHECK(buf != NULL && buf[total] == '\0');
+    free(buf);
+}
+
+/* A failed growth reports ENOMEM, leaves the last published buffer
+ * untouched, and does not publish the oversized size.  The astia
+ * allocator refuses any single request beyond its arena, so a seek to
+ * LONG_MAX is a deterministic fault injection point. */
+static void test_enomem(void) {
+    char* buf = NULL;
+
+    size_t size = 0;
+
+    FILE* f = open_memstream(&buf, &size);
+
+    CHECK(f != NULL);
+
+    if (f == NULL)
+        return;
+
+    CHECK(fwrite("keep", 1, 4, f) == 4);
+    CHECK(fflush(f) == 0);
+    CHECK(size == 4);
+    CHECK(strcmp(buf, "keep") == 0);
+    CHECK(fseek(f, LONG_MAX, SEEK_SET) == 0);
+
+    errno = 0;
+
+    CHECK(fflush(f) == EOF);
+    CHECK(errno == ENOMEM);
+    CHECK(ferror(f) != 0);
+    CHECK(size == 4);
+    CHECK(strcmp(buf, "keep") == 0);
+
+    errno = 0;
+
+    CHECK(fclose(f) == EOF);
+    CHECK(errno == ENOMEM);
+    CHECK(size == 4);
+    CHECK(strcmp(buf, "keep") == 0);
     free(buf);
 }
 
@@ -352,9 +470,11 @@ static void test_ownership_and_fileno(void) {
 }
 
 int main(void) {
+    test_initial_publish();
     test_basic();
     test_close_without_flush();
     test_growth();
+    test_growth_republishes();
     test_formatted_output();
     test_embedded_nul();
     test_flush_all();
