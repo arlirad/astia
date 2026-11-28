@@ -28,9 +28,18 @@ namespace astia::udp {
         _tail      = nullptr;
         _count     = 0;
         _bytes     = 0;
+        _waiting   = nullptr;
+
+        for (waiter& value : _waiters) {
+            value.next  = nullptr;
+            value.refs  = 0;
+            value.state = waiter_state::free;
+        }
     }
 
     void socket::release() {
+        cancel_waiters();
+
         datagram* pending = nullptr;
 
         {
@@ -57,48 +66,51 @@ namespace astia::udp {
         _connected = false;
     }
 
-    i64 socket::bind(const endpoint& local) {
+    core::task<i64> socket::bind(endpoint local) {
         if (_owner == nullptr)
-            return -ENODEV;
+            co_return -ENODEV;
 
         if (_bound)
-            return -EINVAL;
+            co_return -EINVAL;
 
         if (local.host.valid() && !is_ipv4(local.host))
-            return -EINVAL;
+            co_return -EINVAL;
 
         u16 assigned = 0;
 
         if (!_owner->reserve_port(local.port.value(), assigned))
-            return -EADDRINUSE;
+            co_return -EADDRINUSE;
 
         _local.host = local.host;
         _local.port = assigned;
         _bound      = true;
 
-        return 0;
+        co_return 0;
     }
 
-    i64 socket::connect(const endpoint& remote) {
+    core::task<i64> socket::connect(endpoint remote) {
         if (_owner == nullptr)
-            return -ENODEV;
+            co_return -ENODEV;
 
         if (remote.port.value() == 0 || !is_ipv4(remote.host))
-            return -EINVAL;
+            co_return -EINVAL;
 
         if (!_bound) {
             const endpoint wildcard{};
 
-            const i64 bound = bind(wildcard);
+            const auto bound = co_await bind(wildcard);
 
-            if (bound < 0)
-                return bound;
+            if (!bound.has_value)
+                co_return -EIO;
+
+            if (bound.value < 0)
+                co_return bound.value;
         }
 
         _peer      = remote;
         _connected = true;
 
-        return 0;
+        co_return 0;
     }
 
     core::task<i64> socket::send(net::packet_builder& builder, span<const u8> payload,
@@ -109,10 +121,13 @@ namespace astia::udp {
         if (!_bound) {
             const endpoint wildcard{};
 
-            const i64 bound = bind(wildcard);
+            const auto bound = co_await bind(wildcard);
 
-            if (bound < 0)
-                co_return bound;
+            if (!bound.has_value)
+                co_return -EIO;
+
+            if (bound.value < 0)
+                co_return bound.value;
         }
 
         if (destination.port.value() == 0 || !is_ipv4(destination.host) ||
@@ -179,7 +194,37 @@ namespace astia::udp {
         co_return static_cast<i64>(payload.size());
     }
 
-    i64 socket::receive(span<u8> buffer, endpoint& source) {
+    core::task<i64> socket::receive(span<u8> buffer, endpoint& source,
+                                    core::cltoken token) {
+        while (true) {
+            if (token.canceled())
+                co_return -ECANCELED;
+
+            const i64 ready = try_receive(buffer, source);
+
+            if (ready != -EAGAIN)
+                co_return ready;
+
+            waiter* node = acquire_waiter();
+            if (node == nullptr)
+                co_return -EAGAIN;
+
+            if (!arm_waiter(node)) {
+                release_waiter(node);
+
+                continue;
+            }
+
+            wait_scope scope(*this, node);
+
+            const auto result = co_await node->done;
+
+            if (!result.has_value)
+                co_return -ECANCELED;
+        }
+    }
+
+    i64 socket::try_receive(span<u8> buffer, endpoint& source) {
         datagram* value = pop();
         if (value == nullptr)
             return -EAGAIN;
@@ -237,7 +282,11 @@ namespace astia::udp {
         if (!push(value)) {
             delete[] value->data;
             delete value;
+
+            return;
         }
+
+        wake_one();
     }
 
     bool socket::push(datagram* value) {
@@ -279,5 +328,112 @@ namespace astia::udp {
         value->next = nullptr;
 
         return value;
+    }
+
+    socket::waiter* socket::acquire_waiter() {
+        core::spinlock_guard guard(_lock);
+
+        for (waiter& value : _waiters) {
+            if (value.refs != 0)
+                continue;
+
+            new (&value.done) core::completion<i64>();
+
+            value.next  = nullptr;
+            value.refs  = 1;
+            value.state = waiter_state::free;
+
+            return &value;
+        }
+
+        return nullptr;
+    }
+
+    bool socket::arm_waiter(waiter* value) {
+        core::spinlock_guard guard(_lock);
+
+        if (_head != nullptr)
+            return false;
+
+        value->next  = _waiting;
+        _waiting     = value;
+        value->state = waiter_state::waiting;
+
+        return true;
+    }
+
+    void socket::release_waiter(waiter* value) {
+        if (value == nullptr)
+            return;
+
+        core::spinlock_guard guard(_lock);
+
+        if (value->refs == 0)
+            return;
+
+        --value->refs;
+
+        if (value->refs == 0) {
+            value->next  = nullptr;
+            value->state = waiter_state::free;
+        }
+    }
+
+    void socket::wake_one() {
+        waiter* value = nullptr;
+
+        {
+            core::spinlock_guard guard(_lock);
+
+            if (_waiting == nullptr)
+                return;
+
+            value    = _waiting;
+            _waiting = value->next;
+
+            value->next  = nullptr;
+            value->state = waiter_state::delivering;
+
+            ++value->refs;
+        }
+
+        value->done.complete_deferred(1);
+        release_waiter(value);
+    }
+
+    void socket::cancel_waiters() {
+        waiter* value = nullptr;
+
+        {
+            core::spinlock_guard guard(_lock);
+
+            value    = _waiting;
+            _waiting = nullptr;
+
+            for (waiter* cursor = value; cursor != nullptr; cursor = cursor->next) {
+                cursor->state = waiter_state::delivering;
+
+                ++cursor->refs;
+            }
+        }
+
+        while (value != nullptr) {
+            waiter* next = value->next;
+
+            value->next = nullptr;
+
+            value->done.fail_deferred(error_t::ecanceled);
+            release_waiter(value);
+
+            value = next;
+        }
+    }
+
+    socket::wait_scope::wait_scope(socket& owner, waiter* value)
+        : _owner(&owner), _value(value) {}
+
+    socket::wait_scope::~wait_scope() {
+        if (_owner != nullptr)
+            _owner->release_waiter(_value);
     }
 } // namespace astia::udp
