@@ -2,9 +2,12 @@
  * execvp() PATH search against a real host kernel: an EACCES candidate
  * is remembered and the search continues, so a later executable still
  * runs; when every candidate is denied the saved EACCES is returned.
- * The host port supplies the raw execve/fork syscalls; the search
- * loop under test is ours.
+ * An ENOEXEC candidate (text file, no shebang) is retried through the
+ * shell with the caller's arguments, and a missing shell is reported as
+ * ENOEXEC.  The host port supplies the raw execve/fork syscalls; the
+ * search loop under test is ours.
  */
+#include "internal/exec_shell.h"
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -55,6 +58,27 @@ static int create_plain_file(const char* path) {
         return -1;
 
     return chmod(path, 0644);
+}
+
+static const char script_body[] = "[ \"$#\" -eq 2 ] || exit 21\n"
+                                  "[ \"$1\" = first ] || exit 22\n"
+                                  "[ \"$2\" = second ] || exit 23\n"
+                                  "exit 0\n";
+
+static int create_script_file(const char* path) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0)
+        return -1;
+
+    int result = write_all(fd, script_body, sizeof script_body - 1);
+
+    if (close(fd) != 0)
+        result = -1;
+
+    if (result != 0)
+        return -1;
+
+    return chmod(path, 0755);
 }
 
 static int copy_executable(const char* source, const char* target) {
@@ -161,6 +185,10 @@ int main(int argc, char** argv) {
     char other_tool[PATH_MAX];
     char search_path[PATH_MAX];
     char denied_path[PATH_MAX];
+    char script_file[PATH_MAX];
+    char script_dir[PATH_MAX];
+    char script_tool[PATH_MAX];
+    char missing_shell[PATH_MAX];
 
     const int pid = (int) getpid();
 
@@ -175,20 +203,31 @@ int main(int argc, char** argv) {
     snprintf(other_tool, sizeof other_tool, "%s/tool", other);
     snprintf(search_path, sizeof search_path, "%s:%s", noexec, bindir);
     snprintf(denied_path, sizeof denied_path, "%s:%s", noexec, other);
+    snprintf(script_file, sizeof script_file, "%s/astia_execvp_script_%d", base, pid);
+    snprintf(script_dir, sizeof script_dir, "%s/astia_execvp_scripts_%d", base, pid);
+    snprintf(script_tool, sizeof script_tool, "%s/script", script_dir);
+    snprintf(missing_shell, sizeof missing_shell, "%s/astia_execvp_no_shell_%d", base,
+             pid);
 
     (void) unlink(noexec_tool);
     (void) unlink(bin_tool);
     (void) unlink(other_tool);
+    (void) unlink(script_file);
+    (void) unlink(script_tool);
     (void) rmdir(noexec);
     (void) rmdir(bindir);
     (void) rmdir(other);
+    (void) rmdir(script_dir);
 
     CHECK(mkdir(noexec, 0755) == 0);
     CHECK(mkdir(bindir, 0755) == 0);
     CHECK(mkdir(other, 0755) == 0);
+    CHECK(mkdir(script_dir, 0755) == 0);
     CHECK(create_plain_file(noexec_tool) == 0);
     CHECK(create_plain_file(other_tool) == 0);
     CHECK(copy_executable(self, bin_tool) == 0);
+    CHECK(create_script_file(script_file) == 0);
+    CHECK(create_script_file(script_tool) == 0);
 
     /* The first PATH entry denies execution; the second must still run. */
     int child = fork();
@@ -230,12 +269,72 @@ int main(int argc, char** argv) {
     if (child > 0)
         CHECK(wait_for_zero(child) == 0);
 
+    /* A text file without a shebang: execve reports ENOEXEC and execvp
+     * must run it through the shell, keeping argv[1..] as script args. */
+    child = fork();
+
+    CHECK(child >= 0);
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) "astia_script", (char*) "first", (char*) "second",
+                              NULL};
+
+        execvp(script_file, child_argv);
+        _Exit(30);
+    }
+
+    if (child > 0)
+        CHECK(wait_for_zero(child) == 0);
+
+    /* The same fallback has to work for a bare name found through PATH. */
+    child = fork();
+
+    CHECK(child >= 0);
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) "script", (char*) "first", (char*) "second", NULL};
+
+        if (setenv("PATH", script_dir, 1) != 0)
+            _Exit(40);
+
+        execvp("script", child_argv);
+        _Exit(41);
+    }
+
+    if (child > 0)
+        CHECK(wait_for_zero(child) == 0);
+
+    /* No shell to fall back on: the candidate itself is not executable,
+     * so ENOEXEC survives instead of the shell path's ENOENT. */
+    child = fork();
+
+    CHECK(child >= 0);
+
+    if (child == 0) {
+        char* child_argv[] = {(char*) "astia_script", (char*) "first", (char*) "second",
+                              NULL};
+
+        __astia_execvp_shell = missing_shell;
+        errno                = 0;
+
+        if (execvp(script_file, child_argv) != -1)
+            _Exit(50);
+
+        _Exit(errno == ENOEXEC ? 0 : 51);
+    }
+
+    if (child > 0)
+        CHECK(wait_for_zero(child) == 0);
+
     CHECK(unlink(noexec_tool) == 0);
     CHECK(unlink(bin_tool) == 0);
     CHECK(unlink(other_tool) == 0);
+    CHECK(unlink(script_file) == 0);
+    CHECK(unlink(script_tool) == 0);
     CHECK(rmdir(noexec) == 0);
     CHECK(rmdir(bindir) == 0);
     CHECK(rmdir(other) == 0);
+    CHECK(rmdir(script_dir) == 0);
 
     if (fails)
         printf("execvp_test: %d failure(s)\n", fails);

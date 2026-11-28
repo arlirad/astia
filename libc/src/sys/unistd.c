@@ -1,5 +1,6 @@
 #include <astia/api/syscalls.h>
 
+#include "internal/exec_shell.h"
 #include "internal/file_port.h"
 #include "internal/path.h"
 #include "internal/process_port.h"
@@ -914,6 +915,70 @@ int execv(const char* path, char* const argv[]) {
     return execve(path, argv, environ);
 }
 
+__attribute__((weak, visibility("default"))) const char* __astia_execvp_shell = "/bin/sh";
+
+/* POSIX execvp(): an ENOEXEC candidate is executed by the shell as
+ * /bin/sh <path> <argv[1]...>, dropping the caller's argv[0] because the
+ * shell supplies its own.  A missing shell reports ENOEXEC for the
+ * candidate rather than the shell's ENOENT. */
+static int exec_through_shell(const char* path, char* const argv[]) {
+    const char* shell = __astia_execvp_shell;
+
+    char** shell_argv;
+
+    size_t count = 0;
+    size_t i;
+
+    int saved_errno;
+
+    if (shell == NULL || *shell == '\0') {
+        errno = ENOEXEC;
+
+        return -1;
+    }
+
+    if (argv != NULL) {
+        while (argv[count] != NULL) {
+            ++count;
+        }
+
+        if (count > 0)
+            --count;
+    }
+
+    shell_argv = malloc((count + 3) * sizeof(*shell_argv));
+    if (shell_argv == NULL) {
+        errno = ENOMEM;
+
+        return -1;
+    }
+
+    shell_argv[0] = (char*) shell;
+    shell_argv[1] = (char*) path;
+
+    for (i = 0; i < count; ++i) {
+        shell_argv[i + 2] = argv[i + 1];
+    }
+
+    shell_argv[count + 2] = NULL;
+
+    (void) execve(shell, shell_argv, environ);
+
+    saved_errno = errno;
+
+    free(shell_argv);
+
+    errno = saved_errno == ENOENT || saved_errno == ENOTDIR ? ENOEXEC : saved_errno;
+
+    return -1;
+}
+
+static int exec_searched_path(const char* path, char* const argv[]) {
+    (void) execve(path, argv, environ);
+
+    return errno == ENOEXEC ? exec_through_shell(path, argv) : -1;
+}
+
 int execvp(const char* file, char* const argv[]) {
     const char* path;
 
@@ -928,7 +993,7 @@ int execvp(const char* file, char* const argv[]) {
     }
 
     if (strchr(file, '/') != NULL)
-        return execve(file, argv, environ);
+        return exec_searched_path(file, argv);
 
     path = getenv("PATH");
     if (path == NULL)
@@ -962,7 +1027,7 @@ int execvp(const char* file, char* const argv[]) {
             strcpy(candidate + at, file);
         }
 
-        (void) execve(candidate, argv, environ);
+        (void) exec_searched_path(candidate, argv);
 
         if (errno != ENOENT && errno != ENOTDIR) {
             if (errno != EACCES)
