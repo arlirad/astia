@@ -1,5 +1,6 @@
 add_library(crypto STATIC
         csprng.cpp
+        entropy_pool.cpp
         random.cpp
 )
 

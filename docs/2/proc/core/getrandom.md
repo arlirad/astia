@@ -10,8 +10,13 @@ long astia_getrandom(void* buffer, uint64_t length, uint32_t flags);
 
 Fills `length` bytes from the kernel CSPRNG. The pool seeds on the first
 request from available platform entropy and then never blocks, so this call
-does not have an `EINTR` path. Only `flags == 0` is accepted; the Linux
-`GRND_*` flags have no meaning while the pool cannot block.
+does not have an `EINTR` path. Only a strong source seeds the pool: a hardware
+RNG, a bootloader-provided seed, or a platform clock. Cycle-counter jitter,
+timer ticks, and addresses are mixed as weak material but never make the pool
+ready on their own, so an AArch64 platform without a hardware RNG or loader
+seed reports `EAGAIN` instead of returning predictable bytes. Only `flags == 0`
+is accepted; the Linux `GRND_*` flags have no meaning while the pool cannot
+block.
 
 `length` is capped at one mebibyte; larger requests are rejected rather than
 truncated. A zero-length request succeeds without touching `buffer`.

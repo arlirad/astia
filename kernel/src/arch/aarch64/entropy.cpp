@@ -1,9 +1,10 @@
 #include <astia/arch/entropy.hpp>
 
 namespace astia::arch {
-    // ARMv8.5 RNDR is optional and this port does not probe or use it.  The
-    // generic jitter path seeds the DRBG from CNTPCT until the platform
-    // grows a TRNG or RTC driver.
+    // ARMv8.5 RNDR is optional and this port does not probe or use it.  CNTPCT
+    // and the timer are mixed as weak material only; with no strong source
+    // (a future RNDR path, a loader seed, or an RTC driver) the CSPRNG stays
+    // unseeded and callers get EAGAIN instead of predictable bytes.
     u32 hardware_random(u64*, u32) {
         return 0;
     }
