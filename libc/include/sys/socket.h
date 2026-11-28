@@ -74,6 +74,33 @@ enum {
 
 #define AF_UNIX AF_LOCAL
 
+#define PF_UNSPEC AF_UNSPEC
+#define PF_LOCAL AF_LOCAL
+#define PF_UNIX AF_UNIX
+#define PF_INET AF_INET
+#define PF_INET6 AF_INET6
+#define PF_NETLINK AF_NETLINK
+#define PF_PACKET AF_PACKET
+
+#define SOMAXCONN 128
+
+#define SO_REUSEADDR 2
+#define SO_ERROR 4
+#define SO_DONTROUTE 5
+#define SO_BROADCAST 6
+#define SO_KEEPALIVE 9
+#define SO_OOBINLINE 10
+#define SO_LINGER 13
+#define SO_REUSEPORT 15
+#define SO_RCVTIMEO 20
+#define SO_SNDTIMEO 21
+#define SO_ACCEPTCONN 30
+
+struct linger {
+    int l_onoff;
+    int l_linger;
+};
+
 #define MSG_OOB 0x01
 #define MSG_PEEK 0x02
 #define MSG_DONTROUTE 0x04
@@ -88,6 +115,11 @@ enum {
 struct sockaddr {
     unsigned short sa_family;
     char           sa_data[14];
+};
+
+struct sockaddr_storage {
+    _Alignas(8) sa_family_t ss_family;
+    unsigned char __ss_padding[126];
 };
 
 struct cmsghdr {

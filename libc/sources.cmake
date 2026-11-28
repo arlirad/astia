@@ -24,6 +24,7 @@ set(ASTIA_LIBC_CORE_SOURCES
   src/io/uio.c
   src/locale/locale.c
   src/math/math.c
+  src/net/inet.c
   src/process/atfork.c
   src/process/prctl.c
   src/process/process.c

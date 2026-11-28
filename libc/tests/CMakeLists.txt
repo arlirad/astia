@@ -69,6 +69,10 @@ add_executable(libc_headers_test headers/headers_test.c)
 target_link_libraries(libc_headers_test PRIVATE astia_libc)
 add_test(NAME libc_headers_test COMMAND libc_headers_test)
 
+add_executable(libc_inet_test net/inet_test.c support/backend_host.c)
+target_link_libraries(libc_inet_test PRIVATE astia_libc)
+add_test(NAME libc_inet_test COMMAND libc_inet_test)
+
 add_executable(libc_getopt_test stdlib/getopt_test.c support/backend_host.c)
 target_link_libraries(libc_getopt_test PRIVATE astia_libc)
 add_test(NAME libc_getopt_test COMMAND libc_getopt_test)
