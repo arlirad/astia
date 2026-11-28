@@ -42,16 +42,16 @@ namespace astia::net {
         }
 
         void stop_accepting() {
-            atomic_ref<u32>(_accepting).store(0, memory_order::release);
+            atomic_ref<u32>(_accepting).store(0, memory_order::seq_cst);
 
-            while (atomic_ref<u32>(_submitters).load(memory_order::acquire) != 0 ||
-                   atomic_ref<u32>(_completers).load(memory_order::acquire) != 0) {
+            while (atomic_ref<u32>(_submitters).load(memory_order::seq_cst) != 0 ||
+                   atomic_ref<u32>(_completers).load(memory_order::seq_cst) != 0) {
                 arch::cpu::relax();
             }
         }
 
         void start_accepting() {
-            atomic_ref<u32>(_accepting).store(1, memory_order::release);
+            atomic_ref<u32>(_accepting).store(1, memory_order::seq_cst);
         }
 
         public:
@@ -78,13 +78,13 @@ namespace astia::net {
                 request.reclaim == nullptr)
                 return -EINVAL;
 
-            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0)
+            if (atomic_ref<u32>(_accepting).load(memory_order::seq_cst) == 0)
                 return -ECANCELED;
 
-            atomic_ref<u32>(_submitters).add_fetch(1, memory_order::acquire);
+            atomic_ref<u32>(_submitters).add_fetch(1, memory_order::seq_cst);
 
-            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0) {
-                atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::release);
+            if (atomic_ref<u32>(_accepting).load(memory_order::seq_cst) == 0) {
+                atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::seq_cst);
 
                 return -ECANCELED;
             }
@@ -93,10 +93,10 @@ namespace astia::net {
 
             const bool pushed = _pending.push(request);
 
-            atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::release);
-
             if (pushed && _kick != nullptr)
                 _kick(_kick_context);
+
+            atomic_ref<u32>(_submitters).sub_fetch(1, memory_order::seq_cst);
 
             return pushed ? 0 : -EAGAIN;
         }
@@ -108,19 +108,19 @@ namespace astia::net {
         }
 
         bool complete(const tx_request& request, int status) {
-            atomic_ref<u32>(_completers).add_fetch(1, memory_order::acquire);
+            atomic_ref<u32>(_completers).add_fetch(1, memory_order::seq_cst);
 
-            if (atomic_ref<u32>(_accepting).load(memory_order::acquire) == 0 ||
+            if (atomic_ref<u32>(_accepting).load(memory_order::seq_cst) == 0 ||
                 request.generation !=
                     atomic_ref<u64>(_generation).load(memory_order::acquire)) {
-                atomic_ref<u32>(_completers).sub_fetch(1, memory_order::release);
+                atomic_ref<u32>(_completers).sub_fetch(1, memory_order::seq_cst);
 
                 return false;
             }
 
             const bool pushed = _completed.push({request, status});
 
-            atomic_ref<u32>(_completers).sub_fetch(1, memory_order::release);
+            atomic_ref<u32>(_completers).sub_fetch(1, memory_order::seq_cst);
 
             return pushed;
         }

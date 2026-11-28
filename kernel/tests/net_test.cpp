@@ -8,10 +8,12 @@
 #include <astia/net/socket_address.hpp>
 
 #include "support/timer_host.hpp"
+#include <condition_variable>
 
 #include <atomic>
 #include <barrier>
 #include <cassert>
+#include <chrono>
 #include <mutex>
 #include <thread>
 
@@ -53,6 +55,114 @@ namespace {
     void reclaim_concurrent(void* context, const astia::net::tx_request*, int) {
         static_cast<concurrent_tracker*>(context)->reclaimed.fetch_add(
             1, std::memory_order_relaxed);
+    }
+
+    struct kick_ordering {
+        std::mutex              mutex;
+        std::condition_variable gate;
+        bool                    release_kick         = false;
+        bool                    reset_done           = false;
+        unsigned                kicks                = 0;
+        unsigned                completed            = 0;
+        unsigned                quiesces             = 0;
+        unsigned                completed_at_quiesce = 0;
+    };
+
+    void ordered_kick(void* context) {
+        auto& ordering = *static_cast<kick_ordering*>(context);
+
+        std::unique_lock lock(ordering.mutex);
+
+        ++ordering.kicks;
+
+        ordering.gate.notify_all();
+        ordering.gate.wait(lock, [&ordering] { return ordering.release_kick; });
+
+        ++ordering.completed;
+
+        ordering.gate.notify_all();
+    }
+
+    void ordered_quiesce(void* context) {
+        auto& ordering = *static_cast<kick_ordering*>(context);
+
+        std::lock_guard guard(ordering.mutex);
+
+        ++ordering.quiesces;
+
+        ordering.completed_at_quiesce = ordering.completed;
+
+        ordering.gate.notify_all();
+    }
+
+    struct send_reclaim {
+        std::atomic<unsigned> reclaimed{0};
+        std::atomic<int>      status{0};
+    };
+
+    void count_reclaim(void* context, const astia::net::tx_request*, int status) {
+        auto& state = *static_cast<send_reclaim*>(context);
+
+        state.reclaimed.fetch_add(1, std::memory_order_relaxed);
+        state.status.store(status, std::memory_order_relaxed);
+    }
+
+    struct send_ordering {
+        astia::net::tx_path<4, 4>* path = nullptr;
+        std::mutex                 mutex;
+        std::condition_variable    gate;
+        bool                       quiesce_entered = false;
+        bool                       release_quiesce = false;
+        bool                       inflight        = false;
+        unsigned                   kicks           = 0;
+        unsigned                   sent            = 0;
+        unsigned                   quiesces        = 0;
+        unsigned                   aborted         = 0;
+        astia::net::tx_request     inflight_request{};
+        astia::net::tx_request     last_sent{};
+    };
+
+    void sending_kick(void* context) {
+        auto& ordering = *static_cast<send_ordering*>(context);
+
+        astia::net::tx_request request{};
+
+        while (ordering.path->dequeue(request)) {
+            std::lock_guard guard(ordering.mutex);
+
+            ++ordering.kicks;
+            ++ordering.sent;
+
+            ordering.inflight         = true;
+            ordering.inflight_request = request;
+            ordering.last_sent        = request;
+        }
+    }
+
+    void sending_quiesce(void* context) {
+        auto& ordering = *static_cast<send_ordering*>(context);
+
+        {
+            std::lock_guard guard(ordering.mutex);
+
+            ++ordering.quiesces;
+
+            if (ordering.inflight) {
+                ordering.path->abort_inflight(ordering.inflight_request, -ECANCELED);
+
+                ordering.inflight = false;
+
+                ++ordering.aborted;
+            }
+
+            ordering.quiesce_entered = true;
+
+            ordering.gate.notify_all();
+        }
+
+        std::unique_lock lock(ordering.mutex);
+
+        ordering.gate.wait(lock, [&ordering] { return ordering.release_quiesce; });
     }
 
     struct fake_link final : astia::net::link {
@@ -492,6 +602,149 @@ int main() {
         full_path.reset();
         assert(full_path.generation() == empty_generation + 1);
         assert(full_tracker.reclaimed.load() == 8);
+    }
+
+    {
+        // Reset must not quiesce the device while a counted submitter has
+        // queued a request but not yet kicked it.  The kick runs in the
+        // submitter's counted window, so reset waits for it and quiesce only
+        // observes a kicked request.
+        concurrent_tracker ordering_tracker{};
+        kick_ordering      ordering;
+
+        astia::net::tx_path<4, 4> path(&ordering_tracker);
+
+        path.set_kick(&ordered_kick, &ordering);
+        path.set_quiesce(&ordered_quiesce, &ordering);
+
+        uint8_t                byte = 0;
+        astia::net::tx_request item{};
+
+        item.data    = &byte;
+        item.length  = 1;
+        item.reclaim = reclaim_concurrent;
+
+        std::thread submitter([&] { assert(path.submit(item) == 0); });
+
+        {
+            std::unique_lock lock(ordering.mutex);
+
+            ordering.gate.wait(lock, [&ordering] { return ordering.kicks == 1; });
+        }
+
+        std::thread resetter([&] {
+            path.reset();
+
+            std::lock_guard guard(ordering.mutex);
+
+            ordering.reset_done = true;
+
+            ordering.gate.notify_all();
+        });
+
+        bool reset_finished = false;
+
+        {
+            std::unique_lock lock(ordering.mutex);
+
+            reset_finished =
+                ordering.gate.wait_for(lock, std::chrono::milliseconds(300),
+                                       [&ordering] { return ordering.reset_done; });
+
+            ordering.release_kick = true;
+
+            ordering.gate.notify_all();
+        }
+
+        submitter.join();
+        resetter.join();
+
+        assert(!reset_finished);
+        assert(ordering.kicks == 1);
+        assert(ordering.completed == 1);
+        assert(ordering.quiesces == 1);
+        assert(ordering.completed_at_quiesce == 1);
+        assert(ordering_tracker.reclaimed.load() == 1);
+    }
+
+    {
+        // A submit that arrives while reset() is quiescing is rejected and
+        // ownership stays with the caller.  Once reset completes, the next
+        // accepted submit is kicked and sent exactly once, with the new
+        // generation.
+        send_reclaim  tracker{};
+        send_ordering ordering;
+
+        astia::net::tx_path<4, 4> path(&tracker);
+
+        ordering.path = &path;
+
+        path.set_kick(&sending_kick, &ordering);
+        path.set_quiesce(&sending_quiesce, &ordering);
+
+        uint8_t                first_byte = 1;
+        astia::net::tx_request first{};
+
+        first.data    = &first_byte;
+        first.length  = 1;
+        first.reclaim = count_reclaim;
+
+        assert(path.submit(first) == 0);
+        assert(ordering.sent == 1);
+        assert(ordering.inflight);
+
+        std::thread resetter([&] { path.reset(); });
+
+        {
+            std::unique_lock lock(ordering.mutex);
+
+            ordering.gate.wait(lock, [&ordering] { return ordering.quiesce_entered; });
+        }
+
+        uint8_t                rejected_byte = 2;
+        astia::net::tx_request rejected{};
+
+        rejected.data    = &rejected_byte;
+        rejected.length  = 1;
+        rejected.reclaim = count_reclaim;
+
+        assert(path.submit(rejected) == -ECANCELED);
+        assert(ordering.kicks == 1);
+        assert(ordering.sent == 1);
+
+        {
+            std::lock_guard guard(ordering.mutex);
+
+            ordering.release_quiesce = true;
+
+            ordering.gate.notify_all();
+        }
+
+        resetter.join();
+
+        assert(ordering.quiesces == 1);
+        assert(ordering.aborted == 1);
+        assert(!ordering.inflight);
+        assert(tracker.reclaimed.load() == 1);
+        assert(tracker.status.load() == -ECANCELED);
+
+        const astia::u64       generation = path.generation();
+        uint8_t                fresh_byte = 3;
+        astia::net::tx_request fresh{};
+
+        fresh.data    = &fresh_byte;
+        fresh.length  = 1;
+        fresh.reclaim = count_reclaim;
+
+        assert(path.submit(fresh) == 0);
+        assert(ordering.kicks == 2);
+        assert(ordering.sent == 2);
+        assert(ordering.last_sent.data == &fresh_byte);
+        assert(ordering.last_sent.generation == generation);
+
+        astia::net::tx_request drained{};
+
+        assert(!path.dequeue(drained));
     }
 
     {
