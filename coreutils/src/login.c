@@ -39,6 +39,42 @@ static int read_name(char* name, unsigned long size) {
     return length == 0 || strchr(name, ':') != NULL ? -1 : 0;
 }
 
+enum login_session_result {
+    LOGIN_SESSION_OK = 0,
+    LOGIN_SESSION_SETSID_FAILED,
+    LOGIN_SESSION_GETPGRP_FAILED,
+    LOGIN_SESSION_TCSETPGRP_FAILED,
+};
+
+static enum login_session_result establish_session(int terminal) {
+    if (setsid() != 0)
+        return LOGIN_SESSION_SETSID_FAILED;
+
+    pid_t process_group = getpgrp();
+    if (process_group < 0)
+        return LOGIN_SESSION_GETPGRP_FAILED;
+
+    if (tcsetpgrp(terminal, process_group) != 0)
+        return LOGIN_SESSION_TCSETPGRP_FAILED;
+
+    return LOGIN_SESSION_OK;
+}
+
+static int report_session_error(enum login_session_result result) {
+    switch (result) {
+    case LOGIN_SESSION_SETSID_FAILED:
+        return cu_error("login", "cannot create new session");
+    case LOGIN_SESSION_GETPGRP_FAILED:
+        return cu_error("login", "cannot read process group");
+    case LOGIN_SESSION_TCSETPGRP_FAILED:
+        return cu_error("login", "cannot attach session to controlling terminal");
+    case LOGIN_SESSION_OK:
+        break;
+    }
+
+    return 0;
+}
+
 static int collect_groups(const char* user, gid_t primary, gid_t groups[], int* count) {
     struct group* group;
 
@@ -109,8 +145,9 @@ int main(int argc, char** argv) {
         setuid(account->pw_uid) != 0)
         return cu_error("login", "cannot establish account credentials");
 
-    (void) setsid();
-    (void) tcsetpgrp(0, getpgrp());
+    enum login_session_result session = establish_session(0);
+    if (session != LOGIN_SESSION_OK)
+        return report_session_error(session);
 
     if (chdir(account->pw_dir) != 0)
         return cu_error("login", "cannot enter home directory");
