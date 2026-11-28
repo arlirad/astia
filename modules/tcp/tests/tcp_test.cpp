@@ -188,6 +188,42 @@ namespace {
         return length;
     }
 
+    usz build_syn_with_mss(u8* segment, u16 source_port, u16 destination_port, u32 seq,
+                           u16 mss, const u8* source_ip, const u8* destination_ip) {
+        astia::tcp::tcp_header header{};
+
+        header.source_port       = source_port;
+        header.destination_port  = destination_port;
+        header.sequence          = seq;
+        header.acknowledgement   = 0;
+        header.data_offset_flags = 0x6000;
+
+        header.set_flags(astia::tcp::flag_syn);
+
+        header.window         = 4096;
+        header.checksum_value = 0;
+        header.urgent         = 0;
+
+        std::memcpy(segment, &header, sizeof header);
+
+        segment[sizeof header + 0] = 2;
+        segment[sizeof header + 1] = 4;
+        segment[sizeof header + 2] = static_cast<u8>(mss >> 8);
+        segment[sizeof header + 3] = static_cast<u8>(mss & 0xff);
+
+        const usz length = sizeof header + 4;
+
+        const auto pseudo =
+            pseudo_for(source_ip, destination_ip, static_cast<u16>(length));
+
+        header.checksum_value =
+            astia::tcp::checksum(pseudo, astia::span<const u8>(segment, length));
+
+        std::memcpy(segment, &header, sizeof header);
+
+        return length;
+    }
+
     struct capture_link final : astia::net::link {
         astia::net::link_address address =
             astia::net::link_address::from_packet(peer_mac, 6);
@@ -751,6 +787,59 @@ void test_reset_unknown_and_rst_abort() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_mss_negotiation() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    u8  segment[128]{};
+    usz length = build_syn_with_mss(segment, 40000, 80, 100, 536, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    auto* child = protocol.accept(*listener);
+
+    assert(child != nullptr);
+    assert(child->peer_mss == 536);
+    assert(ipv4.length == 24);
+    assert(ipv4.segment[20] == 2);
+    assert(ipv4.segment[21] == 4);
+    assert(ipv4.segment[22] == 0x05);
+    assert(ipv4.segment[23] == 0x78);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->state == astia::tcp::connection_state::established);
+
+    u8 payload[1000]{};
+
+    for (usz index = 0; index < sizeof payload; ++index) {
+        payload[index] = static_cast<u8>(index);
+    }
+
+    const u32 before = ipv4.sends;
+
+    const i64 sent =
+        protocol.send_data(*child, astia::span<const u8>(payload, sizeof payload));
+
+    assert(sent == 1000);
+    assert(ipv4.sends == before + 2);
+    assert(ipv4.length == 20 + 464);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -764,6 +853,7 @@ int main() {
     test_active_close();
     test_out_of_order_reassembly();
     test_reset_unknown_and_rst_abort();
+    test_mss_negotiation();
 
     return 0;
 }
