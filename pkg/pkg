@@ -631,20 +631,32 @@ class State:
                 return None
             raise
 
+    def configured_arch(self):
+        config = self.load_optional("config.json", "package configuration")
+        if config is None:
+            return None
+        if not isinstance(config, dict) or not isinstance(config.get("architecture"), str):
+            fail("malformed package configuration")
+        return check_arch(config["architecture"])
+
     def configure_arch(self, requested):
         requested = check_arch(requested) if requested else None
-        config = self.load_optional("config.json", "package configuration")
-        if config is not None:
-            if not isinstance(config, dict) or not isinstance(config.get("architecture"), str):
-                fail("malformed package configuration")
-            configured = check_arch(config["architecture"])
+        configured = self.configured_arch()
+        if configured is not None:
             if requested and requested != configured:
                 fail(f"package root targets {configured}; refusing architecture switch to {requested}")
             return configured
-        architecture = requested or detect_arch()
-        check_arch(architecture)
+        architecture = check_arch(requested or detect_arch())
         atomic_json_at(self.internal_fd, "config.json", {"schema": 1, "architecture": architecture})
         return architecture
+
+    def revalidate_arch(self, architecture):
+        configured = self.configured_arch()
+        if configured is None:
+            fail("package configuration is missing")
+        if configured != architecture:
+            fail(f"package root targets {configured}; refusing install for {architecture}")
+        return configured
 
     def cache_data(self):
         cached = self.load_optional("cache.json", "package cache")
@@ -903,6 +915,7 @@ def recover_transactions(state):
 
 
 def install_locked(state, name, requested, architecture):
+    architecture = state.revalidate_arch(architecture)
     index, repository, immutable = state.cache_data()
     version, metadata, artifact = selected_version(index, name, requested, architecture)
     compatible(metadata, architecture)
@@ -1259,7 +1272,8 @@ def main(argv):
         values, operation, operands = parse_cli(argv)
         root = ensure_root(values["root"])
         state = State(root)
-        architecture = state.configure_arch(values["arch"])
+        with state.lock():
+            architecture = state.configure_arch(values["arch"])
         if operation == "sync":
             sync(root, values["repo"])
         elif operation == "sync-install":
