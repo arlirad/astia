@@ -14,8 +14,20 @@
 
 enum { ATEXIT_MAX = 32 };
 
-static void (*g_atexit[ATEXIT_MAX])(void);
-static size_t g_atexit_count;
+enum atexit_flavor { ATEXIT_PLAIN, ATEXIT_CXA };
+
+union atexit_function {
+    void (*plain)(void);
+    void (*with_argument)(void*);
+};
+
+struct atexit_entry {
+    union atexit_function function;
+    void*                 argument;
+    void*                 dso_handle;
+    unsigned char         flavor;
+    unsigned char         removed;
+};
 
 /* Freestanding C++ runtimes may emit these even when no hosted runtime is
  * linked.  Keep the ABI available to mixed C/C++ user images; C atexit
@@ -23,21 +35,50 @@ static size_t g_atexit_count;
  * run at exit with their registration argument. */
 void* __dso_handle __attribute__((visibility("hidden"), weak));
 
-struct cxa_atexit_entry {
-    void (*function)(void*);
-    void* argument;
-};
+/* Both registration APIs share one stack so relative registration order
+ * survives into shutdown; the flavor only selects the calling convention. */
+static struct atexit_entry g_atexit[ATEXIT_MAX];
+static size_t              g_atexit_count;
 
-static struct cxa_atexit_entry g_cxa_atexit[ATEXIT_MAX];
-static size_t                  g_cxa_atexit_count;
-
-int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
-    (void) dso_handle;
-
-    if (function == NULL || g_cxa_atexit_count == ATEXIT_MAX)
+static int atexit_reserve(struct atexit_entry** slot) {
+    if (g_atexit_count == ATEXIT_MAX)
         return -1;
 
-    g_cxa_atexit[g_cxa_atexit_count++] = (struct cxa_atexit_entry){function, argument};
+    struct atexit_entry* entry = &g_atexit[g_atexit_count++];
+
+    *entry = (struct atexit_entry){0};
+    *slot  = entry;
+
+    return 0;
+}
+
+static void atexit_call(const struct atexit_entry* entry) {
+    if (entry->flavor == ATEXIT_PLAIN)
+        entry->function.plain();
+    else
+        entry->function.with_argument(entry->argument);
+}
+
+/* A null dso_handle drains every registration; otherwise only C++ callbacks
+ * that name this exact DSO run, as the Itanium ABI requires. */
+static int atexit_matches(const struct atexit_entry* entry, void* dso_handle) {
+    return dso_handle == NULL ||
+           (entry->flavor == ATEXIT_CXA && entry->dso_handle == dso_handle);
+}
+
+int __cxa_atexit(void (*function)(void*), void* argument, void* dso_handle) {
+    struct atexit_entry* entry;
+
+    if (function == NULL)
+        return -1;
+
+    if (atexit_reserve(&entry) != 0)
+        return -1;
+
+    entry->function.with_argument = function;
+    entry->argument               = argument;
+    entry->dso_handle             = dso_handle;
+    entry->flavor                 = ATEXIT_CXA;
 
     return 0;
 }
@@ -212,12 +253,45 @@ int setregid(unsigned int real_gid, unsigned int effective_gid) {
 }
 
 int atexit(void (*function)(void)) {
-    if (function == NULL || g_atexit_count == ATEXIT_MAX)
+    struct atexit_entry* entry;
+
+    if (function == NULL)
         return -1;
 
-    g_atexit[g_atexit_count++] = function;
+    if (atexit_reserve(&entry) != 0)
+        return -1;
+
+    entry->function.plain = function;
+    entry->flavor         = ATEXIT_PLAIN;
 
     return 0;
+}
+
+/* Each scan starts at the newest entry, so callbacks registered while
+ * finalizing — including from a running callback — are picked up next. */
+static struct atexit_entry* atexit_find(void* dso_handle) {
+    size_t index = g_atexit_count;
+
+    while (index != 0) {
+        --index;
+
+        if (!g_atexit[index].removed && atexit_matches(&g_atexit[index], dso_handle))
+            return &g_atexit[index];
+    }
+
+    return NULL;
+}
+
+void __cxa_finalize(void* dso_handle) {
+    for (;;) {
+        struct atexit_entry* pending = atexit_find(dso_handle);
+        if (pending == NULL)
+            break;
+
+        pending->removed = 1;
+
+        atexit_call(pending);
+    }
 }
 
 _Noreturn void _Exit(int status) {
@@ -226,15 +300,7 @@ _Noreturn void _Exit(int status) {
 }
 
 _Noreturn void exit(int status) {
-    while (g_cxa_atexit_count != 0) {
-        struct cxa_atexit_entry entry = g_cxa_atexit[--g_cxa_atexit_count];
-
-        entry.function(entry.argument);
-    }
-
-    while (g_atexit_count != 0) {
-        g_atexit[--g_atexit_count]();
-    }
+    __cxa_finalize(NULL);
 
     fflush(NULL); /* ISO C: streams flush after the atexit handlers */
     _Exit(status);

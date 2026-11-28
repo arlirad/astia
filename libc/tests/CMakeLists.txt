@@ -155,6 +155,12 @@ add_executable(libc_process_test process/process_test.c support/process_host.c s
 target_link_libraries(libc_process_test PRIVATE astia_libc_host)
 add_test(NAME libc_process_test COMMAND libc_process_test)
 
+# exit() drains one LIFO stack shared by atexit() and __cxa_atexit();
+# each scenario runs in a forked child so exit never leaves this process.
+add_executable(libc_atexit_test process/atexit_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_atexit_test PRIVATE astia_libc_host)
+add_test(NAME libc_atexit_test COMMAND libc_atexit_test)
+
 add_executable(libc_atfork_test process/atfork_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
 target_link_libraries(libc_atfork_test PRIVATE astia_libc_host)
 add_test(NAME libc_atfork_test COMMAND libc_atfork_test)
