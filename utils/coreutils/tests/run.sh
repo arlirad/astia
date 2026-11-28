@@ -53,6 +53,17 @@ $clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
     "$root/utils/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
 "$out/host/sort_growth_test"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -fsanitize=address,undefined \
+    -fno-sanitize-recover=all -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/src/sort.c" -o "$out/host/sort_sanitize"
+printf 'b\na\nb\n' | "$out/host/sort_sanitize" -u >"$out/host/sort_unique_interleaved.out"
+printf 'a\nb\n' >"$out/host/sort_unique_interleaved.expected"
+cmp "$out/host/sort_unique_interleaved.expected" "$out/host/sort_unique_interleaved.out"
+printf 'delta\nalpha\ncharlie\nbravo\nalpha\ndelta\n' | \
+    "$out/host/sort_sanitize" -u >"$out/host/sort_unique_scattered.out"
+printf 'alpha\nbravo\ncharlie\ndelta\n' >"$out/host/sort_unique_scattered.expected"
+cmp "$out/host/sort_unique_scattered.expected" "$out/host/sort_unique_scattered.out"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I "$root/utils/coreutils/src" \
     -Dmain=cu_tee_main -c "$root/utils/coreutils/src/tee.c" -o "$out/host/tee_eintr_tee.o"
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \

@@ -136,13 +136,16 @@ int main(int argc, char** argv) {
     if (count > 1)
         qsort(lines, count, sizeof(char*), compare_lines);
 
+    char* previous = 0;
+
     for (size_t i = 0; i < count; ++i) {
-        if (unique_lines && i != 0 && strcmp(lines[i], lines[i - 1]) == 0) {
+        if (unique_lines && previous != 0 && strcmp(lines[i], previous) == 0) {
             free(lines[i]);
             continue;
         }
 
         if (cu_write_all(CU_STDOUT, lines[i], strlen(lines[i])) < 0) {
+            free(previous);
             free(lines[i]);
 
             for (size_t j = i + 1; j < count; ++j) {
@@ -154,9 +157,12 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        free(lines[i]);
+        free(previous);
+
+        previous = lines[i];
     }
 
+    free(previous);
     free(lines);
 
     return status;
