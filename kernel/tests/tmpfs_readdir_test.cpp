@@ -285,6 +285,28 @@ ASTIA_TEST(tmpfs_mount_source_selects_the_node_budget) {
     ASTIA_CHECK(type.mount("capacity=2") == nullptr);
 }
 
+ASTIA_TEST(tmpfs_open_rejects_directory_create_combination) {
+    initialize_runtime();
+
+    astia::fs::filesystems::tmpfs_mount mount;
+
+    ASTIA_CHECK(mount.mkdir("/d", directory_mode()) == 0);
+
+    long error = 0;
+
+    ASTIA_CHECK(
+        !mount.open("/d/missing", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_DIRECTORY, &error));
+    ASTIA_CHECK(error == -EINVAL);
+
+    error = 0;
+
+    ASTIA_CHECK(!mount.open("/d", ASTIA_AIO_O_CREAT | ASTIA_AIO_O_DIRECTORY, &error));
+    ASTIA_CHECK(error == -EINVAL);
+
+    ASTIA_CHECK(mount.open("/d", ASTIA_AIO_O_DIRECTORY));
+    ASTIA_CHECK(mount.open("/d/created", ASTIA_AIO_O_CREAT));
+}
+
 ASTIA_TEST(tmpfs_node_path_follows_a_directory_rename) {
     initialize_runtime();
 

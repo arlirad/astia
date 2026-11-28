@@ -538,6 +538,61 @@ ASTIA_TEST(aio_filesystem_openat_create_excl_creates_new_file) {
     ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL) == 3);
 }
 
+ASTIA_TEST(aio_filesystem_openat_directory_create_rejects_missing_path) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(fs::file_mode{});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/missing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_DIRECTORY) ==
+                -EINVAL);
+}
+
+ASTIA_TEST(aio_filesystem_openat_directory_create_rejects_existing_file) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/existing", 0666, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/existing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_DIRECTORY) ==
+                -EINVAL);
+}
+
+ASTIA_TEST(aio_filesystem_openat_directory_create_rejects_existing_directory) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_directory("/shared/sub", 0755, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/sub";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_DIRECTORY) ==
+                -EINVAL);
+}
+
+ASTIA_TEST(aio_filesystem_openat_directory_alone_rejects_existing_file) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/existing", 0666, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/existing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_DIRECTORY) == -ENOTDIR);
+}
+
 ASTIA_TEST(aio_filesystem_openat_requires_search_on_parent) {
     using namespace aio::test_support;
 
