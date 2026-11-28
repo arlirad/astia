@@ -22,6 +22,53 @@ namespace astia::tcp {
             }
         }
 
+        u16 mss_option(const net::packet_view& payload, const tcp_header& header) {
+            const u32 end = header.data_offset();
+
+            u32 offset = sizeof(tcp_header);
+
+            while (offset + 1 < end) {
+                u8 kind   = 0;
+                u8 length = 0;
+
+                if (!payload.peek(offset, &kind, 1))
+                    return 0;
+
+                if (kind == 0)
+                    break;
+
+                if (kind == 1) {
+                    ++offset;
+
+                    continue;
+                }
+
+                if (!payload.peek(offset + 1, &length, 1) || length < 2)
+                    return 0;
+
+                if (kind == 2 && length == 4) {
+                    u8 value[2]{};
+
+                    if (!payload.peek(offset + 2, value, 2))
+                        return 0;
+
+                    return static_cast<u16>((static_cast<u16>(value[0]) << 8) | value[1]);
+                }
+
+                offset += length;
+            }
+
+            return 0;
+        }
+
+        u16 negotiated_mss(const net::packet_view& payload, const tcp_header& header) {
+            const u16 advertised = mss_option(payload, header);
+            if (advertised == 0)
+                return 536;
+
+            return advertised < tcp_protocol::mss ? advertised : tcp_protocol::mss;
+        }
+
         tcp_pseudo_header pseudo_for(const net::link_address& source,
                                      const net::link_address& destination, u16 length) {
             tcp_pseudo_header pseudo{};
@@ -239,6 +286,7 @@ namespace astia::tcp {
         value->snd_una          = _next_sequence;
         value->snd_nxt          = _next_sequence;
         value->rcv_nxt          = static_cast<u32>(header.sequence) + 1;
+        value->peer_mss         = negotiated_mss(packet.payload, header);
         value->parent           = static_cast<u16>(listener - _connections);
 
         notify(*listener, event_child);
@@ -315,8 +363,9 @@ namespace astia::tcp {
         if (value.state == connection_state::syn_sent) {
             if ((flags & (flag_syn | flag_ack)) == (flag_syn | flag_ack) &&
                 ack == value.snd_nxt) {
-                value.rcv_nxt = seq + 1;
-                value.state   = connection_state::established;
+                value.rcv_nxt  = seq + 1;
+                value.peer_mss = negotiated_mss(packet.payload, header);
+                value.state    = connection_state::established;
 
                 notify(value, event_established);
 
@@ -507,7 +556,8 @@ namespace astia::tcp {
         u32 offset = 0;
 
         while (offset < data.size()) {
-            const usz chunk = data.size() - offset < mss ? data.size() - offset : mss;
+            const usz chunk = data.size() - offset < value.peer_mss ? data.size() - offset
+                                                                    : value.peer_mss;
 
             auto operation =
                 send_segment(value, flag_ack | flag_psh, value.snd_nxt, value.rcv_nxt,
@@ -807,6 +857,14 @@ namespace astia::tcp {
             payload_bytes[index] = payload.data()[index];
         }
 
+        u8* options_bytes = nullptr;
+
+        if ((flags & flag_syn) != 0) {
+            options_bytes = builder.prepend(4);
+            if (options_bytes == nullptr)
+                co_return error_t::enone;
+        }
+
         u8* header_bytes = builder.prepend(sizeof(tcp_header));
         if (header_bytes == nullptr)
             co_return error_t::enone;
@@ -818,7 +876,7 @@ namespace astia::tcp {
         header->destination_port  = value.remote.port.value();
         header->sequence          = seq;
         header->acknowledgement   = ack;
-        header->data_offset_flags = 0x5000;
+        header->data_offset_flags = options_bytes != nullptr ? 0x6000 : 0x5000;
 
         header->set_flags(flags);
 
@@ -826,6 +884,13 @@ namespace astia::tcp {
             static_cast<u16>(connection::receive_capacity - value.receive_count);
         header->checksum_value = 0;
         header->urgent         = 0;
+
+        if (options_bytes != nullptr) {
+            options_bytes[0] = 2;
+            options_bytes[1] = 4;
+            options_bytes[2] = static_cast<u8>(mss >> 8);
+            options_bytes[3] = static_cast<u8>(mss & 0xff);
+        }
 
         const auto pseudo = pseudo_for(value.source, value.destination,
                                        static_cast<u16>(builder.length()));

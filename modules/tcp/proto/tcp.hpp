@@ -60,10 +60,11 @@ namespace astia::tcp {
         net::link_address source{};
         net::link_address destination{};
 
-        u32 snd_una = 0;
-        u32 snd_nxt = 0;
-        u32 rcv_nxt = 0;
-        u16 window  = 4096;
+        u32 snd_una  = 0;
+        u32 snd_nxt  = 0;
+        u32 rcv_nxt  = 0;
+        u16 window   = 4096;
+        u16 peer_mss = 536;
 
         bool used   = false;
         u16  parent = 0xffff;
