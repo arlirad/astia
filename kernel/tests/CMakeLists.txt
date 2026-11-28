@@ -1297,6 +1297,9 @@ astia_add_arena_test(astia_ext4_vfs_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_file.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_space.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_extent.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_dir.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/module_main.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
@@ -1313,6 +1316,50 @@ target_include_directories(astia_ext4_vfs_test PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/ext4)
 astia_remove_test_label(astia_ext4_vfs_test "sanitizer-host")
 astia_add_test_label(astia_ext4_vfs_test "sanitizer-host-partial")
+
+# The read-write VFS test is a tool: it needs an mke2fs image and writes one
+# back, so its CTest entry runs the e2fsck/debugfs script rather than the
+# binary directly.  Build configuration still matches an arena test.
+add_executable(astia_ext4_rw_vfs_test
+        ${CMAKE_SOURCE_DIR}/modules/ext4/tests/ext4_rw_vfs_test.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_mount.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_file.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/module_main.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_space.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_extent.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_dir.cpp
+        ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/blk/blkdev.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device_file.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        support/device_ready_host.cpp
+        support/pty_vfs_host.cpp
+        support/interrupts_host.cpp
+        support/freestanding_new.cpp
+)
+set_target_properties(astia_ext4_rw_vfs_test PROPERTIES LINK_OPTIONS "")
+target_link_libraries(astia_ext4_rw_vfs_test PRIVATE c astia_test_support fs)
+target_include_directories(astia_ext4_rw_vfs_test PRIVATE
+        ${_astia_test_includes}
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/dev
+        ${CMAKE_SOURCE_DIR}/modules/ext4)
+target_compile_options(astia_ext4_rw_vfs_test PRIVATE
+        -fno-threadsafe-statics -fno-rtti -fno-pie)
+target_compile_definitions(astia_ext4_rw_vfs_test PRIVATE ASTIA_HOST_TEST=1)
+target_link_options(astia_ext4_rw_vfs_test PRIVATE
+        "-Wl,-no-pie"
+        "-Wl,--defsym=__kernel_start=0x08000000"
+        "-Wl,--defsym=__kernel_end=0x08002000")
+astia_apply_host_sanitizers(astia_ext4_rw_vfs_test)
+add_test(NAME astia_ext4_rw_vfs_test
+        COMMAND sh ${CMAKE_SOURCE_DIR}/modules/ext4/tests/run_rw_vfs_test.sh
+                "${ASTIA_SETARCH}"
+                $<TARGET_FILE:astia_ext4_rw_vfs_test>)
+set_tests_properties(astia_ext4_rw_vfs_test PROPERTIES
+        ENVIRONMENT "EXT4_RW_DIR=${CMAKE_CURRENT_BINARY_DIR}/ext4-rw-vfs")
+astia_add_test_label(astia_ext4_rw_vfs_test "ext4;filesystem;sanitizer-host-partial")
 
 astia_add_arena_test(astia_tmpfs_readdir_test
         tmpfs_readdir_test.cpp
@@ -2668,7 +2715,7 @@ foreach (_astia_vga_test IN ITEMS astia_pvh_test astia_framebuffer_test astia_vi
         astia_add_test_label(${_astia_vga_test} "vga;pvh;ttv0")
     endif()
 endforeach()
-foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test)
+foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test astia_ext4_rw_vfs_test)
     if(TEST ${_astia_ext4_test})
         astia_add_test_label(${_astia_ext4_test} "ext4;filesystem")
     endif()

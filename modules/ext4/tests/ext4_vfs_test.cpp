@@ -99,6 +99,8 @@ namespace {
             put32(1024 + 0x18, 0);
             put32(1024 + 0x20, 32);
             put32(1024 + 0x28, 16);
+            put32(1024 + 0x4C, 1);
+            put32(1024 + 0x54, 11);
             put16(1024 + 0x38, 0xEF53);
             put32(1024 + 0x60, 0x42);
             put16(1024 + 0x58, 128);
@@ -243,8 +245,19 @@ namespace {
         u32 _reads = 0;
     };
 
-    fake_blkdev             fake_device;
-    astia::dev::device_file fake_file(&fake_device);
+    class readonly_device_file final : public astia::dev::device_file {
+        public:
+        explicit readonly_device_file(astia::dev::device* device)
+            : device_file(device) {}
+
+        astia::fs::file_mode mode() const override {
+            return astia::fs::file_mode(astia::fs::file_type::block,
+                                        astia::fs::file_permissions(0444));
+        }
+    };
+
+    fake_blkdev        fake_device;
+    readonly_device_file fake_file(&fake_device);
     bool                    fake_registered = false;
     bool                    fake_mountpoint = false;
 
@@ -439,7 +452,23 @@ ASTIA_TEST(ext4_vfs_rejects_bad_images_and_mutations) {
     ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") < 0);
     fake_device.make_valid_image();
     fake_device.enable_journal();
-    ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") < 0);
+    ASTIA_CHECK(astia::fs::mount_type("ext4", "/tmp/ext4", "/dev/fake-ext4") == 0);
+    ASTIA_CHECK(astia::fs::read_only_path("/tmp/ext4"));
+
+    auto journaled = astia::fs::open("/tmp/ext4/known.txt");
+
+    char journal_data[32]{};
+
+    ASTIA_CHECK(journaled);
+    ASTIA_CHECK(journaled && journaled->read(journal_data, sizeof journal_data) == 16);
+    ASTIA_CHECK(std::strcmp(journal_data, "hello from ext4\n") == 0);
+    ASTIA_CHECK(journaled && journaled->write("x", 1) == -EROFS);
+    ASTIA_CHECK(journaled && journaled->truncate(0) == -EROFS);
+
+    journaled = {};
+
+    ASTIA_CHECK(astia::fs::unmount_type("/tmp/ext4") == 0);
+    fake_device.make_valid_image();
 }
 
 ASTIA_TEST(ext4_vfs_reads_indexed_directory) {

@@ -1021,19 +1021,15 @@ namespace astia::ext4 {
         if (!read_superblock())
             return false;
 
-        const u32 compat   = _sb.feature_compat();
         const u32 incompat = _sb.feature_incompat();
         const u32 ro       = _sb.feature_ro_compat();
 
         const u32 allowed_incompat =
-            incompat_filetype | incompat_extents | incompat_64bit | incompat_csum_seed |
-            incompat_largedir;
+            incompat_filetype | incompat_recover | incompat_extents | incompat_64bit |
+            incompat_csum_seed | incompat_largedir;
         const u32 allowed_ro =
             ro_sparse_super | ro_large_file | ro_huge_file | ro_gdt_csum | ro_dir_nlink |
             ro_extra_isize | ro_metadata_csum;
-
-        if ((compat & compat_has_journal) != 0)
-            return false;
 
         if ((incompat & incompat_inline_data) != 0)
             return false;
@@ -1191,6 +1187,8 @@ namespace astia::ext4 {
     }
 
     bool volume::journal_clean() const {
+        // INCOMPAT_RECOVER is set while the journal still holds transactions
+        // that were not checkpointed; a later chunk replays it.
         return (_sb.feature_incompat() & incompat_recover) == 0;
     }
 
