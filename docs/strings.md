@@ -86,9 +86,9 @@ Copy construction is deleted; copying is spelled `clone()`.
 - A module can be unloaded while an `astia::strings::string` allocation survives, so the
   owning type never crosses the module boundary. Modules keep C strings and
   `string_view`.
-- `libc/include/string.h` and `libc/src/string.c` are the C `str*`/`mem*`
-  surface and do not include `astia/strings.hpp`. The dependency direction is
-  C++ -> C.
+- `libc/include/string.h` and `libc/src/string/string.c` are the C
+  `str*`/`mem*` surface and do not include `astia/strings.hpp`. The dependency
+  direction is C++ -> C.
 
 ## Forbidden
 
