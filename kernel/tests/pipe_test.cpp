@@ -34,6 +34,8 @@ namespace astia::fs {
 
         return 0;
     }
+
+    void open_file::commit_append(u64, long) {}
 } // namespace astia::fs
 
 namespace {

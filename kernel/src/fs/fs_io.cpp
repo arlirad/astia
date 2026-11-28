@@ -240,20 +240,24 @@ namespace astia::fs {
             (_flags & static_cast<u32>(open_file_status_flags::append)) != 0;
         u64 actual = current ? current_position() : offset;
 
+        auto contract = _parent->as_writable();
+        if (!contract)
+            co_return error_t::ebadf;
+
         if (append) {
             const long reserved = reserve_append(static_cast<u32>(sized), &actual);
             if (reserved < 0)
                 co_return error_from_errno(-reserved);
         }
 
-        auto contract = _parent->as_writable();
-        if (!contract)
-            co_return error_t::ebadf;
-
         const bool nonblock =
             (_flags & static_cast<u32>(open_file_status_flags::nonblock)) != 0;
 
         auto result = co_await contract->writev(buffers, actual, token, nonblock);
+
+        if (append)
+            commit_append(actual, result ? result.value : 0);
+
         if (!result)
             co_return result.error;
 

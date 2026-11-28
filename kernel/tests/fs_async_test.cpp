@@ -54,6 +54,8 @@ namespace astia::fs {
         return 0;
     }
 
+    void open_file::commit_append(u64, long) {}
+
     class fake_node final : public file, public readable, public writable {
         public:
         optional<readable&> as_readable() override {

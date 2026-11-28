@@ -1668,9 +1668,34 @@ namespace astia::fs {
 
         state->append_position    = end;
         state->append_initialized = true;
-        *offset                   = base;
+
+        ++state->append_inflight;
+
+        *offset = base;
 
         return 0;
+    }
+
+    void open_file::commit_append(u64 base, long written) {
+        auto state = position_state();
+        if (!state)
+            return;
+
+        core::spinlock_guard guard(state->append_lock);
+
+        if (state->append_inflight != 0)
+            --state->append_inflight;
+
+        // Only the last outstanding reservation can still be the tail of
+        // the append cursor.  Anything released earlier would overlap a
+        // reservation made after it, so the cursor stays put and the next
+        // reserve starts from the file size instead.
+        if (state->append_inflight != 0)
+            return;
+
+        const u64 moved = written > 0 ? static_cast<u64>(written) : 0;
+
+        state->append_position = base + moved;
     }
 
     long open_file::write(const void* buf, u32 len, u64 offset) {
@@ -1679,8 +1704,10 @@ namespace astia::fs {
 
         const bool current = offset == offset_current;
         u64        actual  = current ? current_position() : offset;
+        const bool append =
+            (_flags & static_cast<u32>(open_file_status_flags::append)) != 0;
 
-        if ((_flags & static_cast<u32>(open_file_status_flags::append)) != 0) {
+        if (append) {
             const long reserved = reserve_append(len, &actual);
             if (reserved < 0)
                 return reserved;
@@ -1691,18 +1718,31 @@ namespace astia::fs {
 
         io::request& request = operation.request();
 
-        if (!request.park_device())
+        if (append) {
+            // The reservation above is the operation's one and only; stop
+            // submit() from taking a second one and leaving a hole.
+            request.append_reserved(true);
+            request.append_base(actual);
+        }
+
+        if (!request.park_device()) {
+            if (append)
+                commit_append(actual, 0);
+
             return -EAGAIN;
+        }
 
         long result = submit(request);
+
+        if (append)
+            commit_append(actual, result);
 
         if (result == 0 && !request.complete())
             return -EAGAIN;
 
         request.acknowledge();
 
-        if (result > 0 &&
-            (current || (_flags & static_cast<u32>(open_file_status_flags::append)) != 0))
+        if (result > 0 && (current || append))
             set_position(actual + static_cast<u64>(result));
 
         return result;
@@ -1729,6 +1769,7 @@ namespace astia::fs {
             if (reserved < 0)
                 return reserved;
 
+            request.append_base(actual);
             request.append_reserved(true);
         }
 

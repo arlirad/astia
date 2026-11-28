@@ -67,6 +67,61 @@ namespace {
         int submits = 0;
     };
 
+    class memory_file final : public astia::fs::file, public astia::fs::writable {
+        public:
+        astia::optional<astia::fs::writable&> as_writable() override {
+            return *this;
+        }
+
+        astia::core::task<astia::i64> writev(astia::span<const astia::fs::buffer> buffers,
+                                             astia::u64                           offset,
+                                             astia::core::cltoken                 token,
+                                             bool nonblock) override {
+            return submit_writev(buffers, offset, token, nonblock);
+        }
+
+        long size() const override {
+            return static_cast<long>(_size);
+        }
+
+        astia::u64 length() const {
+            return _size;
+        }
+
+        astia::u8 byte(astia::u64 index) const {
+            return _storage[index];
+        }
+
+        astia::u32 max_write = ~astia::u32{0};
+
+        protected:
+        long write_ready(const void* buffer, astia::u32 length,
+                         astia::u64 offset) override {
+            if (buffer == nullptr && length != 0)
+                return -EFAULT;
+
+            const astia::u32 count = length < max_write ? length : max_write;
+
+            if (offset > sizeof _storage || count > sizeof _storage - offset)
+                return -ENOSPC;
+
+            const auto* source = static_cast<const astia::u8*>(buffer);
+
+            for (astia::u32 i = 0; i < count; ++i) {
+                _storage[offset + i] = source[i];
+            }
+
+            if (offset + count > _size)
+                _size = offset + count;
+
+            return static_cast<long>(count);
+        }
+
+        private:
+        astia::u8  _storage[64]{};
+        astia::u64 _size = 0;
+    };
+
     class test_device final : public astia::dev::device {
         public:
         explicit test_device(const char* name) : device(name, astia::dev::dv_sync) {}
@@ -381,4 +436,70 @@ ASTIA_TEST(open_file_falls_back_to_submit_only_file) {
     ASTIA_CHECK(submitter->calls == 1);
     ASTIA_CHECK(submitter->stable);
     ASTIA_CHECK(submitter->direction == astia::io::direction::input);
+}
+
+ASTIA_TEST(open_file_append_writes_are_contiguous) {
+    auto                 parent = astia::mm::shptr<astia::fs::file>(new memory_file{});
+    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::append);
+    const astia::u8      first[3]{'a', 'b', 'c'};
+    const astia::u8      second[2]{'d', 'e'};
+
+    ASTIA_CHECK(handle.write(first, sizeof first, astia::fs::offset_current) ==
+                static_cast<long>(sizeof first));
+    ASTIA_CHECK(handle.write(second, sizeof second, astia::fs::offset_current) ==
+                static_cast<long>(sizeof second));
+
+    auto* node = static_cast<memory_file*>(parent.get());
+
+    ASTIA_CHECK(node->length() == 5);
+    ASTIA_CHECK(node->byte(0) == 'a');
+    ASTIA_CHECK(node->byte(1) == 'b');
+    ASTIA_CHECK(node->byte(2) == 'c');
+    ASTIA_CHECK(node->byte(3) == 'd');
+    ASTIA_CHECK(node->byte(4) == 'e');
+}
+
+ASTIA_TEST(open_file_append_partial_write_releases_its_tail) {
+    auto* node = new memory_file{};
+
+    node->max_write = 2;
+
+    auto                 parent = astia::mm::shptr<astia::fs::file>(node);
+    astia::fs::open_file handle(parent, astia::fs::open_file_status_flags::append);
+    const astia::u8      first[5]{'a', 'b', 'c', 'd', 'e'};
+    const astia::u8      second[2]{'X', 'Y'};
+
+    ASTIA_CHECK(handle.write(first, sizeof first, astia::fs::offset_current) == 2);
+    ASTIA_CHECK(handle.write(second, sizeof second, astia::fs::offset_current) == 2);
+
+    ASTIA_CHECK(node->length() == 4);
+    ASTIA_CHECK(node->byte(0) == 'a');
+    ASTIA_CHECK(node->byte(1) == 'b');
+    ASTIA_CHECK(node->byte(2) == 'X');
+    ASTIA_CHECK(node->byte(3) == 'Y');
+}
+
+ASTIA_TEST(open_file_append_writev_writes_are_contiguous) {
+    auto                    parent = astia::mm::shptr<astia::fs::file>(new memory_file{});
+    astia::fs::open_file    handle(parent, astia::fs::open_file_status_flags::append);
+    astia::u8               first[3]{'a', 'b', 'c'};
+    astia::u8               second[2]{'d', 'e'};
+    const astia::fs::buffer buffers[2]{{first, sizeof first}, {second, sizeof second}};
+
+    auto task = handle.writev(astia::span<const astia::fs::buffer>(buffers, 2),
+                              astia::fs::offset_current);
+
+    ASTIA_CHECK(task.resume());
+    ASTIA_CHECK(task.done());
+    ASTIA_CHECK(!task.failed());
+    ASTIA_CHECK(task.value() != nullptr && *task.value() == 5);
+
+    auto* node = static_cast<memory_file*>(parent.get());
+
+    ASTIA_CHECK(node->length() == 5);
+    ASTIA_CHECK(node->byte(0) == 'a');
+    ASTIA_CHECK(node->byte(1) == 'b');
+    ASTIA_CHECK(node->byte(2) == 'c');
+    ASTIA_CHECK(node->byte(3) == 'd');
+    ASTIA_CHECK(node->byte(4) == 'e');
 }

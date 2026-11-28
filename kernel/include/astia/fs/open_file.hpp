@@ -88,7 +88,22 @@ namespace astia::fs {
                                    core::cltoken token = {});
         long            seek(i64 offset, i32 whence);
         long            submit(io::request& request);
-        u32             poll(u32 events) const;
+        /// Release the unused tail of an append reservation once the
+        /// operation has finished.  `base` is the reserved offset and
+        /// `written` the bytes the device actually stored, which may be
+        /// short of what was reserved.
+        void commit_append(u64 base, long written);
+
+        void commit_append(io::request& request, long written) {
+            if (!request.append_reserved())
+                return;
+
+            request.append_reserved(false);
+
+            commit_append(request.append_base(), written);
+        }
+
+        u32 poll(u32 events) const;
 
         u32 flags() const {
             return _flags;
@@ -157,6 +172,7 @@ namespace astia::fs {
             u64            value;
             u64            append_position    = 0;
             bool           append_initialized = false;
+            u32            append_inflight    = 0;
             core::spinlock append_lock;
         };
 
