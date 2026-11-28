@@ -21,8 +21,14 @@ namespace astia::io::aio::operations {
             if (current == nullptr)
                 co_return -EINVAL;
 
+            // O_CREAT|O_EXCL must observe the final component itself: an
+            // existing symlink is the conflict, never a path to create
+            // through.
+            const bool exclusive = (sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 &&
+                                   (sqe.op_flags & ASTIA_AIO_O_EXCL) != 0;
+
             long resolve_rc = resolve_at(current, sqe.fd == -1 ? AT_FDCWD : sqe.fd, path,
-                                         resolved, sizeof resolved, true);
+                                         resolved, sizeof resolved, !exclusive);
             if (resolve_rc < 0)
                 co_return (i32) resolve_rc;
 
@@ -33,6 +39,9 @@ namespace astia::io::aio::operations {
                 co_return -ENXIO;
 
             const fs::file_mode existing_mode = fs::node_mode(resolved);
+
+            if (exclusive && existing_mode.exists())
+                co_return -EEXIST;
 
             if (existing_mode.exists() && existing_mode.is_directory() &&
                 (sqe.op_flags & ASTIA_AIO_O_DIRECTORY) == 0)
@@ -82,7 +91,7 @@ namespace astia::io::aio::operations {
                                                   ? fs::open_directory(resolved)
                                                   : fs::open(resolved, sqe.op_flags);
             if (!handle)
-                co_return -ENOENT;
+                co_return exclusive ? -EEXIST : -ENOENT;
 
             if ((sqe.op_flags & ASTIA_AIO_O_CREAT) != 0 && !existing_mode.exists()) {
                 const auto requested = mapper<fs::file_permissions>::from(

@@ -425,6 +425,65 @@ ASTIA_TEST(aio_filesystem_openat_create_keeps_existing_file_access) {
     restore_credentials();
 }
 
+ASTIA_TEST(aio_filesystem_openat_create_excl_rejects_existing_file) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/existing", 0666, uid_t{0}, gid_t{0});
+
+    char path[] = "/shared/existing";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL) == -EEXIST);
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_excl_rejects_symlink_to_existing_file) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_file("/shared/target", 0666, uid_t{0}, gid_t{0});
+    set_node_mode("/shared/link",
+                  fs::file_mode(fs::file_type::symlink, fs::default_symlink_permissions));
+    set_readlink_target("/shared/target");
+
+    char path[] = "/shared/link";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL) == -EEXIST);
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_excl_rejects_dangling_symlink) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_node_mode(fs::file_mode{});
+    set_node_mode("/shared/link",
+                  fs::file_mode(fs::file_type::symlink, fs::default_symlink_permissions));
+    set_readlink_target("/shared/missing");
+
+    char path[] = "/shared/link";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL) == -EEXIST);
+}
+
+ASTIA_TEST(aio_filesystem_openat_create_excl_creates_new_file) {
+    using namespace aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    set_node_mode(fs::file_mode{});
+    set_directory("/shared", 0777, uid_t{0}, gid_t{0});
+    set_open_file(aio_test::make_open_file(new aio_test::fake_file));
+
+    char path[] = "/shared/new";
+
+    ASTIA_CHECK(submit_openat(path, ASTIA_AIO_O_CREAT | ASTIA_AIO_O_EXCL) == 3);
+}
+
 ASTIA_TEST(aio_filesystem_openat_requires_search_on_parent) {
     using namespace aio::test_support;
 
