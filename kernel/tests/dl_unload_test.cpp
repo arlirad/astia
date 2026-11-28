@@ -176,3 +176,126 @@ ASTIA_TEST(dl_deferred_retry_reports_unmap_failure) {
     ASTIA_CHECK(!astia_dl_test_module_pending(module));
     ASTIA_CHECK(astia_dl_test_unmap_count() == 2);
 }
+
+ASTIA_TEST(dl_shared_module_refcount_retains_until_last_handle) {
+    astia_dl_test_reset();
+    astia_dl_test_set_threads(2);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 2, 0);
+    const int deps[] = {module};
+
+    void* first  = astia_dl_test_add_handle(module, deps, 1);
+    void* second = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(first) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(first));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_refcount(module) == 1);
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+
+    ASTIA_CHECK(astia_dl_test_close(second) == 0);
+    ASTIA_CHECK(astia_dl_test_handle_live(second));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_refcount(module) == 0);
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+
+    ASTIA_CHECK(astia_dl_test_close(second) == 0);
+    ASTIA_CHECK(astia_dl_test_handle_live(second));
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+
+    astia_dl_test_set_threads(1);
+
+    ASTIA_CHECK(astia_dl_test_close(second) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(second));
+    ASTIA_CHECK(!astia_dl_test_module_used(module));
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+}
+
+ASTIA_TEST(dl_nodelete_module_stays_mapped_and_releases_handle) {
+    astia_dl_test_reset();
+    astia_dl_test_set_threads(2);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 1, 1);
+    const int deps[] = {module};
+
+    void* handle = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_refcount(module) == 0);
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+
+    astia_dl_test_set_threads(1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == -1);
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+}
+
+ASTIA_TEST(dl_group_unmaps_mortal_module_and_keeps_nodelete) {
+    astia_dl_test_reset();
+
+    const int mortal = astia_dl_test_add_module(module_base, module_span, 1, 0);
+    const int retained =
+        astia_dl_test_add_module(module_base + module_span, module_span, 1, 1);
+    const int deps[] = {mortal, retained};
+
+    void* handle = astia_dl_test_add_handle(retained, deps, 2);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(!astia_dl_test_module_used(mortal));
+    ASTIA_CHECK(!astia_dl_test_module_pending(mortal));
+    ASTIA_CHECK(astia_dl_test_module_used(retained));
+    ASTIA_CHECK(astia_dl_test_module_refcount(retained) == 0);
+    ASTIA_CHECK(!astia_dl_test_module_pending(retained));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == -1);
+}
+
+ASTIA_TEST(dl_installed_signal_handler_defers_unload) {
+    astia_dl_test_reset();
+    astia_dl_test_set_signal_handler(0x1234);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 1, 0);
+    const int deps[] = {module};
+
+    void* handle = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(astia_dl_test_module_used(module));
+    ASTIA_CHECK(astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 0);
+
+    astia_dl_test_set_signal_handler(0);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(!astia_dl_test_module_used(module));
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+}
+
+ASTIA_TEST(dl_ignored_signal_handler_does_not_defer_unload) {
+    astia_dl_test_reset();
+    astia_dl_test_set_signal_handler(1);
+
+    const int module = astia_dl_test_add_module(module_base, module_span, 1, 0);
+    const int deps[] = {module};
+
+    void* handle = astia_dl_test_add_handle(module, deps, 1);
+
+    ASTIA_CHECK(astia_dl_test_close(handle) == 0);
+    ASTIA_CHECK(!astia_dl_test_handle_live(handle));
+    ASTIA_CHECK(!astia_dl_test_module_used(module));
+    ASTIA_CHECK(!astia_dl_test_module_pending(module));
+    ASTIA_CHECK(astia_dl_test_unmap_count() == 1);
+}
