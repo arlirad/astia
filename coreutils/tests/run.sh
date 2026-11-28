@@ -88,6 +88,10 @@ $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function -pthrea
     -o "$out/host/tree_walk_test"
 "$out/host/tree_walk_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/coreutils/src" "$root/coreutils/tests/chmod_mode_test.c" \
+    -o "$out/host/chmod_mode_test"
+"$out/host/chmod_mode_test"
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
     -I "$root/coreutils/src" "$root/coreutils/tests/rm_root_guard_test.c" \
     -o "$out/host/rm_root_guard_test"
 "$out/host/rm_root_guard_test"
