@@ -242,11 +242,8 @@ long recvfrom(int f, void* b, unsigned long n, int flags, struct sockaddr* a,
         return -1;
     }
 
-    if (a && alen) {
-        unsigned int full = fill_address(&x, a, *alen);
-
-        *alen = full < *alen ? full : *alen;
-    }
+    if (a && alen)
+        *alen = fill_address(&x, a, *alen);
 
     return v;
 }
