@@ -267,8 +267,11 @@ namespace astia::proc {
 
     i64 cwd_context::resolve_path_at(const char* directory, const char* path,
                                      span<char> buffer, bool follow_final) const {
-        if (path == nullptr || buffer.null() || buffer.empty() || path[0] == '\0')
+        if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
+
+        if (path[0] == '\0')
+            return -ENOENT;
 
         if (path[0] == '/')
             return resolve_path(path, buffer, follow_final);

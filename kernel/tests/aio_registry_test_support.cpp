@@ -1119,6 +1119,9 @@ namespace astia::proc {
         if (path == nullptr || buffer.null() || buffer.empty())
             return -EINVAL;
 
+        if (path[0] == '\0')
+            return -ENOENT;
+
         ::astia::io::aio::test_support::detail::resolve_follow_final_value = follow_final;
 
         if (path[0] == '/' || dirfd.value == AT_FDCWD)

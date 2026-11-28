@@ -454,7 +454,7 @@ int chdir(const char* path) {
     if (__astia_resolve_path(path, resolved, sizeof resolved) != 0)
         return -1;
 
-    long rc = astia_chdir(resolved);
+    long rc = __astia_chdir_call(resolved);
     if (rc < 0) {
         errno = (int) -rc;
 

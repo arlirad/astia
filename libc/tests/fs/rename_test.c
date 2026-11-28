@@ -42,6 +42,16 @@ int main(void) {
     if (rename("/tmp/astia_rename_test_missing", target) == 0 || errno != ENOENT)
         return 1;
 
+    errno = 0;
+
+    if (rename("", target) == 0 || errno != ENOENT)
+        return 1;
+
+    errno = 0;
+
+    if (rename(target, "") == 0 || errno != ENOENT)
+        return 1;
+
     if (link(target, source) != 0)
         return 1;
 

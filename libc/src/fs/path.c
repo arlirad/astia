@@ -15,6 +15,12 @@ int __astia_resolve_path(const char* path, char* out, unsigned long capacity) {
         return -1;
     }
 
+    if (path[0] == '\0') {
+        errno = ENOENT;
+
+        return -1;
+    }
+
     if (path[0] == '/') {
         for (i = 0; path[i] != '\0' && i + 1 < capacity; ++i) {
             out[i] = path[i];
