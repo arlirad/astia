@@ -46,7 +46,7 @@ set(ASTIA_IP_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/types.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/span.hpp)
 
-set(ASTIA_IP_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ip.o)
+set(ASTIA_IP_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ip.km)
 set(ASTIA_IP_OBJECTS)
 
 foreach(_astia_ip_source IN LISTS ASTIA_IP_SOURCES)

@@ -30,7 +30,7 @@ fi
 rm -rf "$staging"
 mkdir -p "$staging"
 mkdir -p "$staging/mod"
-cp "$artifact_build/modules/rtl8139/rtl8139.o" "$staging/mod/rtl8139.o"
+cp "$artifact_build/modules/rtl8139/rtl8139.km" "$staging/mod/rtl8139.km"
 (cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
 set +e

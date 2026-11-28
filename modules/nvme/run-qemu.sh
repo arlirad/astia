@@ -43,24 +43,24 @@ run_case() {
         kernel_build=$case_build
         kernel=$case_build/kernel/src/astiakrn_runtime
         if test "$force_polling" = ON; then
-            module=$case_build/modules/nvme/nvme-polling.o
+            module=$case_build/modules/nvme/nvme-polling.km
         else
-            module=$case_build/modules/nvme/nvme-msix.o
+            module=$case_build/modules/nvme/nvme-msix.km
         fi
     else
         cmake --build "$artifact_build" --target astiakrn_module_runtime "nvme_${label}_module"
         kernel_build=$artifact_build
         kernel=$artifact_build/kernel/src/astiakrn_module_runtime
         if test "$force_polling" = ON; then
-            module=$artifact_build/modules/nvme/nvme-polling.o
+            module=$artifact_build/modules/nvme/nvme-polling.km
         else
-            module=$artifact_build/modules/nvme/nvme-msix.o
+            module=$artifact_build/modules/nvme/nvme-msix.km
         fi
     fi
     cp "$image" "$case_image"
     rm -rf "$staging"
     mkdir -p "$staging/mod"
-    cp "$module" "$staging/mod/nvme.o"
+    cp "$module" "$staging/mod/nvme.km"
     (cd "$staging" && find mod -print | cpio -o -H newc > "$initrd")
 
     set +e

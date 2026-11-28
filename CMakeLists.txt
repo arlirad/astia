@@ -269,9 +269,9 @@ list(FILTER _astia_dev_initrd_sources EXCLUDE REGEX "/\\.git(/|$)")
 
 set(_astia_dev_initrd_archive "${_astia_dev_initrd_run}/initrd.cpio")
 set(_astia_dev_initrd_modules
-    "${CMAKE_BINARY_DIR}/modules/rtl8139/rtl8139.o"
-    "${CMAKE_BINARY_DIR}/modules/eth/eth.o"
-    "${CMAKE_BINARY_DIR}/modules/ip/ip.o")
+    "${CMAKE_BINARY_DIR}/modules/rtl8139/rtl8139.km"
+    "${CMAKE_BINARY_DIR}/modules/eth/eth.km"
+    "${CMAKE_BINARY_DIR}/modules/ip/ip.km")
 add_custom_command(
     OUTPUT "${_astia_dev_initrd_archive}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_astia_dev_initrd_run}"

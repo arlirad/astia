@@ -31,7 +31,7 @@ $cc $compile_flags -c "$source_dir/tests/ps2_noop.c" -o "$work/noop.o"
 # shellcheck disable=SC2086
 $cc $link_flags -o "$work/bin/init_libc" "$work/noop.o"
 
-cp "$module" "$work/mod/ps2-keyboard.o"
+cp "$module" "$work/mod/ps2-keyboard.km"
 (cd "$work" && find mod sbin bin -print |
     "$cpio" -o --format=newc --quiet) >"$stage/boot/initrd.cpio"
 

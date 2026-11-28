@@ -31,7 +31,7 @@ set(ASTIA_ETH_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/driver.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/net/protocol.hpp)
 
-set(ASTIA_ETH_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/eth.o)
+set(ASTIA_ETH_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/eth.km)
 set(ASTIA_ETH_OBJECTS)
 
 foreach(_astia_eth_source IN LISTS ASTIA_ETH_SOURCES)

@@ -81,9 +81,9 @@ void c_main(const long* frame) {
             const char* path;
             long        error;
         } failures[] = {
-            {"/mod/missing.o", -ENOENT}, {"/mod", -ENOEXEC},
+            {"/mod/missing.km", -ENOENT}, {"/mod", -ENOEXEC},
             {"/etc/passwd", -ENOEXEC},   {"/mod/truncated.elf", -ENOEXEC},
-            {"/mod/huge.bin", -E2BIG},   {"/mod/bad-dependency.o", -ENOEXEC},
+            {"/mod/huge.bin", -E2BIG},   {"/mod/bad-dependency.km", -ENOEXEC},
         };
 
         for (i = 0; i < sizeof failures / sizeof failures[0]; ++i) {
@@ -100,10 +100,10 @@ void c_main(const long* frame) {
 
     clear_bytes(&id, sizeof id);
 
-    if (astia_modopen("/mod/hello.o", 1, &id) != -EINVAL)
+    if (astia_modopen("/mod/hello.km", 1, &id) != -EINVAL)
         astia_exit(16);
 
-    if (astia_modopen("/mod/hello.o", ASTIA_MODULE_OPEN_NONE, &id) != 0)
+    if (astia_modopen("/mod/hello.km", ASTIA_MODULE_OPEN_NONE, &id) != 0)
         astia_exit(17);
 
     if (id.slot == ASTIA_MODULE_SLOT_NONE || id.reserved != 0)
@@ -126,7 +126,7 @@ void c_main(const long* frame) {
     if (astia_modstat(&id, &stat) != 0)
         astia_exit(19);
 
-    if (!streq(stat.name, "hello.o"))
+    if (!streq(stat.name, "hello.km"))
         astia_exit(19);
 
     if (stat.state != ASTIA_MODULE_STATE_LOADED || stat.image_size == 0)
@@ -152,7 +152,7 @@ void c_main(const long* frame) {
 
         clear_bytes(&id, sizeof id);
 
-        if (astia_modopen("/mod/hello.o", ASTIA_MODULE_OPEN_NONE, &id) != 0)
+        if (astia_modopen("/mod/hello.km", ASTIA_MODULE_OPEN_NONE, &id) != 0)
             astia_exit(21);
 
         if (id.slot != first.slot || id.generation == first.generation)

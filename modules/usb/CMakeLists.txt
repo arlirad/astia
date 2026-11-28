@@ -1,4 +1,4 @@
-set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.o)
+set(ASTIA_USB_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb.km)
 include(${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/AstiaCTest.cmake)
 set(ASTIA_USB_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_unit)
 set(ASTIA_USB_MMIO_WIDTH_UNIT ${CMAKE_CURRENT_BINARY_DIR}/usb_mmio_width_unit)
@@ -29,7 +29,7 @@ add_custom_command(
 
 add_custom_target(usb_module ALL DEPENDS ${ASTIA_USB_OBJECT})
 
-set(ASTIA_USB_FAILURE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o)
+set(ASTIA_USB_FAILURE_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/usb-failure.km)
 add_custom_command(
         OUTPUT ${ASTIA_USB_FAILURE_OBJECT}
         COMMAND ${CMAKE_CXX_COMPILER}
@@ -128,7 +128,7 @@ if(ASTIA_BUILD_TESTS)
     set_tests_properties(usb_xhci_qemu_rollback PROPERTIES
             LABELS "module;usb;xhci;qemu;deterministic"
             ENVIRONMENT
-            "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR};ASTIA_USB_ROLLBACK_TEST=1;ASTIA_USB_MODULE=${CMAKE_CURRENT_BINARY_DIR}/usb-failure.o;ASTIA_USB_MODULE_TARGET=usb_failure_module"
+            "ASTIA_TEST_BUILD=${CMAKE_BINARY_DIR};ASTIA_USB_ROLLBACK_TEST=1;ASTIA_USB_MODULE=${CMAKE_CURRENT_BINARY_DIR}/usb-failure.km;ASTIA_USB_MODULE_TARGET=usb_failure_module"
             FIXTURES_REQUIRED astia-qemu-artifacts
             RESOURCE_LOCK "astia-qemu;astia-build-tree")
 endif()
