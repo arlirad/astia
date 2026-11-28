@@ -26,8 +26,11 @@ Implementation and review used the official **ACPI Specification, Release 6.5
 - 6.1.5 `_HID` Hardware ID, including numeric compressed EISA IDs and strings.
 - 6.2.12 `_PRS`, 6.2.13 `_PRT` including Table 6.16 mapping fields, and 6.2.16
   `_SRS` for PCI interrupt-link devices.
-- 6.4.2.1 IRQ Descriptor and 6.4.3.6 Extended Interrupt Descriptor.
-- 6.4.3.5 Address Space Resource Descriptors for root-bridge bus ranges.
+- 6.4 Resource Data Types for ACPI, including 6.4.2 Small Resource Data Type
+  framing and Table 6.26 tags, 6.4.2.1 IRQ Descriptor, 6.4.2.9 End Tag,
+  6.4.3 Large Resource Data Type framing and Table 6.39 tags, 6.4.3.5.3 Word
+  Address Space Descriptor, 6.4.3.5.5/Table 6.51 Bus Number Range flags, and
+  6.4.3.6 Extended Interrupt Descriptor.
 - 7.4.2.6 System `\_S5` State (Soft Off), including SLP_TYPa/SLP_TYPb package
   layout.
 - Chapter 20, ACPI Machine Language (AML) Specification, complete sections
@@ -137,6 +140,20 @@ Data and evaluation:
 - Link `_CRS` IRQs are read from small or extended interrupt descriptors. When
   no IRQ is selected, `_PRS` supplies a possible IRQ and `_SRS` must accept a
   patched `_CRS` template before the route is used.
+- Resource-template framing and typed resource decoding live in the reusable
+  bounds-checked `kernel/src/acpi/resources.{hpp,cpp}` module. Its iterator
+  reports End Tag, clean end of data, malformed/truncated small and large
+  lengths, and a descriptor-count limit without reading past the byte span;
+  `validate_template()` requires a terminating End Tag with no trailing bytes
+  and applies the Table 6.37 checksum rule (zero means unused, otherwise the
+  template must sum to zero). It decodes IRQ 0x22/0x23, Extended Interrupt
+  0x89, and Word Address Space Bus Number 0x88/type 2 with the specification
+  minimum lengths, interrupt-count checks, and Table 6.44 range consistency.
+  Extended Interrupt resource-source suffix bytes are preserved opaquely during
+  IRQ patching because this layer does not parse resource-source references.
+  `_PRT` validates every consumed `_CRS`/`_PRS` template and keeps route
+  selection and `_SRS` policy; its patched copy refreshes a nonzero End Tag
+  checksum.
 
 ## Unsupported / rejected
 
@@ -178,9 +195,13 @@ claimed. Unsupported platforms must not assume ACPI shutdown works.
   duplicate APIC IDs, and out-of-range table addresses, `_S5` Name and Method,
   malformed/unsupported AML, FADT legacy and extended GAS plans, invalid SLP
   types, shutdown tier ordering/failure behavior, PM1 read-modify-write
-  preservation of non-SLP control bits, PM1 read/write failure handling, and
-  FADT reset plans for System I/O, System Memory, and bus-0 PCI Configuration
-  space.
+  preservation of non-SLP control bits, PM1 read/write failure handling, FADT
+  reset plans for System I/O, System Memory, and bus-0 PCI Configuration space,
+  and resource-template framing/End Tag, zero/nonzero checksum handling,
+  truncated small/large lengths, IRQ and Extended Interrupt counts and suffix
+  preservation, Word Bus Number extraction and malformed ranges, and
+  descriptor-count limits, plus `_PRT` rejection of root-bridge, link `_CRS`,
+  and link `_PRS` templates without End Tags.
 - `acpi_q35_shutdown`: GRUB Multiboot2 q35 boot; requires QEMU to exit normally
   with status 0 after the S5 write, plus inventory/S5/platform-handler markers.
 - `acpi_q35_malformed_rsdp`, `acpi_q35_malformed_aml`: synthetic corrupt RSDP

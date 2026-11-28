@@ -1,16 +1,13 @@
 #include "prt.hpp"
 
+#include "resources.hpp"
+
 namespace astia::acpi::detail {
     namespace {
-        constexpr u32 eisa_pnp0a03        = 0x030AD041;
-        constexpr u32 eisa_pnp0a08        = 0x080AD041;
-        constexpr u8  irq_tag             = 0x22;
-        constexpr u8  extended_irq_tag    = 0x89;
-        constexpr u8  word_address_tag    = 0x88;
-        constexpr u8  bus_number_resource = 2;
-        constexpr usz max_root_bridges    = 8;
-        constexpr u32 max_bridge_depth    = 8;
-        constexpr usz max_descriptors     = 128;
+        constexpr u32 eisa_pnp0a03     = 0x030AD041;
+        constexpr u32 eisa_pnp0a08     = 0x080AD041;
+        constexpr usz max_root_bridges = 8;
+        constexpr u32 max_bridge_depth = 8;
 
         constexpr u8 preferred_irqs[] = {
             10, 11, 9, 5, 12, 15, 14, 13, 7, 6, 4, 3,
@@ -23,27 +20,11 @@ namespace astia::acpi::detail {
                    (static_cast<u32>(static_cast<u8>(d)) << 24);
         }
 
-        struct descriptor {
-            u32  body   = 0;
-            u32  length = 0;
-            u8   tag    = 0;
-            bool large  = false;
-        };
-
-        struct irq_resource {
-            bool extended = false;
-            u32  mask     = 0;
-            u32  first    = 0;
-            u32  count    = 0;
-        };
-
         struct root_bridge {
             node_id id        = no_node;
             u32     bus       = 0;
             bool    bus_known = false;
         };
-
-        bool next_descriptor(const u8* data, u32 length, u32& cursor, descriptor& out);
 
         bool name_equals(const char* text, u32 length, const char (&expected)[8]) {
             if (text == nullptr || length != 7)
@@ -114,21 +95,29 @@ namespace astia::acpi::detail {
                         u32 length = 0;
 
                         if (aml.buffer(crs, data, length)) {
-                            u32 cursor = 0;
+                            const span<const u8> template_bytes(data, length);
 
-                            for (usz i = 0; i < max_descriptors && cursor < length; ++i) {
-                                descriptor current{};
+                            if (validate_template(template_bytes) ==
+                                resource_template_status::valid) {
+                                resource_iterator resources(template_bytes);
 
-                                if (!next_descriptor(data, length, cursor, current))
-                                    break;
+                                for (usz i = 0; i < max_resource_descriptors; ++i) {
+                                    resource_descriptor   current{};
+                                    const resource_status status =
+                                        resources.next(current);
 
-                                if (current.large && current.tag == word_address_tag &&
-                                    current.length >= 13 &&
-                                    data[current.body] == bus_number_resource) {
-                                    out[count].bus = load_u16(data + current.body + 5);
-                                    out[count].bus_known = true;
+                                    if (status != resource_status::descriptor)
+                                        break;
 
-                                    break;
+                                    bus_number_range range{};
+
+                                    if (decode_bus_number(template_bytes, current,
+                                                          range)) {
+                                        out[count].bus       = range.minimum;
+                                        out[count].bus_known = true;
+
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -148,123 +137,34 @@ namespace astia::acpi::detail {
             return true;
         }
 
-        bool next_descriptor(const u8* data, u32 length, u32& cursor, descriptor& out) {
-            if (data == nullptr || cursor >= length)
+        bool selected_irq(span<const u8> bytes, u32 index, u8& irq) {
+            resource_descriptor value{};
+
+            if (!descriptor_at(bytes, index, value))
                 return false;
 
-            const u8 tag = data[cursor];
+            interrupt_resource resource{};
 
-            if ((tag & 0x80u) == 0) {
-                const u32 body_length = tag & 0x07u;
-
-                if (body_length > length - cursor - 1)
-                    return false;
-
-                out.tag    = tag;
-                out.body   = cursor + 1;
-                out.length = body_length;
-                out.large  = false;
-                cursor += 1 + body_length;
-
-                return true;
-            }
-
-            if (length - cursor < 3)
-                return false;
-
-            const u32 body_length = load_u16(data + cursor + 1);
-
-            if (body_length > length - cursor - 3)
-                return false;
-
-            out.tag    = tag;
-            out.body   = cursor + 3;
-            out.length = body_length;
-            out.large  = true;
-            cursor += 3 + body_length;
-
-            return true;
-        }
-
-        bool descriptor_at(const u8* data, u32 length, u32 index, descriptor& out) {
-            u32 cursor  = 0;
-            u32 current = 0;
-
-            while (cursor < length) {
-                descriptor candidate{};
-
-                if (!next_descriptor(data, length, cursor, candidate))
-                    return false;
-
-                if (current == index) {
-                    out = candidate;
-
-                    return true;
-                }
-
-                ++current;
-            }
-
-            return false;
-        }
-
-        bool irq_of(const u8* data, const descriptor& value, irq_resource& out) {
-            if (!value.large && (value.tag == irq_tag || value.tag == 0x23)) {
-                const u32 minimum = value.tag == 0x23 ? 3 : 2;
-
-                if (value.length < minimum)
-                    return false;
-
-                out.extended = false;
-                out.mask     = static_cast<u32>(data[value.body]) |
-                           (static_cast<u32>(data[value.body + 1]) << 8);
-                out.count = out.mask == 0 ? 0 : 1;
-
-                return true;
-            }
-
-            if (value.large && value.tag == extended_irq_tag) {
-                if (value.length < 2)
-                    return false;
-
-                const u32 count = data[value.body + 1];
-
-                if (count > (value.length - 2) / 4)
-                    return false;
-
-                out.extended = true;
-                out.count    = count;
-                out.first    = count == 0 ? 0 : load_u32(data + value.body + 2);
-
-                return true;
-            }
-
-            return false;
-        }
-
-        bool selected_irq(const u8* data, u32 length, u32 index, u8& irq) {
-            descriptor value{};
-
-            if (!descriptor_at(data, length, index, value))
-                return false;
-
-            irq_resource resource{};
-
-            if (!irq_of(data, value, resource))
+            if (!decode_irq(bytes, value, resource))
                 return false;
 
             if (resource.extended) {
-                if (resource.count != 1 || resource.first == 0 || resource.first > 15)
+                if (resource.vector_count != 1)
                     return false;
 
-                irq = static_cast<u8>(resource.first);
+                const u32 vector = irq_vector(bytes, resource, 0);
+
+                if (vector == 0 || vector > 15)
+                    return false;
+
+                irq = static_cast<u8>(vector);
 
                 return true;
             }
 
-            u32 mask   = resource.mask & 0xFFFFu;
-            u32 chosen = 0;
-            u32 bits   = 0;
+            const u32 mask   = resource.mask & 0xFFFFu;
+            u32       chosen = 0;
+            u32       bits   = 0;
 
             for (u32 bit = 0; bit < 16; ++bit) {
                 if ((mask & (1u << bit)) != 0) {
@@ -295,21 +195,21 @@ namespace astia::acpi::detail {
             return false;
         }
 
-        bool possible_irq(const u8* data, u32 length, u32 index, u8& irq) {
-            descriptor value{};
+        bool possible_irq(span<const u8> bytes, u32 index, u8& irq) {
+            resource_descriptor value{};
 
-            if (!descriptor_at(data, length, index, value))
+            if (!descriptor_at(bytes, index, value))
                 return false;
 
-            irq_resource resource{};
+            interrupt_resource resource{};
 
-            if (!irq_of(data, value, resource))
+            if (!decode_irq(bytes, value, resource))
                 return false;
 
             if (resource.extended) {
                 for (u8 candidate : preferred_irqs) {
-                    for (u32 i = 0; i < resource.count; ++i) {
-                        if (load_u32(data + value.body + 2 + i * 4) == candidate) {
+                    for (usz i = 0; i < resource.vector_count; ++i) {
+                        if (irq_vector(bytes, resource, i) == candidate) {
                             irq = candidate;
 
                             return true;
@@ -317,8 +217,8 @@ namespace astia::acpi::detail {
                     }
                 }
 
-                for (u32 i = 0; i < resource.count; ++i) {
-                    const u32 candidate = load_u32(data + value.body + 2 + i * 4);
+                for (usz i = 0; i < resource.vector_count; ++i) {
+                    const u32 candidate = irq_vector(bytes, resource, i);
 
                     if (candidate != 0 && candidate <= 15) {
                         irq = static_cast<u8>(candidate);
@@ -331,44 +231,6 @@ namespace astia::acpi::detail {
             }
 
             return preferred_possible(resource.mask & 0xFFFFu, irq);
-        }
-
-        bool patch_irq(u8* data, u32 length, u32 index, u8 irq) {
-            descriptor value{};
-
-            if (irq == 0 || irq > 15 || !descriptor_at(data, length, index, value))
-                return false;
-
-            if (!value.large && (value.tag == irq_tag || value.tag == 0x23)) {
-                const u32 minimum = value.tag == 0x23 ? 3 : 2;
-
-                if (value.length < minimum)
-                    return false;
-
-                const u16 mask = static_cast<u16>(1u << irq);
-
-                data[value.body]     = static_cast<u8>(mask);
-                data[value.body + 1] = static_cast<u8>(mask >> 8);
-
-                return true;
-            }
-
-            if (value.large && value.tag == extended_irq_tag) {
-                if (value.length < 6 || data[value.body + 1] != 1)
-                    return false;
-
-                const u32 encoded = irq;
-                const u32 body    = value.body + 2;
-
-                data[body]     = static_cast<u8>(encoded);
-                data[body + 1] = static_cast<u8>(encoded >> 8);
-                data[body + 2] = static_cast<u8>(encoded >> 16);
-                data[body + 3] = static_cast<u8>(encoded >> 24);
-
-                return true;
-            }
-
-            return false;
         }
 
         bool resolve_link(interpreter& aml, node_id link, u32 index, u8& irq,
@@ -396,7 +258,15 @@ namespace astia::acpi::detail {
                 return false;
             }
 
-            if (selected_irq(data, length, index, irq))
+            const span<const u8> crs_template(data, length);
+
+            if (validate_template(crs_template) != resource_template_status::valid) {
+                error = prt_error::malformed_crs;
+
+                return false;
+            }
+
+            if (selected_irq(crs_template, index, irq))
                 return true;
 
             value_id prs = no_value;
@@ -417,9 +287,17 @@ namespace astia::acpi::detail {
                 return false;
             }
 
+            const span<const u8> prs_template(prs_data, prs_length);
+
+            if (validate_template(prs_template) != resource_template_status::valid) {
+                error = prt_error::malformed_crs;
+
+                return false;
+            }
+
             u8 possible = 0;
 
-            if (!possible_irq(prs_data, prs_length, index, possible)) {
+            if (!possible_irq(prs_template, index, possible)) {
                 error = prt_error::link_unselected;
 
                 return false;
@@ -436,8 +314,18 @@ namespace astia::acpi::detail {
 
             u32 mutable_length = 0;
 
-            if (!aml.buffer_mutable(copy, mutable_data, mutable_length) ||
-                !patch_irq(mutable_data, mutable_length, index, possible)) {
+            if (!aml.buffer_mutable(copy, mutable_data, mutable_length)) {
+                error = prt_error::malformed_crs;
+
+                return false;
+            }
+
+            const span<u8>      mutable_template(mutable_data, mutable_length);
+            resource_descriptor target{};
+
+            if (!descriptor_at(mutable_template, index, target) ||
+                !patch_irq(mutable_template, target, possible) ||
+                !refresh_template_checksum(mutable_template)) {
                 error = prt_error::malformed_crs;
 
                 return false;
@@ -472,7 +360,15 @@ namespace astia::acpi::detail {
                 return false;
             }
 
-            if (selected_irq(data, length, index, irq))
+            const span<const u8> selected_template(data, length);
+
+            if (validate_template(selected_template) != resource_template_status::valid) {
+                error = prt_error::malformed_crs;
+
+                return false;
+            }
+
+            if (selected_irq(selected_template, index, irq))
                 return true;
 
             error = prt_error::link_unselected;

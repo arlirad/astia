@@ -28,6 +28,7 @@ add_library(acpi STATIC
         aml/parse.cpp
         power.cpp
         prt.cpp
+        resources.cpp
         init.cpp
 )
 
