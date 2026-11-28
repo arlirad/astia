@@ -500,8 +500,10 @@ static inline long astia_umask(uint32_t mode) {
 /* Fill at most ASTIA_GETRANDOM_MAX bytes from the kernel CSPRNG.  Only
  * flags == 0 is accepted: the pool seeds at first use and never blocks, so
  * there is no EINTR path, and an unavailable seed is EAGAIN rather than a
- * weak fallback.  /dev/urandom exposes the same stream; /dev/random is
- * intentionally not provided. */
+ * weak fallback.  On success the result is the number of bytes written; it
+ * may be positive but shorter than length when a failure occurs after part
+ * of the request has been copied.  /dev/urandom exposes the same stream;
+ * /dev/random is intentionally not provided. */
 static inline long astia_getrandom(void* buffer, uint64_t length, uint32_t flags) {
     return astia_raw6(SYS_GETRANDOM, (long) buffer, (long) length, (long) flags, 0, 0, 0);
 }
