@@ -22,12 +22,127 @@ namespace astia::ext4 {
 
     core::task<i64> file::readv(span<const fs::buffer> buffers, u64 offset,
                                 core::cltoken token) {
-        return submit_readv(buffers, offset, token);
+        if (_owner == nullptr)
+            co_return static_cast<i64>(-EIO);
+
+        if (!_owner->refresh_inode(_node))
+            co_return static_cast<i64>(-EIO);
+
+        if (!_node.is_regular())
+            co_return static_cast<i64>(_node.is_directory() ? -EISDIR : -EINVAL);
+
+        i64 total = 0;
+
+        for (usz i = 0; i < buffers.size(); ++i) {
+            const fs::buffer& entry = buffers[i];
+
+            if (entry.length == 0)
+                continue;
+
+            if (token.canceled()) {
+                if (total != 0)
+                    co_return total;
+
+                co_return static_cast<i64>(-ECANCELED);
+            }
+
+            if (entry.length > static_cast<usz>(~u32{0})) {
+                if (total != 0)
+                    co_return total;
+
+                co_return static_cast<i64>(-EINVAL);
+            }
+
+            auto result = co_await _owner->read_file_async(
+                _node, entry.data, static_cast<u32>(entry.length),
+                offset + static_cast<u64>(total));
+
+            if (!result) {
+                if (total != 0)
+                    co_return total;
+
+                co_return error_errno(result.error);
+            }
+
+            if (result.value < 0) {
+                if (total != 0)
+                    co_return total;
+
+                co_return result.value;
+            }
+
+            total += result.value;
+
+            if (static_cast<usz>(result.value) < entry.length)
+                break;
+        }
+
+        co_return total;
     }
 
     core::task<i64> file::writev(span<const fs::buffer> buffers, u64 offset,
                                  core::cltoken token, bool nonblock) {
-        return submit_writev(buffers, offset, token, nonblock);
+        (void) nonblock;
+
+        if (_owner == nullptr)
+            co_return static_cast<i64>(-EIO);
+
+        if (_owner->read_only())
+            co_return static_cast<i64>(-EROFS);
+
+        if (!_owner->refresh_inode(_node))
+            co_return static_cast<i64>(-EIO);
+
+        if (!_node.is_regular())
+            co_return static_cast<i64>(_node.is_directory() ? -EISDIR : -EINVAL);
+
+        i64 total = 0;
+
+        for (usz i = 0; i < buffers.size(); ++i) {
+            const fs::buffer& entry = buffers[i];
+
+            if (entry.length == 0)
+                continue;
+
+            if (token.canceled()) {
+                if (total != 0)
+                    co_return total;
+
+                co_return static_cast<i64>(-ECANCELED);
+            }
+
+            if (entry.length > static_cast<usz>(~u32{0})) {
+                if (total != 0)
+                    co_return total;
+
+                co_return static_cast<i64>(-EINVAL);
+            }
+
+            auto result = co_await _owner->write_file_async(
+                _node, entry.data, static_cast<u32>(entry.length),
+                offset + static_cast<u64>(total));
+
+            if (!result) {
+                if (total != 0)
+                    co_return total;
+
+                co_return error_errno(result.error);
+            }
+
+            if (result.value < 0) {
+                if (total != 0)
+                    co_return total;
+
+                co_return result.value;
+            }
+
+            total += result.value;
+
+            if (static_cast<usz>(result.value) < entry.length)
+                break;
+        }
+
+        co_return total;
     }
 
     long file::read_ready(void* buffer, u32 length, u64 offset) {

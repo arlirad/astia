@@ -36,6 +36,8 @@ namespace {
     u8 payload[payload_size];
     u8 readback[payload_size];
 
+    u32 parking_events = 0;
+
     u8 pattern_byte(u32 index) {
         return static_cast<u8>((index * 37u + 11u) & 0xFFu);
     }
@@ -122,6 +124,38 @@ namespace {
             return _size;
         }
 
+        void set_parking(bool value) {
+            _parking = value;
+        }
+
+        long submit(astia::io::request& request) override {
+            if (!_parking)
+                return astia::dev::blk::blkdev::submit(request);
+
+            if (request.device_state() == nullptr) {
+                ++parking_events;
+
+                request.device_state(this);
+                request.park_device();
+
+                return 0;
+            }
+
+            ++parking_events;
+
+            const long result =
+                request.direction() == astia::io::direction::input
+                    ? read_blocks(request.buffer(), request.length(),
+                                  request.offset())
+                    : write_blocks(request.buffer(), request.length(),
+                                   request.offset());
+
+            if (result == 0)
+                request.complete(true);
+
+            return result;
+        }
+
         protected:
         long read_blocks(void* buffer, u32 length, u64 offset) override {
             if (offset > _size || length > _size - offset)
@@ -142,31 +176,34 @@ namespace {
         }
 
         private:
-        u8* image = nullptr;
-        u64 _size = 0;
+        u8*  image    = nullptr;
+        u64  _size    = 0;
+        bool _parking = false;
     };
 
     fake_blkdev             fake_device;
     astia::dev::device_file fake_file(&fake_device);
 
-    bool image_read(void*, u64 offset, void* buffer, usz length) {
-        if (length > 0xFFFFFFFFu)
-            return false;
+    astia::core::task<astia::i64> image_read(void*, void* buffer, u32 length,
+                                             u64 offset) {
+        const long result = fake_device.read(buffer, length, offset);
 
-        return fake_device.read(buffer, static_cast<u32>(length), offset) ==
-               static_cast<long>(length);
+        co_return result == static_cast<long>(length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
     }
 
-    bool image_write(void*, u64 offset, const void* buffer, usz length) {
-        if (length > 0xFFFFFFFFu)
-            return false;
+    astia::core::task<astia::i64> image_write(void*, const void* buffer,
+                                              u32 length, u64 offset) {
+        const long result = fake_device.write(buffer, length, offset);
 
-        return fake_device.write(buffer, static_cast<u32>(length), offset) ==
-               static_cast<long>(length);
+        co_return result == static_cast<long>(length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
     }
 
     bool open_volume(astia::ext4::volume& v, bool writable) {
-        astia::ext4::device_io io{image_read, image_write, nullptr,
+        astia::ext4::device_io io{image_read, image_write, nullptr, nullptr,
                                   fake_device.size(), sector_size};
 
         return v.open(io, writable);
@@ -348,6 +385,12 @@ int main(int argc, char** argv) {
 
     if (!check(fake_device.load(input), "load input image"))
         return 1;
+
+    const char* parking_env = std::getenv("EXT4_RW_PARKING");
+    const bool  parking     = parking_env != nullptr && parking_env[0] != '\0' &&
+                          std::strcmp(parking_env, "0") != 0;
+
+    fake_device.set_parking(parking);
 
     if (std::strcmp(mode, "orphan-make-list") == 0 ||
         std::strcmp(mode, "orphan-make-chain") == 0 ||
@@ -1052,6 +1095,9 @@ int main(int argc, char** argv) {
 
     if (!check(fake_device.store(output), "store output image"))
         return 1;
+
+    if (parking)
+        std::printf("PARKED %u\n", parking_events);
 
     std::printf("OK\n");
 

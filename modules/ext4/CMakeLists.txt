@@ -48,6 +48,15 @@ set(ASTIA_EXT4_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/span.hpp
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/strings.hpp)
 
+# Coroutine tasks need the resume queue and the host CPU/platform stubs when
+# the module sources are linked into a standalone host test binary.
+set(ASTIA_EXT4_TASK_RUNTIME
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/mm/placement_new.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/interrupts_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/platform_host.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/cpu_relax_host.cpp)
+
 set(ASTIA_EXT4_OBJECT ${CMAKE_CURRENT_BINARY_DIR}/ext4.km)
 set(ASTIA_EXT4_OBJECTS)
 
@@ -102,12 +111,14 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/main.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/main.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_KERNEL_SOURCE_DIR}/tests/support/test.hpp
                 ${ASTIA_EXT4_LOCAL_HEADERS}
                 ${ASTIA_EXT4_ABI_HEADERS}
@@ -128,11 +139,13 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_disk_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_DISK_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_disk_test.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_EXT4_LOCAL_HEADERS}
                 ${ASTIA_EXT4_ABI_HEADERS}
         VERBATIM)
@@ -154,6 +167,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_EXTENT_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_extent_test.cpp
@@ -161,6 +175,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_EXT4_LOCAL_HEADERS}
                 ${ASTIA_EXT4_ABI_HEADERS}
         VERBATIM)
@@ -183,6 +198,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_DIR_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_dir_test.cpp
@@ -191,6 +207,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_EXT4_LOCAL_HEADERS}
                 ${ASTIA_EXT4_ABI_HEADERS}
         VERBATIM)
@@ -215,6 +232,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_journal.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
                 -o ${ASTIA_EXT4_JOURNAL_UNIT}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_journal_test.cpp
@@ -224,6 +242,7 @@ add_custom_command(
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
                 ${CMAKE_CURRENT_SOURCE_DIR}/ext4_journal.cpp
+                ${ASTIA_EXT4_TASK_RUNTIME}
                 ${ASTIA_EXT4_LOCAL_HEADERS}
                 ${ASTIA_EXT4_ABI_HEADERS}
         VERBATIM)

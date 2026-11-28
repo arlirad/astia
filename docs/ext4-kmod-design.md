@@ -115,13 +115,18 @@ inline-data, or encryption support exists.
 
 ## Concurrency and lifetime
 
-Each mount has one `core::spinlock`, held across synchronous device I/O. The
-module assumes a synchronous block device (`dv_sync`) whose callbacks run in
-task context; an asynchronous device would need a sleeping lock and a different
-submission path. Mounts and open files pin the type and module through the
-registry's existing active-operation and mount counters, which is what makes
-unregister return `-EBUSY` while they are live. The deferred-free table holds
-at most 64 open inodes; opening another inode when it is full fails.
+Each mount has one `core::spinlock` that serialises metadata mutation. Block
+I/O is coroutine-based: `volume` read/write paths `co_await` the device seam,
+file data paths await them directly without holding the mount lock, and the
+synchronous VFS metadata entry points drive the coroutine with a bounded
+service pump that calls the source device's `service_ready()`. Metadata
+critical sections (extent mapping/allocation and inode updates) stay short and
+are released before device awaits, so a device whose completion needs the
+scheduler still works through the pump. Mounts and open files pin the type and
+module through the registry's existing active-operation and mount counters,
+which is what makes unregister return `-EBUSY` while they are live. The
+deferred-free table holds at most 64 open inodes; opening another inode when it
+is full fails.
 
 ## Testing
 
@@ -173,4 +178,3 @@ that a real VFS replay recovers the committed file contents.
 - Quota.
 - fsck-time-only fields such as MMP.
 - Parallel journal transactions; the journal commits one transaction at a time.
-- A sleeping lock and asynchronous I/O path for non-`dv_sync` devices.

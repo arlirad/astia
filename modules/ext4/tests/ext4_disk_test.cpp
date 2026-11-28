@@ -16,9 +16,7 @@ namespace {
         u64        size = 0;
     };
 
-    bool device_read(void* context, u64 offset, void* buffer, usz length) {
-        auto& device = *static_cast<host_device*>(context);
-
+    bool host_read(host_device& device, u64 offset, void* buffer, usz length) {
         if (device.file == nullptr || offset > device.size ||
             length > device.size - offset)
             return false;
@@ -32,9 +30,8 @@ namespace {
         return std::fread(buffer, 1, length, device.file) == length;
     }
 
-    bool device_write(void* context, u64 offset, const void* buffer, usz length) {
-        auto& device = *static_cast<host_device*>(context);
-
+    bool host_write(host_device& device, u64 offset, const void* buffer,
+                    usz length) {
         if (device.file == nullptr || offset > device.size ||
             length > device.size - offset)
             return false;
@@ -49,6 +46,69 @@ namespace {
             return false;
 
         return std::fflush(device.file) == 0;
+    }
+
+    astia::core::task<astia::i64> device_read(void* context, void* buffer,
+                                              u32 length, u64 offset) {
+        auto& device = *static_cast<host_device*>(context);
+
+        co_return host_read(device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
+    }
+
+    astia::core::task<astia::i64> device_write(void* context, const void* buffer,
+                                               u32 length, u64 offset) {
+        auto& device = *static_cast<host_device*>(context);
+
+        co_return host_write(device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
+    }
+
+    struct parking_context {
+        host_device*            device  = nullptr;
+        std::coroutine_handle<> parked{};
+        u32                     resumes = 0;
+    };
+
+    struct parking_suspend {
+        parking_context* context;
+
+        bool await_ready() const noexcept {
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> handle) const noexcept {
+            context->parked = handle;
+        }
+
+        void await_resume() const noexcept {}
+    };
+
+    astia::core::task<astia::i64> parking_read(void* context, void* buffer,
+                                               u32 length, u64 offset) {
+        auto& parking = *static_cast<parking_context*>(context);
+
+        co_await parking_suspend{&parking};
+
+        co_return host_read(*parking.device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
+    }
+
+    void parking_service(void* context) {
+        auto& parking = *static_cast<parking_context*>(context);
+
+        if (!parking.parked)
+            return;
+
+        auto handle    = parking.parked;
+        parking.parked = {};
+
+        ++parking.resumes;
+
+        handle.resume();
     }
 
     bool check(bool condition, const char* description) {
@@ -250,7 +310,8 @@ int main(int argc, char** argv) {
 
     device.size = static_cast<u64>(image_end);
 
-    astia::ext4::device_io io{device_read, device_write, &device, device.size, 512};
+    astia::ext4::device_io io{device_read, device_write, nullptr, &device,
+                              device.size, 512};
 
     astia::ext4::volume volume;
 
@@ -336,7 +397,8 @@ int main(int argc, char** argv) {
     if (!check(reopen(device, argv[1], reopen_size), "reopen image"))
         return 1;
 
-    astia::ext4::device_io readonly_io{device_read, nullptr, &device, reopen_size, 512};
+    astia::ext4::device_io readonly_io{device_read, nullptr, nullptr, &device,
+                                       reopen_size, 512};
     astia::ext4::volume     readonly;
 
     if (!check(readonly.open(readonly_io, false), "open volume read-only") ||
@@ -354,6 +416,37 @@ int main(int argc, char** argv) {
         !check(readonly.sb().mnt_count() == expected_mounts, "mount count persisted") ||
         !check(readonly.sb().state() == 1, "state persisted") ||
         !check(readonly.sb().verify_checksum(), "superblock checksum persisted"))
+        return 1;
+
+    parking_context park{&device};
+    astia::ext4::device_io parking_io{parking_read, device_write, parking_service,
+                                      &park, device.size, 512};
+    astia::ext4::volume parked;
+
+    if (!check(parked.open(parking_io, false), "open volume with parking seam"))
+        return 1;
+
+    u8 parked_buffer[512]{};
+    auto parked_task =
+        parked.read_bytes_async(0, parked_buffer, sizeof parked_buffer);
+
+    if (!check(parked_task.valid(), "parking read task started"))
+        return 1;
+
+    parked_task.resume();
+
+    if (!check(!parked_task.done(), "read_bytes_async suspends on parking seam"))
+        return 1;
+
+    const u32 resumes_before = park.resumes;
+
+    parking_service(&park);
+    parked_task.resume();
+
+    if (!check(park.resumes > resumes_before, "service resumed parked read") ||
+        !check(parked_task.done() && !parked_task.failed() &&
+                   parked_task.value() != nullptr && *parked_task.value(),
+               "read_bytes_async completes once service is driven"))
         return 1;
 
     std::fclose(device.file);

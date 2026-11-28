@@ -121,6 +121,14 @@ namespace astia::ext4 {
                        u64 offset);
         long write_file(inode_record& node, const void* buffer, u32 length,
                         u64 offset);
+        /// Coroutine data path.  The mount spinlock is only held for short
+        /// metadata pieces (extent mapping/allocation, inode mutation) and is
+        /// always released before awaiting device I/O or driving the source
+        /// service pump.
+        core::task<i64> read_file_async(const inode_record& node, void* buffer,
+                                        u32 length, u64 offset);
+        core::task<i64> write_file_async(inode_record& node, const void* buffer,
+                                         u32 length, u64 offset);
         long truncate_file(inode_record& node, u64 size);
         long chmod_node(inode_record& node, fs::file_permissions permissions);
         long chown_node(inode_record& node, uid_t uid, gid_t gid);
@@ -131,12 +139,11 @@ namespace astia::ext4 {
 
         long finish(long result);
 
-        static bool read_source(void* context, u64 offset, void* buffer,
-                                usz length);
-        static bool write_source(void* context, u64 offset, const void* buffer,
-                                 usz length);
-        bool        source_read(u64 offset, void* buffer, usz length) const;
-        bool        source_write(u64 offset, const void* buffer, usz length) const;
+        static core::task<i64> source_read(void* context, void* buffer,
+                                           u32 length, u64 offset);
+        static core::task<i64> source_write(void* context, const void* buffer,
+                                            u32 length, u64 offset);
+        static void            source_service(void* context);
 
         static bool split_parent(const char* path, char* parent, u32 parent_capacity,
                                  char* name, u32 name_capacity);

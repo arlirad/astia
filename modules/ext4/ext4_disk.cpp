@@ -1,5 +1,7 @@
 #include "ext4_disk.hpp"
 
+#include <astia/arch/cpu.hpp>
+
 namespace astia::ext4 {
     namespace {
         constexpr u16 superblock_magic_value = 0xEF53;
@@ -1271,37 +1273,80 @@ namespace astia::ext4 {
         return (_sb.feature_ro_compat() & ro_orphan_present) != 0;
     }
 
-    bool volume::read_sector(u64 aligned, u32 length, u8* scratch) {
+    template <typename T>
+    optional<T> volume::run_io(core::task<T> task) {
+        constexpr u32 max_pumps = 10'000'000;
+
+        if (!task.valid())
+            return task.error() != error_t::enone ? optional<T>(task.error())
+                                                  : optional<T>(error_t::eio);
+
+        task.resume();
+
+        u32 pumps = 0;
+
+        while (!task.done() && pumps < max_pumps) {
+            if (_io.service != nullptr)
+                _io.service(_io.context);
+
+            arch::cpu::relax();
+
+            task.resume();
+            ++pumps;
+        }
+
+        if (!task.done())
+            return error_t::eio;
+
+        if (task.failed())
+            return task.error();
+
+        return *task.value();
+    }
+
+    template optional<bool> volume::run_io<bool>(core::task<bool> task);
+
+    core::task<bool> volume::read_sector_async(u64 aligned, u32 length, u8* scratch) {
         if (length == 0 || length > _io.sector_size || scratch == nullptr)
-            return false;
+            co_return false;
 
         for (u32 i = 0; i < length; ++i) {
             scratch[i] = 0;
         }
 
         if (aligned >= _io.size)
-            return false;
+            co_return false;
 
         const u64 available = _io.size - aligned;
         const u32 amount =
             available < length ? static_cast<u32>(available) : length;
 
-        if (amount != 0 && !_io.read(_io.context, aligned, scratch, amount))
-            return false;
+        if (amount != 0) {
+            auto result = co_await _io.read(_io.context, scratch, amount, aligned);
 
-        return true;
+            if (!result || result.value != static_cast<i64>(amount))
+                co_return false;
+        }
+
+        co_return true;
     }
 
     bool volume::read_bytes(u64 offset, void* buffer, usz length) {
+        auto result = run_io(read_bytes_async(offset, buffer, length));
+
+        return result && result.value;
+    }
+
+    core::task<bool> volume::read_bytes_async(u64 offset, void* buffer, usz length) {
         if (_io.read == nullptr || (buffer == nullptr && length != 0))
-            return false;
+            co_return false;
 
         if (offset > _io.size || length > _io.size - offset)
-            return false;
+            co_return false;
 
-        auto* output     = static_cast<u8*>(buffer);
-        u64   position   = offset;
-        usz   remaining  = length;
+        auto* output    = static_cast<u8*>(buffer);
+        u64   position  = offset;
+        usz   remaining = length;
 
         while (remaining != 0) {
             const u64 sector  = _io.sector_size;
@@ -1311,16 +1356,21 @@ namespace astia::ext4 {
             const usz amount  = remaining < span ? remaining : span;
 
             if (within == 0 && amount == sector) {
-                if (!_io.read(_io.context, position, output, amount))
-                    return false;
+                auto result = co_await _io.read(_io.context, output,
+                                                static_cast<u32>(amount), position);
+
+                if (!result || result.value != static_cast<i64>(amount))
+                    co_return false;
             }
             else {
                 u8 scratch[4096];
 
-                if (!read_sector(aligned, _io.sector_size, scratch))
-                    return false;
+                if (!co_await read_sector_async(aligned, _io.sector_size, scratch))
+                    co_return false;
 
-                copy_bytes(output, scratch + within, amount);
+                for (usz i = 0; i < amount; ++i) {
+                    output[i] = scratch[within + i];
+                }
             }
 
             output += amount;
@@ -1328,7 +1378,7 @@ namespace astia::ext4 {
             remaining -= amount;
         }
 
-        return true;
+        co_return true;
     }
 
     bool volume::write_bytes(u64 offset, const void* buffer, usz length) {
@@ -1382,15 +1432,30 @@ namespace astia::ext4 {
         return write_direct_bytes(offset, buffer, length);
     }
 
+    core::task<bool> volume::write_bytes_async(u64 offset, const void* buffer,
+                                               usz length) {
+        auto result = co_await write_direct_bytes_async(offset, buffer, length);
+
+        co_return result && result.value;
+    }
+
     bool volume::write_direct_bytes(u64 offset, const void* buffer, usz length) {
+        auto result = run_io(write_direct_bytes_async(offset, buffer, length));
+
+        return result && result.value;
+    }
+
+    core::task<bool> volume::write_direct_bytes_async(u64 offset,
+                                                      const void* buffer,
+                                                      usz length) {
         if (_io.write == nullptr || (buffer == nullptr && length != 0))
-            return false;
+            co_return false;
 
         if (offset > _io.size || length > _io.size - offset)
-            return false;
+            co_return false;
 
-        const auto* input    = static_cast<const u8*>(buffer);
-        u64         position = offset;
+        const auto* input     = static_cast<const u8*>(buffer);
+        u64         position  = offset;
         usz         remaining = length;
 
         while (remaining != 0) {
@@ -1401,24 +1466,30 @@ namespace astia::ext4 {
             const usz amount  = remaining < span ? remaining : span;
 
             if (within == 0 && amount == sector) {
-                if (!_io.write(_io.context, position, input, amount))
-                    return false;
+                auto result = co_await _io.write(_io.context, input,
+                                                 static_cast<u32>(amount), position);
+
+                if (!result || result.value != static_cast<i64>(amount))
+                    co_return false;
             }
             else {
                 u64 sector_end = 0;
 
                 if (add_overflow(aligned, sector, sector_end) || sector_end > _io.size)
-                    return false;
+                    co_return false;
 
                 u8 scratch[4096];
 
-                if (!read_sector(aligned, _io.sector_size, scratch))
-                    return false;
+                if (!co_await read_sector_async(aligned, _io.sector_size, scratch))
+                    co_return false;
 
                 copy_bytes(scratch + within, input, amount);
 
-                if (!_io.write(_io.context, aligned, scratch, _io.sector_size))
-                    return false;
+                auto result = co_await _io.write(_io.context, scratch,
+                                                 _io.sector_size, aligned);
+
+                if (!result || result.value != static_cast<i64>(_io.sector_size))
+                    co_return false;
             }
 
             input += amount;
@@ -1426,7 +1497,7 @@ namespace astia::ext4 {
             remaining -= amount;
         }
 
-        return true;
+        co_return true;
     }
 
     bool volume::read_block(u64 block, void* output) {

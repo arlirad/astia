@@ -175,113 +175,65 @@ namespace astia::ext4 {
 
     } // namespace
 
-    bool mount::read_source(void* context, u64 offset, void* buffer,
-                            usz length) {
-        return static_cast<mount*>(context)->source_read(offset, buffer, length);
+    core::task<i64> mount::source_read(void* context, void* buffer, u32 length,
+                                       u64 offset) {
+        auto* self = static_cast<mount*>(context);
+
+        if (self == nullptr || !self->_source || (buffer == nullptr && length != 0))
+            co_return static_cast<i64>(-EIO);
+
+        const long size   = self->_source->size();
+        const u32  sector = self->_source->block_size();
+
+        if (sector == 0 || sector > sector_size_max || size < 0 ||
+            offset > static_cast<u64>(size) ||
+            static_cast<u64>(length) > static_cast<u64>(size) - offset)
+            co_return static_cast<i64>(-EIO);
+
+        auto result = co_await self->_source->read(
+            span<u8>(static_cast<u8*>(buffer), length), offset, core::cltoken{});
+
+        if (!result)
+            co_return error_errno(result.error);
+
+        co_return result.value;
     }
 
-    bool mount::write_source(void* context, u64 offset, const void* buffer,
-                             usz length) {
-        return static_cast<mount*>(context)->source_write(offset, buffer, length);
+    core::task<i64> mount::source_write(void* context, const void* buffer,
+                                        u32 length, u64 offset) {
+        auto* self = static_cast<mount*>(context);
+
+        if (self == nullptr || !self->_source || (buffer == nullptr && length != 0))
+            co_return static_cast<i64>(-EIO);
+
+        const long size   = self->_source->size();
+        const u32  sector = self->_source->block_size();
+
+        if (sector == 0 || sector > sector_size_max || size < 0 ||
+            offset > static_cast<u64>(size) ||
+            static_cast<u64>(length) > static_cast<u64>(size) - offset)
+            co_return static_cast<i64>(-EIO);
+
+        auto result = co_await self->_source->write(
+            span<const u8>(static_cast<const u8*>(buffer), length), offset,
+            core::cltoken{});
+
+        if (!result)
+            co_return error_errno(result.error);
+
+        co_return result.value;
     }
 
-    bool mount::source_read(u64 offset, void* buffer, usz length) const {
-        if (!_source || (buffer == nullptr && length != 0))
-            return false;
+    void mount::source_service(void* context) {
+        auto* self = static_cast<mount*>(context);
 
-        const long size               = _source->size();
-        const u32  source_sector_size = _source->block_size();
+        if (self == nullptr || !self->_source)
+            return;
 
-        if (source_sector_size == 0 || source_sector_size > sector_size_max ||
-            size < 0 || offset > static_cast<u64>(size) ||
-            length > static_cast<u64>(size) - offset)
-            return false;
+        auto parent = self->_source->parent();
 
-        auto* output = static_cast<u8*>(buffer);
-
-        while (length != 0) {
-            const u64 sector = offset - offset % source_sector_size;
-            const u32 within = static_cast<u32>(offset - sector);
-            const u32 need   = source_sector_size - within;
-            const usz amount = length < need ? length : need;
-            const u64 available = static_cast<u64>(size) - sector;
-            const u32 fetch = available < source_sector_size
-                                  ? static_cast<u32>(available)
-                                  : source_sector_size;
-            u8 block[sector_size_max]{};
-
-            if (fetch == 0)
-                return false;
-
-            if (_source->read(block, fetch, sector) != static_cast<long>(fetch))
-                return false;
-
-            for (usz i = 0; i < amount; ++i) {
-                output[i] = block[within + i];
-            }
-
-            output += amount;
-            offset += amount;
-            length -= amount;
-        }
-
-        return true;
-    }
-
-    bool mount::source_write(u64 offset, const void* buffer, usz length) const {
-        if (!_source || (buffer == nullptr && length != 0))
-            return false;
-
-        const long size               = _source->size();
-        const u32  source_sector_size = _source->block_size();
-
-        if (source_sector_size == 0 || source_sector_size > sector_size_max ||
-            size < 0 || offset > static_cast<u64>(size) ||
-            length > static_cast<u64>(size) - offset)
-            return false;
-
-        auto* input = static_cast<const u8*>(buffer);
-
-        while (length != 0) {
-            const u64 sector = offset - offset % source_sector_size;
-            const u32 within = static_cast<u32>(offset - sector);
-            const u32 need   = source_sector_size - within;
-            const usz amount = length < need ? length : need;
-            const u64 available = static_cast<u64>(size) - sector;
-            const u32 extent = available < source_sector_size
-                                   ? static_cast<u32>(available)
-                                   : source_sector_size;
-
-            if (extent == 0)
-                return false;
-
-            if (within == 0 && amount == extent) {
-                if (_source->write(input, extent, sector) !=
-                    static_cast<long>(extent))
-                    return false;
-            }
-            else {
-                u8 block[sector_size_max]{};
-
-                if (_source->read(block, extent, sector) !=
-                    static_cast<long>(extent))
-                    return false;
-
-                for (usz i = 0; i < amount; ++i) {
-                    block[within + i] = input[i];
-                }
-
-                if (_source->write(block, extent, sector) !=
-                    static_cast<long>(extent))
-                    return false;
-            }
-
-            input += amount;
-            offset += amount;
-            length -= amount;
-        }
-
-        return true;
+        if (parent)
+            parent->service_ready();
     }
 
     mount::mount(const char* source) {
@@ -327,7 +279,7 @@ namespace astia::ext4 {
         if (source_size <= 0)
             return false;
 
-        device_io io{read_source, write_source, this,
+        device_io io{source_read, source_write, source_service, this,
                      static_cast<u64>(source_size), _source->block_size()};
 
         if (!_volume.open(io, requested_writable))
@@ -1097,6 +1049,210 @@ namespace astia::ext4 {
             return -EIO;
 
         return static_cast<long>(written);
+    }
+
+    core::task<i64> mount::read_file_async(const inode_record& node, void* buffer,
+                                           u32 length, u64 offset) {
+        if (node.is_directory())
+            co_return static_cast<i64>(-EISDIR);
+
+        if (buffer == nullptr && length != 0)
+            co_return static_cast<i64>(-EINVAL);
+
+        if (length == 0 || offset >= node.size())
+            co_return i64{0};
+
+        const u64 available = node.size() - offset;
+        const u32 count =
+            available < length ? static_cast<u32>(available) : length;
+        const u32 block_size = _volume.block_size();
+
+        if (block_size == 0 || block_size > 4096)
+            co_return static_cast<i64>(-EIO);
+
+        auto* output    = static_cast<u8*>(buffer);
+        u64   position  = offset;
+        u32   remaining = count;
+
+        while (remaining != 0) {
+            const u32 logical = static_cast<u32>(position / block_size);
+            const u32 within  = static_cast<u32>(position % block_size);
+            const u32 need    = block_size - within;
+            const u32 amount  = remaining < need ? remaining : need;
+            u64       physical = 0;
+            bool      mapped   = false;
+
+            {
+                core::spinlock_guard guard(_lock);
+
+                if ((node.flags() & inode_extents) != 0) {
+                    mapped = extent::map(_volume, node, logical, physical);
+                }
+                else if (logical < 12) {
+                    physical = node.logical_block_at(logical);
+                    mapped   = true;
+                }
+            }
+
+            if (!mapped)
+                co_return static_cast<i64>(-EIO);
+
+            if (physical == 0) {
+                for (u32 i = 0; i < amount; ++i)
+                    output[i] = 0;
+            }
+            else {
+                const u64 byte_offset = physical * static_cast<u64>(block_size);
+
+                if (within == 0 && amount == block_size) {
+                    if (!co_await _volume.read_bytes_async(byte_offset, output,
+                                                           amount))
+                        co_return static_cast<i64>(-EIO);
+                }
+                else {
+                    u8 block[4096]{};
+
+                    if (!co_await _volume.read_bytes_async(byte_offset, block,
+                                                           block_size))
+                        co_return static_cast<i64>(-EIO);
+
+                    for (u32 i = 0; i < amount; ++i)
+                        output[i] = block[within + i];
+                }
+            }
+
+            output += amount;
+            position += amount;
+            remaining -= amount;
+        }
+
+        co_return static_cast<i64>(count);
+    }
+
+    core::task<i64> mount::write_file_async(inode_record& node, const void* buffer,
+                                            u32 length, u64 offset) {
+        if (!_writable)
+            co_return static_cast<i64>(-EROFS);
+
+        if (node.is_directory())
+            co_return static_cast<i64>(-EISDIR);
+
+        if (buffer == nullptr && length != 0)
+            co_return static_cast<i64>(-EINVAL);
+
+        if (length == 0)
+            co_return i64{0};
+
+        const u32 block_size = _volume.block_size();
+        const u64 max_blocks = extent::max_blocks(_volume);
+
+        if (block_size == 0 || block_size > 4096 || max_blocks == 0)
+            co_return static_cast<i64>(-EFBIG);
+
+        const u64 limit = max_blocks * static_cast<u64>(block_size);
+
+        if (offset > limit || length > limit - offset)
+            co_return static_cast<i64>(-EFBIG);
+
+        if ((node.flags() & inode_extents) == 0)
+            co_return static_cast<i64>(-EOPNOTSUPP);
+
+        auto* input     = static_cast<const u8*>(buffer);
+        u64   position  = offset;
+        u32   remaining = length;
+        u32   written   = 0;
+        long  error     = 0;
+
+        while (remaining != 0) {
+            const u32 logical = static_cast<u32>(position / block_size);
+            const u32 within  = static_cast<u32>(position % block_size);
+            const u32 need    = block_size - within;
+            const u32 amount  = remaining < need ? remaining : need;
+            u64       physical = 0;
+            bool      present  = false;
+
+            {
+                core::spinlock_guard guard(_lock);
+                u64 existing = 0;
+
+                present = extent::map(_volume, node, logical, existing) &&
+                          existing != 0;
+
+                if (!extent::map_or_alloc(_volume, _space, node, logical,
+                                          physical))
+                    error = -ENOSPC;
+            }
+
+            if (error != 0)
+                break;
+
+            const u64 byte_offset = physical * static_cast<u64>(block_size);
+
+            if (within == 0 && amount == block_size) {
+                if (!co_await _volume.write_bytes_async(byte_offset, input, amount)) {
+                    error = -EIO;
+
+                    break;
+                }
+            }
+            else {
+                u8 scratch[4096]{};
+
+                if (present) {
+                    if (!co_await _volume.read_bytes_async(byte_offset, scratch,
+                                                           block_size)) {
+                        error = -EIO;
+
+                        break;
+                    }
+                }
+
+                for (u32 i = 0; i < amount; ++i)
+                    scratch[within + i] = input[i];
+
+                if (!co_await _volume.write_bytes_async(byte_offset, scratch,
+                                                        block_size)) {
+                    error = -EIO;
+
+                    break;
+                }
+            }
+
+            input += amount;
+            position += amount;
+            remaining -= amount;
+            written += amount;
+        }
+
+        if (written == 0)
+            co_return static_cast<i64>(error != 0 ? error : -EIO);
+
+        bool persisted = true;
+
+        {
+            core::spinlock_guard guard(_lock);
+
+            const u64 end = offset + written;
+
+            if (end > node.size())
+                node.set_size(end);
+
+            stamp_now(node, false, true, true);
+
+            if (!_volume.write_inode(node)) {
+                (void) _volume.abort_transaction();
+                persisted = false;
+            }
+            else if (!_volume.commit()) {
+                (void) _volume.abort_transaction();
+                persisted = false;
+            }
+        }
+
+        if (!persisted)
+            co_return static_cast<i64>(-EIO);
+
+        co_return static_cast<i64>(written);
     }
 
     long mount::do_truncate_file(inode_record& node, u64 size) {

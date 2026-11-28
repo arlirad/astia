@@ -3,6 +3,8 @@
 #include "ext4_reader.hpp"
 
 #include <astia/core/endian.hpp>
+#include <astia/core/task.hpp>
+#include <astia/optional.hpp>
 
 namespace astia::ext4 {
     class journal;
@@ -100,9 +102,15 @@ namespace astia::ext4 {
     u32 orphan_block_checksum(u32 seed, u32 inode_number, u32 generation,
                               u64 physical, const void* block, u32 block_size);
 
+    using io_read_fn = core::task<i64> (*)(void* context, void* buffer, u32 length,
+                                           u64 offset);
+    using io_write_fn = core::task<i64> (*)(void* context, const void* buffer,
+                                            u32 length, u64 offset);
+
     struct device_io {
-        bool (*read)(void* context, u64 offset, void* buffer, usz length);
-        bool (*write)(void* context, u64 offset, const void* buffer, usz length);
+        io_read_fn  read;
+        io_write_fn write;
+        void (*service)(void* context);
         void* context;
         u64   size;
         u32   sector_size;
@@ -379,6 +387,12 @@ namespace astia::ext4 {
         bool read_bytes(u64 offset, void* buffer, usz length);
         bool write_bytes(u64 offset, const void* buffer, usz length);
 
+        /// Coroutine form of the sector-aware read and read-modify-write
+        /// paths.  Synchronous VFS entry points use the wrappers above, which
+        /// drive these tasks with the seam's service pump.
+        core::task<bool> read_bytes_async(u64 offset, void* buffer, usz length);
+        core::task<bool> write_bytes_async(u64 offset, const void* buffer, usz length);
+
         bool read_block(u64 block, void* output);
         bool write_block(u64 block, const void* input);
         bool read_home_block(u64 block, void* output);
@@ -425,8 +439,17 @@ namespace astia::ext4 {
         static bool write_thunk(void* context, u64 offset, const void* buffer, usz length);
 
         private:
-        bool read_sector(u64 aligned, u32 length, u8* scratch);
-        bool write_direct_bytes(u64 offset, const void* buffer, usz length);
+        /// Drive a coroutine to completion by pumping the seam's parked
+        /// completions in task context.  The VFS metadata ABI is synchronous,
+        /// so open/create/unlink/stat/readdir complete their block I/O this
+        /// way; coroutine entry points await directly.
+        template <typename T>
+        optional<T> run_io(core::task<T> task);
+
+        core::task<bool> read_sector_async(u64 aligned, u32 length, u8* scratch);
+        bool              write_direct_bytes(u64 offset, const void* buffer, usz length);
+        core::task<bool> write_direct_bytes_async(u64 offset, const void* buffer,
+                                                  usz length);
         bool write_superblock_impl(bool direct);
         bool valid_sector_size(u32 size) const;
         u64  descriptor_offset(u32 group) const;

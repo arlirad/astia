@@ -1128,6 +1128,7 @@ astia_add_host_test(astia_ext4_test
         ${CMAKE_SOURCE_DIR}/modules/ext4/tests/ext4_test.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
         ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
 )
 target_include_directories(astia_ext4_test PRIVATE
         ${CMAKE_SOURCE_DIR}/modules/ext4)
@@ -1150,6 +1151,10 @@ if (ASTIA_MKFS_EXT4 AND ASTIA_E2FSCK)
             ${CMAKE_SOURCE_DIR}/modules/ext4/tests/ext4_real_test.cpp
             ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_reader.cpp
             ${CMAKE_SOURCE_DIR}/modules/ext4/ext4_disk.cpp
+            ${ASTIA_KERNEL_SOURCE_DIR}/src/core/resume_queue.cpp
+            support/cpu_relax_host.cpp
+            support/interrupts_host.cpp
+            support/platform_host.cpp
     )
     set_target_properties(astia_ext4_real_test PROPERTIES LINK_OPTIONS "")
     astia_apply_host_sanitizers(astia_ext4_real_test)

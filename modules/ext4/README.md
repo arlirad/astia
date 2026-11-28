@@ -38,6 +38,16 @@ no explicit cache-flush primitive, so the module assumes durable synchronous
 writes, and a single operation may span multiple transactions if it exceeds the
 48-tag staging bound (partial progress is preserved).
 
+Block I/O is coroutine-based. `volume` exposes coroutine read/write paths
+(`read_bytes_async` / `write_bytes_async`) that `co_await` the device seam.
+File data paths (`ext4::file::readv`/`writev`) await those directly and never
+hold the per-mount spinlock across a `co_await`. The synchronous VFS metadata
+entry points (open/create/unlink/stat/readdir) must complete I/O before they
+return because the VFS metadata ABI is synchronous; they drive the coroutine
+with a bounded service pump that calls the source device's `service_ready()`.
+Metadata mutation still serialises under the per-mount spinlock, which is held
+only for short metadata pieces (extent mapping/allocation and inode updates).
+
 `initialize()` opens the journal, replays it when `needs_recovery`
 (`INCOMPAT_RECOVER` / a nonzero journal `s_start`) is set, then enables
 `CSUM_V3` on journals created without checksum features before attaching the
@@ -75,9 +85,12 @@ opening another inode when it is full fails.
   descriptors with the `64bit` feature, and `metadata_csum_seed` are supported.
   `RO_COMPAT_ORPHAN_PRESENT` is accepted and its pending orphans are cleaned up
   before the mount is usable.
-- The mount lock assumes a synchronous block device: the module's device path
-  is task context and `dv_sync`, so a spinlock is sufficient. An asynchronous
-  device would need a sleeping lock and a different I/O submission path.
+- The mount lock serialises metadata mutation. Device I/O is coroutine-based:
+  file data paths await the block device directly and release the lock before
+  each await, while synchronous VFS metadata entry points drive the coroutine
+  through a bounded service pump (`service_ready()`) because the metadata ABI
+  is synchronous. A device whose completion needs the scheduler works through
+  that pump.
 
 ## Tests
 
@@ -87,8 +100,11 @@ opening another inode when it is full fails.
   mount, lookup, readdir, symlink, and journal/read-only handling.
 - `astia_ext4_rw_vfs_test` mounts a real mkfs.ext4 image through the kernel VFS,
   exercises creation, writes, rename, link, symlink, chmod, truncate and
-  removal, then remounts. The CTest entry runs `e2fsck -fn` and `debugfs`
-  assertions on the resulting image.
+  removal, then remounts. The CTest entry runs the suite twice through
+  `run_rw_vfs_test.sh`: once against a synchronous fake block device and once
+  against a parking device (`EXT4_RW_PARKING=1`) whose `submit()` parks every
+  request and completes it from the service pump, then runs `e2fsck -fn` and
+  `debugfs` assertions on both resulting images.
 - `ext4_journal_vfs_test` runs the same tool against a journaled fixture in
   `normal`, `crash` (power loss after commit, before checkpoint) and `recover`
   (real VFS replay on mount) modes, then checks both images with `e2fsck -fn`,

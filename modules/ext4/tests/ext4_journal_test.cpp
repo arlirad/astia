@@ -37,9 +37,7 @@ namespace {
         u64        size = 0;
     };
 
-    bool device_read(void* context, u64 offset, void* buffer, usz length) {
-        auto& device = *static_cast<host_device*>(context);
-
+    bool host_read(host_device& device, u64 offset, void* buffer, usz length) {
         if (device.file == nullptr || offset > device.size ||
             length > device.size - offset)
             return false;
@@ -53,10 +51,8 @@ namespace {
         return std::fread(buffer, 1, length, device.file) == length;
     }
 
-    bool device_write(void* context, u64 offset, const void* buffer,
-                      usz length) {
-        auto& device = *static_cast<host_device*>(context);
-
+    bool host_write(host_device& device, u64 offset, const void* buffer,
+                    usz length) {
         if (device.file == nullptr || offset > device.size ||
             length > device.size - offset)
             return false;
@@ -71,6 +67,24 @@ namespace {
             return false;
 
         return std::fflush(device.file) == 0;
+    }
+
+    astia::core::task<astia::i64> device_read(void* context, void* buffer,
+                                              u32 length, u64 offset) {
+        auto& device = *static_cast<host_device*>(context);
+
+        co_return host_read(device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
+    }
+
+    astia::core::task<astia::i64> device_write(void* context, const void* buffer,
+                                               u32 length, u64 offset) {
+        auto& device = *static_cast<host_device*>(context);
+
+        co_return host_write(device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
     }
 
     bool check(bool condition, const char* description) {
@@ -349,7 +363,7 @@ int main(int argc, char** argv) {
 
     device.size = static_cast<u64>(image_end);
 
-    device_io io{device_read, device_write, &device, device.size,
+    device_io io{device_read, device_write, nullptr, &device, device.size,
                  test_block_size};
 
     astia::ext4::volume v;
