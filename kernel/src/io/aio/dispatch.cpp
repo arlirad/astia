@@ -396,11 +396,6 @@ namespace astia::io::aio::dispatch {
                     return io_outcome::completed;
                 }
 
-                if (op.socket_accept) {
-                    auto socket = op.handle->parent()->as_stream_sock();
-
-                    n = !socket ? -EOPNOTSUPP : socket->accept(op.operation->request());
-                }
                 else {
                     n = op.handle->submit(op.operation->request());
                 }
@@ -481,20 +476,6 @@ namespace astia::io::aio::dispatch {
                     op.operation->request().append_length(append_length);
 
                 op.operation->request().append_reserved(append_reserved);
-            }
-        }
-
-        void complete_accept_address(proc::process* owner, parked_op& op, long& result) {
-            if (op.accept_address && op.accept_address_user != 0 && result >= 0) {
-                astia_sockaddr address{};
-                auto           socket = op.handle->parent()->as_stream_sock();
-                const auto     destination =
-                    memory::user_ptr<astia_sockaddr>(op.accept_address_user)
-                        .validate_for(owner);
-
-                if (!socket || !socket->accept_address(address) || !destination ||
-                    !memory::copy_out_for(owner, destination.value.bytes(), &address))
-                    result = -EFAULT;
             }
         }
 
@@ -703,8 +684,6 @@ namespace astia::io::aio::dispatch {
             if (p->token.canceled())
                 result = -ECANCELED;
 
-            complete_accept_address(slot.owner.get(), *p, result);
-
             // Satisfied inline.  The operation has already happened, so a
             // full CQ loses the completion rather than replaying it — the
             // CQ is sized to twice the SQ, so a wait is a bug, not a signal.
@@ -738,10 +717,12 @@ namespace astia::io::aio::dispatch {
         /// returns 0 and stays parked.
         void resume_parked(proc::process* owner, astia_rings* ring, parked_op& op,
                            ring_slot* slot) {
+            (void) owner;
             // Cancellation posts the target CQE and marks the operation done,
             // but the readiness nudge that was already in flight may still
             // reach this slot before task context reaps it.  Never post a
             // second completion for a canceled operation.
+
             if (op.resuming || op.done)
                 return;
 
@@ -812,8 +793,6 @@ namespace astia::io::aio::dispatch {
 
                 return;
             }
-
-            complete_accept_address(owner, op, result);
 
             // A full CQ leaves the operation and its shared file
             // reference parked for the next IRQ nudge.

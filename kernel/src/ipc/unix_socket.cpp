@@ -2,6 +2,7 @@
 
 #include <astia/api/errno.h>
 #include <astia/atomic.hpp>
+#include <astia/core/completion.hpp>
 #include <astia/core/spinlock.hpp>
 #include <astia/fs/socket.hpp>
 #include <astia/mm/share.hpp>
@@ -60,6 +61,34 @@ namespace astia::fs {
 
         class unix_file;
 
+        enum { accept_waiter_limit = 8 };
+
+        enum class accept_waiter_state : u8 {
+            free,
+            waiting,
+            delivering,
+        };
+
+        struct accept_waiter {
+            accept_waiter*       next = nullptr;
+            core::completion<u8> done{};
+            u32                  refs  = 0;
+            accept_waiter_state  state = accept_waiter_state::free;
+        };
+
+        class accept_scope final {
+            public:
+            accept_scope(unix_file& owner, accept_waiter* value);
+            ~accept_scope();
+
+            accept_scope(const accept_scope&)            = delete;
+            accept_scope& operator=(const accept_scope&) = delete;
+
+            private:
+            unix_file*     _owner = nullptr;
+            accept_waiter* _value = nullptr;
+        };
+
         bool path(const astia_sockaddr& a, char* out);
 
         /// Public datagram capability backed by one UNIX socket.  The view
@@ -113,13 +142,12 @@ namespace astia::fs {
                 return SOCK_STREAM;
             }
 
-            long bind(const astia_sockaddr& address) override;
-            long listen(u32 backlog) override;
-            long accept(io::request& request) override;
-            bool accept_address(astia_sockaddr& peer) override;
-            long connect(const astia_sockaddr& address) override;
-            long shutdown(u32 how) override;
-            long getsockopt(u32 level, u32 name, u32* value) override;
+            long                 bind(const astia_sockaddr& address) override;
+            long                 listen(u32 backlog) override;
+            core::task<accepted> accept(core::cltoken token = {}) override;
+            long                 connect(const astia_sockaddr& address) override;
+            long                 shutdown(u32 how) override;
+            long                 getsockopt(u32 level, u32 name, u32* value) override;
 
             core::task<i64>     sendmsg(span<const u8>                 data,
                                         const mm::shptr<unix_control>& control,
@@ -515,29 +543,6 @@ namespace astia::fs {
 
                     return n;
                 }
-                if (kind == state::listener) {
-                    astia_sockaddr peer{};
-
-                    const long accepted = accept_queued(proc::current_process(), peer);
-
-                    if (accepted == 0) {
-                        r.stage(1);
-
-                        return 0;
-                    }
-
-                    if (accepted > 0) {
-                        {
-                            core::spinlock_guard guard(_lock);
-
-                            _accept_out_value = peer;
-                        }
-
-                        r.complete(true);
-                    }
-
-                    return accepted;
-                }
                 long n           = r.direction() == io::direction::input
                                        ? read_ready(r.buffer(), r.length(), 0)
                                        : write_ready(r.buffer(), r.length(), 0);
@@ -565,6 +570,9 @@ namespace astia::fs {
                 if (astia::atomic_ref<u32>(_opens).fetch_sub(
                         1u, astia::memory_order::acq_rel) != 1)
                     return;
+
+                cancel_accept_waiters();
+
                 bool                 bound;
                 char                 path[path_max]{};
                 mm::shptr<unix_file> peer;
@@ -709,14 +717,6 @@ namespace astia::fs {
                     return false;
 
                 out = _dgram_out_value;
-
-                return true;
-            }
-
-            bool take_accept_address(astia_sockaddr& out) {
-                core::spinlock_guard guard(_lock);
-
-                out = _accept_out_value;
 
                 return true;
             }
@@ -1212,49 +1212,196 @@ namespace astia::fs {
 
                 ++_queue_count;
                 guard.unlock();
+
+                wake_accept_one();
                 sys::io_device_ready_context(this);
 
                 return true;
             }
 
-            /// Install the connection at the head of the backlog into a free
-            /// descriptor and only then advance the queue.  A full descriptor
-            /// table leaves the backlog untouched so a later accept can still
-            /// return the connection.  The peer address is read before the
-            /// queue entry is dropped so accept can report it.
-            long accept_queued(proc::process* current, astia_sockaddr& peer) {
-                mm::shptr<open_file> pending;
+            core::task<accepted> accept_async(core::cltoken token) {
+                accepted result{};
 
-                u32 installed_fd = 0;
+                if (kind() != state::listener) {
+                    result.fd = -EINVAL;
+
+                    co_return result;
+                }
+
+                while (true) {
+                    if (token.canceled()) {
+                        result.fd = -ECANCELED;
+
+                        co_return result;
+                    }
+
+                    auto*                current = proc::current_process();
+                    mm::shptr<open_file> pending;
+
+                    u32 installed_fd = 0;
+
+                    {
+                        core::spinlock_guard guard(_lock);
+
+                        if (_queue_count != 0) {
+                            if (!current) {
+                                result.fd = -ESRCH;
+
+                                co_return result;
+                            }
+
+                            pending = _queue[_queue_head];
+
+                            const auto installed = current->allocate_descriptor(pending);
+
+                            if (!installed) {
+                                result.fd = -EMFILE;
+
+                                co_return result;
+                            }
+
+                            _queue[_queue_head] = {};
+                            _queue_head = (_queue_head + 1) % socket_backlog_capacity;
+
+                            --_queue_count;
+
+                            installed_fd = installed.value.value;
+                        }
+                    }
+
+                    if (pending) {
+                        result.fd = static_cast<i64>(installed_fd);
+
+                        if (auto* accepted =
+                                static_cast<unix_file*>(pending->parent().get()))
+                            result.peer = accepted->peer_address();
+
+                        co_return result;
+                    }
+
+                    accept_waiter* node = acquire_accept_waiter();
+                    if (!node) {
+                        result.fd = -EAGAIN;
+
+                        co_return result;
+                    }
+
+                    if (!arm_accept_waiter(node)) {
+                        release_accept_waiter(node);
+
+                        continue;
+                    }
+
+                    accept_scope scope(*this, node);
+
+                    const auto woke = co_await node->done;
+
+                    if (!woke.has_value) {
+                        result.fd = -ECANCELED;
+
+                        co_return result;
+                    }
+                }
+            }
+
+            accept_waiter* acquire_accept_waiter() {
+                core::spinlock_guard guard(_lock);
+
+                for (accept_waiter& value : _accept_waiters) {
+                    if (value.refs != 0)
+                        continue;
+
+                    new (&value.done) core::completion<u8>();
+
+                    value.next  = nullptr;
+                    value.refs  = 1;
+                    value.state = accept_waiter_state::free;
+
+                    return &value;
+                }
+
+                return nullptr;
+            }
+
+            bool arm_accept_waiter(accept_waiter* value) {
+                core::spinlock_guard guard(_lock);
+
+                if (_queue_count != 0)
+                    return false;
+
+                value->next     = _accept_waiting;
+                _accept_waiting = value;
+                value->state    = accept_waiter_state::waiting;
+
+                return true;
+            }
+
+            void release_accept_waiter(accept_waiter* value) {
+                if (value == nullptr)
+                    return;
+
+                core::spinlock_guard guard(_lock);
+
+                if (value->refs == 0)
+                    return;
+
+                --value->refs;
+
+                if (value->refs == 0) {
+                    value->next  = nullptr;
+                    value->state = accept_waiter_state::free;
+                }
+            }
+
+            void wake_accept_one() {
+                accept_waiter* value = nullptr;
 
                 {
                     core::spinlock_guard guard(_lock);
 
-                    if (!_queue_count)
-                        return 0;
+                    if (_accept_waiting == nullptr)
+                        return;
 
-                    if (!current)
-                        return -ESRCH;
+                    value           = _accept_waiting;
+                    _accept_waiting = value->next;
 
-                    pending = _queue[_queue_head];
+                    value->next  = nullptr;
+                    value->state = accept_waiter_state::delivering;
 
-                    const auto installed = current->allocate_descriptor(pending);
-
-                    if (!installed)
-                        return -EMFILE;
-
-                    _queue[_queue_head] = {};
-                    _queue_head         = (_queue_head + 1) % socket_backlog_capacity;
-
-                    --_queue_count;
-
-                    installed_fd = installed.value.value;
+                    ++value->refs;
                 }
 
-                if (auto* accepted = static_cast<unix_file*>(pending->parent().get()))
-                    peer = accepted->peer_address();
+                value->done.complete_deferred(1);
+                release_accept_waiter(value);
+            }
 
-                return installed_fd;
+            void cancel_accept_waiters() {
+                accept_waiter* value = nullptr;
+
+                {
+                    core::spinlock_guard guard(_lock);
+
+                    value           = _accept_waiting;
+                    _accept_waiting = nullptr;
+
+                    for (accept_waiter* cursor = value; cursor != nullptr;
+                         cursor                = cursor->next) {
+                        cursor->state = accept_waiter_state::delivering;
+
+                        ++cursor->refs;
+                    }
+                }
+
+                while (value != nullptr) {
+                    accept_waiter* next = value->next;
+
+                    value->next = nullptr;
+
+                    value->done.fail_deferred(error_t::ecanceled);
+                    release_accept_waiter(value);
+
+                    value = next;
+                }
             }
 
             private:
@@ -1271,7 +1418,6 @@ namespace astia::fs {
             mm::shptr<unix_file>    _dgram_target_owner;
             astia_sockaddr          _dgram_out_value{};
             bool                    _dgram_out_pending{};
-            astia_sockaddr          _accept_out_value{};
             mm::shptr<unix_control> _send_control;
             mm::shptr<unix_control> _dgram_control_out;
             bool                    _want_control{};
@@ -1283,6 +1429,8 @@ namespace astia::fs {
             astia_sockaddr          _bound_addr{};
             mm::shptr<open_file>    _queue[socket_backlog_capacity]{};
             u32                     _queue_head{}, _queue_tail{}, _queue_count{};
+            accept_waiter           _accept_waiters[accept_waiter_limit]{};
+            accept_waiter*          _accept_waiting = nullptr;
             u32                     _opens{1};
             mm::shweak<unix_file>   _self;
 
@@ -1320,6 +1468,14 @@ namespace astia::fs {
 
         long unix_stream_view::submit(io::request& request) {
             return _owner.submit(request);
+        }
+
+        accept_scope::accept_scope(unix_file& owner, accept_waiter* value)
+            : _owner(&owner), _value(value) {}
+
+        accept_scope::~accept_scope() {
+            if (_owner != nullptr)
+                _owner->release_accept_waiter(_value);
         }
 
         long unix_dgram_view::bind(const astia_sockaddr& address) {
@@ -1372,12 +1528,8 @@ namespace astia::fs {
             return 0;
         }
 
-        long unix_stream_view::accept(io::request& request) {
-            return _owner.submit(request);
-        }
-
-        bool unix_stream_view::accept_address(astia_sockaddr& peer) {
-            return _owner.take_accept_address(peer);
+        core::task<accepted> unix_stream_view::accept(core::cltoken token) {
+            return _owner.accept_async(token);
         }
 
         long unix_stream_view::connect(const astia_sockaddr& address) {

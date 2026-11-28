@@ -16,6 +16,20 @@
 
 using namespace astia;
 
+namespace {
+    template <typename T>
+    T drive_task(core::task<T> task) {
+        while (!task.done()) {
+            ASTIA_CHECK(task.resume());
+        }
+
+        ASTIA_CHECK(!task.failed());
+        ASTIA_CHECK(task.value() != nullptr);
+
+        return *task.value();
+    }
+} // namespace
+
 namespace astia::fs {
     namespace {
         struct path_registration {
@@ -249,17 +263,14 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
     ASTIA_CHECK(client_ops->connect(address) == 0);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request rejected;
-
-    ASTIA_CHECK(listener_ops->accept(rejected) == -EMFILE);
+    ASTIA_CHECK(drive_task(listener_ops->accept()).fd == -EMFILE);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
     clear_descriptor(3);
 
-    io::request accepted;
+    const fs::accepted accepted = drive_task(listener_ops->accept());
 
-    ASTIA_CHECK(listener_ops->accept(accepted) == 3);
-    ASTIA_CHECK(accepted.complete());
+    ASTIA_CHECK(accepted.fd == 3);
     ASTIA_CHECK(descriptor_present(3));
 
     const auto server = proc::current_process()->descriptor(fd_t{3});
@@ -279,11 +290,6 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
         ASTIA_CHECK(client->submit(read_request) == 1);
         ASTIA_CHECK(received == 'x');
     }
-
-    io::request empty;
-
-    ASTIA_CHECK(listener_ops->accept(empty) == 0);
-    ASTIA_CHECK(empty.stage() == 1);
 }
 
 ASTIA_TEST(unix_socket_second_bind_is_rejected_without_replacing_first) {
@@ -382,20 +388,12 @@ ASTIA_TEST(unix_socket_second_connect_is_rejected_with_eisconn) {
     ASTIA_CHECK(client_ops->connect(address) == -EISCONN);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request accepted;
+    const fs::accepted accepted = drive_task(listener_ops->accept());
 
-    const long fd = listener_ops->accept(accepted);
+    ASTIA_CHECK(accepted.fd >= 0);
 
-    ASTIA_CHECK(fd >= 0);
-    ASTIA_CHECK(accepted.complete());
-
-    if (fd >= 0)
-        clear_descriptor(static_cast<i32>(fd));
-
-    io::request empty;
-
-    ASTIA_CHECK(listener_ops->accept(empty) == 0);
-    ASTIA_CHECK(empty.stage() == 1);
+    if (accepted.fd >= 0)
+        clear_descriptor(static_cast<i32>(accepted.fd));
 }
 
 ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
@@ -447,9 +445,7 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
     ASTIA_CHECK(first_result.load() == 0);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
-    io::request accepted;
-
-    ASTIA_CHECK(listener_ops->accept(accepted) >= 0);
+    ASTIA_CHECK(drive_task(listener_ops->accept()).fd >= 0);
 }
 
 ASTIA_TEST(unix_socket_accept_reports_bound_peer_address) {
@@ -568,20 +564,6 @@ ASTIA_TEST(unix_socket_accept_rejects_unmapped_address_without_consuming) {
 
     release_parked(slot);
 }
-
-namespace {
-    template <typename T>
-    T drive_task(astia::core::task<T> task) {
-        while (!task.done()) {
-            ASTIA_CHECK(task.resume());
-        }
-
-        ASTIA_CHECK(!task.failed());
-        ASTIA_CHECK(task.value() != nullptr);
-
-        return *task.value();
-    }
-} // namespace
 
 ASTIA_TEST(unix_dgram_sendto_recvfrom_roundtrip) {
     using namespace astia::io::aio::test_support;

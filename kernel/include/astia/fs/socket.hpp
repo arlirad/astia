@@ -27,6 +27,13 @@ namespace astia::fs {
         u32                     flags = 0;
     };
 
+    /// Result of one accept: an installed descriptor or negative errno, plus
+    /// the peer address the listener recorded.
+    struct accepted {
+        i64            fd = -1;
+        astia_sockaddr peer{};
+    };
+
     /// Common socket identity.  Both concrete bases below derive from
     /// `file`, so an `open_file` can hand out a socket through the stable
     /// `as_dgram_sock()` / `as_stream_sock()` capability without RTTI.
@@ -69,12 +76,11 @@ namespace astia::fs {
             return *this;
         }
 
-        virtual long bind(const astia_sockaddr& address)    = 0;
-        virtual long listen(u32 backlog)                    = 0;
-        virtual long accept(io::request& request)           = 0;
-        virtual bool accept_address(astia_sockaddr& peer)   = 0;
-        virtual long connect(const astia_sockaddr& address) = 0;
-        virtual long shutdown(u32 how)                      = 0;
+        virtual long                 bind(const astia_sockaddr& address)    = 0;
+        virtual long                 listen(u32 backlog)                    = 0;
+        virtual core::task<accepted> accept(core::cltoken token = {})       = 0;
+        virtual long                 connect(const astia_sockaddr& address) = 0;
+        virtual long                 shutdown(u32 how)                      = 0;
 
         virtual core::task<i64>     sendmsg(span<const u8>                 data,
                                             const mm::shptr<unix_control>& control,
