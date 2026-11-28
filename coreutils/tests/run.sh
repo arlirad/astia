@@ -83,6 +83,9 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/read_retry_test.c" -o "$out/host/read_retry_test" \
     -Wl,--wrap=read
 "$out/host/read_retry_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" -I "$root/kernel/include" \
+    "$root/coreutils/tests/ps_state_test.c" -o "$out/host/ps_state_test"
+"$out/host/ps_state_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function -pthread \
     -I "$root/coreutils/src" "$root/coreutils/tests/tree_walk_test.c" \
     -o "$out/host/tree_walk_test"

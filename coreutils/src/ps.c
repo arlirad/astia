@@ -1,13 +1,8 @@
 #include "../../kernel/include/astia/api/syscalls.h"
 #include "common.h"
+#include "ps_state.h"
 
 #include <stdio.h>
-
-static char state_name(unsigned state) {
-    static const char names[] = "FRSTZD";
-
-    return state < 6 ? names[state] : '?';
-}
 
 int main(int argc, char** argv) {
     astia_process_info entries[ASTIA_PROCESS_SNAPSHOT_MAX];
@@ -32,7 +27,7 @@ int main(int argc, char** argv) {
 
         int n = snprintf(line, sizeof line, "%-6d %-6d %-6d %-6u %-6u %-4c %-10s %s\n",
                          entries[i].pid, entries[i].ppid, entries[i].pgid, entries[i].uid,
-                         entries[i].gid, state_name(entries[i].state), ctty,
+                         entries[i].gid, cu_ps_state_letter(entries[i].state), ctty,
                          entries[i].name[0] ? entries[i].name : "?");
 
         if (n < 0 || (size_t) n >= sizeof line ||
