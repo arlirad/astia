@@ -44,9 +44,13 @@ File data paths (`ext4::file::readv`/`writev`) await those directly and never
 hold the per-mount spinlock across a `co_await`. The synchronous VFS metadata
 entry points (open/create/unlink/stat/readdir) must complete I/O before they
 return because the VFS metadata ABI is synchronous; they drive the coroutine
-with a bounded service pump that calls the source device's `service_ready()`.
-Metadata mutation still serialises under the per-mount spinlock, which is held
-only for short metadata pieces (extent mapping/allocation and inode updates).
+with a bounded service pump that calls the source device's `service_ready()`
+and resumes the task only when that completion fires (a device may need
+several service attempts). Metadata mutation still serialises under the
+per-mount spinlock, which is held only for short metadata pieces (extent
+mapping/allocation and inode updates). Cancellation tokens reach the source
+device request, and a failed data write aborts the staged transaction instead
+of committing newly allocated extents.
 
 `initialize()` opens the journal, replays it when `needs_recovery`
 (`INCOMPAT_RECOVER` / a nonzero journal `s_start`) is set, then enables

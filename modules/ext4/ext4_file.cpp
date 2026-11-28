@@ -1,4 +1,5 @@
 #include <astia/api/errno.h>
+#include <astia/mapping.hpp>
 
 #include "ext4.hpp"
 
@@ -23,13 +24,13 @@ namespace astia::ext4 {
     core::task<i64> file::readv(span<const fs::buffer> buffers, u64 offset,
                                 core::cltoken token) {
         if (_owner == nullptr)
-            co_return static_cast<i64>(-EIO);
+            co_return error_t::ebadf;
 
         if (!_owner->refresh_inode(_node))
-            co_return static_cast<i64>(-EIO);
+            co_return error_t::eio;
 
         if (!_node.is_regular())
-            co_return static_cast<i64>(_node.is_directory() ? -EISDIR : -EINVAL);
+            co_return error_from_errno(_node.is_directory() ? EISDIR : EINVAL);
 
         i64 total = 0;
 
@@ -43,35 +44,42 @@ namespace astia::ext4 {
                 if (total != 0)
                     co_return total;
 
-                co_return static_cast<i64>(-ECANCELED);
+                co_return error_t::ecanceled;
             }
 
             if (entry.length > static_cast<usz>(~u32{0})) {
                 if (total != 0)
                     co_return total;
 
-                co_return static_cast<i64>(-EINVAL);
+                co_return error_t::erange;
             }
 
             auto result = co_await _owner->read_file_async(
                 _node, entry.data, static_cast<u32>(entry.length),
-                offset + static_cast<u64>(total));
+                offset + static_cast<u64>(total), token);
 
             if (!result) {
                 if (total != 0)
                     co_return total;
 
-                co_return error_errno(result.error);
+                co_return result.error;
             }
 
             if (result.value < 0) {
                 if (total != 0)
                     co_return total;
 
-                co_return result.value;
+                co_return error_from_errno(-result.value);
             }
 
             total += result.value;
+
+            if (token.canceled()) {
+                if (total != 0)
+                    co_return total;
+
+                co_return error_t::ecanceled;
+            }
 
             if (static_cast<usz>(result.value) < entry.length)
                 break;
@@ -82,19 +90,22 @@ namespace astia::ext4 {
 
     core::task<i64> file::writev(span<const fs::buffer> buffers, u64 offset,
                                  core::cltoken token, bool nonblock) {
+        // An O_NONBLOCK regular-file write cannot be rejected at submission:
+        // the coroutine path never spins, it suspends and is resumed by the
+        // device completion, so `nonblock` means "do not busy-wait".
         (void) nonblock;
 
         if (_owner == nullptr)
-            co_return static_cast<i64>(-EIO);
+            co_return error_t::ebadf;
 
         if (_owner->read_only())
-            co_return static_cast<i64>(-EROFS);
+            co_return error_t::erofs;
 
         if (!_owner->refresh_inode(_node))
-            co_return static_cast<i64>(-EIO);
+            co_return error_t::eio;
 
         if (!_node.is_regular())
-            co_return static_cast<i64>(_node.is_directory() ? -EISDIR : -EINVAL);
+            co_return error_from_errno(_node.is_directory() ? EISDIR : EINVAL);
 
         i64 total = 0;
 
@@ -108,35 +119,42 @@ namespace astia::ext4 {
                 if (total != 0)
                     co_return total;
 
-                co_return static_cast<i64>(-ECANCELED);
+                co_return error_t::ecanceled;
             }
 
             if (entry.length > static_cast<usz>(~u32{0})) {
                 if (total != 0)
                     co_return total;
 
-                co_return static_cast<i64>(-EINVAL);
+                co_return error_t::erange;
             }
 
             auto result = co_await _owner->write_file_async(
                 _node, entry.data, static_cast<u32>(entry.length),
-                offset + static_cast<u64>(total));
+                offset + static_cast<u64>(total), token);
 
             if (!result) {
                 if (total != 0)
                     co_return total;
 
-                co_return error_errno(result.error);
+                co_return result.error;
             }
 
             if (result.value < 0) {
                 if (total != 0)
                     co_return total;
 
-                co_return result.value;
+                co_return error_from_errno(-result.value);
             }
 
             total += result.value;
+
+            if (token.canceled()) {
+                if (total != 0)
+                    co_return total;
+
+                co_return error_t::ecanceled;
+            }
 
             if (static_cast<usz>(result.value) < entry.length)
                 break;

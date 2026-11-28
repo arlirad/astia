@@ -70,7 +70,8 @@ namespace {
     }
 
     astia::core::task<astia::i64> device_read(void* context, void* buffer,
-                                              u32 length, u64 offset) {
+                                              u32 length, u64 offset,
+                                              astia::core::cltoken) {
         auto& device = *static_cast<host_device*>(context);
 
         co_return host_read(device, offset, buffer, length)
@@ -79,7 +80,8 @@ namespace {
     }
 
     astia::core::task<astia::i64> device_write(void* context, const void* buffer,
-                                               u32 length, u64 offset) {
+                                               u32 length, u64 offset,
+                                              astia::core::cltoken) {
         auto& device = *static_cast<host_device*>(context);
 
         co_return host_write(device, offset, buffer, length)

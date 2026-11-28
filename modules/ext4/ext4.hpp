@@ -123,12 +123,21 @@ namespace astia::ext4 {
                         u64 offset);
         /// Coroutine data path.  The mount spinlock is only held for short
         /// metadata pieces (extent mapping/allocation, inode mutation) and is
-        /// always released before awaiting device I/O or driving the source
-        /// service pump.
+        /// always released before awaiting device I/O.
+        ///
+        /// Lock/pump invariant: metadata volume calls drive their coroutine
+        /// through `run_io`, which services this mount's source device_file
+        /// queue.  The requests submitted by that `run_io` belong to the
+        /// volume coroutine task, which has no mount-level continuation, so
+        /// the pump only advances volume work and metadata I/O stays
+        /// serialised under `_lock`.  File-data requests are awaited with
+        /// `_lock` released.
         core::task<i64> read_file_async(const inode_record& node, void* buffer,
-                                        u32 length, u64 offset);
+                                        u32 length, u64 offset,
+                                        core::cltoken token);
         core::task<i64> write_file_async(inode_record& node, const void* buffer,
-                                         u32 length, u64 offset);
+                                         u32 length, u64 offset,
+                                         core::cltoken token);
         long truncate_file(inode_record& node, u64 size);
         long chmod_node(inode_record& node, fs::file_permissions permissions);
         long chown_node(inode_record& node, uid_t uid, gid_t gid);
@@ -140,9 +149,11 @@ namespace astia::ext4 {
         long finish(long result);
 
         static core::task<i64> source_read(void* context, void* buffer,
-                                           u32 length, u64 offset);
+                                           u32 length, u64 offset,
+                                           core::cltoken token);
         static core::task<i64> source_write(void* context, const void* buffer,
-                                            u32 length, u64 offset);
+                                            u32 length, u64 offset,
+                                            core::cltoken token);
         static void            source_service(void* context);
 
         static bool split_parent(const char* path, char* parent, u32 parent_capacity,

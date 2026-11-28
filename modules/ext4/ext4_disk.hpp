@@ -2,6 +2,7 @@
 
 #include "ext4_reader.hpp"
 
+#include <astia/core/cancellation.hpp>
 #include <astia/core/endian.hpp>
 #include <astia/core/task.hpp>
 #include <astia/optional.hpp>
@@ -103,9 +104,10 @@ namespace astia::ext4 {
                               u64 physical, const void* block, u32 block_size);
 
     using io_read_fn = core::task<i64> (*)(void* context, void* buffer, u32 length,
-                                           u64 offset);
+                                           u64 offset, core::cltoken token);
     using io_write_fn = core::task<i64> (*)(void* context, const void* buffer,
-                                            u32 length, u64 offset);
+                                            u32 length, u64 offset,
+                                            core::cltoken token);
 
     struct device_io {
         io_read_fn  read;
@@ -389,9 +391,12 @@ namespace astia::ext4 {
 
         /// Coroutine form of the sector-aware read and read-modify-write
         /// paths.  Synchronous VFS entry points use the wrappers above, which
-        /// drive these tasks with the seam's service pump.
-        core::task<bool> read_bytes_async(u64 offset, void* buffer, usz length);
-        core::task<bool> write_bytes_async(u64 offset, const void* buffer, usz length);
+        /// drive these tasks with the seam's service pump; the token reaches
+        /// the source device request so a cancel is observed at the device.
+        core::task<bool> read_bytes_async(u64 offset, void* buffer, usz length,
+                                          core::cltoken token = {});
+        core::task<bool> write_bytes_async(u64 offset, const void* buffer,
+                                           usz length, core::cltoken token = {});
 
         bool read_block(u64 block, void* output);
         bool write_block(u64 block, const void* input);
@@ -446,10 +451,12 @@ namespace astia::ext4 {
         template <typename T>
         optional<T> run_io(core::task<T> task);
 
-        core::task<bool> read_sector_async(u64 aligned, u32 length, u8* scratch);
+        core::task<bool> read_sector_async(u64 aligned, u32 length, u8* scratch,
+                                           core::cltoken token);
         bool              write_direct_bytes(u64 offset, const void* buffer, usz length);
         core::task<bool> write_direct_bytes_async(u64 offset, const void* buffer,
-                                                  usz length);
+                                                  usz length,
+                                                  core::cltoken token);
         bool write_superblock_impl(bool direct);
         bool valid_sector_size(u32 size) const;
         u64  descriptor_offset(u32 group) const;

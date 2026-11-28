@@ -176,7 +176,7 @@ namespace astia::ext4 {
     } // namespace
 
     core::task<i64> mount::source_read(void* context, void* buffer, u32 length,
-                                       u64 offset) {
+                                       u64 offset, core::cltoken token) {
         auto* self = static_cast<mount*>(context);
 
         if (self == nullptr || !self->_source || (buffer == nullptr && length != 0))
@@ -191,7 +191,7 @@ namespace astia::ext4 {
             co_return static_cast<i64>(-EIO);
 
         auto result = co_await self->_source->read(
-            span<u8>(static_cast<u8*>(buffer), length), offset, core::cltoken{});
+            span<u8>(static_cast<u8*>(buffer), length), offset, token);
 
         if (!result)
             co_return error_errno(result.error);
@@ -200,7 +200,8 @@ namespace astia::ext4 {
     }
 
     core::task<i64> mount::source_write(void* context, const void* buffer,
-                                        u32 length, u64 offset) {
+                                        u32 length, u64 offset,
+                                        core::cltoken token) {
         auto* self = static_cast<mount*>(context);
 
         if (self == nullptr || !self->_source || (buffer == nullptr && length != 0))
@@ -216,7 +217,7 @@ namespace astia::ext4 {
 
         auto result = co_await self->_source->write(
             span<const u8>(static_cast<const u8*>(buffer), length), offset,
-            core::cltoken{});
+            token);
 
         if (!result)
             co_return error_errno(result.error);
@@ -1051,8 +1052,15 @@ namespace astia::ext4 {
         return static_cast<long>(written);
     }
 
+    // Metadata volume calls below run while `_lock` is held so extent and
+    // inode state stay serialised.  The pump those calls drive services this
+    // mount's source device_file queue; the requests they submit belong to
+    // the volume coroutine task that `run_io` drives (no mount-level
+    // continuation), so the pump advances only volume work.  File-data
+    // requests are awaited after releasing `_lock`.
     core::task<i64> mount::read_file_async(const inode_record& node, void* buffer,
-                                           u32 length, u64 offset) {
+                                           u32 length, u64 offset,
+                                           core::cltoken token) {
         if (node.is_directory())
             co_return static_cast<i64>(-EISDIR);
 
@@ -1075,6 +1083,9 @@ namespace astia::ext4 {
         u32   remaining = count;
 
         while (remaining != 0) {
+            if (token.canceled())
+                co_return static_cast<i64>(position - offset);
+
             const u32 logical = static_cast<u32>(position / block_size);
             const u32 within  = static_cast<u32>(position % block_size);
             const u32 need    = block_size - within;
@@ -1106,14 +1117,14 @@ namespace astia::ext4 {
 
                 if (within == 0 && amount == block_size) {
                     if (!co_await _volume.read_bytes_async(byte_offset, output,
-                                                           amount))
+                                                           amount, token))
                         co_return static_cast<i64>(-EIO);
                 }
                 else {
                     u8 block[4096]{};
 
                     if (!co_await _volume.read_bytes_async(byte_offset, block,
-                                                           block_size))
+                                                           block_size, token))
                         co_return static_cast<i64>(-EIO);
 
                     for (u32 i = 0; i < amount; ++i)
@@ -1130,7 +1141,8 @@ namespace astia::ext4 {
     }
 
     core::task<i64> mount::write_file_async(inode_record& node, const void* buffer,
-                                            u32 length, u64 offset) {
+                                            u32 length, u64 offset,
+                                            core::cltoken token) {
         if (!_writable)
             co_return static_cast<i64>(-EROFS);
 
@@ -1162,8 +1174,15 @@ namespace astia::ext4 {
         u32   remaining = length;
         u32   written   = 0;
         long  error     = 0;
+        bool  canceled  = false;
 
         while (remaining != 0) {
+            if (token.canceled()) {
+                canceled = true;
+
+                break;
+            }
+
             const u32 logical = static_cast<u32>(position / block_size);
             const u32 within  = static_cast<u32>(position % block_size);
             const u32 need    = block_size - within;
@@ -1189,7 +1208,8 @@ namespace astia::ext4 {
             const u64 byte_offset = physical * static_cast<u64>(block_size);
 
             if (within == 0 && amount == block_size) {
-                if (!co_await _volume.write_bytes_async(byte_offset, input, amount)) {
+                if (!co_await _volume.write_bytes_async(byte_offset, input,
+                                                        amount, token)) {
                     error = -EIO;
 
                     break;
@@ -1200,7 +1220,7 @@ namespace astia::ext4 {
 
                 if (present) {
                     if (!co_await _volume.read_bytes_async(byte_offset, scratch,
-                                                           block_size)) {
+                                                           block_size, token)) {
                         error = -EIO;
 
                         break;
@@ -1211,7 +1231,7 @@ namespace astia::ext4 {
                     scratch[within + i] = input[i];
 
                 if (!co_await _volume.write_bytes_async(byte_offset, scratch,
-                                                        block_size)) {
+                                                        block_size, token)) {
                     error = -EIO;
 
                     break;
@@ -1224,8 +1244,23 @@ namespace astia::ext4 {
             written += amount;
         }
 
+        // A failed data write must not persist the inode: abort the staged
+        // allocation so newly allocated extents do not survive as metadata.
+        // Short writes are not returned for this path; callers see an error.
+        if (error != 0) {
+            (void) _volume.abort_transaction();
+
+            co_return static_cast<i64>(error);
+        }
+
+        if (canceled && written == 0) {
+            (void) _volume.abort_transaction();
+
+            co_return static_cast<i64>(-ECANCELED);
+        }
+
         if (written == 0)
-            co_return static_cast<i64>(error != 0 ? error : -EIO);
+            co_return static_cast<i64>(-EIO);
 
         bool persisted = true;
 

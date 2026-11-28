@@ -1275,12 +1275,15 @@ namespace astia::ext4 {
 
     template <typename T>
     optional<T> volume::run_io(core::task<T> task) {
-        constexpr u32 max_pumps = 10'000'000;
+        constexpr u32 max_pumps = 50'000'000;
 
         if (!task.valid())
             return task.error() != error_t::enone ? optional<T>(task.error())
                                                   : optional<T>(error_t::eio);
 
+        // A task suspended on a completion is resumed by that completion.  The
+        // service pump drives it; resuming the task again here would step a
+        // still-parked coroutine and break devices that need another attempt.
         task.resume();
 
         u32 pumps = 0;
@@ -1291,12 +1294,23 @@ namespace astia::ext4 {
 
             arch::cpu::relax();
 
-            task.resume();
             ++pumps;
         }
 
-        if (!task.done())
-            return error_t::eio;
+        if (!task.done()) {
+            // A device that never completes is fatal to the mount: fail-stop.
+            // Move the suspended task to a deliberate heap grave so its frame
+            // (and the parked request's completion handle) stays valid instead
+            // of being destroyed from under the device.  This leak is
+            // intentional and only happens on an already-dead device.
+            auto* grave = new (std::nothrow)
+                core::task<T>(static_cast<core::task<T>&&>(task));
+
+            if (grave == nullptr)
+                __builtin_trap();
+
+            return error_t::etimedout;
+        }
 
         if (task.failed())
             return task.error();
@@ -1306,7 +1320,8 @@ namespace astia::ext4 {
 
     template optional<bool> volume::run_io<bool>(core::task<bool> task);
 
-    core::task<bool> volume::read_sector_async(u64 aligned, u32 length, u8* scratch) {
+    core::task<bool> volume::read_sector_async(u64 aligned, u32 length, u8* scratch,
+                                               core::cltoken token) {
         if (length == 0 || length > _io.sector_size || scratch == nullptr)
             co_return false;
 
@@ -1322,7 +1337,8 @@ namespace astia::ext4 {
             available < length ? static_cast<u32>(available) : length;
 
         if (amount != 0) {
-            auto result = co_await _io.read(_io.context, scratch, amount, aligned);
+            auto result =
+                co_await _io.read(_io.context, scratch, amount, aligned, token);
 
             if (!result || result.value != static_cast<i64>(amount))
                 co_return false;
@@ -1332,12 +1348,13 @@ namespace astia::ext4 {
     }
 
     bool volume::read_bytes(u64 offset, void* buffer, usz length) {
-        auto result = run_io(read_bytes_async(offset, buffer, length));
+        auto result = run_io(read_bytes_async(offset, buffer, length, {}));
 
         return result && result.value;
     }
 
-    core::task<bool> volume::read_bytes_async(u64 offset, void* buffer, usz length) {
+    core::task<bool> volume::read_bytes_async(u64 offset, void* buffer, usz length,
+                                              core::cltoken token) {
         if (_io.read == nullptr || (buffer == nullptr && length != 0))
             co_return false;
 
@@ -1357,7 +1374,8 @@ namespace astia::ext4 {
 
             if (within == 0 && amount == sector) {
                 auto result = co_await _io.read(_io.context, output,
-                                                static_cast<u32>(amount), position);
+                                                static_cast<u32>(amount), position,
+                                                token);
 
                 if (!result || result.value != static_cast<i64>(amount))
                     co_return false;
@@ -1365,7 +1383,8 @@ namespace astia::ext4 {
             else {
                 u8 scratch[4096];
 
-                if (!co_await read_sector_async(aligned, _io.sector_size, scratch))
+                if (!co_await read_sector_async(aligned, _io.sector_size, scratch,
+                                                token))
                     co_return false;
 
                 for (usz i = 0; i < amount; ++i) {
@@ -1433,25 +1452,34 @@ namespace astia::ext4 {
     }
 
     core::task<bool> volume::write_bytes_async(u64 offset, const void* buffer,
-                                               usz length) {
-        auto result = co_await write_direct_bytes_async(offset, buffer, length);
+                                               usz length, core::cltoken token) {
+        if (_hooks.crashed != nullptr && _hooks.crashed(_hooks.context))
+            co_return false;
+
+        auto result =
+            co_await write_direct_bytes_async(offset, buffer, length, token);
 
         co_return result && result.value;
     }
 
     bool volume::write_direct_bytes(u64 offset, const void* buffer, usz length) {
-        auto result = run_io(write_direct_bytes_async(offset, buffer, length));
+        auto result =
+            run_io(write_direct_bytes_async(offset, buffer, length, {}));
 
         return result && result.value;
     }
 
     core::task<bool> volume::write_direct_bytes_async(u64 offset,
                                                       const void* buffer,
-                                                      usz length) {
+                                                      usz length,
+                                                      core::cltoken token) {
         if (_io.write == nullptr || (buffer == nullptr && length != 0))
             co_return false;
 
         if (offset > _io.size || length > _io.size - offset)
+            co_return false;
+
+        if (_hooks.crashed != nullptr && _hooks.crashed(_hooks.context))
             co_return false;
 
         const auto* input     = static_cast<const u8*>(buffer);
@@ -1467,7 +1495,8 @@ namespace astia::ext4 {
 
             if (within == 0 && amount == sector) {
                 auto result = co_await _io.write(_io.context, input,
-                                                 static_cast<u32>(amount), position);
+                                                 static_cast<u32>(amount), position,
+                                                 token);
 
                 if (!result || result.value != static_cast<i64>(amount))
                     co_return false;
@@ -1480,13 +1509,14 @@ namespace astia::ext4 {
 
                 u8 scratch[4096];
 
-                if (!co_await read_sector_async(aligned, _io.sector_size, scratch))
+                if (!co_await read_sector_async(aligned, _io.sector_size, scratch,
+                                                token))
                     co_return false;
 
                 copy_bytes(scratch + within, input, amount);
 
                 auto result = co_await _io.write(_io.context, scratch,
-                                                 _io.sector_size, aligned);
+                                                 _io.sector_size, aligned, token);
 
                 if (!result || result.value != static_cast<i64>(_io.sector_size))
                     co_return false;

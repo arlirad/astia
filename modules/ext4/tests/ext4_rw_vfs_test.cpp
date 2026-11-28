@@ -185,7 +185,8 @@ namespace {
     astia::dev::device_file fake_file(&fake_device);
 
     astia::core::task<astia::i64> image_read(void*, void* buffer, u32 length,
-                                             u64 offset) {
+                                             u64 offset,
+                                             astia::core::cltoken) {
         const long result = fake_device.read(buffer, length, offset);
 
         co_return result == static_cast<long>(length)
@@ -194,7 +195,8 @@ namespace {
     }
 
     astia::core::task<astia::i64> image_write(void*, const void* buffer,
-                                              u32 length, u64 offset) {
+                                              u32 length, u64 offset,
+                                              astia::core::cltoken) {
         const long result = fake_device.write(buffer, length, offset);
 
         co_return result == static_cast<long>(length)

@@ -49,7 +49,8 @@ namespace {
     }
 
     astia::core::task<astia::i64> device_read(void* context, void* buffer,
-                                              u32 length, u64 offset) {
+                                              u32 length, u64 offset,
+                                              astia::core::cltoken) {
         auto& device = *static_cast<host_device*>(context);
 
         co_return host_read(device, offset, buffer, length)
@@ -58,7 +59,8 @@ namespace {
     }
 
     astia::core::task<astia::i64> device_write(void* context, const void* buffer,
-                                               u32 length, u64 offset) {
+                                               u32 length, u64 offset,
+                                              astia::core::cltoken) {
         auto& device = *static_cast<host_device*>(context);
 
         co_return host_write(device, offset, buffer, length)
@@ -87,7 +89,8 @@ namespace {
     };
 
     astia::core::task<astia::i64> parking_read(void* context, void* buffer,
-                                               u32 length, u64 offset) {
+                                               u32 length, u64 offset,
+                                              astia::core::cltoken) {
         auto& parking = *static_cast<parking_context*>(context);
 
         co_await parking_suspend{&parking};
@@ -107,6 +110,54 @@ namespace {
         parking.parked = {};
 
         ++parking.resumes;
+
+        handle.resume();
+    }
+
+    struct staged_parking_context {
+        host_device*            device   = nullptr;
+        std::coroutine_handle<> parked{};
+        u32                     services = 0;
+        u32                     attempts = 0;
+    };
+
+    struct staged_parking_suspend {
+        staged_parking_context* context;
+
+        bool await_ready() const noexcept {
+            return false;
+        }
+
+        void await_suspend(std::coroutine_handle<> handle) const noexcept {
+            context->parked   = handle;
+            context->attempts = 0;
+        }
+
+        void await_resume() const noexcept {}
+    };
+
+    astia::core::task<astia::i64> staged_parking_read(void* context, void* buffer,
+                                                      u32 length, u64 offset,
+                                                      astia::core::cltoken) {
+        auto& staged = *static_cast<staged_parking_context*>(context);
+
+        co_await staged_parking_suspend{&staged};
+
+        co_return host_read(*staged.device, offset, buffer, length)
+                      ? static_cast<astia::i64>(length)
+                      : static_cast<astia::i64>(-EIO);
+    }
+
+    void staged_parking_service(void* context) {
+        auto& staged = *static_cast<staged_parking_context*>(context);
+
+        ++staged.services;
+
+        if (!staged.parked || ++staged.attempts < 2)
+            return;
+
+        auto handle    = staged.parked;
+        staged.parked = {};
 
         handle.resume();
     }
@@ -448,6 +499,31 @@ int main(int argc, char** argv) {
                    parked_task.value() != nullptr && *parked_task.value(),
                "read_bytes_async completes once service is driven"))
         return 1;
+
+    staged_parking_context staged{&device};
+    astia::ext4::device_io staged_io{staged_parking_read, device_write,
+                                     staged_parking_service, &staged,
+                                     device.size, 512};
+    astia::ext4::volume staged_volume;
+
+    if (!check(staged_volume.open(staged_io, false),
+               "open volume with two-phase parking seam"))
+        return 1;
+
+    u8    staged_buffer[512]{};
+    const u32 services_before = staged.services;
+
+    if (!check(staged_volume.read_bytes(0, staged_buffer,
+                                        sizeof staged_buffer),
+               "read survives a device needing two service attempts"))
+        return 1;
+
+    if (!check(staged.services - services_before == 2,
+               "parked request needed exactly two service attempts"))
+        return 1;
+
+    std::fprintf(stderr, "two-phase service attempts: %u\n",
+                 staged.services - services_before);
 
     std::fclose(device.file);
 
