@@ -60,7 +60,10 @@ static int connect_path(const char* path, int* error) {
         return -1;
     }
 
-    length = (unsigned int) (offsetof(struct sockaddr_un, sun_path) + path_length + 1);
+    /* The kernel decodes a.len - 2 path bytes and terminates the result
+     * itself, so len counts the path only: counting the trailing NUL here
+     * puts an embedded NUL in the payload, which a strict decoder rejects. */
+    length = (unsigned int) (offsetof(struct sockaddr_un, sun_path) + path_length);
 
     if (connect(fd, (struct sockaddr*) &address, length) == 0)
         return fd;
