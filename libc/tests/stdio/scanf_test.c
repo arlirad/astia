@@ -28,6 +28,21 @@ static int wide_equal(const wchar_t* text, const wchar_t* expect) {
     return *text == L'\0';
 }
 
+#define PUSHBACK_PATH "/tmp/astia_scanf_pushback.dat"
+
+extern int unlink(const char* path);
+
+static FILE* open_with(const char* text) {
+    FILE* f = fopen(PUSHBACK_PATH, "w");
+    if (f == NULL)
+        return NULL;
+
+    fputs(text, f);
+    fclose(f);
+
+    return fopen(PUSHBACK_PATH, "r");
+}
+
 static void test_integer_prefixes(void) {
     int      n;
     int      pos;
@@ -245,6 +260,98 @@ static void test_narrow_unchanged(void) {
     CHECK(text[0] == 'a' && text[1] == 'b' && text[2] == 'c');
 }
 
+static void test_file_pushback(void) {
+    static char buf[2];
+
+    FILE* f;
+
+    char c;
+    char word[16];
+    int  n;
+
+    (void) unlink(PUSHBACK_PATH);
+
+    f = open_with("12x");
+
+    CHECK(f != NULL);
+
+    if (f != NULL) {
+        n = 0;
+        c = '\0';
+
+        CHECK(fscanf(f, "%d%c", &n, &c) == 2);
+        CHECK(n == 12 && c == 'x');
+        CHECK(fgetc(f) == EOF);
+        CHECK(fclose(f) == 0);
+    }
+
+    f = open_with("12abc");
+
+    CHECK(f != NULL);
+
+    if (f != NULL) {
+        n = 0;
+        c = '\0';
+
+        CHECK(fscanf(f, "%d%c", &n, &c) == 2);
+        CHECK(n == 12 && c == 'a');
+        CHECK(ftell(f) == 3);
+        CHECK(fgetc(f) == 'b');
+        CHECK(fgetc(f) == 'c');
+        CHECK(fgetc(f) == EOF);
+        CHECK(ftell(f) == 5);
+        CHECK(fclose(f) == 0);
+    }
+
+    f = open_with("7fxyz");
+
+    CHECK(f != NULL);
+
+    if (f != NULL) {
+        n       = 0;
+        word[0] = '\0';
+
+        CHECK(fscanf(f, "%d%[a-z]", &n, word) == 2);
+        CHECK(n == 7 && strcmp(word, "fxyz") == 0);
+        CHECK(fclose(f) == 0);
+    }
+
+    f = open_with("7x");
+
+    CHECK(f != NULL);
+
+    if (f != NULL) {
+        n = 0;
+
+        CHECK(ungetc('Q', f) == 'Q');
+        CHECK(fscanf(f, "%d", &n) == 0);
+        CHECK(fgetc(f) == 'Q');
+        CHECK(ftell(f) == 0);
+        CHECK(fgetc(f) == '7');
+        CHECK(fgetc(f) == 'x');
+        CHECK(ftell(f) == 2);
+        CHECK(fclose(f) == 0);
+    }
+
+    f = open_with("123456abc");
+
+    CHECK(f != NULL);
+
+    if (f != NULL) {
+        CHECK(setvbuf(f, buf, _IOFBF, sizeof buf) == 0);
+
+        n       = 0;
+        word[0] = '\0';
+
+        CHECK(fscanf(f, "%d%s", &n, word) == 2);
+        CHECK(n == 123456 && strcmp(word, "abc") == 0);
+        CHECK(fgetc(f) == EOF);
+        CHECK(fclose(f) == 0);
+    }
+
+    (void) unlink(PUSHBACK_PATH);
+}
+
 int main(void) {
     test_integer_prefixes();
     test_float_prefixes();
@@ -252,6 +359,7 @@ int main(void) {
     test_wide_char();
     test_wide_string();
     test_narrow_unchanged();
+    test_file_pushback();
 
     return fails != 0;
 }

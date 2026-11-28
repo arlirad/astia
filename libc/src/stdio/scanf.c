@@ -1,3 +1,5 @@
+#include "internal/stdio_pushback.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -10,12 +12,15 @@
 
 #define SCAN_WIDE_MAX 8
 
+enum { SCAN_TOKEN_CAP = 256 };
+
 struct scan_input {
     int (*get)(void*);
-    int (*unget)(int, void*);
-    void*  data;
-    size_t count;
-    int    input_eof;
+    void*         data;
+    size_t        count;
+    int           input_eof;
+    unsigned char pushback[SCAN_TOKEN_CAP];
+    size_t        pushback_len;
 };
 
 struct string_input {
@@ -31,27 +36,22 @@ static int string_get(void* data) {
     return *in->p++;
 }
 
-static int string_unget(int c, void* data) {
-    struct string_input* in = data;
-
-    if (c == EOF || in->p == NULL)
-        return EOF;
-
-    in->p--;
-
-    return 0;
-}
-
 static int file_get(void* data) {
     return fgetc((FILE*) data);
 }
 
-static int file_unget(int c, void* data) {
-    return ungetc(c, (FILE*) data) == EOF ? EOF : 0;
-}
-
 static int scan_get(struct scan_input* in) {
-    int c = in->get(in->data);
+    int c;
+
+    if (in->pushback_len != 0) {
+        in->input_eof = 0;
+
+        in->count++;
+
+        return in->pushback[--in->pushback_len];
+    }
+
+    c = in->get(in->data);
     if (c == EOF)
         in->input_eof = 1;
     else
@@ -61,12 +61,14 @@ static int scan_get(struct scan_input* in) {
 }
 
 static void scan_unget(struct scan_input* in, int c) {
-    if (c != EOF && in->unget(c, in->data) == 0) {
-        in->input_eof = 0;
+    if (c == EOF || in->pushback_len == SCAN_TOKEN_CAP)
+        return;
 
-        if (in->count != 0)
-            in->count--;
-    }
+    in->pushback[in->pushback_len++] = (unsigned char) c;
+    in->input_eof                    = 0;
+
+    if (in->count != 0)
+        in->count--;
 }
 
 static void scan_push_back(struct scan_input* in, const char* text) {
@@ -257,6 +259,17 @@ static int parse_integer(const char* token, char spec, long long* signed_value,
     return end != token;
 }
 
+static void scan_return_pushback(struct scan_input* in) {
+    size_t i;
+
+    for (i = 0; i < in->pushback_len; i++) {
+        if (__astia_file_pushback((FILE*) in->data, in->pushback[i]) == EOF)
+            break;
+    }
+
+    in->pushback_len = 0;
+}
+
 static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
     int assigned = 0;
     int matched  = 1;
@@ -305,7 +318,7 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
             int  width;
             char length = 0;
             char spec;
-            char token[256];
+            char token[SCAN_TOKEN_CAP];
             int  ok = 0;
 
             if (*p == '*') {
@@ -593,7 +606,10 @@ static int scan_engine(struct scan_input* in, const char* format, va_list ap) {
 
 int vsscanf(const char* input, const char* format, va_list ap) {
     struct string_input data = {(const unsigned char*) input};
-    struct scan_input   in   = {string_get, string_unget, &data, 0, 0};
+    struct scan_input   in   = {0};
+
+    in.get  = string_get;
+    in.data = &data;
 
     return scan_engine(&in, format, ap);
 }
@@ -613,12 +629,21 @@ int sscanf(const char* input, const char* format, ...) {
 }
 
 int vfscanf(FILE* stream, const char* format, va_list ap) {
-    struct scan_input in = {file_get, file_unget, stream, 0, 0};
+    struct scan_input in = {0};
+
+    int rc;
 
     if (stream == NULL)
         return EOF;
 
-    return scan_engine(&in, format, ap);
+    in.get  = file_get;
+    in.data = stream;
+
+    rc = scan_engine(&in, format, ap);
+
+    scan_return_pushback(&in);
+
+    return rc;
 }
 
 int fscanf(FILE* stream, const char* format, ...) {
