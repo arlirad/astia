@@ -148,15 +148,20 @@ static int remove_path(const char* path, int recursive) {
     return rmdir(path);
 }
 
-static int protected_operand(const char* path) {
+static size_t trim_trailing_slashes(const char* path) {
     size_t end = __builtin_strlen(path);
 
     while (end != 0 && path[end - 1] == '/') {
         --end;
     }
 
+    return end;
+}
+
+static int dot_operand(const char* path) {
+    size_t end = trim_trailing_slashes(path);
     if (end == 0)
-        return 1;
+        return 0;
 
     size_t start = end;
 
@@ -166,6 +171,22 @@ static int protected_operand(const char* path) {
 
     return (end - start == 1 && path[start] == '.') ||
            (end - start == 2 && path[start] == '.' && path[start + 1] == '.');
+}
+
+static int root_operand(const char* path) {
+    size_t end = trim_trailing_slashes(path);
+    if (end == 0)
+        return path[0] == '/';
+
+    char* resolved = realpath(path, 0);
+    if (resolved == 0)
+        return 0;
+
+    int is_root = __builtin_strcmp(resolved, "/") == 0;
+
+    free(resolved);
+
+    return is_root;
 }
 
 int main(int argc, char** argv) {
@@ -206,7 +227,13 @@ int main(int argc, char** argv) {
 
         ++operands;
 
-        if (protected_operand(path)) {
+        if (root_operand(path)) {
+            status |= cu_error("rm", "refusing to remove the filesystem root");
+
+            continue;
+        }
+
+        if (dot_operand(path)) {
             status |= cu_error("rm", "refusing to remove . or ..");
 
             continue;

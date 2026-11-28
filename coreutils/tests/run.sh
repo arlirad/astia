@@ -87,6 +87,26 @@ $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function -pthrea
     -I "$root/coreutils/src" "$root/coreutils/tests/tree_walk_test.c" \
     -o "$out/host/tree_walk_test"
 "$out/host/tree_walk_test"
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/coreutils/src" "$root/coreutils/tests/rm_root_guard_test.c" \
+    -o "$out/host/rm_root_guard_test"
+"$out/host/rm_root_guard_test"
+$clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -I "$root/coreutils/src" "$root/coreutils/src/rm.c" -o "$out/host/rm"
+mkdir -p "$out/host/rm_guard"
+ln -s / "$out/host/rm_guard/rootlink"
+if "$out/host/rm" -r "$out/host/rm_guard/rootlink" 2>"$out/host/rm_guard.err"; then
+    echo "rm accepted a symlink resolving to /" >&2
+    exit 1
+fi
+test -L "$out/host/rm_guard/rootlink"
+grep -qF 'refusing to remove the filesystem root' "$out/host/rm_guard.err"
+mkdir -p "$out/host/rm_guard/tree/nested"
+printf 'leaf\n' >"$out/host/rm_guard/tree/nested/file"
+"$out/host/rm" -r "$out/host/rm_guard/tree"
+test ! -e "$out/host/rm_guard/tree"
+rm -f "$out/host/rm_guard/rootlink"
+rmdir "$out/host/rm_guard"
 mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # mkdir -p must accept any path the host filesystem can represent up to
