@@ -35,8 +35,9 @@ vtables that a live mount still points at.
 - `extent` maps logical blocks through the extent B-tree, allocates and grows
   trees, splits leaf and index nodes, and truncates or frees extents.
 - `directory` iterates and searches dirents, creates and removes entries,
-  maintains `.` and `..`, spills entries into new blocks, and writes
-  checksum tails on metadata_csum directories.
+  maintains `.` and `..`, converts indexed directories to linear ones on
+  mutation, spills entries into new blocks, and writes checksum tails on
+  metadata_csum directories.
 - `journal` implements JBD2 open, replay, checksum upgrade, transactions, and
   checkpointing.
 - `ext4_mount` and `ext4_file` are the VFS adapter: open/create, read/write,
@@ -101,10 +102,13 @@ external journal devices, unknown feature bits, and the read-only flag. The
 mount additionally rejects images without extents, with blocks beyond the
 source device, or with a non-directory root.
 
-HTree directories are read, enumerated and can have entries removed, but
-creating an entry inside an existing indexed directory returns `-ENOSYS`:
-a linear append cannot update the hash index. No xattr, ACL, inline-data,
-encryption, or orphan-list cleanup path exists.
+HTree directories are read, enumerated and can have entries removed. The first
+entry creation inside an existing indexed directory converts it once to a
+linear directory: the dx_root becomes a classic `.`/`..` block, interior
+dx_nodes become empty dirent blocks, leaf blocks are kept, and every entry is
+preserved. Insertion then follows the normal linear path; the hash index is
+not rebuilt, and `e2fsck -D` can re-index the directory. No xattr, ACL,
+inline-data, encryption, or orphan-list cleanup path exists.
 
 ## Concurrency and lifetime
 
@@ -151,7 +155,8 @@ that a real VFS replay recovers the committed file contents.
 
 ## Known gaps
 
-- HTree insertion and conversion.
+- HTree hash insertion (indexed directories are converted to linear on the
+  first mutation instead of keeping the index).
 - xattrs, ACLs, encryption, and inline data.
 - bigalloc.
 - 64-bit high block numbers and volumes larger than 16 TiB.

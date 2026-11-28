@@ -300,6 +300,104 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (std::strcmp(mode, "indexed") == 0) {
+        bool known_seen = false;
+
+        for (u64 index = 0; index < 512; ++index) {
+            char                 entry_name[256]{};
+            astia::fs::file_type entry_type{};
+            const long           rc = astia::fs::read_directory(
+                "/tmp/ext4/big", index, entry_name, sizeof entry_name,
+                &entry_type, nullptr);
+
+            if (rc == 0)
+                break;
+
+            if (!check(rc > 0, "enumerate indexed /big"))
+                return 1;
+
+            if (std::strcmp(entry_name, "known.txt") == 0)
+                known_seen = true;
+        }
+
+        if (!check(known_seen, "known file visible in indexed /big"))
+            return 1;
+
+        const char* known_text   = "indexed fixture known payload\n";
+        const u32   known_length = static_cast<u32>(std::strlen(known_text));
+
+        auto known = astia::fs::open("/tmp/ext4/big/known.txt",
+                                     ASTIA_AIO_O_RDONLY);
+
+        char known_read[64]{};
+
+        if (!check_handle(known, "open known.txt in indexed /big") ||
+            !check(known.get() != nullptr &&
+                       known->read(known_read, sizeof known_read) ==
+                           static_cast<long>(known_length),
+                   "read known.txt") ||
+            !check(std::strcmp(known_read, known_text) == 0,
+                   "known.txt content"))
+            return 1;
+
+        known = {};
+
+        const char* added_text   = "added through one-time deindex\n";
+        const u32   added_length = static_cast<u32>(std::strlen(added_text));
+
+        auto added = astia::fs::open("/tmp/ext4/big/added.txt",
+                                     ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
+
+        if (!check_handle(added, "create /big/added.txt") ||
+            !check(added.get() != nullptr &&
+                       added->write(added_text, added_length) ==
+                           static_cast<long>(added_length),
+                   "write /big/added.txt"))
+            return 1;
+
+        added = {};
+
+        const char* second_text   = "second insertion on linear directory\n";
+        const u32   second_length = static_cast<u32>(std::strlen(second_text));
+
+        auto second = astia::fs::open("/tmp/ext4/big/added2.txt",
+                                      ASTIA_AIO_O_CREAT | ASTIA_AIO_O_WRONLY);
+
+        if (!check_handle(second, "create /big/added2.txt") ||
+            !check(second.get() != nullptr &&
+                       second->write(second_text, second_length) ==
+                           static_cast<long>(second_length),
+                   "write /big/added2.txt"))
+            return 1;
+
+        second = {};
+
+        auto verify_added = astia::fs::open("/tmp/ext4/big/added.txt",
+                                            ASTIA_AIO_O_RDONLY);
+
+        char added_read[64]{};
+
+        if (!check_handle(verify_added, "reopen /big/added.txt") ||
+            !check(verify_added.get() != nullptr &&
+                       verify_added->read(added_read, sizeof added_read) ==
+                           static_cast<long>(added_length),
+                   "read /big/added.txt") ||
+            !check(std::strcmp(added_read, added_text) == 0,
+                   "/big/added.txt content"))
+            return 1;
+
+        verify_added = {};
+
+        if (!check(astia::fs::unmount_type("/tmp/ext4") == 0,
+                   "unmount indexed ext4") ||
+            !check(fake_device.store(output), "store indexed image"))
+            return 1;
+
+        std::printf("OK\n");
+
+        return 0;
+    }
+
     auto hello = astia::fs::open("/tmp/ext4/hello",
                                  ASTIA_AIO_O_CREAT | ASTIA_AIO_O_RDWR);
 

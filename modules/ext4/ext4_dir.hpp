@@ -30,6 +30,7 @@ namespace astia::ext4 {
         static bool is_empty(volume& v, const inode_record& dir);
         static long initialize(volume& v, space& alloc, inode_record& dir,
                                u32 self, u32 parent);
+        static bool deindex(volume& v, inode_record& dir);
         static void finish_block(volume& v, const inode_record& dir, u8* block);
     };
 } // namespace astia::ext4

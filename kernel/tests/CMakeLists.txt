@@ -1380,6 +1380,14 @@ set_tests_properties(ext4_stock_test PROPERTIES
         ENVIRONMENT "EXT4_STOCK_DIR=${CMAKE_CURRENT_BINARY_DIR}/ext4-stock")
 astia_add_test_label(ext4_stock_test "ext4;filesystem;sanitizer-host-partial")
 
+add_test(NAME ext4_indexed_test
+        COMMAND sh ${CMAKE_SOURCE_DIR}/modules/ext4/tests/run_indexed_test.sh
+                $<TARGET_FILE:astia_ext4_rw_vfs_test>
+                ${CMAKE_CURRENT_BINARY_DIR}/ext4-indexed)
+set_tests_properties(ext4_indexed_test PROPERTIES
+        ENVIRONMENT "EXT4_INDEXED_DIR=${CMAKE_CURRENT_BINARY_DIR}/ext4-indexed")
+astia_add_test_label(ext4_indexed_test "ext4;filesystem;sanitizer-host-partial")
+
 astia_add_arena_test(astia_tmpfs_readdir_test
         tmpfs_readdir_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/dev/device.cpp
@@ -2734,7 +2742,7 @@ foreach (_astia_vga_test IN ITEMS astia_pvh_test astia_framebuffer_test astia_vi
         astia_add_test_label(${_astia_vga_test} "vga;pvh;ttv0")
     endif()
 endforeach()
-foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test astia_ext4_rw_vfs_test ext4_journal_vfs_test ext4_stock_test)
+foreach (_astia_ext4_test IN ITEMS astia_ext4_test astia_ext4_real_test astia_ext4_vfs_test astia_ext4_rw_vfs_test ext4_journal_vfs_test ext4_stock_test ext4_indexed_test)
     if(TEST ${_astia_ext4_test})
         astia_add_test_label(${_astia_ext4_test} "ext4;filesystem")
     endif()

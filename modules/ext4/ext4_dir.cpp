@@ -413,10 +413,8 @@ namespace astia::ext4 {
         if (!dir.is_directory() || inode == 0 || !measure_name(name, length))
             return -EINVAL;
 
-        // HTree directories keep a hash index that a linear append cannot
-        // update; Linux and debugfs would not see the new entry.
-        if (is_indexed(dir))
-            return -ENOSYS;
+        if (is_indexed(dir) && !deindex(v, dir))
+            return -EIO;
 
         if ((dir.flags() & (inode_inline_data | inode_extents)) != inode_extents)
             return -EOPNOTSUPP;
@@ -640,6 +638,74 @@ namespace astia::ext4 {
             return false;
 
         return state.empty;
+    }
+
+    bool directory::deindex(volume& v, inode_record& dir) {
+        if (!v.writable() || !dir.is_directory() || !is_indexed(dir))
+            return false;
+
+        if ((dir.flags() & (inode_inline_data | inode_extents)) != inode_extents)
+            return false;
+
+        const u32 block_size = v.block_size();
+        const u32 usable     = usable_bytes(v);
+
+        if (block_size == 0 || usable <= 12 || dir.size() == 0 ||
+            dir.size() % block_size != 0)
+            return false;
+
+        const u64 count = dir.size() / block_size;
+
+        if (count > v.blocks_count())
+            return false;
+
+        u8 block[4096];
+
+        for (u64 logical = 0; logical < count; ++logical) {
+            u64 physical = 0;
+
+            if (!extent::map(v, dir, static_cast<u32>(logical), physical) ||
+                physical == 0)
+                return false;
+
+            if (!v.read_block(physical, block))
+                return false;
+
+            if (logical == 0) {
+                if (load32(block) != dir.number || load16(block + 4) != 12 ||
+                    block[6] != 1 || block[8] != '.')
+                    return false;
+
+                const u32 parent = load32(block + 12);
+
+                if (parent == 0)
+                    return false;
+
+                clear_bytes(block, block_size);
+
+                store_entry(block, 0, dir.number, dirent_directory, 12, ".", 1);
+                store_entry(block, 12, parent, dirent_directory,
+                            static_cast<u16>(usable - 12), "..", 2);
+            }
+            else if (is_index_block(block, block_size)) {
+                clear_bytes(block, block_size);
+
+                store_entry(block, 0, 0, 0, static_cast<u16>(usable), nullptr,
+                            0);
+            }
+            else {
+                continue;
+            }
+
+            finish_block(v, dir, block);
+
+            if (!v.write_block(physical, block))
+                return false;
+        }
+
+        dir.set_flags(dir.flags() & ~inode_index);
+
+        return true;
     }
 
     long directory::initialize(volume& v, space& alloc, inode_record& dir,

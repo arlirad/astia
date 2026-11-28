@@ -52,10 +52,9 @@ table of 64 open inodes; opening another inode when it is full fails.
 
 ## Limits
 
-- No HTree insertion or conversion: existing indexed directories are read and
-  can have entries removed, but creation/mutation inside one returns `-ENOSYS`
-  until HTree insertion exists, so Linux and `debugfs` never miss an entry
-  that Astia's linear scan found.
+- No HTree insertion: the first mutation of an existing indexed directory
+  converts it to a linear directory, preserving every entry, and continues with
+  the linear path. The hash index is not rebuilt; `e2fsck -D` can re-index it.
 - No inline data, xattrs, ACLs, or encryption.
 - Extent trees only (the extents feature is required); no indirect-block files.
 - Stock `mke2fs` layouts mount read-write: `flex_bg` allocation, 64-byte group
@@ -83,5 +82,9 @@ table of 64 open inodes; opening another inode when it is full fails.
 - `ext4_stock_test` mounts stock `mke2fs` images (1 KiB and 4 KiB blocks,
   default features) through the same tool in `normal` mode and checks the
   output with `e2fsck -fn`, `dumpe2fs` and `debugfs`.
+- `ext4_indexed_test` builds an `e2fsck -D` HTree-indexed `/big` directory,
+  inserts two files through the same tool in `indexed` mode, and checks with
+  `e2fsck -fn` and `debugfs` that every entry survived the one-time conversion
+  and that the index flag is cleared.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log.
