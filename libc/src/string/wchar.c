@@ -298,48 +298,85 @@ size_t wcrtomb(char* dst, wchar_t wc, mbstate_t* state) {
 }
 
 size_t mbsrtowcs(wchar_t* dst, const char** src, size_t n, mbstate_t* state) {
+    const char* cursor = *src;
+
+    if (dst == NULL) {
+        size_t count = 0;
+
+        for (;;) {
+            size_t result = mbrtowc(NULL, cursor, 1, state);
+
+            if (result == (size_t) -1 || result == (size_t) -2)
+                return (size_t) -1;
+
+            count++;
+
+            if (*cursor == '\0')
+                return count - 1;
+
+            cursor++;
+        }
+    }
+
     size_t count = 0;
 
-    while (dst == NULL || count < n) {
-        size_t result =
-            mbrtowc(dst == NULL ? NULL : dst + count, *src, (size_t) 1, state);
+    while (count < n) {
+        size_t result = mbrtowc(dst + count, cursor, 1, state);
 
         if (result == (size_t) -1 || result == (size_t) -2)
             return (size_t) -1;
 
-        if (dst == NULL)
-            count++;
-        else
-            count++;
+        if (*cursor == '\0') {
+            *src = NULL;
 
-        if (**src == '\0') {
-            if (src != NULL)
-                *src = NULL;
-
-            return count - 1;
+            return count;
         }
 
-        (*src)++;
+        cursor++;
+        count++;
     }
+
+    *src = cursor;
 
     return count;
 }
 
 size_t wcsrtombs(char* dst, const wchar_t** src, size_t n, mbstate_t* state) {
+    const wchar_t* cursor = *src;
+
+    (void) state;
+
+    if (dst == NULL) {
+        size_t count = 0;
+
+        for (;;) {
+            wchar_t wc = *cursor;
+            if (wc > 0x7f) {
+                errno = EILSEQ;
+
+                return (size_t) -1;
+            }
+
+            count++;
+
+            if (wc == L'\0')
+                return count - 1;
+
+            cursor++;
+        }
+    }
+
     size_t count = 0;
 
-    while (dst == NULL || count < n) {
-        wchar_t wc = **src;
+    while (count < n) {
+        wchar_t wc = *cursor;
         if (wc > 0x7f) {
             errno = EILSEQ;
 
             return (size_t) -1;
         }
 
-        if (dst != NULL)
-            dst[count] = (char) wc;
-
-        count++;
+        dst[count++] = (char) wc;
 
         if (wc == L'\0') {
             *src = NULL;
@@ -347,10 +384,10 @@ size_t wcsrtombs(char* dst, const wchar_t** src, size_t n, mbstate_t* state) {
             return count - 1;
         }
 
-        (*src)++;
+        cursor++;
     }
 
-    (void) state;
+    *src = cursor;
 
     return count;
 }
