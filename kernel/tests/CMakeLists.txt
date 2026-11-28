@@ -283,6 +283,14 @@ target_compile_options(astia_thread_park_test PRIVATE
         -ffunction-sections -fdata-sections)
 target_link_options(astia_thread_park_test PRIVATE -Wl,--gc-sections)
 astia_add_test_label(astia_thread_park_test "deterministic;proc")
+astia_add_host_test(astia_waiter_registry_test
+        waiter_registry_test.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/proc/thread.cpp
+)
+target_compile_options(astia_waiter_registry_test PRIVATE
+        -ffunction-sections -fdata-sections)
+target_link_options(astia_waiter_registry_test PRIVATE -Wl,--gc-sections)
+astia_add_test_label(astia_waiter_registry_test "deterministic;proc")
 astia_add_host_test(astia_fs_async_test
         fs_async_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/fs/fs_io.cpp
