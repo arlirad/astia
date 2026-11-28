@@ -65,6 +65,32 @@ add_custom_command(
 
 add_custom_target(tcp_module ALL DEPENDS ${ASTIA_TCP_OBJECT})
 
+
+set(ASTIA_TCP_UNIT ${CMAKE_CURRENT_BINARY_DIR}/tcp_unit)
+
+add_custom_command(
+        OUTPUT ${ASTIA_TCP_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -DASTIA_HOST_TEST=1
+                -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_TCP_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/tcp_test.cpp
+                ${ASTIA_TCP_LOCAL_HEADERS}
+                ${ASTIA_TCP_ABI_HEADERS}
+        VERBATIM)
+
+add_custom_target(tcp_unit_target ALL DEPENDS ${ASTIA_TCP_UNIT})
+
+if(ASTIA_BUILD_TESTS)
+    add_test(NAME tcp_unit COMMAND ${ASTIA_TCP_UNIT})
+    astia_add_test_label(tcp_unit "sanitizer-host")
+endif()
+
 if(ASTIA_BUILD_TESTS)
     add_test(NAME tcp_qemu_module_load
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/run-qemu-load.sh)
