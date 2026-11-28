@@ -42,6 +42,14 @@ $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/daemonctl_path_test.c" -o "$out/host/daemonctl_path_test"
 "$out/host/daemonctl_path_test"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -Dmain=cu_touch_main -Dutimensat=cu_test_utimensat \
+    -I "$root/coreutils/src" -c "$root/coreutils/src/touch.c" \
+    -o "$out/host/touch_times_touch.o"
+$clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
+    -I "$root/coreutils/src" "$root/coreutils/tests/touch_times_test.c" \
+    "$out/host/touch_times_touch.o" -o "$out/host/touch_times_test"
+"$out/host/touch_times_test"
 $clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
     "$root/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
 "$out/host/sort_growth_test"

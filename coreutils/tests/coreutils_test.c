@@ -111,6 +111,12 @@ static int has_mode(const char* path, mode_t mode) {
     return stat(path, &info) == 0 && (info.st_mode & 07777) == mode;
 }
 
+static int set_timestamps(const char* path, time_t atime, time_t mtime) {
+    struct timespec times[2] = {{atime, 0}, {mtime, 0}};
+
+    return utimensat(AT_FDCWD, path, times, 0);
+}
+
 static int fork_cow_checks(void) {
     enum { page_count = 1024 };
 
@@ -1385,6 +1391,71 @@ static int cp_stdin_dir_checks(void) {
     return status;
 }
 
+static int touch_timestamp_checks(void) {
+    char* touch_access[]  = {"touch", "-a", "/tmp/coreutils_touch_times", NULL};
+    char* touch_modify[]  = {"touch", "-m", "/tmp/coreutils_touch_times", NULL};
+    char* touch_both[]    = {"touch", "-a", "-m", "/tmp/coreutils_touch_times", NULL};
+    char* touch_default[] = {"touch", "/tmp/coreutils_touch_times", NULL};
+    char* touch_create[]  = {"touch", "-a", "/tmp/coreutils_touch_times_created", NULL};
+
+    struct stat info;
+    time_t      access_time;
+
+    (void) unlink("/tmp/coreutils_touch_times");
+    (void) unlink("/tmp/coreutils_touch_times_created");
+
+    if (put_file("/tmp/coreutils_touch_times", "times\n") != 0)
+        return fail("touch timestamp fixture setup");
+
+    if (set_timestamps("/tmp/coreutils_touch_times", 1000, 2000) != 0)
+        return fail("touch timestamp fixture set");
+
+    if (check("touch -a preserves mtime", touch_access, NULL, 0, NULL, 0) != 0 ||
+        stat("/tmp/coreutils_touch_times", &info) != 0)
+        return 1;
+
+    if (info.st_atime == 1000 || info.st_mtime != 2000)
+        return fail("touch -a updated the wrong timestamps");
+
+    access_time = info.st_atime;
+
+    if (check("touch -m preserves atime", touch_modify, NULL, 0, NULL, 0) != 0 ||
+        stat("/tmp/coreutils_touch_times", &info) != 0)
+        return 1;
+
+    if (info.st_atime != access_time || info.st_mtime == 2000)
+        return fail("touch -m updated the wrong timestamps");
+
+    if (set_timestamps("/tmp/coreutils_touch_times", 1000, 2000) != 0)
+        return fail("touch timestamp reset");
+
+    if (check("touch -a -m updates both", touch_both, NULL, 0, NULL, 0) != 0 ||
+        stat("/tmp/coreutils_touch_times", &info) != 0)
+        return 1;
+
+    if (info.st_atime == 1000 || info.st_mtime == 2000)
+        return fail("touch -a -m missed a timestamp");
+
+    if (set_timestamps("/tmp/coreutils_touch_times", 1000, 2000) != 0)
+        return fail("touch timestamp reset");
+
+    if (check("touch default updates both", touch_default, NULL, 0, NULL, 0) != 0 ||
+        stat("/tmp/coreutils_touch_times", &info) != 0)
+        return 1;
+
+    if (info.st_atime == 1000 || info.st_mtime == 2000)
+        return fail("touch default missed a timestamp");
+
+    if (check("touch -a creates missing file", touch_create, NULL, 0, NULL, 0) != 0 ||
+        !is_file("/tmp/coreutils_touch_times_created"))
+        return fail("touch -a did not create the file");
+
+    (void) unlink("/tmp/coreutils_touch_times");
+    (void) unlink("/tmp/coreutils_touch_times_created");
+
+    return 0;
+}
+
 int main(void) {
     if (!uname_expected_is_current())
         return fail("uname expected output stale");
@@ -1698,9 +1769,9 @@ int main(void) {
         !is_file("/tmp/coreutils_touch") ||
         check("touch -c missing", touch_no_create, NULL, 0, NULL, 0) ||
         is_file("/tmp/coreutils_touch_missing") ||
-        check("touch selective unsupported", touch_access_only, NULL, 1, NULL, 0) ||
+        check("touch access", touch_access_only, NULL, 0, NULL, 0) ||
         check("touch modify", touch_modify, NULL, 0, NULL, 0) ||
-        check("touch access and modify unsupported", touch_both, NULL, 1, NULL, 0) ||
+        check("touch access and modify", touch_both, NULL, 0, NULL, 0) ||
         link("/tmp/coreutils_a", "/tmp/coreutils_cp_hard") != 0 ||
         check("cp same file", cp_self, NULL, 1, NULL, 0) ||
         !file_equals("/tmp/coreutils_a", "alpha\n") ||
@@ -1835,6 +1906,9 @@ int main(void) {
         return 1;
 
     if (sort_growth_checks() != 0)
+        return 1;
+
+    if (touch_timestamp_checks() != 0)
         return 1;
 
     if (mv_directory_checks() != 0)
