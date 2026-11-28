@@ -722,6 +722,61 @@ static int mv_directory_checks(void) {
     return status;
 }
 
+static int mv_cross_device_mode_checks(void) {
+    char* mv_across[] = {"mv", "/tmp/coreutils_mv_mode", "/tmp/coreutils_mv_mnt/mode",
+                         NULL};
+
+    (void) unlink("/tmp/coreutils_mv_mnt/mode");
+    (void) unlink("/tmp/coreutils_mv_mode");
+    (void) rmdir("/tmp/coreutils_mv_mnt");
+
+    if (mkdir("/tmp/coreutils_mv_mnt", 0700) != 0)
+        return fail("mv cross-device mount point");
+
+    if (mount("tmpfs", "/tmp/coreutils_mv_mnt", NULL) != 0) {
+        (void) rmdir("/tmp/coreutils_mv_mnt");
+
+        return fail("mv cross-device mount");
+    }
+
+    struct stat source_root;
+    struct stat destination_root;
+
+    int status = 0;
+
+    if (stat("/tmp", &source_root) != 0 ||
+        stat("/tmp/coreutils_mv_mnt", &destination_root) != 0 ||
+        source_root.st_dev == destination_root.st_dev ||
+        put_file("/tmp/coreutils_mv_mode", "mode\n") != 0 ||
+        chmod("/tmp/coreutils_mv_mode", 0640) != 0) {
+        status = 1;
+    }
+    else {
+        /* A permissive umask must neither widen nor narrow the source mode. */
+        mode_t saved_umask = umask(0077);
+
+        int moved = check("mv cross-device mode", mv_across, NULL, 0, NULL, 0);
+
+        (void) umask(saved_umask);
+
+        if (moved != 0 || is_file("/tmp/coreutils_mv_mode") ||
+            !file_equals("/tmp/coreutils_mv_mnt/mode", "mode\n") ||
+            !has_mode("/tmp/coreutils_mv_mnt/mode", 0640))
+            status = 1;
+    }
+
+    if (unlink("/tmp/coreutils_mv_mnt/mode") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (unlink("/tmp/coreutils_mv_mode") != 0 && errno != ENOENT)
+        status = 1;
+
+    if (umount("/tmp/coreutils_mv_mnt") != 0 || rmdir("/tmp/coreutils_mv_mnt") != 0)
+        status = 1;
+
+    return status == 0 ? 0 : fail("mv cross-device mode");
+}
+
 static int ln_checks(void) {
     char* ln_hard[]       = {"ln", "/tmp/coreutils_a", "/tmp/coreutils_hard", NULL};
     char* ln_force_hard[] = {"ln", "-f", "/tmp/coreutils_b", "/tmp/coreutils_hard", NULL};
@@ -1517,6 +1572,9 @@ int main(void) {
         return 1;
 
     if (mv_directory_checks() != 0)
+        return 1;
+
+    if (mv_cross_device_mode_checks() != 0)
         return 1;
 
     if (rm_directory_checks() != 0)
