@@ -1,5 +1,6 @@
 #include "internal/file_port.h"
 #include "internal/path.h"
+#include "internal/stdio_pushback.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -36,6 +37,8 @@
 
 enum { ST_EOF = 1, ST_ERR = 2 };
 
+enum { STREAM_PUSHBACK_CAP = 256 };
+
 enum astia_file_kind { AF_FD = 0, AF_MEM = 1 };
 
 struct astia_memstream {
@@ -59,9 +62,9 @@ struct astia_file {
     size_t                 cap; /* buffer capacity; 0 == unbuffered */
     size_t                 len; /* read: valid bytes; write: pending bytes */
     size_t                 cur; /* read cursor inside buf */
-    int                    has_pushback;
-    int                    pushback_backed; /* pos was decremented for it */
-    unsigned char          pushback;
+    size_t                 pushback_len;
+    unsigned char          pushback_bytes[STREAM_PUSHBACK_CAP];
+    unsigned char          pushback_backed[STREAM_PUSHBACK_CAP]; /* pos was decremented */
     enum astia_file_kind   kind;
     struct astia_memstream mem;
     struct astia_file*     next; /* open-file list, for fflush(NULL) */
@@ -322,11 +325,10 @@ static int flush_pending(FILE* f) {
 /* Throw away read-ahead.  `pos` counts only consumed bytes, so it is
  * already the right resume point — nothing is lost. */
 static void drop_read(FILE* f) {
-    f->len             = 0;
-    f->cur             = 0;
-    f->reading         = 0;
-    f->has_pushback    = 0;
-    f->pushback_backed = 0;
+    f->len          = 0;
+    f->cur          = 0;
+    f->reading      = 0;
+    f->pushback_len = 0;
 }
 
 static size_t stream_read(FILE* f, void* dst, size_t n) {
@@ -352,14 +354,13 @@ static size_t stream_read(FILE* f, void* dst, size_t n) {
     f->reading = 1;
 
     while (got < n) {
-        if (f->has_pushback) {
-            d[got++]        = f->pushback;
-            f->has_pushback = 0;
+        if (f->pushback_len != 0) {
+            size_t index = --f->pushback_len;
 
-            if (f->pushback_backed)
+            d[got++] = f->pushback_bytes[index];
+
+            if (f->pushback_backed[index])
                 f->pos++;
-
-            f->pushback_backed = 0;
 
             continue;
         }
@@ -562,22 +563,21 @@ static FILE* alloc_stream(int fd, int flags, long init_pos) {
         return NULL;
     }
 
-    f->fd              = fd;
-    f->io_flags        = flags;
-    f->state           = 0;
-    f->buf_mode        = _IOFBF;
-    f->heap            = 1;
-    f->buf_owned       = 1;
-    f->reading         = 0;
-    f->pos             = init_pos;
-    f->cap             = BUFSIZ;
-    f->len             = 0;
-    f->cur             = 0;
-    f->has_pushback    = 0;
-    f->pushback_backed = 0;
-    f->kind            = AF_FD;
-    f->next            = g_open;
-    g_open             = f;
+    f->fd           = fd;
+    f->io_flags     = flags;
+    f->state        = 0;
+    f->buf_mode     = _IOFBF;
+    f->heap         = 1;
+    f->buf_owned    = 1;
+    f->reading      = 0;
+    f->pos          = init_pos;
+    f->cap          = BUFSIZ;
+    f->len          = 0;
+    f->cur          = 0;
+    f->pushback_len = 0;
+    f->kind         = AF_FD;
+    f->next         = g_open;
+    g_open          = f;
 
     return f;
 }
@@ -620,27 +620,26 @@ FILE* open_memstream(char** bufp, size_t* sizep) {
         return NULL;
     }
 
-    f->fd              = -1;
-    f->io_flags        = FIO_WRITE;
-    f->state           = 0;
-    f->buf_mode        = _IOFBF;
-    f->heap            = 1;
-    f->buf_owned       = 1;
-    f->reading         = 0;
-    f->pos             = 0;
-    f->cap             = BUFSIZ;
-    f->len             = 0;
-    f->cur             = 0;
-    f->has_pushback    = 0;
-    f->pushback_backed = 0;
-    f->kind            = AF_MEM;
-    f->mem.bufp        = bufp;
-    f->mem.sizep       = sizep;
-    f->mem.data        = data;
-    f->mem.length      = 0;
-    f->mem.capacity    = 1;
-    f->next            = g_open;
-    g_open             = f;
+    f->fd           = -1;
+    f->io_flags     = FIO_WRITE;
+    f->state        = 0;
+    f->buf_mode     = _IOFBF;
+    f->heap         = 1;
+    f->buf_owned    = 1;
+    f->reading      = 0;
+    f->pos          = 0;
+    f->cap          = BUFSIZ;
+    f->len          = 0;
+    f->cur          = 0;
+    f->pushback_len = 0;
+    f->kind         = AF_MEM;
+    f->mem.bufp     = bufp;
+    f->mem.sizep    = sizep;
+    f->mem.data     = data;
+    f->mem.length   = 0;
+    f->mem.capacity = 1;
+    f->next         = g_open;
+    g_open          = f;
 
     /* POSIX: the caller can read a valid empty string immediately, not
        only after the first fflush/fclose. */
@@ -849,15 +848,14 @@ static void retarget_stream(FILE* f, int fd, int flags, long position) {
     if (f->fd != fd)
         return;
 
-    f->fd              = fd;
-    f->io_flags        = flags;
-    f->state           = 0;
-    f->reading         = 0;
-    f->pos             = position;
-    f->len             = 0;
-    f->cur             = 0;
-    f->has_pushback    = 0;
-    f->pushback_backed = 0;
+    f->fd           = fd;
+    f->io_flags     = flags;
+    f->state        = 0;
+    f->reading      = 0;
+    f->pos          = position;
+    f->len          = 0;
+    f->cur          = 0;
+    f->pushback_len = 0;
 }
 
 int __astia_stdio_dup2(int old_fd, int new_fd) {
@@ -1185,6 +1183,32 @@ int getchar(void) {
     return fgetc(stdin);
 }
 
+int __astia_file_pushback(FILE* f, int c) {
+    int backed;
+
+    if (c == EOF || f == NULL || f->kind == AF_MEM || f->fd < 0 ||
+        !(f->io_flags & FIO_READ) || f->pushback_len == STREAM_PUSHBACK_CAP)
+        return EOF;
+
+    if (!f->reading && f->len > 0 && flush_pending(f) < 0)
+        return EOF;
+
+    backed = f->pos > 0;
+
+    f->reading                          = 1;
+    f->pushback_bytes[f->pushback_len]  = (unsigned char) c;
+    f->pushback_backed[f->pushback_len] = (unsigned char) backed;
+
+    f->pushback_len++;
+
+    if (backed)
+        f->pos--;
+
+    f->state &= ~ST_EOF;
+
+    return 0;
+}
+
 int ungetc(int c, FILE* f) {
     if (c == EOF || f == NULL || f->kind == AF_MEM || f->fd < 0 ||
         !(f->io_flags & FIO_READ)) {
@@ -1194,21 +1218,11 @@ int ungetc(int c, FILE* f) {
         return EOF;
     }
 
-    if (f->has_pushback)
+    if (f->pushback_len != 0)
         return EOF;
 
-    if (!f->reading && f->len > 0 && flush_pending(f) < 0)
+    if (__astia_file_pushback(f, c) == EOF)
         return EOF;
-
-    f->reading         = 1;
-    f->pushback        = (unsigned char) c;
-    f->has_pushback    = 1;
-    f->pushback_backed = f->pos > 0;
-
-    if (f->pushback_backed)
-        f->pos--;
-
-    f->state &= ~ST_EOF;
 
     return (unsigned char) c;
 }
