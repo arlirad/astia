@@ -8,7 +8,8 @@ set(ASTIA_EXT4_SOURCES
         ext4_disk.cpp
         ext4_space.cpp
         ext4_extent.cpp
-        ext4_dir.cpp)
+        ext4_dir.cpp
+        ext4_journal.cpp)
 
 set(ASTIA_EXT4_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/ext4.hpp
@@ -16,7 +17,8 @@ set(ASTIA_EXT4_LOCAL_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.hpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.hpp)
+        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/ext4_journal.hpp)
 
 set(ASTIA_EXT4_ABI_HEADERS
         ${ASTIA_KERNEL_SOURCE_DIR}/include/astia/api/aio.h
@@ -195,6 +197,38 @@ add_custom_command(
 
 add_custom_target(ext4_dir_unit_target ALL DEPENDS ${ASTIA_EXT4_DIR_UNIT})
 
+set(ASTIA_EXT4_JOURNAL_UNIT ${CMAKE_CURRENT_BINARY_DIR}/ext4_journal_unit)
+
+add_custom_command(
+        OUTPUT ${ASTIA_EXT4_JOURNAL_UNIT}
+        COMMAND ${CMAKE_CXX_COMPILER} -std=c++20 -DASTIA_HOST_TEST=1
+                -Wall -Wextra -Werror -pedantic
+                ${ASTIA_HOST_SANITIZER_COMPILE_OPTIONS}
+                -I${ASTIA_KERNEL_SOURCE_DIR}/include
+                -I${ASTIA_ARCH_INCLUDE_DIR}
+                -I${CMAKE_CURRENT_SOURCE_DIR}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_journal_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_journal.cpp
+                ${ASTIA_HOST_SANITIZER_LINK_OPTIONS}
+                -o ${ASTIA_EXT4_JOURNAL_UNIT}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/ext4_journal_test.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_disk.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_reader.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_space.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_extent.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_dir.cpp
+                ${CMAKE_CURRENT_SOURCE_DIR}/ext4_journal.cpp
+                ${ASTIA_EXT4_LOCAL_HEADERS}
+                ${ASTIA_EXT4_ABI_HEADERS}
+        VERBATIM)
+
+add_custom_target(ext4_journal_unit_target ALL DEPENDS ${ASTIA_EXT4_JOURNAL_UNIT})
+
 if(ASTIA_BUILD_TESTS)
     add_test(NAME ext4_unit COMMAND ${ASTIA_EXT4_UNIT})
     astia_add_test_label(ext4_unit "sanitizer-host")
@@ -255,6 +289,24 @@ if(ASTIA_BUILD_TESTS)
                         ${_astia_ext4_dir_work}/fixture.img
                         ${_astia_ext4_dir_work})
         astia_add_test_label(ext4_dir_test "ext4;filesystem;sanitizer-host")
+
+        set(_astia_ext4_journal_work ${CMAKE_CURRENT_BINARY_DIR}/ext4-journal-test)
+        add_custom_target(ext4_journal_test_target
+                COMMAND ${CMAKE_COMMAND} -E make_directory ${_astia_ext4_journal_work}
+                COMMAND ${CMAKE_COMMAND} -E env
+                        EXT4_JOURNAL_TOOL=${ASTIA_EXT4_JOURNAL_UNIT}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_journal_test.sh
+                        ${_astia_ext4_journal_work}/fixture.img
+                        ${_astia_ext4_journal_work}
+                DEPENDS ${ASTIA_EXT4_JOURNAL_UNIT}
+                VERBATIM)
+        add_test(NAME ext4_journal_test
+                COMMAND ${CMAKE_COMMAND} -E env
+                        EXT4_JOURNAL_TOOL=${ASTIA_EXT4_JOURNAL_UNIT}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_journal_test.sh
+                        ${_astia_ext4_journal_work}/fixture.img
+                        ${_astia_ext4_journal_work})
+        astia_add_test_label(ext4_journal_test "ext4;filesystem;sanitizer-host")
     endif()
 endif()
 

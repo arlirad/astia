@@ -452,7 +452,8 @@ if(ASTIA_BUILD_TESTS)
             ext4_unit_target
             ext4_disk_unit_target
             ext4_extent_unit_target
-            ext4_dir_unit_target)
+            ext4_dir_unit_target
+            ext4_journal_unit_target)
         if(NOT TARGET ${_astia_module_test_target})
             message(FATAL_ERROR
                     "ASTIA_BUILD_TESTS requires module target ${_astia_module_test_target}")
@@ -483,7 +484,8 @@ if(ASTIA_BUILD_TESTS)
             ext4_unit_target
             ext4_disk_unit_target
             ext4_extent_unit_target
-            ext4_dir_unit_target)
+            ext4_dir_unit_target
+            ext4_journal_unit_target)
 
     add_test(NAME astia_module_host_prepare
             COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
