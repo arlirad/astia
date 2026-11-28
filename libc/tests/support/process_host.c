@@ -136,6 +136,15 @@ __attribute__((weak)) long __astia_process_kill(int pid, int signal) {
     return host_trap(SYS_kill, pid, signal, 0, 0);
 }
 
+__attribute__((weak)) long __astia_process_thread_exists(unsigned long tid) {
+    return host_trap(SYS_tgkill, host_trap(SYS_getpid, 0, 0, 0, 0), (long) tid, 0, 0);
+}
+
+__attribute__((weak)) long __astia_process_thread_kill(unsigned long tid, int signal) {
+    return host_trap(SYS_tgkill, host_trap(SYS_getpid, 0, 0, 0, 0), (long) tid, signal,
+                     0);
+}
+
 long __astia_process_yield(void) {
     return host_trap(SYS_sched_yield, 0, 0, 0, 0);
 }
