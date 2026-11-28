@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
 
     char** lines = 0;
 
-    size_t count = 0, capacity = 0;
+    size_t count = 0, capacity = 0, operands = 0;
 
     int status = 0;
 
@@ -100,8 +100,10 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (args.options && value[0] == '-')
+        if (args.options && value[0] == '-' && value[1] != '\0')
             return cu_error("sort", "unknown option");
+
+        ++operands;
 
         int fd = __builtin_strcmp(value, "-") == 0 ? CU_STDIN : open(value, O_RDONLY);
         if (fd < 0) {
@@ -123,7 +125,7 @@ int main(int argc, char** argv) {
             status = 1;
     }
 
-    if (args.index == 1) {
+    if (operands == 0) {
         if (sort_fd(CU_STDIN, "standard input", &lines, &count, &capacity) != 0) {
             free_lines(lines, count);
 
