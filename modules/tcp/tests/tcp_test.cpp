@@ -642,6 +642,66 @@ void test_active_close() {
     astia::net::unregister_protocol(protocol);
 }
 
+void test_out_of_order_reassembly() {
+    astia::tcp::tcp_protocol protocol;
+    capture_ipv4             ipv4;
+    capture_link             link;
+
+    assert(astia::net::register_protocol(protocol));
+    assert(astia::net::register_protocol(ipv4));
+
+    auto* listener = protocol.listen(endpoint_of(local_ip, 80));
+
+    assert(listener != nullptr);
+
+    u8  segment[128]{};
+    usz length = build_segment(segment, 40000, 80, 100, 0, astia::tcp::flag_syn, nullptr,
+                               0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    auto* child = protocol.accept(*listener);
+
+    assert(child != nullptr);
+
+    length = build_segment(segment, 40000, 80, child->rcv_nxt, child->snd_nxt,
+                           astia::tcp::flag_ack, nullptr, 0, remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->state == astia::tcp::connection_state::established);
+
+    const u32 base = child->rcv_nxt;
+
+    length = build_segment(segment, 40000, 80, base + 5, child->snd_una,
+                           astia::tcp::flag_psh | astia::tcp::flag_ack, "world", 5,
+                           remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->buffered() == 0);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == base);
+
+    length = build_segment(segment, 40000, 80, base, child->snd_una,
+                           astia::tcp::flag_psh | astia::tcp::flag_ack, "hello", 5,
+                           remote_ip, local_ip);
+
+    receive(protocol, link, segment, length, remote_ip, local_ip);
+
+    assert(child->buffered() == 10);
+    assert(static_cast<u32>(last_header(ipv4).acknowledgement) == base + 10);
+    assert(last_header(ipv4).window == 4096 - 10);
+
+    u8  output[16]{};
+    i64 received = protocol.recv_data(*child, astia::span<u8>(output, sizeof output));
+
+    assert(received == 10);
+    assert(std::memcmp(output, "helloworld", 10) == 0);
+
+    astia::net::unregister_protocol(ipv4);
+    astia::net::unregister_protocol(protocol);
+}
+
 int main() {
     test_flags_and_offset();
     test_syn_checksum();
@@ -653,6 +713,7 @@ int main() {
     test_async_accept_and_receive();
     test_retransmit_syn_and_data();
     test_active_close();
+    test_out_of_order_reassembly();
 
     return 0;
 }

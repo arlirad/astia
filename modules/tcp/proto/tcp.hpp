@@ -88,7 +88,17 @@ namespace astia::tcp {
         static constexpr u32 waiter_limit = 4;
 
         static constexpr u16 retransmit_capacity = 1500;
-        static constexpr u8  max_retries         = 5;
+        static constexpr u32 pending_limit       = 4;
+
+        struct pending_segment {
+            bool used   = false;
+            u32  seq    = 0;
+            u16  length = 0;
+            u8   data[retransmit_capacity]{};
+        };
+
+        pending_segment     pending[pending_limit]{};
+        static constexpr u8 max_retries = 5;
 
         u8  retransmit_data[retransmit_capacity]{};
         u16 retransmit_length = 0;
@@ -170,6 +180,9 @@ namespace astia::tcp {
 
         void queue(connection& value, net::packet_view payload);
         i64  pop(connection& value, span<u8> data);
+
+        bool store_pending(connection& value, u32 seq, net::packet_view payload);
+        void drain_pending(connection& value);
 
         core::task<void> send_segment(connection& value, u16 flags, u32 seq, u32 ack,
                                       span<const u8> payload);
