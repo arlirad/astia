@@ -102,6 +102,143 @@ namespace astia::io::aio::test_support {
             destination[length] = '\0';
         }
 
+        char process_root_value[fs::path_max] = "/";
+        char process_cwd_value[fs::path_max]  = "/";
+
+        bool within_root(const char* root, const char* path) {
+            if (root == nullptr || path == nullptr || root[0] != '/' || path[0] != '/')
+                return false;
+
+            if (root[1] == '\0')
+                return true;
+
+            u32 index = 0;
+
+            for (; root[index] != '\0'; ++index) {
+                if (path[index] != root[index])
+                    return false;
+            }
+
+            return path[index] == '\0' || path[index] == '/';
+        }
+
+        long append_text(char* destination, usz capacity, usz& at, const char* source) {
+            for (usz index = 0; source[index] != '\0'; ++index) {
+                if (at + 1 >= capacity)
+                    return -ENAMETOOLONG;
+
+                destination[at++] = source[index];
+            }
+
+            destination[at] = '\0';
+
+            return 0;
+        }
+
+        /// Mirror the production root clamp closely enough to prove that the
+        /// AIO layer consumes the caller-relative canonical name: absolute
+        /// paths are rebased on the process root, relative paths start at the
+        /// working directory, and ".." never climbs above the root.
+        long resolve_in_root(const char* root, const char* cwd, const char* path,
+                             char* output, usz capacity) {
+            if (root == nullptr || path == nullptr || output == nullptr ||
+                capacity == 0 || root[0] != '/' || path[0] == '\0')
+                return -EINVAL;
+
+            char candidate[fs::path_max]{};
+
+            usz at = 0;
+
+            if (path[0] == '/') {
+                if (root[1] != '\0' &&
+                    append_text(candidate, sizeof candidate, at, root) < 0)
+                    return -ENAMETOOLONG;
+
+                if (append_text(candidate, sizeof candidate, at, path) < 0)
+                    return -ENAMETOOLONG;
+            }
+            else {
+                if (!within_root(root, cwd))
+                    return -ENOENT;
+
+                if (append_text(candidate, sizeof candidate, at, cwd) < 0 ||
+                    append_text(candidate, sizeof candidate, at, "/") < 0 ||
+                    append_text(candidate, sizeof candidate, at, path) < 0)
+                    return -ENAMETOOLONG;
+            }
+
+            usz root_length = 0;
+
+            while (root[root_length] != '\0') {
+                ++root_length;
+            }
+
+            char result[fs::path_max]{};
+
+            for (usz index = 0; index <= root_length; ++index) {
+                result[index] = root[index];
+            }
+
+            usz length = root_length;
+
+            for (usz index = root_length; candidate[index] != '\0';) {
+                while (candidate[index] == '/') {
+                    ++index;
+                }
+
+                const usz start = index;
+
+                while (candidate[index] != '\0' && candidate[index] != '/') {
+                    ++index;
+                }
+
+                const usz size = index - start;
+                if (size == 0)
+                    continue;
+
+                if (size == 1 && candidate[start] == '.')
+                    continue;
+
+                if (size == 2 && candidate[start] == '.' && candidate[start + 1] == '.') {
+                    while (length > root_length && result[length - 1] != '/') {
+                        --length;
+                    }
+
+                    if (length > root_length && result[length - 1] == '/')
+                        --length;
+
+                    result[length] = '\0';
+
+                    continue;
+                }
+
+                if (length > 1) {
+                    if (length + 1 >= sizeof result)
+                        return -ENAMETOOLONG;
+
+                    result[length++] = '/';
+                }
+
+                if (length + size >= sizeof result)
+                    return -ENAMETOOLONG;
+
+                for (usz offset = 0; offset < size; ++offset) {
+                    result[length++] = candidate[start + offset];
+                }
+
+                result[length] = '\0';
+            }
+
+            if (length + 1 > capacity)
+                return -ENAMETOOLONG;
+
+            for (usz index = 0; index <= length; ++index) {
+                output[index] = result[index];
+            }
+
+            return 0;
+        }
+
         node_override_entry* find_override(const char* path, bool create) {
             if (path == nullptr)
                 return nullptr;
@@ -297,6 +434,17 @@ namespace astia::io::aio::test_support {
         generation_value       = 0;
         directory_entry_inode  = 0;
         current                = nullptr;
+
+        copy_text(process_root_value, fs::path_max, "/");
+        copy_text(process_cwd_value, fs::path_max, "/");
+    }
+
+    void set_process_root(const char* root) {
+        copy_text(detail::process_root_value, fs::path_max, root == nullptr ? "/" : root);
+    }
+
+    void set_process_cwd(const char* cwd) {
+        copy_text(detail::process_cwd_value, fs::path_max, cwd == nullptr ? "/" : cwd);
     }
 
     const chown_record& last_chown_path() {
@@ -957,7 +1105,13 @@ namespace astia::proc {
                               bool follow_final) const {
         ::astia::io::aio::test_support::detail::resolve_follow_final_value = follow_final;
 
-        return compose_path(path, buffer);
+        if (buffer.null() || buffer.empty())
+            return -EINVAL;
+
+        return ::astia::io::aio::test_support::detail::resolve_in_root(
+            ::astia::io::aio::test_support::detail::process_root_value,
+            ::astia::io::aio::test_support::detail::process_cwd_value, path,
+            buffer.data(), buffer.size());
     }
 
     i64 process::resolve_path_at(fd_t dirfd, const char* path, span<char> buffer,
@@ -977,10 +1131,22 @@ namespace astia::proc {
         if (buffer.null() || buffer.empty())
             return -EINVAL;
 
-        buffer.data()[0] = '/';
-        buffer.data()[1] = '\0';
+        const char* root = ::astia::io::aio::test_support::detail::process_root_value;
 
-        return 2;
+        usz length = 0;
+
+        while (root[length] != '\0') {
+            if (length + 1 >= buffer.size())
+                return -ERANGE;
+
+            buffer[length] = root[length];
+
+            ++length;
+        }
+
+        buffer[length] = '\0';
+
+        return static_cast<i64>(length + 1);
     }
 
     bool process::in_group(gid_t group) const {
@@ -1106,7 +1272,7 @@ namespace astia::fs {
         return _parent ? _parent->chmod(permissions) : -EBADF;
     }
 
-    mm::shptr<open_file> open(const char*, u32) {
+    mm::shptr<open_file> open(const char*, u32, long*) {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
@@ -1114,7 +1280,7 @@ namespace astia::fs {
         return ::astia::io::aio::test_support::open_file_value;
     }
 
-    mm::shptr<open_file> open_path(const char*, u32) {
+    mm::shptr<open_file> open_path(const char*, u32, long*) {
         return ::astia::io::aio::test_support::open_file_value;
     }
 

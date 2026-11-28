@@ -207,10 +207,10 @@ rm -rf "$work"
 mkdir -p "$work/root/sbin" "$work/root/bin" "$work/root/etc" "$work/root/mod"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
-    COREUTILS_BUILD="$work/coreutils" "$root/coreutils/build.sh"
+    COREUTILS_BUILD="$work/coreutils" "$root/utils/coreutils/build.sh"
 
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$zsh_build/astia/image/crt0.o" \
-    SYSUTILS_BUILD="$work/sysutils" "$root/sysutils/build.sh"
+    SYSUTILS_BUILD="$work/sysutils" "$root/utils/sysutils/build.sh"
 
 if [ -n "$nano_binary" ] || [ "$nano_enabled" = 1 ]; then
     if [ -z "$nano_binary" ]; then

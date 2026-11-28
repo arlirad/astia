@@ -44,12 +44,16 @@ namespace astia::fs {
 
         std::atomic<bool> lookup_blocked;
         std::atomic<bool> lookup_entered;
+
+        char lookup_last_path[path_max];
+        char lookup_required_path[path_max];
+        bool lookup_requires_path;
     } // namespace
 
     mm::shptr<file> unix_lookup_endpoint;
 
     long register_unix_path(const char* path, const mm::shptr<file>& endpoint, uid_t,
-                            gid_t, astia::span<char>) {
+                            gid_t) {
         if (registration_count == registration_capacity)
             return -ENFILE;
 
@@ -67,11 +71,21 @@ namespace astia::fs {
         return 0;
     }
 
-    long lookup_unix_path(const char*, mm::shptr<file>& endpoint) {
+    long lookup_unix_path(const char* path, mm::shptr<file>& endpoint) {
         while (lookup_blocked.load()) {
             lookup_entered.store(true);
             std::this_thread::yield();
         }
+
+        for (u32 i = 0; i < path_max; ++i) {
+            lookup_last_path[i] = path[i];
+
+            if (!path[i])
+                break;
+        }
+
+        if (lookup_requires_path && !astia::string_equal(path, lookup_required_path))
+            return -ENOENT;
 
         if (!unix_lookup_endpoint)
             return -ENOENT;
@@ -104,8 +118,27 @@ namespace astia::fs {
         registration_count   = 0;
         unix_lookup_endpoint = {};
 
+        lookup_last_path[0]     = '\0';
+        lookup_required_path[0] = '\0';
+        lookup_requires_path    = false;
+
         lookup_blocked.store(false);
         lookup_entered.store(false);
+    }
+
+    const char* unix_lookup_path() {
+        return lookup_last_path;
+    }
+
+    void require_unix_lookup_path(const char* path) {
+        lookup_requires_path = path != nullptr;
+
+        for (u32 i = 0; i < path_max; ++i) {
+            lookup_required_path[i] = path == nullptr ? '\0' : path[i];
+
+            if (path != nullptr && !path[i])
+                break;
+        }
     }
 
     u32 unix_registration_count() {
@@ -123,6 +156,21 @@ namespace {
 
     void set_unix_lookup_endpoint(const astia::mm::shptr<fs::file>& endpoint) {
         fs::unix_lookup_endpoint = endpoint;
+    }
+
+    void set_jail_directory() {
+        astia::io::aio::test_support::set_node_mode(
+            "/jail", fs::file_mode(fs::file_type::directory, fs::file_permissions(0755)));
+    }
+
+    astia_sqe socket_sqe(u32 op, i32 fd, u64 address = 0) {
+        astia_sqe sqe{};
+
+        sqe.op      = op;
+        sqe.fd      = fd;
+        sqe.address = address;
+
+        return sqe;
     }
 
     astia_sockaddr socket_address(const char* path = "/") {
@@ -194,7 +242,7 @@ namespace {
         set_unix_lookup_endpoint(pair.listener->parent());
 
         if (client_path != nullptr &&
-            pair.client_ops->bind(path_address(client_path)) != 0)
+            pair.client_ops->bind(path_address(client_path), client_path) != 0)
             return false;
 
         if (pair.listener_ops->listen(1) != 0)
@@ -205,7 +253,7 @@ namespace {
         if (pair.listener_fd < 0)
             return false;
 
-        return pair.client_ops->connect(socket_address()) == 0;
+        return pair.client_ops->connect(socket_address(), "/") == 0;
     }
 
     i32 dispatch_accept(accept_pair& pair, astia_sockaddr* peer,
@@ -260,7 +308,7 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
 
     const astia_sockaddr address = socket_address();
 
-    ASTIA_CHECK(client_ops->connect(address) == 0);
+    ASTIA_CHECK(client_ops->connect(address, "/") == 0);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
     ASTIA_CHECK(drive_task(listener_ops->accept()).fd == -EMFILE);
@@ -313,11 +361,11 @@ ASTIA_TEST(unix_socket_second_bind_is_rejected_without_replacing_first) {
     if (!ops)
         return;
 
-    ASTIA_CHECK(ops->bind(socket_address("/tmp/first")) == 0);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/first"), "/tmp/first") == 0);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
 
-    ASTIA_CHECK(ops->bind(socket_address("/tmp/second")) == -EINVAL);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/second"), "/tmp/second") == -EINVAL);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
 }
@@ -343,8 +391,8 @@ ASTIA_TEST(unix_socket_rejected_second_bind_keeps_first_binding_until_close) {
     if (!ops)
         return;
 
-    ASTIA_CHECK(ops->bind(socket_address("/tmp/keep")) == 0);
-    ASTIA_CHECK(ops->bind(socket_address("/tmp/discard")) == -EINVAL);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/keep"), "/tmp/keep") == 0);
+    ASTIA_CHECK(ops->bind(socket_address("/tmp/discard"), "/tmp/discard") == -EINVAL);
     ASTIA_CHECK(fs::unix_registration_count() == 1);
     ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/keep"));
 
@@ -384,8 +432,8 @@ ASTIA_TEST(unix_socket_second_connect_is_rejected_with_eisconn) {
 
     const astia_sockaddr address = socket_address("/s");
 
-    ASTIA_CHECK(client_ops->connect(address) == 0);
-    ASTIA_CHECK(client_ops->connect(address) == -EISCONN);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == 0);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == -EISCONN);
     ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
 
     const fs::accepted accepted = drive_task(listener_ops->accept());
@@ -431,13 +479,13 @@ ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
 
     std::atomic<long> first_result{-1};
 
-    std::thread first([&] { first_result.store(client_ops->connect(address)); });
+    std::thread first([&] { first_result.store(client_ops->connect(address, "/s")); });
 
     while (!fs::lookup_entered.load()) {
         std::this_thread::yield();
     }
 
-    ASTIA_CHECK(client_ops->connect(address) == -EALREADY);
+    ASTIA_CHECK(client_ops->connect(address, "/s") == -EALREADY);
 
     fs::lookup_blocked.store(false);
     first.join();
@@ -562,6 +610,248 @@ ASTIA_TEST(unix_socket_accept_rejects_unmapped_address_without_consuming) {
     ASTIA_CHECK(pair.listener->poll(POLLIN) == POLLIN);
     ASTIA_CHECK(dispatch_accept(pair, &peer, capture, slot, 1) >= 4);
 
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_bind_registers_inside_caller_root) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+
+    mm::shptr<fs::open_file> socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(socket, SOCK_STREAM) == 0);
+
+    if (!socket)
+        return;
+
+    const i32 fd = install_descriptor(socket);
+
+    ASTIA_CHECK(fd >= 3);
+
+    astia_sockaddr       address = socket_address("/sock");
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = socket_sqe(OP_BIND, fd, reinterpret_cast<u64>(&address));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(string_equal(fs::unix_registration_path(0), "/jail/sock"));
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_connect_uses_caller_root) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+
+    mm::shptr<fs::open_file> listener;
+
+    ASTIA_CHECK(fs::create_unix_socket(listener, SOCK_STREAM) == 0);
+
+    if (!listener)
+        return;
+
+    auto listener_ops = listener->parent()->as_stream_sock();
+
+    ASTIA_CHECK(listener_ops.has_value && listener_ops->listen(1) == 0);
+
+    set_unix_lookup_endpoint(listener->parent());
+    fs::require_unix_lookup_path("/jail/sock");
+
+    astia_sockaddr address = socket_address("/sock");
+
+    mm::shptr<fs::open_file> outside_client;
+
+    ASTIA_CHECK(fs::create_unix_socket(outside_client, SOCK_STREAM) == 0);
+
+    if (!outside_client)
+        return;
+
+    const i32 outside_fd = install_descriptor(outside_client);
+
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            outside_sqe =
+        socket_sqe(OP_CONNECT, outside_fd, reinterpret_cast<u64>(&address));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, outside_sqe));
+    ASTIA_CHECK(capture.result(0) == -ECONNREFUSED);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/sock"));
+
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+
+    mm::shptr<fs::open_file> inside_client;
+
+    ASTIA_CHECK(fs::create_unix_socket(inside_client, SOCK_STREAM) == 0);
+
+    if (!inside_client)
+        return;
+
+    const i32 inside_fd = install_descriptor(inside_client);
+
+    astia_sqe inside_sqe =
+        socket_sqe(OP_CONNECT, inside_fd, reinterpret_cast<u64>(&address));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, inside_sqe));
+    ASTIA_CHECK(capture.result(1) == 0);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/jail/sock"));
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_bind_relative_path_uses_caller_root) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+
+    mm::shptr<fs::open_file> socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(socket, SOCK_STREAM) == 0);
+
+    if (!socket)
+        return;
+
+    const i32 fd = install_descriptor(socket);
+
+    astia_sockaddr       address = socket_address("sock");
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+    astia_sqe            sqe = socket_sqe(OP_BIND, fd, reinterpret_cast<u64>(&address));
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, sqe));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(string_equal(fs::unix_registration_path(0), "/jail/sock"));
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_bind_rejects_host_path_from_inside_chroot) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+
+    mm::shptr<fs::open_file> host_socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(host_socket, SOCK_STREAM) == 0);
+
+    if (!host_socket)
+        return;
+
+    const i32 host_fd = install_descriptor(host_socket);
+
+    astia_sockaddr       address = socket_address("/jail/sock");
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    ASTIA_CHECK(aio::registry::dispatch(
+        slot, &capture.ring,
+        socket_sqe(OP_BIND, host_fd, reinterpret_cast<u64>(&address))));
+    ASTIA_CHECK(capture.result(0) == 0);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(string_equal(fs::unix_registration_path(0), "/jail/sock"));
+
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+
+    mm::shptr<fs::open_file> jailed_socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(jailed_socket, SOCK_STREAM) == 0);
+
+    if (!jailed_socket)
+        return;
+
+    const i32 jailed_fd = install_descriptor(jailed_socket);
+
+    ASTIA_CHECK(aio::registry::dispatch(
+        slot, &capture.ring,
+        socket_sqe(OP_BIND, jailed_fd, reinterpret_cast<u64>(&address))));
+    ASTIA_CHECK(capture.result(1) == -EACCES);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    release_parked(slot);
+}
+
+ASTIA_TEST(aio_unix_sendto_uses_caller_root) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+    set_jail_directory();
+
+    mm::shptr<fs::open_file> target;
+
+    ASTIA_CHECK(fs::create_unix_socket(target, SOCK_DGRAM) == 0);
+
+    if (!target)
+        return;
+
+    set_unix_lookup_endpoint(target->parent());
+    fs::require_unix_lookup_path("/jail/sock");
+
+    char byte = 'x';
+
+    astia_sockaddr       address = socket_address("/sock");
+    cq_capture           capture;
+    aio::ring::ring_slot slot{};
+
+    mm::shptr<fs::open_file> outside_client;
+
+    ASTIA_CHECK(fs::create_unix_socket(outside_client, SOCK_DGRAM) == 0);
+
+    if (!outside_client)
+        return;
+
+    const i32 outside_fd = install_descriptor(outside_client);
+
+    astia_sqe outside_sqe =
+        socket_sqe(OP_SENDTO, outside_fd, reinterpret_cast<u64>(&byte));
+
+    outside_sqe.offset = reinterpret_cast<u64>(&address);
+    outside_sqe.length = 1;
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, outside_sqe));
+    ASTIA_CHECK(capture.result(0) == -ECONNREFUSED);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/sock"));
+
+    set_process_root("/jail");
+    set_process_cwd("/jail");
+
+    mm::shptr<fs::open_file> inside_client;
+
+    ASTIA_CHECK(fs::create_unix_socket(inside_client, SOCK_DGRAM) == 0);
+
+    if (!inside_client)
+        return;
+
+    const i32 inside_fd = install_descriptor(inside_client);
+
+    astia_sqe inside_sqe = socket_sqe(OP_SENDTO, inside_fd, reinterpret_cast<u64>(&byte));
+
+    inside_sqe.offset = reinterpret_cast<u64>(&address);
+    inside_sqe.length = 1;
+
+    ASTIA_CHECK(aio::registry::dispatch(slot, &capture.ring, inside_sqe));
+    ASTIA_CHECK(capture.result(1) == 1);
+    ASTIA_CHECK(string_equal(fs::unix_lookup_path(), "/jail/sock"));
     release_parked(slot);
 }
 

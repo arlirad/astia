@@ -1,7 +1,11 @@
 #!/bin/sh
+# Build the Astia-specific system utilities against the Astia sysroot.
+#
+# The layout and incremental keys mirror utils/coreutils/build.sh: one program
+# per src/*.c, statically linked through libc.so and the Astia crt0.
 set -eu
 
-root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${1:-${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}}
 clang=${CLANG:-clang}
@@ -9,7 +13,7 @@ target=x86_64-unknown-elf
 clang_path=$(command -v "$clang")
 resource_dir=$($clang --target=$target -print-resource-dir)
 builtins=$resource_dir/lib/linux/libclang_rt.builtins-x86_64.a
-out=${COREUTILS_BUILD:-$root/coreutils/build}
+out=${SYSUTILS_BUILD:-$root/build}
 jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
 
 if [ ! -f "$sysroot/lib/libastia_libc.a" ]; then
@@ -24,7 +28,7 @@ fi
 mkdir -p "$out/obj" "$out/bin" "$out/.keys"
 source_manifest=$out/.keys/sources
 next_source_manifest=$source_manifest.$$
-for source in "$root"/coreutils/src/*.c; do
+for source in "$root"/utils/sysutils/src/*.c; do
     basename "$source" .c
 done | sort -u >"$next_source_manifest"
 if [ -f "$source_manifest" ]; then
@@ -41,6 +45,7 @@ while IFS= read -r managed_name; do
     rm -f "$out/bin/$managed_name.key"
 done <"$next_source_manifest"
 mv "$next_source_manifest" "$source_manifest"
+
 compile_flags() {
     "$clang" --target="$target" -ffreestanding -fno-builtin -fPIE \
         -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone \
@@ -49,25 +54,26 @@ compile_flags() {
 
 toolchain_revision=$(
     {
-        sha256sum "$root/coreutils/build.sh" \
+        sha256sum "$root/utils/sysutils/build.sh" \
             "$root/toolchain/build-init-libc.sh" "$clang_path"
         "$clang" --version
         printf '%s\n' "$target" "$resource_dir" "$sysroot"
     } | sha256sum | awk '{print $1}'
 )
 
-for source in "$root"/coreutils/src/*.c; do
+for source in "$root"/utils/sysutils/src/*.c; do
     name=$(basename "$source" .c)
     object_key=$(
         {
-            sha256sum "$source" "$sysroot/lib/libastia_libc.a" "$sysroot/lib/libc.so"
+            sha256sum "$source" "$root/utils/sysutils/src/common.h" \
+                "$sysroot/lib/libastia_libc.a" "$sysroot/lib/libc.so"
             printf '%s\n' "$toolchain_revision"
         } | sha256sum | awk '{print $1}'
     )
     if [ ! -f "$out/obj/$name.o" ] ||
         [ ! -f "$out/obj/$name.o.key" ] ||
         [ "$(cat "$out/obj/$name.o.key")" != "$object_key" ]; then
-        compile_flags -c "$source" -o "$out/obj/$name.o"
+        compile_flags -I"$root/utils/sysutils/src" -c "$source" -o "$out/obj/$name.o"
         printf '%s\n' "$object_key" >"$out/obj/$name.o.key"
     fi
     link_key=$(
@@ -88,6 +94,6 @@ for source in "$root"/coreutils/src/*.c; do
     fi
 done
 
-printf 'built Astia coreutils:'
+printf 'built Astia sysutils:'
 for binary in "$out"/bin/*; do printf ' %s' "$(basename "$binary")"; done
 printf '\n'

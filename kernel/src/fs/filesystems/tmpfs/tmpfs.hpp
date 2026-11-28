@@ -6,7 +6,12 @@
 #include "../../filesystem.hpp"
 
 namespace astia::fs::filesystems {
-    inline constexpr u32 tmpfs_max_entries = 32;
+    /// Entry table a tmpfs mount starts with, matching the production node
+    /// budget.  A mount may ask for more through its "nodes=<count>" source.
+    inline constexpr u32 tmpfs_default_entries = max_nodes;
+    /// Largest entry table a mount may ask for.  The table is only heap
+    /// allocated above the default budget.
+    inline constexpr u32 tmpfs_max_entries = max_nodes_limit;
     inline constexpr usz tmpfs_max_pages   = 16;
 
     class tmpfs_file final : public file,
@@ -156,7 +161,12 @@ namespace astia::fs::filesystems {
 
     class tmpfs_mount final : public mount {
         public:
-        mm::shptr<open_file> open(const char* path, u32 flags) override;
+        tmpfs_mount();
+        explicit tmpfs_mount(u32 capacity);
+        ~tmpfs_mount() override;
+
+        mm::shptr<open_file> open(const char* path, u32 flags,
+                                  long* error = nullptr) override;
         long      open_shared(const char* path, u32 flags, file_mode mode, uid_t uid,
                               gid_t gid, uid_t euid, gid_t egid, bool privileged,
                               mm::shptr<open_file>& result);
@@ -192,7 +202,27 @@ namespace astia::fs::filesystems {
             mm::shptr<tmpfs_file> target;
         };
 
-        entry _entries[tmpfs_max_entries]{};
+        entry _inline_entries[tmpfs_default_entries]{};
+        // A mount that asks for more than the default budget swaps this
+        // pointer to a heap array sized to its request.  Both fields keep
+        // zero-initialised defaults: the kernel runs no global constructors,
+        // so a static mount (the shared-memory one) only ever sees the zero
+        // image and must still work.
+        entry* _entries  = nullptr;
+        u32    _capacity = 0;
+
+        entry* entry_table() {
+            return _entries != nullptr ? _entries : _inline_entries;
+        }
+
+        const entry* entry_table() const {
+            return _entries != nullptr ? _entries : _inline_entries;
+        }
+
+        u32 node_capacity() const {
+            return _capacity != 0 ? _capacity : tmpfs_default_entries;
+        }
+
         // The mount root has no entry; stamp it on first lookup once a clock
         // exists so stat("/tmp") reports a stable creation time.
         mutable file_timestamps _root_times{};

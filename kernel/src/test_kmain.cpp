@@ -120,6 +120,12 @@ namespace {
 
         ctx.start_info = start_info;
 
+        // Guest fixture suites share /tmp and each leaves a tree behind
+        // until its next run; the production node budget is too small for
+        // their peak.  Test images ask for the test budget before the
+        // filesystem step mounts /tmp; production keeps fs::max_nodes.
+        astia::fs::set_default_tmpfs_nodes(256);
+
         const bool init_ok = astia::init::run(ctx);
 
         astia::log::info("init result=%s", init_ok ? "ok" : "fail");

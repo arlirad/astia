@@ -228,7 +228,9 @@ namespace astia::fs::filesystems {
         return file_mode(type, file_permissions(static_cast<u16>(node.mode & 07777)));
     }
 
-    mm::shptr<open_file> ext4_mount::open(const char* path, u32 flags) {
+    mm::shptr<open_file> ext4_mount::open(const char* path, u32 flags, long* error) {
+        (void) error;
+
         if (path == nullptr || (flags & (ASTIA_AIO_O_ACCMODE | ASTIA_AIO_O_CREAT |
                                          ASTIA_AIO_O_EXCL | ASTIA_AIO_O_TRUNC)) != 0)
             return {};

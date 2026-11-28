@@ -11,18 +11,29 @@ namespace astia::fs {
     /// any device node is registered.
     bool init();
 
+    /// Node budget a tmpfs mount receives when its source names none.
+    /// Production images keep fs::max_nodes.  Test images call the setter
+    /// before fs::init() mounts /tmp so fixture suites get the larger
+    /// budget they need.
+    u32  default_tmpfs_nodes();
+    void set_default_tmpfs_nodes(u32 nodes);
+
     /// Register one exact path as a device node.  Path traversal and
     /// directories are intentionally deferred; the first useful VFS
     /// shape is enough for /dev/tts0 and future block nodes.
     long register_device(const char* path, const mm::shptr<file>& entry);
     long unregister_device(const char* path, const mm::shptr<file>& entry = {});
 
-    /// Resolve a path through the mounted filesystem namespace.
-    mm::shptr<open_file> open_path(const char* path, u32 flags = 0);
+    /// Resolve a path through the mounted filesystem namespace.  On failure
+    /// `error` (when given) receives the filesystem's reason, such as
+    /// -ENOSPC when a create exhausts the mount's node table; it stays
+    /// untouched on success.
+    mm::shptr<open_file> open_path(const char* path, u32 flags = 0,
+                                   long* error = nullptr);
 
     /// Open a registered path.  Descriptor allocation belongs to the
     /// syscall/ring layer; the VFS returns an open file description.
-    mm::shptr<open_file> open(const char* path, u32 flags = 0);
+    mm::shptr<open_file> open(const char* path, u32 flags = 0, long* error = nullptr);
     mm::shptr<open_file> open_directory(const char* path);
 
     /// True when the path resolves to a read-only mount.

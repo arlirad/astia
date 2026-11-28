@@ -89,7 +89,22 @@ namespace astia::fs {
             accept_waiter* _value = nullptr;
         };
 
-        bool path(const astia_sockaddr& a, char* out);
+        bool path(const astia_sockaddr& a, char* out) {
+            if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
+                return false;
+
+            u32 n = a.len - 2;
+            if (n >= path_max)
+                return false;
+
+            for (u32 i = 0; i < n; ++i) {
+                out[i] = static_cast<char>(a.data[i]);
+            }
+
+            out[n] = '\0';
+
+            return out[0] == '/';
+        }
 
         /// Public datagram capability backed by one UNIX socket.  The view
         /// exists so callers hold `fs::dgram_sock&` instead of downcasting to
@@ -106,8 +121,10 @@ namespace astia::fs {
                 return SOCK_DGRAM;
             }
 
-            long bind(const astia_sockaddr& address) override;
-            long connect(const astia_sockaddr& address) override;
+            long bind(const astia_sockaddr& address,
+                      const char*           canonical = nullptr) override;
+            long connect(const astia_sockaddr& address,
+                         const char*           canonical = nullptr) override;
             long getsockopt(u32 level, u32 name, u32* value) override;
 
             core::task<i64> sendto(span<const u8> data, const astia_sockaddr& destination,
@@ -142,10 +159,12 @@ namespace astia::fs {
                 return SOCK_STREAM;
             }
 
-            long                 bind(const astia_sockaddr& address) override;
+            long                 bind(const astia_sockaddr& address,
+                                      const char*           canonical = nullptr) override;
             long                 listen(u32 backlog) override;
             core::task<accepted> accept(core::cltoken token = {}) override;
-            long                 connect(const astia_sockaddr& address) override;
+            long                 connect(const astia_sockaddr& address,
+                                         const char*           canonical = nullptr) override;
             long                 shutdown(u32 how) override;
             long                 getsockopt(u32 level, u32 name, u32* value) override;
 
@@ -721,25 +740,46 @@ namespace astia::fs {
                 return true;
             }
 
-            long bind_address(const astia_sockaddr& a) {
-                char n[path_max];
+            long canonical(const astia_sockaddr& a, const char* hint, char* out) {
+                if (hint != nullptr) {
+                    for (u32 i = 0; i < path_max; ++i) {
+                        out[i] = hint[i];
 
-                if (!path(a, n))
+                        if (out[i] == '\0')
+                            return 0;
+                    }
+
+                    return -EINVAL;
+                }
+
+                if (!path(a, out))
                     return -EINVAL;
 
                 auto* current = proc::current_process();
                 if (!current)
                     return -ESRCH;
 
-                long rc = reserve_bind(a, n);
+                return static_cast<long>(
+                    current->resolve_path(out, out, path_max, false));
+            }
+
+            long bind_address(const astia_sockaddr& a, const char* hint) {
+                char n[path_max];
+
+                long rc = canonical(a, hint, n);
+                if (rc < 0)
+                    return rc;
+
+                auto* current = proc::current_process();
+
+                rc = reserve_bind(a, n);
                 if (rc < 0)
                     return rc;
 
                 auto self = mm::shptr<file>::borrowed(this);
 
                 rc = register_unix_path(n, self, uid_t{current->euid()},
-                                        gid_t{current->egid()},
-                                        astia::span<char>(n, sizeof n));
+                                        gid_t{current->egid()});
                 if (rc < 0) {
                     abort_bind();
 
@@ -751,11 +791,12 @@ namespace astia::fs {
                 return 0;
             }
 
-            long connect_address(const astia_sockaddr& a) {
+            long connect_address(const astia_sockaddr& a, const char* hint) {
                 char n[path_max];
 
-                if (!path(a, n))
-                    return -EINVAL;
+                long canonical_rc = canonical(a, hint, n);
+                if (canonical_rc < 0)
+                    return canonical_rc;
 
                 if (kind() == state::dgram) {
                     mm::shptr<file> endpoint;
@@ -829,8 +870,9 @@ namespace astia::fs {
 
                 char n[path_max];
 
-                if (!path(a, n))
-                    return -EINVAL;
+                long rc = canonical(a, nullptr, n);
+                if (rc < 0)
+                    return rc;
 
                 mm::shptr<file> endpoint;
 
@@ -1478,12 +1520,13 @@ namespace astia::fs {
                 _owner->release_accept_waiter(_value);
         }
 
-        long unix_dgram_view::bind(const astia_sockaddr& address) {
-            return _owner.bind_address(address);
+        long unix_dgram_view::bind(const astia_sockaddr& address, const char* canonical) {
+            return _owner.bind_address(address, canonical);
         }
 
-        long unix_dgram_view::connect(const astia_sockaddr& address) {
-            return _owner.connect_address(address);
+        long unix_dgram_view::connect(const astia_sockaddr& address,
+                                      const char*           canonical) {
+            return _owner.connect_address(address, canonical);
         }
 
         long unix_dgram_view::getsockopt(u32 level, u32 name, u32* value) {
@@ -1512,8 +1555,9 @@ namespace astia::fs {
             return _owner.recvmsg_async(data, token, true);
         }
 
-        long unix_stream_view::bind(const astia_sockaddr& address) {
-            return _owner.bind_address(address);
+        long unix_stream_view::bind(const astia_sockaddr& address,
+                                    const char*           canonical) {
+            return _owner.bind_address(address, canonical);
         }
 
         long unix_stream_view::listen(u32 backlog) {
@@ -1532,8 +1576,9 @@ namespace astia::fs {
             return _owner.accept_async(token);
         }
 
-        long unix_stream_view::connect(const astia_sockaddr& address) {
-            return _owner.connect_address(address);
+        long unix_stream_view::connect(const astia_sockaddr& address,
+                                       const char*           canonical) {
+            return _owner.connect_address(address, canonical);
         }
 
         long unix_stream_view::shutdown(u32 how) {
@@ -1553,23 +1598,6 @@ namespace astia::fs {
         core::task<message> unix_stream_view::recvmsg(span<u8>      data,
                                                       core::cltoken token) {
             return _owner.recvmsg_async(data, token, false);
-        }
-
-        bool path(const astia_sockaddr& a, char* out) {
-            if (a.family != AF_UNIX || a.len < 3 || a.len > sizeof(a.data) + 2)
-                return false;
-
-            u32 n = a.len - 2;
-            if (n >= path_max)
-                return false;
-
-            for (u32 i = 0; i < n; ++i) {
-                out[i] = static_cast<char>(a.data[i]);
-            }
-
-            out[n] = '\0';
-
-            return out[0] == '/';
         }
     }
 

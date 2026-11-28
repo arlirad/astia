@@ -229,9 +229,16 @@ namespace astia::fs {
         return file_mode(mode.type(), apply_umask(mode.permissions(), mask));
     }
 
-    inline constexpr u32 max_nodes      = 32;
-    inline constexpr u32 path_max       = 4096;
-    inline constexpr u64 offset_current = ~u64{0};
+    /// Node budget a tmpfs mount gets when its mount source names none.
+    /// Production images keep this small budget; test images request a
+    /// larger one with the "nodes=<count>" mount option.
+    inline constexpr u32 max_nodes = 32;
+    /// Upper bound the "nodes=<count>" mount option may request.  Only the
+    /// entry table is reserved, so the bound keeps one mount's node table
+    /// within a bounded slice of the kernel heap.
+    inline constexpr u32 max_nodes_limit = 256;
+    inline constexpr u32 path_max        = 4096;
+    inline constexpr u64 offset_current  = ~u64{0};
 
     static_assert(path_max == 4096, "VFS path limit must match libc PATH_MAX");
 

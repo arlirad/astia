@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-out=${COREUTILS_TEST_BUILD:-$root/coreutils/tests/build}
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
+out=${COREUTILS_TEST_BUILD:-$root/utils/coreutils/tests/build}
 sysroot=${ASTIA_SYSROOT:-/tmp/astia-zsh-build/sysroot}
 crt0=${ASTIA_CRT0:-/tmp/astia-zsh-build/astia/image/crt0.o}
 kernel=${ASTIA_KERNEL:-$root/kernel/build-tests/src/astiakrn_runtime}
@@ -31,48 +31,59 @@ command -v "$cpio" >/dev/null 2>&1 || {
 rm -rf "$out"
 mkdir -p "$out/bin" "$out/root/bin" "$out/root/sbin"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$out" \
-    "$root/coreutils/build.sh"
+    "$root/utils/coreutils/build.sh"
 mkdir -p "$out/host"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/ls_layout_test.c" -o "$out/host/ls_layout_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/ls_layout_test.c" -o "$out/host/ls_layout_test"
 "$out/host/ls_layout_test"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/grep_regex_test.c" -o "$out/host/grep_regex_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/grep_regex_test.c" -o "$out/host/grep_regex_test"
 "$out/host/grep_regex_test"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/daemonctl_path_test.c" -o "$out/host/daemonctl_path_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/daemonctl_path_test.c" -o "$out/host/daemonctl_path_test"
 "$out/host/daemonctl_path_test"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
     -D_POSIX_C_SOURCE=200809L -Dmain=cu_touch_main -Dutimensat=cu_test_utimensat \
-    -I "$root/coreutils/src" -c "$root/coreutils/src/touch.c" \
+    -I "$root/utils/coreutils/src" -c "$root/utils/coreutils/src/touch.c" \
     -o "$out/host/touch_times_touch.o"
 $clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
-    -I "$root/coreutils/src" "$root/coreutils/tests/touch_times_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/touch_times_test.c" \
     "$out/host/touch_times_touch.o" -o "$out/host/touch_times_test"
 "$out/host/touch_times_test"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/sort_growth_test.c" -o "$out/host/sort_growth_test"
 "$out/host/sort_growth_test"
-$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I "$root/coreutils/src" \
-    -Dmain=cu_tee_main -c "$root/coreutils/src/tee.c" -o "$out/host/tee_eintr_tee.o"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/tee_eintr_test.c" "$out/host/tee_eintr_tee.o" \
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
+    -D_POSIX_C_SOURCE=200809L -fsanitize=address,undefined \
+    -fno-sanitize-recover=all -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/src/sort.c" -o "$out/host/sort_sanitize"
+printf 'b\na\nb\n' | "$out/host/sort_sanitize" -u >"$out/host/sort_unique_interleaved.out"
+printf 'a\nb\n' >"$out/host/sort_unique_interleaved.expected"
+cmp "$out/host/sort_unique_interleaved.expected" "$out/host/sort_unique_interleaved.out"
+printf 'delta\nalpha\ncharlie\nbravo\nalpha\ndelta\n' | \
+    "$out/host/sort_sanitize" -u >"$out/host/sort_unique_scattered.out"
+printf 'alpha\nbravo\ncharlie\ndelta\n' >"$out/host/sort_unique_scattered.expected"
+cmp "$out/host/sort_unique_scattered.expected" "$out/host/sort_unique_scattered.out"
+$clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -I "$root/utils/coreutils/src" \
+    -Dmain=cu_tee_main -c "$root/utils/coreutils/src/tee.c" -o "$out/host/tee_eintr_tee.o"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/tee_eintr_test.c" "$out/host/tee_eintr_tee.o" \
     -o "$out/host/tee_eintr_test"
 "$out/host/tee_eintr_test"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" -Dmain=head_main \
-    -Dwrite=head_test_write -c "$root/coreutils/src/head.c" \
+    -D_POSIX_C_SOURCE=200809L -I "$root/utils/coreutils/src" -Dmain=head_main \
+    -Dwrite=head_test_write -c "$root/utils/coreutils/src/head.c" \
     -o "$out/host/head_write_head.o"
 $clang -std=c11 -Wall -Wextra -Werror -D_POSIX_C_SOURCE=200809L \
-    -I "$root/coreutils/src" "$root/coreutils/tests/head_write_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/head_write_test.c" \
     "$out/host/head_write_head.o" -o "$out/host/head_write_test"
 "$out/host/head_write_test"
 
 # wc: only the exact operand "-" selects standard input; a one-character
 # filename is opened as a file.
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
-    "$root/coreutils/src/wc.c" -o "$out/host/wc"
+    -D_POSIX_C_SOURCE=200809L -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/src/wc.c" -o "$out/host/wc"
 mkdir -p "$out/host/wc_one" "$out/host/wc_missing"
 printf 'one\n' >"$out/host/wc_one/a"
 (cd "$out/host/wc_one" && "$out/host/wc" a) >"$out/host/wc_one.out"
@@ -95,51 +106,51 @@ cmp "$out/host/wc_bare.expected" "$out/host/wc_bare.out"
 # close() failure injection: link each tool with its main renamed and fail a
 # chosen close() call through the linker's --wrap hook.
 close_host_flags="-std=c11 -Wall -Wextra -Werror -Wno-unused-function \
--D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -include stdio.h -I $root/coreutils/src"
+-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -include stdio.h -I $root/utils/coreutils/src"
 for tool in head wc grep sort cp mv; do
     # shellcheck disable=SC2086
     $clang $close_host_flags -Dmain=cu_${tool}_main \
-        -c "$root/coreutils/src/$tool.c" -o "$out/host/${tool}_close.o"
+        -c "$root/utils/coreutils/src/$tool.c" -o "$out/host/${tool}_close.o"
 done
 # shellcheck disable=SC2086
-$clang $close_host_flags "$root/coreutils/tests/close_error_test.c" \
+$clang $close_host_flags "$root/utils/coreutils/tests/close_error_test.c" \
     "$out/host/head_close.o" "$out/host/wc_close.o" "$out/host/grep_close.o" \
     "$out/host/sort_close.o" "$out/host/cp_close.o" "$out/host/mv_close.o" \
     -Wl,--wrap=close -o "$out/host/close_error_test"
 "$out/host/close_error_test"
-$clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
-    "$root/coreutils/tests/mv_symlink_test.c" "$out/host/mv_close.o" \
+$clang -std=c11 -Wall -Wextra -Werror -D_DEFAULT_SOURCE -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/mv_symlink_test.c" "$out/host/mv_close.o" \
     -o "$out/host/mv_symlink_test"
 "$out/host/mv_symlink_test"
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
-    -D_DEFAULT_SOURCE -I "$root/coreutils/src" \
-    "$root/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"
+    -D_DEFAULT_SOURCE -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/login_read_test.c" -o "$out/host/login_read_test"
 "$out/host/login_read_test"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" \
-    "$root/coreutils/tests/read_retry_test.c" -o "$out/host/read_retry_test" \
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/tests/read_retry_test.c" -o "$out/host/read_retry_test" \
     -Wl,--wrap=read
 "$out/host/read_retry_test"
-$clang -std=c11 -Wall -Wextra -Werror -I "$root/coreutils/src" -I "$root/kernel/include" \
-    "$root/coreutils/tests/ps_state_test.c" -o "$out/host/ps_state_test"
+$clang -std=c11 -Wall -Wextra -Werror -I "$root/utils/coreutils/src" -I "$root/kernel/include" \
+    "$root/utils/coreutils/tests/ps_state_test.c" -o "$out/host/ps_state_test"
 "$out/host/ps_state_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function -pthread \
-    -I "$root/coreutils/src" "$root/coreutils/tests/tree_walk_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/tree_walk_test.c" \
     -o "$out/host/tree_walk_test"
 "$out/host/tree_walk_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -I "$root/coreutils/src" "$root/coreutils/tests/chmod_mode_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/chmod_mode_test.c" \
     -o "$out/host/chmod_mode_test"
 "$out/host/chmod_mode_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -I "$root/coreutils/src" "$root/coreutils/tests/rm_root_guard_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/rm_root_guard_test.c" \
     -o "$out/host/rm_root_guard_test"
 "$out/host/rm_root_guard_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -I "$root/coreutils/src" "$root/coreutils/tests/rm_symlink_swap_test.c" \
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/tests/rm_symlink_swap_test.c" \
     -o "$out/host/rm_symlink_swap_test"
 "$out/host/rm_symlink_swap_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -I "$root/coreutils/src" "$root/coreutils/src/rm.c" -o "$out/host/rm"
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/src/rm.c" -o "$out/host/rm"
 mkdir -p "$out/host/rm_guard"
 ln -s / "$out/host/rm_guard/rootlink"
 if "$out/host/rm" -r "$out/host/rm_guard/rootlink" 2>"$out/host/rm_guard.err"; then
@@ -158,7 +169,7 @@ mkdir -p "$out/root/bin" "$out/root/sbin" "$out/root/etc"
 
 # A source operand that starts with '-' is a file when such a file exists.
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -I "$root/coreutils/src" "$root/coreutils/src/cp.c" -o "$out/host/cp"
+    -I "$root/utils/coreutils/src" "$root/utils/coreutils/src/cp.c" -o "$out/host/cp"
 cp_dash_root=$(mktemp -d)
 mkdir -p "$cp_dash_root/dir"
 printf 'dash file\n' >"$cp_dash_root/-file"
@@ -171,8 +182,8 @@ rm -rf "$cp_dash_root"
 # PATH_MAX; the QEMU guest cannot receive such arguments yet (issue #184
 # limits exec argv and AIO paths to 256 bytes).
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
-    "$root/coreutils/src/mkdir.c" -o "$out/host/mkdir"
+    -D_POSIX_C_SOURCE=200809L -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/src/mkdir.c" -o "$out/host/mkdir"
 repeat_character() {
     repeat_value=
     repeat_index=0
@@ -203,8 +214,8 @@ grep -qF 'File name too long' "$out/host/mkdir_too_long.err"
 # ls -l must print complete symlink targets; the old 256-byte buffer cut
 # targets longer than 255 bytes short.
 $clang -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
-    -D_POSIX_C_SOURCE=200809L -I "$root/coreutils/src" \
-    "$root/coreutils/src/ls.c" -o "$out/host/ls"
+    -D_POSIX_C_SOURCE=200809L -I "$root/utils/coreutils/src" \
+    "$root/utils/coreutils/src/ls.c" -o "$out/host/ls"
 for target_length in 255 256 300 4095; do
     long_target=$(repeat_character l "$target_length")
     long_link="$long_path_root/link-$target_length"
@@ -236,7 +247,7 @@ grep -q ' visible$' "$out/host/ls_hidden_long_all.out"
 common="--target=$target -ffreestanding -fno-pic -fno-pie -fno-stack-protector -fno-asynchronous-unwind-tables -mno-red-zone"
 # shellcheck disable=SC2086
 $clang $common -fno-builtin -nostdinc -isystem "$resource/include" \
-    -isystem "$sysroot/include" -c "$root/coreutils/tests/coreutils_test.c" \
+    -isystem "$sysroot/include" -c "$root/utils/coreutils/tests/coreutils_test.c" \
     -o "$out/coreutils_test.o"
 # shellcheck disable=SC2086
 $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \

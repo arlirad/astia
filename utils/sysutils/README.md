@@ -19,7 +19,7 @@ effective UID 0, matching the syscall contract; a non-root call reports
 Build and stage:
 
 ```sh
-ASTIA_SYSROOT=<sysroot> ASTIA_CRT0=<crt0.o> sysutils/build.sh
+ASTIA_SYSROOT=<sysroot> ASTIA_CRT0=<crt0.o> utils/sysutils/build.sh
 ```
 
 The developer initrd build (`toolchain/run-zsh-qemu.sh`) runs this script and

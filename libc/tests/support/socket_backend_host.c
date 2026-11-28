@@ -11,6 +11,28 @@ extern int* __errno_location(void);
 
 #define HOST_ERRNO (*__errno_location())
 
+typedef struct {
+    uint32_t      length;
+    uint32_t      family;
+    unsigned char data[120];
+} astia_sockaddr_shim;
+
+static long host_sockaddr(const void* address, unsigned char* raw, unsigned int* length) {
+    const astia_sockaddr_shim* in = address;
+
+    if (!in || in->family != AF_UNIX || in->length < 3 || in->length > 2 + 108)
+        return -EINVAL;
+
+    raw[0] = (unsigned char) (in->family & 0xff);
+    raw[1] = (unsigned char) ((in->family >> 8) & 0xff);
+
+    __builtin_memcpy(raw + 2, in->data, in->length - 2);
+
+    *length = in->length;
+
+    return 0;
+}
+
 long __astia_fio_socket(int domain, int type, int protocol) {
     long rc = syscall(SYS_socket, domain, type, protocol);
 
@@ -39,6 +61,19 @@ long __astia_fio_sendmsg(int fd, const void* buffer, unsigned long length,
                          const struct __astia_socket_msghdr* header) {
     struct iovec  iov     = {(void*) buffer, length};
     struct msghdr message = {0};
+
+    unsigned char raw[2 + 108];
+    unsigned int  raw_length = 0;
+
+    const void* name = __astia_socket_msghdr_name(header);
+
+    if (name != NULL) {
+        if (host_sockaddr(name, raw, &raw_length) < 0)
+            return -EINVAL;
+
+        message.msg_name    = raw;
+        message.msg_namelen = raw_length;
+    }
 
     message.msg_iov        = &iov;
     message.msg_iovlen     = 1;
@@ -87,28 +122,6 @@ long __astia_fio_getsockopt(int fd, int level, int option, void* value, uint32_t
     long name signature {            \
         return -ENOSYS;              \
     }
-
-typedef struct {
-    uint32_t      length;
-    uint32_t      family;
-    unsigned char data[120];
-} astia_sockaddr_shim;
-
-static long host_sockaddr(const void* address, unsigned char* raw, unsigned int* length) {
-    const astia_sockaddr_shim* in = address;
-
-    if (!in || in->family != AF_UNIX || in->length < 3 || in->length > 2 + 108)
-        return -EINVAL;
-
-    raw[0] = (unsigned char) (in->family & 0xff);
-    raw[1] = (unsigned char) ((in->family >> 8) & 0xff);
-
-    __builtin_memcpy(raw + 2, in->data, in->length - 2);
-
-    *length = in->length;
-
-    return 0;
-}
 
 long __astia_fio_bind(int fd, const void* address, uint32_t length) {
     unsigned char raw[2 + 108];

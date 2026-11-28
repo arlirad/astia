@@ -45,9 +45,10 @@ int  astia_dl_test_dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t,
 #undef astia_sigaction
 #undef astia_thread_count
 
-static uint32_t g_test_threads      = 1;
-static int      g_test_unmap_count  = 0;
-static int      g_test_unmap_result = 0;
+static uint32_t  g_test_threads        = 1;
+static uintptr_t g_test_signal_handler = 0;
+static int       g_test_unmap_count    = 0;
+static int       g_test_unmap_result   = 0;
 
 static const Elf64_Dyn empty_dynamic[] = {{0, 0}};
 
@@ -67,7 +68,7 @@ long astia_dl_test_sigaction(int32_t signal, const astia_sigaction_t* next,
     (void) next;
 
     if (old != 0)
-        *old = (astia_sigaction_t){0};
+        *old = (astia_sigaction_t){.handler = g_test_signal_handler};
 
     return 0;
 }
@@ -85,21 +86,22 @@ void astia_dl_test_reset(void) {
         g_handles[i] = (struct ld_handle){0};
     }
 
-    g_module_count       = 0;
-    g_load_adds          = 0;
-    g_load_subs          = 0;
-    g_ring               = 0;
-    g_tag                = 0;
-    g_lazy_bindings      = 0;
-    g_lazy_lock          = 0;
-    g_reloc_scope_count  = 0;
-    g_reloc_scope_active = 0;
-    g_loader_depth       = 0;
-    g_init_depth         = 0;
-    g_pin_mask           = 0;
-    g_test_threads       = 1;
-    g_test_unmap_count   = 0;
-    g_test_unmap_result  = 0;
+    g_module_count        = 0;
+    g_load_adds           = 0;
+    g_load_subs           = 0;
+    g_ring                = 0;
+    g_tag                 = 0;
+    g_lazy_bindings       = 0;
+    g_lazy_lock           = 0;
+    g_reloc_scope_count   = 0;
+    g_reloc_scope_active  = 0;
+    g_loader_depth        = 0;
+    g_init_depth          = 0;
+    g_pin_mask            = 0;
+    g_test_threads        = 1;
+    g_test_signal_handler = 0;
+    g_test_unmap_count    = 0;
+    g_test_unmap_result   = 0;
 
     ld_error_reset();
 }
@@ -193,6 +195,10 @@ const char* astia_dl_test_error(void) {
 
 void astia_dl_test_set_threads(uint32_t count) {
     g_test_threads = count;
+}
+
+void astia_dl_test_set_signal_handler(uintptr_t handler) {
+    g_test_signal_handler = handler;
 }
 
 void astia_dl_test_set_unmap_result(int result) {

@@ -36,6 +36,35 @@ namespace astia::io::aio::operations {
             if (dgram == nullptr && stream == nullptr)
                 co_return -EOPNOTSUPP;
 
+            const u64 destination = msghdr_destination(header);
+
+            astia_sockaddr destination_address{};
+
+            if (destination != 0) {
+                const auto name =
+                    memory::user_ptr<astia_sockaddr>(destination).validate();
+                if (!name)
+                    co_return -EFAULT;
+
+                if (!memory::copy_in(&destination_address, name.value.bytes()))
+                    co_return -EFAULT;
+
+                if (destination_address.family == AF_UNIX) {
+                    char socket_path[fs::path_max]{};
+                    long path_rc = resolve_unix_path(destination_address, socket_path,
+                                                     sizeof socket_path);
+                    if (path_rc < 0)
+                        co_return static_cast<i32>(path_rc);
+
+                    auto* current = proc::current_process();
+                    if (current == nullptr)
+                        co_return -ESRCH;
+
+                    if (!socket_node_writable(current, socket_path))
+                        co_return -EACCES;
+                }
+            }
+
             mm::shptr<fs::unix_control> control{};
 
             if (header.controllen != 0) {
@@ -82,7 +111,9 @@ namespace astia::io::aio::operations {
             optional<i64> result;
 
             if (dgram)
-                result = co_await dgram->sendmsg(kernel, nullptr, control, token);
+                result = co_await dgram->sendmsg(
+                    kernel, destination != 0 ? &destination_address : nullptr, control,
+                    token);
             else
                 result = co_await stream->sendmsg(kernel, control, token);
 

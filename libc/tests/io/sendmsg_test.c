@@ -1,8 +1,10 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <sys/un.h>
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -258,11 +260,174 @@ static void invalid_control(void) {
     close(pair[1]);
 }
 
+static void datagram_named_destination(void) {
+    int sender   = socket(AF_UNIX, SOCK_DGRAM, 0);
+    int receiver = socket(AF_UNIX, SOCK_DGRAM, 0);
+    int written;
+
+    struct sockaddr_un address;
+
+    char path[64];
+
+    if (sender < 0 || receiver < 0) {
+        CHECK(0);
+
+        if (sender >= 0)
+            close(sender);
+
+        if (receiver >= 0)
+            close(receiver);
+
+        return;
+    }
+
+    memset(&address, 0, sizeof address);
+
+    address.sun_family = AF_UNIX;
+
+    written = snprintf(path, sizeof path, "/tmp/astia-sendmsg-%012lx.sock",
+                       (unsigned long) (uintptr_t) &address);
+
+    if (written <= 0 || written >= (int) sizeof path) {
+        CHECK(0);
+        close(sender);
+        close(receiver);
+
+        return;
+    }
+
+    memcpy(address.sun_path, path, (unsigned long) written + 1);
+
+    unlink(path);
+    CHECK(bind(receiver, (struct sockaddr*) &address, sizeof address) == 0);
+
+    static const char first[]  = "named-";
+    static const char second[] = "destination";
+
+    char received[sizeof first + sizeof second];
+
+    struct iovec iov[2] = {{(void*) first, sizeof first},
+                           {(void*) second, sizeof second}};
+
+    struct msghdr outgoing = {0};
+
+    outgoing.msg_name    = &address;
+    outgoing.msg_namelen = sizeof address;
+    outgoing.msg_iov     = iov;
+    outgoing.msg_iovlen  = 2;
+
+    CHECK(sendmsg(sender, &outgoing, 0) == (long) (sizeof first + sizeof second));
+    CHECK(recv(receiver, received, sizeof received, 0) ==
+          (long) (sizeof first + sizeof second));
+    CHECK(memcmp(received, first, sizeof first) == 0);
+    CHECK(memcmp(received + sizeof first, second, sizeof second) == 0);
+
+    unlink(path);
+    close(sender);
+    close(receiver);
+}
+
+static void datagram_missing_destination(void) {
+    int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+    char data = 'x';
+
+    struct iovec  iov      = {&data, 1};
+    struct msghdr outgoing = {0};
+
+    if (fd < 0) {
+        CHECK(0);
+
+        return;
+    }
+
+    outgoing.msg_iov    = &iov;
+    outgoing.msg_iovlen = 1;
+
+    errno = 0;
+
+    CHECK(sendmsg(fd, &outgoing, 0) == -1);
+    CHECK(errno == ENOTCONN);
+
+    close(fd);
+}
+
+static void datagram_invalid_destination_length(void) {
+    int fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+
+    struct sockaddr_un address;
+
+    char data = 'x';
+
+    struct iovec  iov      = {&data, 1};
+    struct msghdr outgoing = {0};
+
+    unsigned int lengths[] = {0, 2, sizeof address + 1};
+
+    if (fd < 0) {
+        CHECK(0);
+
+        return;
+    }
+
+    memset(&address, 0, sizeof address);
+
+    address.sun_family = AF_UNIX;
+
+    outgoing.msg_name   = &address;
+    outgoing.msg_iov    = &iov;
+    outgoing.msg_iovlen = 1;
+
+    for (size_t i = 0; i < sizeof lengths / sizeof lengths[0]; ++i) {
+        outgoing.msg_namelen = lengths[i];
+
+        errno = 0;
+
+        CHECK(sendmsg(fd, &outgoing, 0) == -1);
+        CHECK(errno == EINVAL);
+    }
+
+    close(fd);
+}
+
+static void datagram_connected_null_destination(void) {
+    int pair[2] = {-1, -1};
+
+    if (socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) != 0) {
+        CHECK(0);
+
+        return;
+    }
+
+    static const char payload[] = "connected";
+
+    char received[sizeof payload];
+
+    struct iovec  iov      = {(void*) payload, sizeof payload};
+    struct msghdr outgoing = {0};
+
+    outgoing.msg_name    = NULL;
+    outgoing.msg_namelen = sizeof(struct sockaddr_un);
+    outgoing.msg_iov     = &iov;
+    outgoing.msg_iovlen  = 1;
+
+    CHECK(sendmsg(pair[0], &outgoing, 0) == (long) sizeof payload);
+    CHECK(recv(pair[1], received, sizeof received, 0) == (long) sizeof payload);
+    CHECK(memcmp(received, payload, sizeof payload) == 0);
+
+    close(pair[0]);
+    close(pair[1]);
+}
+
 int main(void) {
     pass_descriptor();
     pass_descriptor_cloexec();
     truncated_control();
     invalid_control();
+    datagram_named_destination();
+    datagram_missing_destination();
+    datagram_invalid_destination_length();
+    datagram_connected_null_destination();
 
     return failures != 0;
 }

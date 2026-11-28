@@ -45,7 +45,7 @@ namespace astia::sys {
 }
 
 namespace astia::fs {
-    mm::shptr<open_file> open(const char*, u32) {
+    mm::shptr<open_file> open(const char*, u32, long*) {
         return {};
     }
 

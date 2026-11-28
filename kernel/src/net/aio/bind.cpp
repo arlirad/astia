@@ -19,12 +19,10 @@ namespace astia::io::aio::operations {
             if (!memory::copy_in(&a, address.value.bytes()))
                 co_return -EFAULT;
 
-            // AF_UNIX bindings live in the filesystem namespace; the family
-            // implementation resolves and registers the path.  Other
-            // families resolve their own addresses.
+            char socket_path[fs::path_max]{};
+
             if (a.family == AF_UNIX) {
-                char socket_path[fs::path_max]{};
-                long path_rc = decode_unix_path(a, socket_path, sizeof socket_path);
+                long path_rc = resolve_unix_path(a, socket_path, sizeof socket_path);
                 if (path_rc < 0)
                     co_return static_cast<i32>(path_rc);
 
@@ -32,20 +30,15 @@ namespace astia::io::aio::operations {
                 if (current == nullptr)
                     co_return -ESRCH;
 
-                path_rc = current->resolve_path(socket_path, socket_path,
-                                                sizeof socket_path, false);
-                if (path_rc < 0)
-                    co_return static_cast<i32>(path_rc);
-
                 if (!parent_writable(current, socket_path))
                     co_return -EACCES;
             }
 
             if (auto* sock = dgram_for(handle))
-                co_return static_cast<i32>(sock->bind(a));
+                co_return static_cast<i32>(sock->bind(a, socket_path));
 
             if (auto* sock = stream_for(handle))
-                co_return static_cast<i32>(sock->bind(a));
+                co_return static_cast<i32>(sock->bind(a, socket_path));
 
             co_return -EOPNOTSUPP;
         }

@@ -94,9 +94,37 @@ target_include_directories(astia_host_file_runtime PRIVATE ${_astia_test_include
 target_compile_options(astia_host_file_runtime PRIVATE
         -fno-pie -fno-rtti -ffunction-sections -fdata-sections -fno-sanitize=all)
 
+# Shared generated fixtures need exactly one producer: the Makefile generator
+# copies a custom command's recipe into every consumer's build.make, so a file
+# listed in several targets' DEPENDS is built once per target and races under
+# -j. Register the output and have consumers depend on the target instead.
+function(astia_add_fixture_producer target output)
+    add_custom_target(${target} DEPENDS ${output})
+    set_property(GLOBAL PROPERTY "ASTIA_FIXTURE_PRODUCER_${output}" ${target})
+endfunction()
+
+function(astia_fixture_dep out_var output)
+    get_property(_producer GLOBAL PROPERTY "ASTIA_FIXTURE_PRODUCER_${output}")
+    if (_producer)
+        set(${out_var} ${_producer} PARENT_SCOPE)
+    else ()
+        set(${out_var} ${output} PARENT_SCOPE)
+    endif ()
+endfunction()
+
+function(astia_register_embed_dependencies target)
+    foreach (_source IN LISTS ARGN)
+        get_property(_producer GLOBAL PROPERTY "ASTIA_EMBED_PRODUCER_${_source}")
+        if (_producer)
+            add_dependencies(${target} ${_producer})
+        endif ()
+    endforeach ()
+endfunction()
+
 function(astia_add_host_test name)
     add_executable(${name} ${ARGN} support/freestanding_new.cpp)
     set_target_properties(${name} PROPERTIES LINK_OPTIONS "")
+    astia_register_embed_dependencies(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE c astia_test_support)
     target_include_directories(${name} PRIVATE ${_astia_test_includes})
     target_compile_options(${name} PRIVATE -fno-threadsafe-statics)
@@ -121,11 +149,25 @@ astia_add_host_test(acpi_host_test acpi_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/parse.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/power.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/prt.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/resources.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
 target_include_directories(acpi_host_test PRIVATE
         ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
 target_compile_definitions(acpi_host_test PRIVATE ASTIA_HOST_TEST=1)
 astia_add_test_label(acpi_host_test "acpi;host;deterministic")
+astia_add_host_test(acpi_corpus_test acpi_corpus_test.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/support/acpi_corpus.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/madt.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/tables.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/core.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/decode.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/eval.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/namespace.cpp
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi/aml/parse.cpp)
+target_include_directories(acpi_corpus_test PRIVATE
+        ${ASTIA_KERNEL_SOURCE_DIR}/src/acpi)
+target_compile_definitions(acpi_corpus_test PRIVATE ASTIA_HOST_TEST=1)
+astia_add_test_label(acpi_corpus_test "acpi;host;deterministic")
 astia_add_host_test(astia_shutdown_host_test shutdown_test.cpp
         ${ASTIA_KERNEL_SOURCE_DIR}/src/core/shutdown.cpp)
 target_compile_definitions(astia_shutdown_host_test PRIVATE ASTIA_HOST_TEST=1)
@@ -656,16 +698,20 @@ set(ASTIA_MODULES_SOURCE_DIR ${ASTIA_KERNEL_SOURCE_DIR}/../modules)
 # Embed an object as a C++ TU exposing `unsigned char <blob_name>[]` + `_len`.
 function(astia_embed_blob out_cpp obj_path blob_name)
     set(_cpp ${obj_path}.cpp)
+    astia_fixture_dep(_obj_dep ${obj_path})
     add_custom_command(
             OUTPUT ${_cpp}
             COMMAND ${CMAKE_COMMAND} -E env
                     XXD=${ASTIA_XXD}
                     sh ${CMAKE_CURRENT_SOURCE_DIR}/embed_blob.sh
                     ${obj_path} ${blob_name} ${_cpp}
-            DEPENDS ${obj_path} ${CMAKE_CURRENT_SOURCE_DIR}/embed_blob.sh
+            DEPENDS ${_obj_dep} ${CMAKE_CURRENT_SOURCE_DIR}/embed_blob.sh
             COMMENT "Embedding ${blob_name}"
             VERBATIM
     )
+    add_custom_target(astia_embed_${blob_name} DEPENDS ${_cpp})
+    set_property(GLOBAL PROPERTY "ASTIA_EMBED_PRODUCER_${_cpp}"
+            astia_embed_${blob_name})
     set(${out_cpp} ${_cpp} PARENT_SCOPE)
 endfunction()
 
@@ -881,6 +927,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
         COMMENT "Compiling ET_DYN fixture fixture_dyn.so"
 )
+astia_add_fixture_producer(astia_fixture_dyn ${_fix_dir}/fixture_dyn.so)
 astia_embed_blob(_fixture_dyn_cpp ${_fix_dir}/fixture_dyn.so fixture_dyn_blob)
 
 # ET_EXEC (fixed-address) executable, linked at 0x10000000.
@@ -893,6 +940,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fixture_exec.c
         COMMENT "Compiling ET_EXEC fixture fixture_exec.elf"
 )
+astia_add_fixture_producer(astia_fixture_exec ${_fix_dir}/fixture_exec.elf)
 astia_embed_blob(_fixture_exec_cpp ${_fix_dir}/fixture_exec.elf fixture_exec_blob)
 
 # elf: the generic loader, exercised end-to-end against all three fixtures.
@@ -924,6 +972,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh
         COMMENT "Building newc initrd fixture"
 )
+astia_add_fixture_producer(astia_fixture_initrd_newc ${_fix_dir}/initrd_newc.cpio)
 astia_embed_blob(_initrd_newc_cpp ${_fix_dir}/initrd_newc.cpio initrd_newc_blob)
 
 add_custom_command(
@@ -935,6 +984,7 @@ add_custom_command(
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_initrd.sh
         COMMENT "Building crc initrd fixture"
 )
+astia_add_fixture_producer(astia_fixture_initrd_crc ${_fix_dir}/initrd_crc.cpio)
 astia_embed_blob(_initrd_crc_cpp ${_fix_dir}/initrd_crc.cpio initrd_crc_blob)
 
 add_custom_command(
@@ -942,10 +992,11 @@ add_custom_command(
         COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
                 ${ASTIA_GZIP} ${_fix_dir}/initrd_newc.cpio
                 ${_fix_dir}/initrd_newc.cpio.gz
-        DEPENDS ${_fix_dir}/initrd_newc.cpio
+        DEPENDS astia_fixture_initrd_newc
                 ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
         COMMENT "Building gzip initrd fixture"
 )
+astia_add_fixture_producer(astia_fixture_initrd_gzip ${_fix_dir}/initrd_newc.cpio.gz)
 astia_embed_blob(_initrd_gzip_cpp ${_fix_dir}/initrd_newc.cpio.gz initrd_gzip_blob)
 
 add_custom_command(
@@ -953,10 +1004,11 @@ add_custom_command(
         COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd
                 ${ASTIA_ZSTD} ${_fix_dir}/initrd_newc.cpio
                 ${_fix_dir}/initrd_newc.cpio.zst
-        DEPENDS ${_fix_dir}/initrd_newc.cpio
+        DEPENDS astia_fixture_initrd_newc
                 ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
         COMMENT "Building zstd initrd fixture"
 )
+astia_add_fixture_producer(astia_fixture_initrd_zstd ${_fix_dir}/initrd_newc.cpio.zst)
 astia_embed_blob(_initrd_zstd_cpp ${_fix_dir}/initrd_newc.cpio.zst initrd_zstd_blob)
 
 add_custom_command(
@@ -964,10 +1016,12 @@ add_custom_command(
         COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd-nosize
                 ${ASTIA_ZSTD} ${_fix_dir}/initrd_newc.cpio
                 ${_fix_dir}/initrd_newc_nosize.cpio.zst
-        DEPENDS ${_fix_dir}/initrd_newc.cpio
+        DEPENDS astia_fixture_initrd_newc
                 ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
         COMMENT "Building zstd initrd fixture without a content size"
 )
+astia_add_fixture_producer(astia_fixture_initrd_zstd_nosize
+        ${_fix_dir}/initrd_newc_nosize.cpio.zst)
 astia_embed_blob(_initrd_zstd_nosize_cpp
         ${_fix_dir}/initrd_newc_nosize.cpio.zst initrd_zstd_nosize_blob)
 
@@ -1451,6 +1505,8 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_ET_REL_FIXTURE_HEADERS}
                 COMMENT "Compiling ET_REL fixture hello_initrd.km"
         )
+        astia_add_fixture_producer(astia_fixture_hello_initrd
+                ${_fix_dir}/hello_initrd.km)
         # The libc in ring 3: the same sources the host tests link, but
         # freestanding and non-PIE, with the AIO ports as Astia's side of the
         # seams.  Userspace images link this against tests/crt0.S.
@@ -1508,6 +1564,8 @@ if (ARCH STREQUAL "x86_64")
                 -o ${_fix_dir}/crt0.o ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/crt0.S
                 COMMENT "Compiling userspace CRT0 fixture")
+        add_custom_target(astia_userspace_crt0
+                DEPENDS ${_fix_dir}/crt0.o)
         if (ASTIA_CROSS_USERSPACE AND ASTIA_CLANG)
             set(_cross_dir ${_fix_dir}/clang)
             set(_cross_libc_sources ${_astia_libc_abs_sources})
@@ -1531,6 +1589,10 @@ if (ARCH STREQUAL "x86_64")
                     ${_cross_abi_headers}
                     COMMENT "Cross-building libc-backed userspace image init_libc"
             )
+            add_custom_target(astia_cross_libc_fixture
+                    DEPENDS ${_cross_dir}/image/init_libc)
+            set(_init_libc_target astia_cross_libc_fixture)
+            set(_libc_shared_target astia_cross_libc_fixture)
             set(_init_libc_image ${_cross_dir}/image/init_libc)
             set(_libc_shared_so ${_cross_dir}/image/libc.so)
         else ()
@@ -1547,11 +1609,15 @@ if (ARCH STREQUAL "x86_64")
                     -Wl,-rpath-link,${_fix_dir} -lgcc
                     -o ${_fix_dir}/init_libc ${_fix_dir}/crt0.o
                     ${_fix_dir}/init_libc_main.o ${_libc_shared_so}
-                    DEPENDS ${_fix_dir}/crt0.o
+                    DEPENDS astia_userspace_crt0
                     ${CMAKE_CURRENT_SOURCE_DIR}/init_libc.c
                     astia_userspace_libc_shared
                     COMMENT "Linking libc-backed userspace image init_libc"
             )
+            add_custom_target(astia_init_libc
+                    DEPENDS ${_fix_dir}/init_libc)
+            set(_init_libc_target astia_init_libc)
+            set(_libc_shared_target astia_userspace_libc_shared)
             set(_init_libc_image ${_fix_dir}/init_libc)
         endif ()
 
@@ -1917,9 +1983,9 @@ if (ARCH STREQUAL "x86_64")
                 lib/libfixture_tpoff32.so bin/interp_gnu bin/interp_tpoff32
                 bin/interp_relative_ro
                 jail/init_libc jail/lib/libc.so jail/lib/ld.astia.so jail/etc/passwd
-                DEPENDS ${_fix_dir}/hello_initrd.km ${_fix_dir}/fixture_exec.elf
+                DEPENDS astia_fixture_hello_initrd astia_fixture_exec
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_truncated_elf.sh
-                ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_image}
+                ${CMAKE_CURRENT_SOURCE_DIR}/init_user.c ${_init_libc_target}
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_stub.S
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 ${ASTIA_KERNEL_SOURCE_DIR}/../dl/error.c
@@ -1963,8 +2029,8 @@ if (ARCH STREQUAL "x86_64")
                 ${CMAKE_CURRENT_SOURCE_DIR}/fixture_badver_v2.map
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_badver.c
                 ${CMAKE_CURRENT_SOURCE_DIR}/dyn_libc.c
-                ${_fix_dir}/crt0.o
-                ${_libc_shared_so}
+                astia_userspace_crt0
+                ${_libc_shared_target}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/group
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing boot initrd boot_initrd.cpio"
@@ -1978,7 +2044,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh gzip
                 ${ASTIA_GZIP} ${_fix_dir}/boot_initrd.cpio
                 ${_fix_dir}/boot_initrd.cpio.gz
-                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                DEPENDS astia_boot_initrd
                 ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
                 COMMENT "Compressing boot initrd with gzip")
         add_custom_target(astia_boot_initrd_gzip ALL
@@ -1989,7 +2055,7 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh zstd
                 ${ASTIA_ZSTD} ${_fix_dir}/boot_initrd.cpio
                 ${_fix_dir}/boot_initrd.cpio.zst
-                DEPENDS ${_fix_dir}/boot_initrd.cpio
+                DEPENDS astia_boot_initrd
                 ${CMAKE_CURRENT_SOURCE_DIR}/compress_initrd.sh
                 COMMENT "Compressing boot initrd with zstd")
         add_custom_target(astia_boot_initrd_zstd ALL
@@ -2002,6 +2068,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/module_missing_dependency.km
                 DEPENDS astia_module_missing_dependency_object
                 COMMENT "Copying invalid-dependency ET_REL fixture")
+        astia_add_fixture_producer(astia_fixture_module_missing_dependency
+                ${_fix_dir}/module_missing_dependency.km)
 
         add_custom_command(
                 OUTPUT ${_fix_dir}/module_syscall_init
@@ -2044,7 +2112,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/module_syscall_initrd.cpio
                 mod sbin/init bin/init_libc etc/passwd
                 DEPENDS ${_fix_dir}/module_syscall_init
-                ${_fix_dir}/hello_initrd.km ${_fix_dir}/module_missing_dependency.km
+                astia_fixture_hello_initrd astia_fixture_module_missing_dependency
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/passwd
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing module syscall initrd")
@@ -2231,10 +2299,12 @@ if (ARCH STREQUAL "x86_64")
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/daemond.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.h
                     ${ASTIA_KERNEL_SOURCE_DIR}/../libc/include/daemon_protocol.h
-                    ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/common.h
-                    ${_fix_dir}/crt0.o astia_userspace_libc_shared
-                    ${_libc_shared_so}
+                    ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/common.h
+                    astia_userspace_crt0 astia_userspace_libc_shared
+                    ${_libc_shared_target}
                     COMMENT "Building native ${name} image")
+            add_custom_target(astia_build_${name}
+                    DEPENDS ${_fix_dir}/${name})
         endfunction()
         astia_add_native_program(native_init
                 ${ASTIA_KERNEL_SOURCE_DIR}/../init/init.c "")
@@ -2243,20 +2313,20 @@ if (ARCH STREQUAL "x86_64")
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/units.c
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/stop.c)
         astia_add_native_program(native_daemondctl
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/daemonctl.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/daemonctl.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_ps
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/ps.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/ps.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_true
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src/true.c
-                ${ASTIA_KERNEL_SOURCE_DIR}/../coreutils/src)
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src/true.c
+                ${ASTIA_KERNEL_SOURCE_DIR}/../utils/coreutils/src)
         astia_add_native_program(native_stop_client
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/stop_client.c "")
         add_custom_target(astia_native_programs
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps ${_fix_dir}/native_true
-                ${_fix_dir}/native_stop_client)
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_build_native_ps
+                astia_build_native_true astia_build_native_stop_client)
         add_custom_command(
                 OUTPUT ${_fix_dir}/native_boot_initrd.cpio
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/native_stage/sbin
@@ -2278,13 +2348,15 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_stage ${_fix_dir}/native_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image}
-                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_build_native_ps
+                ${_init_libc_target}
+                astia_boot_initrd ${_libc_shared_target}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init/daemond initrd")
+        add_custom_target(astia_native_boot_initrd
+                DEPENDS ${_fix_dir}/native_boot_initrd.cpio)
         # An empty unit directory has no services.  daemond must stay resident
         # instead of exiting and taking PID 1 down, so the kernel never
         # finishes its lifecycle; the bounded timeout is the expected
@@ -2324,9 +2396,9 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_service_stage ${_fix_dir}/native_service_boot_initrd.cpio
                 sbin/init sbin/daemond bin/true bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_true ${_init_libc_image}
-                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_true ${_init_libc_target}
+                astia_boot_initrd ${_libc_shared_target}
                 astia_userspace_libc_shared
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/service/true.yaml
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
@@ -2370,11 +2442,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_escalation_stage ${_fix_dir}/native_escalation_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/stop-client bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_stop_client
-                ${_init_libc_image}
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_build_native_stop_client
+                ${_init_libc_target}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/escalation/stop-client.yaml
-                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_boot_initrd ${_libc_shared_target}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native daemond SIGKILL escalation initrd")
@@ -2413,11 +2485,11 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_failure_stage ${_fix_dir}/native_failure_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image}
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_build_native_ps
+                ${_init_libc_target}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/failure/malformed.yaml
-                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_boot_initrd ${_libc_shared_target}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing failing native daemond initrd")
@@ -2462,15 +2534,17 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_visibility_stage ${_fix_dir}/native_visibility_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl bin/ps bin/init_libc etc/daemond
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/native_ps
-                ${_init_libc_image}
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_build_native_ps
+                ${_init_libc_target}
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/ps.yaml
                 ${ASTIA_KERNEL_SOURCE_DIR}/../daemond/tests/units/visibility/daemonctl.yaml
-                ${_fix_dir}/boot_initrd.cpio ${_libc_shared_so}
+                astia_boot_initrd ${_libc_shared_target}
                 astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native daemond visibility initrd")
+        add_custom_target(astia_native_visibility_boot_initrd
+                DEPENDS ${_fix_dir}/native_visibility_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_visibility
                 COMMAND env
                 "ASTIA_EXPECT_ONCE_PATTERN=daemond: started"
@@ -2505,11 +2579,13 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_missing_rc_stage ${_fix_dir}/native_missing_rc_boot_initrd.cpio
                 sbin/init sbin/daemond bin/daemonctl
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/native_daemond
-                ${_fix_dir}/native_daemondctl ${_fix_dir}/boot_initrd.cpio
-                ${_libc_shared_so} astia_userspace_libc_shared
+                DEPENDS astia_build_native_init astia_build_native_daemond
+                astia_build_native_daemondctl astia_boot_initrd
+                ${_libc_shared_target} astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native daemond missing-rc initrd")
+        add_custom_target(astia_native_missing_rc_boot_initrd
+                DEPENDS ${_fix_dir}/native_missing_rc_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_missing_rc
                 COMMAND env
                 ASTIA_EXPECT_TIMEOUT=1
@@ -2538,10 +2614,12 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/native_launch_failure_stage ${_fix_dir}/native_launch_failure_boot_initrd.cpio
                 sbin/init
                 lib/libc.so lib/ld.astia.so
-                DEPENDS ${_fix_dir}/native_init ${_fix_dir}/boot_initrd.cpio
-                ${_libc_shared_so} astia_userspace_libc_shared
+                DEPENDS astia_build_native_init astia_boot_initrd
+                ${_libc_shared_target} astia_userspace_libc_shared
                 ${CMAKE_CURRENT_SOURCE_DIR}/make_cpio_archive.sh
                 COMMENT "Packing native init launch-failure initrd")
+        add_custom_target(astia_native_launch_failure_boot_initrd
+                DEPENDS ${_fix_dir}/native_launch_failure_boot_initrd.cpio)
         add_test(NAME astia_native_daemond_launch_failure
                 COMMAND env
                 ASTIA_EXPECT_QEMU_STATUS=3
@@ -2554,12 +2632,12 @@ if (ARCH STREQUAL "x86_64")
         set_tests_properties(astia_native_daemond_launch_failure PROPERTIES TIMEOUT 300)
 
         add_custom_target(astia_native_initrd_fixtures ALL
-                DEPENDS ${_fix_dir}/native_boot_initrd.cpio
-                ${_fix_dir}/native_service_boot_initrd.cpio
-                ${_fix_dir}/native_failure_boot_initrd.cpio
-                ${_fix_dir}/native_visibility_boot_initrd.cpio
-                ${_fix_dir}/native_missing_rc_boot_initrd.cpio
-                ${_fix_dir}/native_launch_failure_boot_initrd.cpio)
+                DEPENDS astia_native_boot_initrd
+                astia_native_service_boot_initrd
+                astia_native_failure_boot_initrd
+                astia_native_visibility_boot_initrd
+                astia_native_missing_rc_boot_initrd
+                astia_native_launch_failure_boot_initrd)
 
         if (GRUB_FILE AND GRUB_MKRESCUE AND XORRISO)
             add_custom_target(astia_grub_iso ALL

@@ -22,7 +22,8 @@ namespace astia::fs::filesystems {
             return true;
         }
 
-        mm::shptr<open_file> open(const char* path, u32 flags) override;
+        mm::shptr<open_file> open(const char* path, u32 flags,
+                                  long* error = nullptr) override;
         long                 mkdir(const char* path, file_mode mode) override;
         long                 unlink(const char* path, bool directory) override;
         long                 rename(const char* old_path, const char* new_path) override;

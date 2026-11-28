@@ -168,7 +168,7 @@ $clang $common -nostdlib -nostartfiles -nodefaultlibs -static -Wl,-no-pie \
 
 cp "$zsh_binary" "$work/root/bin/zsh"
 ASTIA_SYSROOT="$sysroot" ASTIA_CRT0="$crt0" COREUTILS_BUILD="$work/coreutils" \
-    "$root/coreutils/build.sh" >"$work/logs/coreutils.build.log" 2>&1
+    "$root/utils/coreutils/build.sh" >"$work/logs/coreutils.build.log" 2>&1
 cp "$work/coreutils/bin/"* "$work/root/bin/"
 (cd "$work/root" && find sbin bin etc -print |
     "$cpio" -o --format=newc --quiet) >"$work/initrd.cpio"

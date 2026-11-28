@@ -53,8 +53,10 @@ namespace astia::fs {
             return *this;
         }
 
-        virtual long bind(const astia_sockaddr& address)    = 0;
-        virtual long connect(const astia_sockaddr& address) = 0;
+        virtual long bind(const astia_sockaddr& address,
+                          const char*           canonical = nullptr)    = 0;
+        virtual long connect(const astia_sockaddr& address,
+                             const char*           canonical = nullptr) = 0;
 
         virtual core::task<i64>     sendto(span<const u8>        data,
                                            const astia_sockaddr& destination,
@@ -76,11 +78,13 @@ namespace astia::fs {
             return *this;
         }
 
-        virtual long                 bind(const astia_sockaddr& address)    = 0;
-        virtual long                 listen(u32 backlog)                    = 0;
-        virtual core::task<accepted> accept(core::cltoken token = {})       = 0;
-        virtual long                 connect(const astia_sockaddr& address) = 0;
-        virtual long                 shutdown(u32 how)                      = 0;
+        virtual long                 bind(const astia_sockaddr& address,
+                                          const char*           canonical = nullptr)    = 0;
+        virtual long                 listen(u32 backlog)                      = 0;
+        virtual core::task<accepted> accept(core::cltoken token = {})         = 0;
+        virtual long                 connect(const astia_sockaddr& address,
+                                             const char*           canonical = nullptr) = 0;
+        virtual long                 shutdown(u32 how)                        = 0;
 
         virtual core::task<i64>     sendmsg(span<const u8>                 data,
                                             const mm::shptr<unix_control>& control,

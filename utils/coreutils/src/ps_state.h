@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../kernel/include/astia/api/syscalls.h"
+#include "../../../kernel/include/astia/api/syscalls.h"
 
 #include <stdint.h>
 

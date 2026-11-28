@@ -76,6 +76,8 @@ namespace astia::io::aio::test_support {
     void set_node_identity(const char* path, u32 device, u64 inode);
     void set_directory_entry_inode(u64 inode);
     void set_process_credentials(uid_t uid, gid_t gid);
+    void set_process_root(const char* root);
+    void set_process_cwd(const char* cwd);
     void set_memory_allowed(bool allowed);
     void set_timer(u64 hz, u64 ticks);
     void add_timer_ticks(u64 ticks);
