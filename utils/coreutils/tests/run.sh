@@ -174,13 +174,24 @@ $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
 "$out/host/rm_symlink_swap_test"
 $clang -D_GNU_SOURCE -std=c11 -Wall -Wextra -Werror -Wno-unused-function \
     -I "$root/utils/coreutils/src" "$root/utils/coreutils/src/rm.c" -o "$out/host/rm"
+# A symlink whose target is / is unlinked like any other link: the operand is
+# a symlink, not a directory, so the root guard must not follow it (#796).
 mkdir -p "$out/host/rm_guard"
 ln -s / "$out/host/rm_guard/rootlink"
-if "$out/host/rm" -r "$out/host/rm_guard/rootlink" 2>"$out/host/rm_guard.err"; then
-    echo "rm accepted a symlink resolving to /" >&2
+"$out/host/rm" "$out/host/rm_guard/rootlink"
+test ! -e "$out/host/rm_guard/rootlink"
+test ! -L "$out/host/rm_guard/rootlink"
+test -d /
+ln -s / "$out/host/rm_guard/rootlink"
+"$out/host/rm" -r "$out/host/rm_guard/rootlink"
+test ! -e "$out/host/rm_guard/rootlink"
+test ! -L "$out/host/rm_guard/rootlink"
+test -d /
+if "$out/host/rm" / 2>"$out/host/rm_guard.err"; then
+    echo "rm accepted the filesystem root" >&2
     exit 1
 fi
-test -L "$out/host/rm_guard/rootlink"
+test -d /
 grep -qF 'refusing to remove the filesystem root' "$out/host/rm_guard.err"
 mkdir -p "$out/host/rm_guard/tree/nested"
 printf 'leaf\n' >"$out/host/rm_guard/tree/nested/file"
