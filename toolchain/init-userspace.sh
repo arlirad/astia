@@ -21,59 +21,20 @@ if [ "$openssh_actual" != "$openssh_commit" ]; then
     exit 1
 fi
 
-fetch_pinned_source() {
-    name=$1
-    version=$2
-    url=$3
-    expected=$4
-    destination=$5
-    marker=$destination/.astia-source-version
-
-    if [ -f "$marker" ] && [ "$(cat "$marker")" = "$name-$version" ] &&
-        [ -x "$destination/configure" ]; then
-        return 0
-    fi
-
-    mkdir -p "$cache"
-    source_archive=$cache/$name-$version.tar.gz
-    if [ ! -f "$source_archive" ]; then
-        source_temporary=$source_archive.$$
-        trap 'rm -f "$source_temporary"' EXIT HUP INT TERM
-        if command -v curl >/dev/null 2>&1; then
-            curl -fsSL --retry 2 "$url" -o "$source_temporary"
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q "$url" -O "$source_temporary"
-        else
-            echo "$name: curl or wget is required to fetch $url" >&2
-            exit 1
-        fi
-        mv "$source_temporary" "$source_archive"
-        trap - EXIT HUP INT TERM
-    fi
-
-    actual=$(sha256sum "$source_archive" | awk '{print $1}')
-    if [ "$actual" != "$expected" ]; then
-        echo "$name: checksum mismatch for $source_archive" >&2
-        exit 1
-    fi
-
-    source_staging=$cache/$name-$version-source.$$
-    rm -rf "$source_staging" "$destination"
-    mkdir -p "$source_staging"
-    tar -xf "$source_archive" -C "$source_staging" --strip-components=1
-    printf '%s\n' "$name-$version" >"$source_staging/.astia-source-version"
-    mkdir -p "$(dirname -- "$destination")"
-    mv "$source_staging" "$destination"
-}
-
-fetch_pinned_source curl 8.23.0 \
-    https://curl.se/download/curl-8.23.0.tar.gz \
-    e3de77cfa6367083c776a26647fc9f633b538c06c3baa73d931a252ac8f72b49 \
-    "$root/user/curl"
-fetch_pinned_source wget 1.25.0 \
-    https://ftp.gnu.org/gnu/wget/wget-1.25.0.tar.gz \
-    766e48423e79359ea31e41db9e5c289675947a7fcf2efdcedb726ac9d0da3784 \
-    "$root/user/wget"
+git -C "$root" submodule update --init user/curl
+git -C "$root" submodule update --init user/wget
+curl_actual=$(git -C "$root/user/curl" rev-parse HEAD)
+curl_commit=3163ec065643ba20709f190111f42c3e1fe95273
+if [ "$curl_actual" != "$curl_commit" ]; then
+    echo "curl: expected curl-8_23_0 ($curl_commit), found $curl_actual" >&2
+    exit 1
+fi
+wget_actual=$(git -C "$root/user/wget" rev-parse HEAD)
+wget_commit=abb989138731341e5cfd285d272b24afb60fd1a9
+if [ "$wget_actual" != "$wget_commit" ]; then
+    echo "wget: expected v1.25.0 ($wget_commit), found $wget_actual" >&2
+    exit 1
+fi
 
 if timeout 45 git -C "$root" submodule update --init user/nano; then
     exit 0

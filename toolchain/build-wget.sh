@@ -12,24 +12,53 @@ jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
 wget_version=1.25.0
 clang_path=$(command -v "$clang")
 
-if [ ! -x "$source/configure" ]; then
-    echo "wget: source directory has no configure script: $source" >&2
-    echo "wget: run toolchain/init-userspace.sh to fetch the pinned source" >&2
-    exit 1
-fi
-
 source=$(CDPATH= cd -- "$source" && pwd)
 
-if [ ! -f "$source/.astia-source-version" ] ||
-    [ "$(cat "$source/.astia-source-version")" != "wget-$wget_version" ]; then
+source_revision=$(
+    if git -C "$source" rev-parse --git-dir >/dev/null 2>&1; then
+        {
+            git -C "$source" rev-parse HEAD
+            git -C "$source" diff HEAD --no-ext-diff --binary
+            git -C "$source" ls-files --others --exclude-standard |
+                while IFS= read -r source_file; do
+                    sha256sum "$source/$source_file"
+                done
+        } | sha256sum | awk '{print $1}'
+    else
+        find "$source" -type f -not -path "$source/.git/*" \
+            -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
+    fi
+)
+
+if [ ! -x "$source/configure" ]; then
+    boot=$build/source
+    stamp=$boot/.astia-source-revision
+    if [ ! -x "$boot/configure" ] || [ ! -f "$stamp" ] ||
+        [ "$(cat "$stamp")" != "$source_revision" ]; then
+        gnulib_source=${WGET_GNULIB_SOURCE:-$root/user/gnulib}
+        if [ ! -x "$gnulib_source/gnulib-tool" ]; then
+            echo "wget: gnulib source is missing: $gnulib_source" >&2
+            echo "wget: run toolchain/init-userspace.sh" >&2
+            exit 1
+        fi
+        command -v autopoint >/dev/null 2>&1 || {
+            echo "wget: autopoint is required to bootstrap the git checkout" >&2
+            exit 1
+        }
+        rm -rf "$boot"
+        mkdir -p "$boot"
+        (cd "$source" && tar --exclude=.git -cf - .) | tar -C "$boot" -xf -
+        printf '%s\n' "$wget_version" >"$boot/.tarball-version"
+        (cd "$boot" && ./bootstrap --gnulib-srcdir="$gnulib_source" --skip-po)
+        printf '%s\n' "$source_revision" >"$stamp"
+    fi
+    source=$boot
+fi
+
+if ! grep -q "PACKAGE_VERSION='$wget_version'" "$source/configure"; then
     echo "wget: source is not wget $wget_version" >&2
     exit 1
 fi
-
-source_revision=$(
-    find "$source" -type f -not -path "$source/.git/*" \
-        -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
-)
 
 if [ ! -f "$sysroot/lib/libastia_libc.a" ]; then
     ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
@@ -156,7 +185,8 @@ if [ -e "$sysroot/lib/libc.so" ] && [ -e "$build/src/wget" ] &&
     rm -f "$build/src/wget" "$build/output/wget"
 fi
 
-make -j "$jobs"
+make -C lib -j "$jobs"
+make -C src -j "$jobs"
 mkdir -p "$build/output"
 if [ ! -e "$build/output/wget" ] || ! cmp -s "$build/src/wget" "$build/output/wget"; then
     cp "$build/src/wget" "$build/output/wget"

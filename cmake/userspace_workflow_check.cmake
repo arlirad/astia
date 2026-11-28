@@ -14,7 +14,11 @@ foreach(_astia_submodule
         "path = user/ncurses"
         "url = https://github.com/ThomasDickey/ncurses-snapshots.git"
         "path = user/openssh"
-        "url = https://github.com/openssh/openssh-portable.git")
+        "url = https://github.com/openssh/openssh-portable.git"
+        "path = user/curl"
+        "url = https://github.com/curl/curl.git"
+        "path = user/wget"
+        "url = https://git.savannah.gnu.org/git/wget.git")
     if(NOT _astia_gitmodules MATCHES "${_astia_submodule}")
         message(FATAL_ERROR ".gitmodules is missing: ${_astia_submodule}")
     endif()
@@ -26,7 +30,7 @@ endif()
 
 execute_process(
     COMMAND git -C "${_astia_root}" ls-files --stage -- user/zsh user/nano
-        user/gnulib user/ncurses user/openssh
+        user/gnulib user/ncurses user/openssh user/curl user/wget
     OUTPUT_VARIABLE _astia_gitlinks
     OUTPUT_STRIP_TRAILING_WHITESPACE
     RESULT_VARIABLE _astia_gitlinks_status)
@@ -48,6 +52,14 @@ endif()
 if(NOT _astia_gitlinks MATCHES
        "160000 d76b2675116617394cd355a3437b4963a562b64d 0[ \t]+user/openssh")
     message(FATAL_ERROR "OpenSSH is not pinned to the reviewed revision")
+endif()
+if(NOT _astia_gitlinks MATCHES
+       "160000 3163ec065643ba20709f190111f42c3e1fe95273 0[ \t]+user/curl")
+    message(FATAL_ERROR "curl is not pinned to the reviewed revision")
+endif()
+if(NOT _astia_gitlinks MATCHES
+       "160000 abb989138731341e5cfd285d272b24afb60fd1a9 0[ \t]+user/wget")
+    message(FATAL_ERROR "wget is not pinned to the reviewed revision")
 endif()
 
 foreach(_astia_launcher

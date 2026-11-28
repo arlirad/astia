@@ -12,23 +12,48 @@ jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}
 curl_version=8.23.0
 clang_path=$(command -v "$clang")
 
-if [ ! -x "$source/configure" ]; then
-    echo "curl: source directory has no configure script: $source" >&2
-    echo "curl: run toolchain/init-userspace.sh to fetch the pinned source" >&2
-    exit 1
-fi
-
 source=$(CDPATH= cd -- "$source" && pwd)
 
-if ! grep -q "LIBCURL_VERSION \"$curl_version\"" "$source/include/curl/curlver.h"; then
+if ! grep -q "LIBCURL_VERSION \"$curl_version" "$source/include/curl/curlver.h"; then
     echo "curl: source is not curl $curl_version" >&2
     exit 1
 fi
 
 source_revision=$(
-    find "$source" -type f -not -path "$source/.git/*" \
-        -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
+    if git -C "$source" rev-parse --git-dir >/dev/null 2>&1; then
+        {
+            git -C "$source" rev-parse HEAD
+            git -C "$source" diff HEAD --no-ext-diff --binary
+            git -C "$source" ls-files --others --exclude-standard |
+                while IFS= read -r source_file; do
+                    sha256sum "$source/$source_file"
+                done
+        } | sha256sum | awk '{print $1}'
+    else
+        find "$source" -type f -not -path "$source/.git/*" \
+            -exec sha256sum {} + | sort | sha256sum | awk '{print $1}'
+    fi
 )
+
+if [ ! -x "$source/configure" ]; then
+    boot=$build/source
+    stamp=$boot/.astia-source-revision
+    if [ ! -x "$boot/configure" ] || [ ! -f "$stamp" ] ||
+        [ "$(cat "$stamp")" != "$source_revision" ]; then
+        command -v autoreconf >/dev/null 2>&1 || {
+            echo "curl: autoreconf is required to bootstrap the git checkout" >&2
+            exit 1
+        }
+        rm -rf "$boot"
+        mkdir -p "$boot"
+        (cd "$source" && tar --exclude=.git -cf - .) | tar -C "$boot" -xf -
+        printf '/* built-in manual disabled */\n#include "tool_setup.h"\n' \
+            >"$boot/src/tool_hugehelp.c"
+        (cd "$boot" && autoreconf -fi)
+        printf '%s\n' "$source_revision" >"$stamp"
+    fi
+    source=$boot
+fi
 
 if [ ! -f "$sysroot/lib/libastia_libc.a" ]; then
     ASTIA_CROSS_BUILD="$build/astia" ASTIA_SYSROOT="$sysroot" CLANG="$clang" \
