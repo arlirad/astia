@@ -155,6 +155,10 @@ add_executable(libc_atfork_test process/atfork_test.c support/process_host.c sup
 target_link_libraries(libc_atfork_test PRIVATE astia_libc_host)
 add_test(NAME libc_atfork_test COMMAND libc_atfork_test)
 
+add_executable(libc_execvp_test process/execvp_test.c support/process_host.c support/backend_host.c support/alarm_host.c)
+target_link_libraries(libc_execvp_test PRIVATE astia_libc_host)
+add_test(NAME libc_execvp_test COMMAND libc_execvp_test)
+
 add_executable(libc_setjmp_test process/setjmp_test.c)
 target_link_libraries(libc_setjmp_test PRIVATE astia_libc)
 add_test(NAME libc_setjmp_test COMMAND libc_setjmp_test)

@@ -2079,6 +2079,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: libc ok"
                 "astia: exit parked waiters start"
                 "astia: exec permission ok"
+                "astia: execvp search ok"
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: w^x ok"

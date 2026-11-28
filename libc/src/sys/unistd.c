@@ -918,6 +918,8 @@ int execvp(const char* file, char* const argv[]) {
 
     char candidate[astia_path_buffer_capacity];
 
+    int access_error = 0;
+
     if (file == NULL || *file == '\0') {
         errno = ENOENT;
 
@@ -961,24 +963,20 @@ int execvp(const char* file, char* const argv[]) {
 
         (void) execve(candidate, argv, environ);
 
-        if (errno != ENOENT && errno != ENOTDIR)
-            return -1;
+        if (errno != ENOENT && errno != ENOTDIR) {
+            if (errno != EACCES)
+                return -1;
+
+            access_error = 1;
+        }
 
         if (end == NULL)
             break;
 
         path = end + 1;
-
-        if (*path == '\0') {
-            /* A trailing empty PATH component denotes the current directory. */
-            if (__astia_resolve_path(file, candidate, sizeof candidate) == 0)
-                (void) execve(candidate, argv, environ);
-
-            break;
-        }
     }
 
-    errno = ENOENT;
+    errno = access_error ? EACCES : ENOENT;
 
     return -1;
 }
