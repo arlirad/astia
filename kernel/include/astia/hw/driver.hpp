@@ -146,15 +146,18 @@ namespace astia::hw {
         /// error.
         core::task<i64> bind_device(mm::shptr<device_info> device, device_handle& out);
 
-        /// Stop and remove one binding.  Returns 0 or -ENOENT.
+        /// Stop and remove one binding.  Returns 0 or -ENOENT (unknown
+        /// binding), or the driver's remove error when the binding stays
+        /// registered for a later retry.
         core::task<i64> unbind(device_handle value);
 
         /// Release every binding owned by `owner` in reverse bind order.
-        /// Returns the number released.
+        /// Returns the number released, or a negative error after the first
+        /// binding whose remove was refused; that binding stays registered.
         core::task<i64> unbind_owner(owner_id owner);
 
         /// Release every binding in reverse bind order; returns the number
-        /// released.
+        /// released, or a negative error after the first refused remove.
         core::task<i64> unbind_all();
 
         bool     valid(driver_handle value) const;
@@ -197,7 +200,7 @@ namespace astia::hw {
         const registration* registration_for(driver_handle value) const;
         binding*            binding_for(device_handle value);
         const binding*      binding_for(device_handle value) const;
-        core::task<void>    release_binding(binding& value);
+        core::task<i64>     release_binding(binding& value);
 
         registration _drivers[max_drivers]{};
         binding      _bindings[max_devices]{};

@@ -1198,10 +1198,16 @@ namespace astia::mod {
 
         // A module owns every driver it registered.  Stop and remove those
         // bindings while the module image and its callbacks are still live.
+        // A refused remove keeps its binding registered, so the unmap below
+        // must not run: the image could still be reached from a callback.
         const hw::owner_id owner = driver_owner(id);
 
-        if (hw::drivers().devices_owned_by(owner) != 0)
-            (void) co_await hw::drivers().unbind_owner(owner);
+        if (hw::drivers().devices_owned_by(owner) != 0) {
+            const auto released = co_await hw::drivers().unbind_owner(owner);
+
+            if (!released || released.value < 0)
+                co_return module_error::busy;
+        }
 
         while (true) {
             close_waiter* waiter = new (std::nothrow) close_waiter();
