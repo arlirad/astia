@@ -912,6 +912,27 @@ size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* f) {
     return put / size;
 }
 
+/* POSIX: a stream is seekable only when the object beneath it is.  Ask
+ * the kernel itself with lseek(fd, 0, SEEK_CUR): regular files and
+ * directories answer with their position, pipes, sockets and terminals
+ * with ESPIPE.  The probe moves nothing when it succeeds.  Memory sinks
+ * have their own position and are always seekable. */
+static int stream_seekable(FILE* f) {
+    long rc;
+
+    if (f->kind == AF_MEM)
+        return 1;
+
+    rc = __astia_fio_lseek(f->fd, 0, SEEK_CUR);
+    if (rc < 0) {
+        errno = (int) -rc;
+
+        return 0;
+    }
+
+    return 1;
+}
+
 int fseek(FILE* f, long offset, int whence) {
     long base;
 
@@ -931,6 +952,12 @@ int fseek(FILE* f, long offset, int whence) {
 
         return EOF;
     }
+
+    /* The seekability check comes before any flush or drop: a failing
+       seek must leave the stream exactly as it was, read-ahead and
+       pending writes included. */
+    if (!stream_seekable(f))
+        return EOF;
 
     /* Pending bytes must land before anything is decided — SEEK_END
        reads the file size, which must already include them, and the
@@ -997,6 +1024,9 @@ long ftell(FILE* f) {
 
         return -1;
     }
+
+    if (!stream_seekable(f))
+        return -1;
 
     return f->pos; /* includes pending writes: they are logically placed */
 }
@@ -1156,6 +1186,9 @@ int fgetpos(FILE* f, fpos_t* pos) {
 
         return EOF;
     }
+
+    if (!stream_seekable(f))
+        return EOF;
 
     *pos = f->pos;
 

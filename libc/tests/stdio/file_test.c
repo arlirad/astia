@@ -253,6 +253,17 @@ static void test_seek_and_overwrite(void) {
     CHECK(fseek(f, LONG_MAX, SEEK_END) == EOF); /* base+offset overflow */
     CHECK(errno == EINVAL);
     CHECK(ftell(f) == 8); /* none of the four failures moved the position */
+
+    /* a successful seek drops read-ahead and reads resume at the new
+       spot; SEEK_CUR 0 keeps the position and re-reads the same bytes */
+    CHECK(fseek(f, 2, SEEK_SET) == 0);
+    CHECK(fgetc(f) == '2');
+    CHECK(ftell(f) == 3);
+    CHECK(fseek(f, 0, SEEK_CUR) == 0);
+    CHECK(ftell(f) == 3);
+    CHECK(fgetc(f) == '3');
+    CHECK(fseek(f, 0, SEEK_SET) == 0);
+    CHECK(fgetc(f) == '0');
     CHECK(fclose(f) == 0);
 }
 
@@ -345,6 +356,67 @@ static void test_fseeko_ftello(void) {
         CHECK(ftello(f) == 4);
         CHECK(fclose(f) == EOF);
     }
+}
+
+static void test_unseekable_stream(void) {
+    int pipe_fds[2] = {-1, -1};
+
+    FILE* f;
+
+    CHECK(pipe(pipe_fds) == 0);
+
+    if (pipe_fds[0] < 0 || pipe_fds[1] < 0)
+        return;
+
+    f = fdopen(pipe_fds[0], "r");
+
+    CHECK(f != NULL);
+
+    if (f == NULL) {
+        (void) close(pipe_fds[0]);
+        (void) close(pipe_fds[1]);
+
+        return;
+    }
+
+    CHECK(write(pipe_fds[1], "abcdef", 6) == 6);
+
+    CHECK(fgetc(f) == 'a'); /* fills the read-ahead buffer */
+
+    /* A pipe has no file position: every position query and every seek
+       says ESPIPE instead of inventing one. */
+    errno = 0;
+
+    CHECK(fseek(f, 0, SEEK_SET) == EOF);
+    CHECK(errno == ESPIPE);
+
+    errno = 0;
+
+    CHECK(fseeko(f, 0, SEEK_CUR) == EOF);
+    CHECK(errno == ESPIPE);
+
+    errno = 0;
+
+    CHECK(ftell(f) == -1);
+    CHECK(errno == ESPIPE);
+
+    errno = 0;
+
+    CHECK(ftello(f) == (off_t) -1);
+    CHECK(errno == ESPIPE);
+
+    {
+        fpos_t pos;
+
+        errno = 0;
+
+        CHECK(fgetpos(f, &pos) == EOF);
+        CHECK(errno == ESPIPE);
+    }
+
+    CHECK(fgetc(f) == 'b'); /* the failed seeks kept the buffered input */
+    CHECK(fclose(f) == 0);
+    CHECK(close(pipe_fds[1]) == 0);
 }
 
 static void test_append(void) {
@@ -1113,6 +1185,7 @@ int main(void) {
     test_seek_and_overwrite();
     test_seek_end_sees_pending();
     test_fseeko_ftello();
+    test_unseekable_stream();
     test_append();
     test_read_write_switch();
     test_errors();
