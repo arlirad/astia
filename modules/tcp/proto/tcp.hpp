@@ -49,7 +49,7 @@ namespace astia::tcp {
     /// One TCB.  The fixed receive buffer keeps RX context allocation-free;
     /// a full buffer drops the segment and advertises a zero window.
     struct connection {
-        static constexpr u32 receive_capacity = 4096;
+        static constexpr u32 rx_capacity = 4096;
 
         connection_state state = connection_state::closed;
         endpoint         local{};
@@ -68,10 +68,10 @@ namespace astia::tcp {
 
         bool used   = false;
         u16  parent = 0xffff;
-        u8   receive[receive_capacity]{};
-        u32  receive_head  = 0;
-        u32  receive_tail  = 0;
-        u32  receive_count = 0;
+        u8   rx_buffer[rx_capacity]{};
+        u32  rx_head  = 0;
+        u32  rx_tail  = 0;
+        u32  rx_count = 0;
 
         enum class waiter_state : u8 {
             free,
@@ -109,13 +109,13 @@ namespace astia::tcp {
         u8  retries           = 0;
 
         u32 buffered() const {
-            return receive_count;
+            return rx_count;
         }
 
         core::task<i64>         wait_established(core::cltoken token = {});
-        core::task<i64>         send_async(span<const u8> data, core::cltoken token = {});
-        core::task<i64>         receive_async(span<u8> data, core::cltoken token = {});
-        core::task<connection*> accept_async(core::cltoken token = {});
+        core::task<i64>         send(span<const u8> data, core::cltoken token = {});
+        core::task<i64>         receive(span<u8> data, core::cltoken token = {});
+        core::task<connection*> accept(core::cltoken token = {});
 
         tcp_protocol*  owner  = nullptr;
         u32            events = 0;
@@ -152,10 +152,10 @@ namespace astia::tcp {
         connection* accept(connection& listener);
 
         /// Queue one in-order data segment (no retransmission yet).
-        i64 send_data(connection& value, span<const u8> data);
+        i64 try_send(connection& value, span<const u8> data);
 
         /// Pop received bytes; -EAGAIN when the receive buffer is empty.
-        i64 recv_data(connection& value, span<u8> data);
+        i64 try_receive(connection& value, span<u8> data);
 
         void close(connection& value);
 

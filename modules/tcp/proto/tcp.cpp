@@ -470,20 +470,19 @@ namespace astia::tcp {
 
         for (const span<const u8>& segment : segments) {
             for (usz index = 0; index < segment.size(); ++index) {
-                if (value.receive_count == connection::receive_capacity)
+                if (value.rx_count == connection::rx_capacity)
                     return;
 
-                const u32 position =
-                    (value.receive_head + copied) % connection::receive_capacity;
+                const u32 position = (value.rx_head + copied) % connection::rx_capacity;
 
-                value.receive[position] = segment.data()[index];
+                value.rx_buffer[position] = segment.data()[index];
 
                 ++copied;
             }
         }
 
-        value.receive_head = (value.receive_head + copied) % connection::receive_capacity;
-        value.receive_count += copied;
+        value.rx_head = (value.rx_head + copied) % connection::rx_capacity;
+        value.rx_count += copied;
     }
 
     bool tcp_protocol::store_pending(connection& value, u32 seq,
@@ -532,24 +531,22 @@ namespace astia::tcp {
     }
 
     i64 tcp_protocol::pop(connection& value, span<u8> data) {
-        const u32 count = value.receive_count < data.size()
-                              ? value.receive_count
-                              : static_cast<u32>(data.size());
+        const u32 count =
+            value.rx_count < data.size() ? value.rx_count : static_cast<u32>(data.size());
 
         for (u32 index = 0; index < count; ++index) {
-            const u32 position =
-                (value.receive_tail + index) % connection::receive_capacity;
+            const u32 position = (value.rx_tail + index) % connection::rx_capacity;
 
-            data.data()[index] = value.receive[position];
+            data.data()[index] = value.rx_buffer[position];
         }
 
-        value.receive_tail = (value.receive_tail + count) % connection::receive_capacity;
-        value.receive_count -= count;
+        value.rx_tail = (value.rx_tail + count) % connection::rx_capacity;
+        value.rx_count -= count;
 
         return count;
     }
 
-    i64 tcp_protocol::send_data(connection& value, span<const u8> data) {
+    i64 tcp_protocol::try_send(connection& value, span<const u8> data) {
         if (value.state != connection_state::established)
             return -ENOTCONN;
 
@@ -577,8 +574,8 @@ namespace astia::tcp {
         return static_cast<i64>(data.size());
     }
 
-    i64 tcp_protocol::recv_data(connection& value, span<u8> data) {
-        if (value.receive_count == 0)
+    i64 tcp_protocol::try_receive(connection& value, span<u8> data) {
+        if (value.rx_count == 0)
             return -EAGAIN;
 
         return pop(value, data);
@@ -782,22 +779,22 @@ namespace astia::tcp {
         }
     }
 
-    core::task<i64> connection::send_async(span<const u8> data, core::cltoken token) {
+    core::task<i64> connection::send(span<const u8> data, core::cltoken token) {
         if (owner == nullptr)
             co_return -ENODEV;
 
         if (token.canceled())
             co_return -ECANCELED;
 
-        co_return owner->send_data(*this, data);
+        co_return owner->try_send(*this, data);
     }
 
-    core::task<i64> connection::receive_async(span<u8> data, core::cltoken token) {
+    core::task<i64> connection::receive(span<u8> data, core::cltoken token) {
         if (owner == nullptr)
             co_return -ENODEV;
 
         while (true) {
-            const i64 result = owner->recv_data(*this, data);
+            const i64 result = owner->try_receive(*this, data);
 
             if (result != -EAGAIN)
                 co_return result;
@@ -817,7 +814,7 @@ namespace astia::tcp {
         }
     }
 
-    core::task<connection*> connection::accept_async(core::cltoken token) {
+    core::task<connection*> connection::accept(core::cltoken token) {
         if (owner == nullptr || state != connection_state::listen)
             co_return nullptr;
 
@@ -880,8 +877,7 @@ namespace astia::tcp {
 
         header->set_flags(flags);
 
-        header->window =
-            static_cast<u16>(connection::receive_capacity - value.receive_count);
+        header->window = static_cast<u16>(connection::rx_capacity - value.rx_count);
         header->checksum_value = 0;
         header->urgent         = 0;
 
