@@ -319,6 +319,9 @@ namespace astia::ext4 {
         if (!_volume.open(io, requested_writable))
             return false;
 
+        if ((_volume.feature_ro_compat() & ro_orphan_present) != 0)
+            logs::warning("orphan file present; mounting read-only");
+
         const bool has_journal = _volume.has_journal();
         bool       journal_ready = false;
 

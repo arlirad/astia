@@ -30,7 +30,6 @@ namespace {
     using astia::u8;
     using astia::usz;
 
-    constexpr u32 image_capacity = 16 * 1024 * 1024;
     constexpr u32 sector_size    = 512;
     constexpr u32 payload_size   = 100000;
 
@@ -55,7 +54,11 @@ namespace {
 
     class fake_blkdev final : public astia::dev::blk::blkdev {
         public:
-        fake_blkdev() : blkdev("fake-ext4", image_capacity, sector_size) {}
+        fake_blkdev() : blkdev("fake-ext4", 0, sector_size) {}
+
+        ~fake_blkdev() {
+            std::free(image);
+        }
 
         bool load(const char* path) {
             std::FILE* file = std::fopen(path, "rb");
@@ -71,14 +74,23 @@ namespace {
 
             const long end = std::ftell(file);
 
-            if (end <= 0 || static_cast<u64>(end) > image_capacity ||
-                std::fseek(file, 0, SEEK_SET) != 0) {
+            if (end <= 0 || std::fseek(file, 0, SEEK_SET) != 0) {
                 std::fclose(file);
 
                 return false;
             }
 
             const usz size = static_cast<usz>(end);
+
+            u8* loaded = static_cast<u8*>(std::realloc(image, size));
+
+            if (loaded == nullptr) {
+                std::fclose(file);
+
+                return false;
+            }
+
+            image = loaded;
 
             if (std::fread(image, 1, size, file) != size) {
                 std::fclose(file);
@@ -130,7 +142,7 @@ namespace {
         }
 
         private:
-        u8  image[image_capacity]{};
+        u8* image = nullptr;
         u64 _size = 0;
     };
 

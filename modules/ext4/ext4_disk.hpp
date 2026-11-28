@@ -23,11 +23,13 @@ namespace astia::ext4 {
 
     inline constexpr u32 compat_has_journal      = 0x0004;
     inline constexpr u32 compat_dir_index        = 0x0020;
+    inline constexpr u32 compat_orphan_file      = 0x1000;
     inline constexpr u32 incompat_filetype       = 0x0002;
     inline constexpr u32 incompat_recover        = 0x0004;
     inline constexpr u32 incompat_journal_device = 0x0008;
     inline constexpr u32 incompat_extents        = 0x0040;
     inline constexpr u32 incompat_64bit          = 0x0080;
+    inline constexpr u32 incompat_flex_bg        = 0x0200;
     inline constexpr u32 incompat_csum_seed      = 0x2000;
     inline constexpr u32 incompat_largedir       = 0x4000;
     inline constexpr u32 incompat_inline_data    = 0x8000;
@@ -39,6 +41,7 @@ namespace astia::ext4 {
     inline constexpr u32 ro_extra_isize          = 0x0040;
     inline constexpr u32 ro_metadata_csum        = 0x0400;
     inline constexpr u32 ro_readonly             = 0x1000;
+    inline constexpr u32 ro_orphan_present       = 0x10000;
 
     inline constexpr u32 inode_extents     = 0x00080000;
     inline constexpr u32 inode_index       = 0x00001000;

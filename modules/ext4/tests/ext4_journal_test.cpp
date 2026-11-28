@@ -242,6 +242,12 @@ namespace {
             inode_bytes[inode_offset + i] = node.raw[i];
         }
 
+        u8 stale[4096];
+
+        for (u32 i = 0; i < sizeof stale; ++i) {
+            stale[i] = 0xA5;
+        }
+
         u8 content[4096];
 
         build_content(content);
@@ -253,6 +259,8 @@ namespace {
 
         if (!check(record.open(v, journal_inode), "open journal") ||
             !check(record.begin(v), "begin transaction") ||
+            !check(record.stage(v, data_block, stale),
+                   "stage stale data block") ||
             !check(record.stage(v, data_block, content), "stage data block") ||
             !check(record.stage(v, inode_block, inode_bytes),
                    "stage inode block"))

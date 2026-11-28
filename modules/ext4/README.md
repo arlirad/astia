@@ -58,6 +58,10 @@ table of 64 open inodes; opening another inode when it is full fails.
   that Astia's linear scan found.
 - No inline data, xattrs, ACLs, or encryption.
 - Extent trees only (the extents feature is required); no indirect-block files.
+- Stock `mke2fs` layouts mount read-write: `flex_bg` allocation, 64-byte group
+  descriptors with the `64bit` feature, and `metadata_csum_seed` are supported.
+  Images with `RO_COMPAT_ORPHAN_PRESENT` mount read-only until orphan-file
+  processing lands.
 - The mount lock assumes a synchronous block device: the module's device path
   is task context and `dv_sync`, so a spinlock is sufficient. An asynchronous
   device would need a sleeping lock and a different I/O submission path.
@@ -76,5 +80,8 @@ table of 64 open inodes; opening another inode when it is full fails.
   `normal`, `crash` (power loss after commit, before checkpoint) and `recover`
   (real VFS replay on mount) modes, then checks both images with `e2fsck -fn`,
   `dumpe2fs` and `debugfs`, including the replayed 8 KiB file contents.
+- `ext4_stock_test` mounts stock `mke2fs` images (1 KiB and 4 KiB blocks,
+  default features) through the same tool in `normal` mode and checks the
+  output with `e2fsck -fn`, `dumpe2fs` and `debugfs`.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log.

@@ -87,16 +87,19 @@ journal remain writable through the direct block path.
 ## Supported and refused features
 
 `volume::open()` accepts the incompatible features `filetype`, `recover`,
-`extents`, `64bit`, `csum_seed` and `largedir`, and the read-only-compatible
-features `sparse_super`, `large_file`, `huge_file`, `gdt_csum`, `dir_nlink`,
-`extra_isize` and `metadata_csum`. `csum_seed` requires `metadata_csum`, as
-does `gdt_csum`; `metadata_csum` requires checksum type 1. The `64bit` bit is
-accepted only while the block count still fits in 32 bits.
+`extents`, `64bit`, `csum_seed`, `largedir` and `flex_bg`, and the
+read-only-compatible features `sparse_super`, `large_file`, `huge_file`,
+`gdt_csum`, `dir_nlink`, `extra_isize`, `metadata_csum` and `orphan_present`.
+`csum_seed` requires `metadata_csum`, as does `gdt_csum`; `metadata_csum`
+requires checksum type 1. The `64bit` bit is accepted only while the block
+count still fits in 32 bits; 64-byte group descriptors are parsed and
+checksummed in full. `orphan_present` forces a read-only mount (with a log
+message) because the orphan file is not processed yet.
 
-Everything else is refused at open: inline data, bigalloc, flex_bg,
-encryption, quota, the orphan file, external journal devices, unknown feature
-bits, and the read-only flag. The mount additionally rejects images without
-extents, with blocks beyond the source device, or with a non-directory root.
+Everything else is refused at open: inline data, bigalloc, encryption, quota,
+external journal devices, unknown feature bits, and the read-only flag. The
+mount additionally rejects images without extents, with blocks beyond the
+source device, or with a non-directory root.
 
 HTree directories are read, enumerated and can have entries removed, but
 creating an entry inside an existing indexed directory returns `-ENOSYS`:
@@ -136,6 +139,9 @@ at most 64 open inodes; opening another inode when it is full fails.
   `normal`, `crash` (power loss after commit, before checkpoint) and `recover`
   modes, then checks both images with `e2fsck -fn`, `dumpe2fs` and `debugfs`,
   including the replayed 8 KiB file contents.
+- `ext4_stock_test` mounts stock `mke2fs` images with 1 KiB and 4 KiB blocks
+  and default features through the RW tool, then checks the outputs with
+  `e2fsck -fn`, `dumpe2fs` and `debugfs`.
 - `ext4_qemu_module_load` boots `astiakrn_module_runtime` with `ext4.km` in
   `mod/` and checks the serial log for a successful load.
 
@@ -147,7 +153,7 @@ that a real VFS replay recovers the committed file contents.
 
 - HTree insertion and conversion.
 - xattrs, ACLs, encryption, and inline data.
-- bigalloc and flex_bg.
+- bigalloc.
 - 64-bit high block numbers and volumes larger than 16 TiB.
 - External journal devices.
 - The orphan inode list and orphan-file cleanup.

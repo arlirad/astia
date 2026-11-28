@@ -639,11 +639,11 @@ namespace astia::ext4 {
     }
 
     u16 group_descriptor::itable_unused_hi() const {
-        return get16(0x3C);
+        return get16(0x32);
     }
 
     void group_descriptor::set_itable_unused_hi(u16 value) {
-        set16(0x3C, value);
+        set16(0x32, value);
     }
 
     u16 group_descriptor::checksum() const {
@@ -1028,10 +1028,10 @@ namespace astia::ext4 {
 
         const u32 allowed_incompat =
             incompat_filetype | incompat_recover | incompat_extents | incompat_64bit |
-            incompat_csum_seed | incompat_largedir;
+            incompat_csum_seed | incompat_largedir | incompat_flex_bg;
         const u32 allowed_ro =
             ro_sparse_super | ro_large_file | ro_huge_file | ro_gdt_csum | ro_dir_nlink |
-            ro_extra_isize | ro_metadata_csum;
+            ro_extra_isize | ro_metadata_csum | ro_orphan_present;
 
         if ((incompat & incompat_inline_data) != 0)
             return false;
@@ -1144,7 +1144,8 @@ namespace astia::ext4 {
         }
 
         _metadata_csum = (ro & ro_metadata_csum) != 0;
-        _writable      = writable && _io.write != nullptr;
+        _writable      = writable && _io.write != nullptr &&
+                         (ro & ro_orphan_present) == 0;
         _dirty         = false;
 
         return true;

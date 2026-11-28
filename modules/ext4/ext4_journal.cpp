@@ -9,8 +9,9 @@ namespace astia::ext4 {
         constexpr u32 super_rocompat = 0x2C;
         constexpr u32 super_uuid     = 0x30;
         constexpr u32 super_checksum_type = 0x50;
-        constexpr u32 super_head     = 0x58;
-        constexpr u32 super_checksum = 0xFC;
+        constexpr u32 super_head      = 0x58;
+        constexpr u32 super_checksum  = 0xFC;
+        constexpr u32 superblock_size = 1024;
 
         constexpr u32 known_incompat =
             journal_incompat_revoke | journal_incompat_64bit |
@@ -217,7 +218,7 @@ namespace astia::ext4 {
         const u32 stored = load_be32(_sb + super_checksum);
 
         store_be32(_sb + super_checksum, 0);
-        const u32 actual = crc32c(~u32{0}, _sb, _block_size);
+        const u32 actual = crc32c(~u32{0}, _sb, superblock_size);
         store_be32(_sb + super_checksum, stored);
 
         return actual == stored;
@@ -230,7 +231,7 @@ namespace astia::ext4 {
 
         if (_csum) {
             store_be32(_sb + super_checksum, 0);
-            const u32 checksum = crc32c(~u32{0}, _sb, _block_size);
+            const u32 checksum = crc32c(~u32{0}, _sb, superblock_size);
             store_be32(_sb + super_checksum, checksum);
         }
 
