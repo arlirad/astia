@@ -199,6 +199,19 @@ namespace astia::fs {
 
         long reserve_append(u32 length, u64* offset);
 
+        bool access_allows(io::direction direction) const {
+            if (!_parent)
+                return true;
+
+            const file_mode mode = _parent->mode();
+
+            if (!mode.is_character_device() && !mode.is_block_device())
+                return true;
+
+            return direction == io::direction::input ? open_file_readable(_flags)
+                                                     : open_file_writable(_flags);
+        }
+
         mm::shptr<file>                    _parent;
         u64                                _position = 0;
         mutable mm::shptr<shared_position> _position_state;

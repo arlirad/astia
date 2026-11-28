@@ -134,6 +134,7 @@ namespace astia::dev {
             s->op        = OP_OPENAT;
             s->fd        = -1; // current VFS has one exact-path namespace
             s->address   = reinterpret_cast<u64>(device_path);
+            s->op_flags  = ASTIA_AIO_O_RDWR;
             s->aux       = 0;
             s->user_data = ring_tag_open;
 

@@ -118,9 +118,10 @@ namespace astia::io::aio::operations {
                 co_return -ENOMEM;
 
             const u32 status_flags =
-                sqe.op_flags & ASTIA_EFD_NONBLOCK
-                    ? static_cast<u32>(fs::open_file_status_flags::nonblock)
-                    : 0u;
+                ASTIA_AIO_O_RDWR |
+                (sqe.op_flags & ASTIA_EFD_NONBLOCK
+                     ? static_cast<u32>(fs::open_file_status_flags::nonblock)
+                     : 0u);
             const u32 descriptor_flags = sqe.op_flags & ASTIA_EFD_CLOEXEC
                                              ? static_cast<u32>(ASTIA_FD_CLOEXEC)
                                              : 0u;

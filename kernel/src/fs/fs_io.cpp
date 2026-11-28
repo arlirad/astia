@@ -195,6 +195,12 @@ namespace astia::fs {
 
     core::task<i64> open_file::readv(span<const buffer> buffers, u64 offset,
                                      core::cltoken token) {
+        if (!_parent)
+            co_return error_t::ebadf;
+
+        if (!access_allows(io::direction::input))
+            co_return error_t::ebadf;
+
         u64 sized = 0;
 
         if (!buffer_bytes(buffers, sized))
@@ -202,9 +208,6 @@ namespace astia::fs {
 
         if (sized == 0)
             co_return i64{0};
-
-        if (!_parent)
-            co_return error_t::ebadf;
 
         auto contract = _parent->as_readable();
         if (!contract)
@@ -227,6 +230,12 @@ namespace astia::fs {
 
     core::task<i64> open_file::writev(span<const buffer> buffers, u64 offset,
                                       core::cltoken token) {
+        if (!_parent)
+            co_return error_t::ebadf;
+
+        if (!access_allows(io::direction::output))
+            co_return error_t::ebadf;
+
         u64 sized = 0;
 
         if (!buffer_bytes(buffers, sized))
@@ -234,9 +243,6 @@ namespace astia::fs {
 
         if (sized == 0)
             co_return i64{0};
-
-        if (!_parent)
-            co_return error_t::ebadf;
 
         const bool current = offset == offset_current;
         const bool append =
