@@ -1,5 +1,6 @@
 #include <astia/api/syscalls.h>
 
+#include "internal/allocator.h"
 #include "internal/atfork.h"
 #include "internal/file_port.h"
 #include "internal/process_port.h"
@@ -194,18 +195,22 @@ int fork(void) {
     struct astia_atfork_context atfork_context;
 
     __astia_atfork_prepare(&atfork_context);
+    __astia_malloc_fork_prepare();
 
     int result = process_result(__astia_process_fork());
     if (result == 0) {
+        __astia_malloc_fork_child();
         __astia_fio_after_fork();
         __astia_atfork_child(&atfork_context);
     }
     else if (result > 0) {
         /* The parent keeps its process-owned ring; only the child must reset
            its inherited alias before issuing I/O. */
+        __astia_malloc_fork_parent();
         __astia_atfork_parent(&atfork_context);
     }
     else {
+        __astia_malloc_fork_parent();
         __astia_atfork_abort(&atfork_context);
     }
 
