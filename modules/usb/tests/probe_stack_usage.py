@@ -5,8 +5,9 @@ import sys
 
 FRAME_LIMIT = 0x4000
 # The probe body is inlined into its operation thunk, which is the
-# callback that actually runs on the stack.
-TARGETS = ("xhci_driver::probe", "controller::enumerate")
+# callback that actually runs on the stack.  Enumeration is split between the
+# controller's PCI entry point and the transactional engine it delegates to.
+TARGETS = ("xhci_driver::probe", "enumerate_pci_port", "enumeration_engine::run")
 
 
 def frames(output: str):
