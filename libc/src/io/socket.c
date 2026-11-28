@@ -142,6 +142,9 @@ long recv(int f, void* b, unsigned long n, int flags) {
 
 long sendto(int f, const void* b, unsigned long n, int flags, const struct sockaddr* a,
             unsigned int alen) {
+    if (a == NULL)
+        return send(f, b, n, flags);
+
     astia_sockaddr x;
 
     if (addr(a, alen, &x) < 0)
