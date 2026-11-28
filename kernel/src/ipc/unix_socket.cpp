@@ -28,6 +28,15 @@ namespace astia::fs {
             return side == socket_side_first ? socket_side_second : socket_side_first;
         }
 
+        void copy_path(char (&destination)[path_max], const char* source) {
+            for (u32 i = 0; i < path_max; ++i) {
+                destination[i] = source[i];
+
+                if (!source[i])
+                    break;
+            }
+        }
+
         struct datagram {
             u32                     len{};
             astia_sockaddr          from{};
@@ -54,7 +63,7 @@ namespace astia::fs {
                                 public writable,
                                 public pollable {
             public:
-            enum class state : u8 { fresh, listener, connected, dgram };
+            enum class state : u8 { fresh, listener, connecting, connected, dgram };
 
             unix_file() = default;
 
@@ -541,12 +550,7 @@ namespace astia::fs {
 
                     bound = _bound;
 
-                    for (u32 i = 0; i < path_max; ++i) {
-                        path[i] = _bound_path[i];
-
-                        if (!path[i])
-                            break;
-                    }
+                    copy_path(path, _bound_path);
 
                     _bound      = false;
                     _closed     = true;
@@ -577,10 +581,32 @@ namespace astia::fs {
                 _state = state::dgram;
             }
 
-            void set_bound_address(const astia_sockaddr& a) {
+            long reserve_bind(const astia_sockaddr& a, const char* path) {
                 core::spinlock_guard guard(_lock);
 
+                if (_bound || (_state != state::fresh && _state != state::dgram))
+                    return -EINVAL;
+
                 _bound_addr = a;
+                _bound      = true;
+
+                copy_path(_bound_path, path);
+
+                return 0;
+            }
+
+            void abort_bind() {
+                core::spinlock_guard guard(_lock);
+
+                _bound         = false;
+                _bound_addr    = {};
+                _bound_path[0] = '\0';
+            }
+
+            void commit_bind(const char* path) {
+                core::spinlock_guard guard(_lock);
+
+                copy_path(_bound_path, path);
             }
 
             void set_dgram_target(const mm::shptr<file>& endpoint) {
@@ -716,12 +742,44 @@ namespace astia::fs {
                 _state      = state::connected;
             }
 
-            void detach_pending() {
+            long reserve_connect() {
+                core::spinlock_guard guard(_lock);
+
+                if (_state == state::connecting)
+                    return -EALREADY;
+
+                if (_state == state::connected ||
+                    (_state == state::dgram && _dgram_target_owner))
+                    return -EISCONN;
+
+                if (_state == state::listener)
+                    return -EINVAL;
+
+                _connect_resume = _state;
+                _state          = state::connecting;
+
+                return 0;
+            }
+
+            bool connect_is_datagram() const {
+                core::spinlock_guard guard(_lock);
+
+                return _connect_resume == state::dgram;
+            }
+
+            void attach_dgram(const mm::shptr<file>& endpoint) {
+                core::spinlock_guard guard(_lock);
+
+                _dgram_target_owner = endpoint;
+                _state              = state::dgram;
+            }
+
+            void abort_connect() {
                 core::spinlock_guard guard(_lock);
 
                 _ch         = {};
                 _peer_owner = {};
-                _state      = state::fresh;
+                _state      = _connect_resume;
             }
 
             state kind() const {
@@ -853,6 +911,7 @@ namespace astia::fs {
             mm::shptr<unix_file>    _peer_owner;
             mutable core::spinlock  _lock;
             state                   _state{state::fresh};
+            state                   _connect_resume{state::fresh};
             bool                    _closed{};
             u32                     _backlog{};
             bool                    _bound{};
@@ -955,16 +1014,22 @@ namespace astia::fs {
             if (!current)
                 return -ESRCH;
 
-            mm::shptr<file> node = o.parent();
-
-            long rc = register_unix_path(n, node, uid_t{current->euid()},
-                                         gid_t{current->egid()},
-                                         astia::span<char>(n, sizeof n));
+            long rc = f->reserve_bind(a, n);
             if (rc < 0)
                 return rc;
 
-            f->set_bound_address(a);
-            f->mark_bound(n);
+            mm::shptr<file> node = o.parent();
+
+            rc = register_unix_path(n, node, uid_t{current->euid()},
+                                    gid_t{current->egid()},
+                                    astia::span<char>(n, sizeof n));
+            if (rc < 0) {
+                f->abort_bind();
+
+                return rc;
+            }
+
+            f->commit_bind(n);
 
             return 0;
         }
@@ -990,31 +1055,47 @@ namespace astia::fs {
             if (!c || !path(a, n))
                 return -EINVAL;
 
+            long rc = c->reserve_connect();
+            if (rc < 0)
+                return rc;
+
             mm::shptr<unix_file> c_owner(o.parent());
             mm::shptr<file>      endpoint;
 
-            if (lookup_unix_path(n, endpoint) < 0)
+            if (lookup_unix_path(n, endpoint) < 0) {
+                c->abort_connect();
+
                 return -ECONNREFUSED;
+            }
 
             auto* l = static_cast<unix_file*>(endpoint.get());
 
-            if (c->kind() == unix_file::state::dgram) {
-                if (l->kind() != unix_file::state::dgram)
-                    return -ENOTSUP;
+            if (c->connect_is_datagram()) {
+                if (l->kind() != unix_file::state::dgram) {
+                    c->abort_connect();
 
-                c->set_dgram_target(endpoint);
+                    return -ENOTSUP;
+                }
+
+                c->attach_dgram(endpoint);
 
                 return 0;
             }
 
-            if (l->kind() != unix_file::state::listener)
+            if (l->kind() != unix_file::state::listener) {
+                c->abort_connect();
+
                 return -ECONNREFUSED;
+            }
 
             auto ch = mm::share<channel>();
             auto s  = mm::share<unix_file>();
 
-            if (!ch || !s)
+            if (!ch || !s) {
+                c->abort_connect();
+
                 return -ENOMEM;
+            }
 
             c->attach(ch, socket_side_first, s);
             s->attach(ch, socket_side_second, c_owner);
@@ -1022,7 +1103,7 @@ namespace astia::fs {
             auto so = mm::share<open_file>(s, 0);
 
             if (!so || !l->enqueue(so)) {
-                c->detach_pending();
+                c->abort_connect();
 
                 return -ECONNREFUSED;
             }

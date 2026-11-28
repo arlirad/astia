@@ -1,5 +1,6 @@
 #include <astia/api/aio.h>
 #include <astia/api/errno.h>
+#include <astia/strings.hpp>
 
 #include "aio_registry_test_support.hpp"
 #include "support/aio_test_file.hpp"
@@ -7,17 +8,54 @@
 #include <ipc/unix_socket.hpp>
 #include <proc/proc.hpp>
 
+#include <atomic>
+#include <thread>
+
 using namespace astia;
 
 namespace astia::fs {
+    namespace {
+        struct path_registration {
+            char            path[path_max]{};
+            mm::shptr<file> endpoint;
+        };
+
+        constexpr u32 registration_capacity = 8;
+
+        path_registration registrations[registration_capacity];
+        u32               registration_count;
+
+        std::atomic<bool> lookup_blocked;
+        std::atomic<bool> lookup_entered;
+    } // namespace
+
     mm::shptr<file> unix_lookup_endpoint;
 
-    long register_unix_path(const char*, const mm::shptr<file>&, uid_t, gid_t,
-                            astia::span<char>) {
+    long register_unix_path(const char* path, const mm::shptr<file>& endpoint, uid_t,
+                            gid_t, astia::span<char>) {
+        if (registration_count == registration_capacity)
+            return -ENFILE;
+
+        auto& registration = registrations[registration_count++];
+
+        for (u32 i = 0; i < path_max; ++i) {
+            registration.path[i] = path[i];
+
+            if (!path[i])
+                break;
+        }
+
+        registration.endpoint = endpoint;
+
         return 0;
     }
 
     long lookup_unix_path(const char*, mm::shptr<file>& endpoint) {
+        while (lookup_blocked.load()) {
+            lookup_entered.store(true);
+            std::this_thread::yield();
+        }
+
         if (!unix_lookup_endpoint)
             return -ENOENT;
 
@@ -26,7 +64,40 @@ namespace astia::fs {
         return 0;
     }
 
-    void unregister_unix_path(const char*, file*) {}
+    void unregister_unix_path(const char*, file* endpoint) {
+        for (u32 i = 0; i < registration_count; ++i) {
+            if (registrations[i].endpoint.get() != endpoint)
+                continue;
+
+            for (u32 j = i + 1; j < registration_count; ++j) {
+                registrations[j - 1] = registrations[j];
+            }
+
+            registrations[--registration_count] = {};
+
+            break;
+        }
+    }
+
+    void reset_unix_registrations() {
+        for (auto& registration : registrations) {
+            registration = {};
+        }
+
+        registration_count   = 0;
+        unix_lookup_endpoint = {};
+
+        lookup_blocked.store(false);
+        lookup_entered.store(false);
+    }
+
+    u32 unix_registration_count() {
+        return registration_count;
+    }
+
+    const char* unix_registration_path(u32 index) {
+        return registrations[index].path;
+    }
 } // namespace astia::fs
 
 namespace {
@@ -36,12 +107,22 @@ namespace {
         fs::unix_lookup_endpoint = endpoint;
     }
 
-    astia_sockaddr socket_address() {
+    astia_sockaddr socket_address(const char* path = "/") {
         astia_sockaddr address{};
 
-        address.family  = AF_UNIX;
-        address.len     = 3;
-        address.data[0] = '/';
+        address.family = AF_UNIX;
+
+        u32 length = 0;
+
+        while (path[length]) {
+            ++length;
+        }
+
+        address.len = length + 2;
+
+        for (u32 i = 0; i < length; ++i) {
+            address.data[i] = static_cast<u8>(path[i]);
+        }
 
         return address;
     }
@@ -52,6 +133,7 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
 
     reset_environment();
     install_current_process();
+    fs::reset_unix_registrations();
 
     mm::shptr<fs::open_file> listener;
     mm::shptr<fs::open_file> client;
@@ -120,4 +202,170 @@ ASTIA_TEST(unix_socket_accept_retains_queued_connection_when_fds_exhausted) {
 
     ASTIA_CHECK(listener_ops->accept(*listener, empty) == 0);
     ASTIA_CHECK(empty.stage() == 1);
+}
+
+ASTIA_TEST(unix_socket_second_bind_is_rejected_without_replacing_first) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(socket, SOCK_STREAM) == 0);
+
+    if (!socket)
+        return;
+
+    const auto* ops = socket->parent()->unix_socket_capability();
+
+    ASTIA_CHECK(ops != nullptr);
+
+    if (ops == nullptr)
+        return;
+
+    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/first")) == 0);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
+
+    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/second")) == -EINVAL);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/first"));
+}
+
+ASTIA_TEST(unix_socket_rejected_second_bind_keeps_first_binding_until_close) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> socket;
+
+    ASTIA_CHECK(fs::create_unix_socket(socket, SOCK_STREAM) == 0);
+
+    if (!socket)
+        return;
+
+    const auto* ops = socket->parent()->unix_socket_capability();
+
+    ASTIA_CHECK(ops != nullptr);
+
+    if (ops == nullptr)
+        return;
+
+    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/keep")) == 0);
+    ASTIA_CHECK(ops->bind(*socket, socket_address("/tmp/discard")) == -EINVAL);
+    ASTIA_CHECK(fs::unix_registration_count() == 1);
+    ASTIA_CHECK(astia::string_equal(fs::unix_registration_path(0), "/tmp/keep"));
+
+    socket = {};
+
+    ASTIA_CHECK(fs::unix_registration_count() == 0);
+}
+
+ASTIA_TEST(unix_socket_second_connect_is_rejected_with_eisconn) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> listener;
+    mm::shptr<fs::open_file> client;
+
+    ASTIA_CHECK(fs::create_unix_socket(listener, SOCK_STREAM) == 0);
+    ASTIA_CHECK(fs::create_unix_socket(client, SOCK_STREAM) == 0);
+
+    if (!listener || !client)
+        return;
+
+    set_unix_lookup_endpoint(listener->parent());
+
+    const auto* listener_ops = listener->parent()->unix_socket_capability();
+    const auto* client_ops   = client->parent()->unix_socket_capability();
+
+    ASTIA_CHECK(listener_ops != nullptr);
+    ASTIA_CHECK(client_ops != nullptr);
+
+    if (listener_ops == nullptr || client_ops == nullptr)
+        return;
+
+    ASTIA_CHECK(listener_ops->listen(*listener, 1) == 0);
+
+    const astia_sockaddr address = socket_address("/s");
+
+    ASTIA_CHECK(client_ops->connect(*client, address) == 0);
+    ASTIA_CHECK(client_ops->connect(*client, address) == -EISCONN);
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+
+    io::request accepted;
+
+    const long fd = listener_ops->accept(*listener, accepted);
+
+    ASTIA_CHECK(fd >= 0);
+    ASTIA_CHECK(accepted.complete());
+
+    if (fd >= 0)
+        clear_descriptor(static_cast<i32>(fd));
+
+    io::request empty;
+
+    ASTIA_CHECK(listener_ops->accept(*listener, empty) == 0);
+    ASTIA_CHECK(empty.stage() == 1);
+}
+
+ASTIA_TEST(unix_socket_connect_in_progress_is_rejected_with_ealready) {
+    using namespace astia::io::aio::test_support;
+
+    reset_environment();
+    install_current_process();
+    fs::reset_unix_registrations();
+
+    mm::shptr<fs::open_file> listener;
+    mm::shptr<fs::open_file> client;
+
+    ASTIA_CHECK(fs::create_unix_socket(listener, SOCK_STREAM) == 0);
+    ASTIA_CHECK(fs::create_unix_socket(client, SOCK_STREAM) == 0);
+
+    if (!listener || !client)
+        return;
+
+    set_unix_lookup_endpoint(listener->parent());
+
+    const auto* listener_ops = listener->parent()->unix_socket_capability();
+    const auto* client_ops   = client->parent()->unix_socket_capability();
+
+    ASTIA_CHECK(listener_ops != nullptr);
+    ASTIA_CHECK(client_ops != nullptr);
+
+    if (listener_ops == nullptr || client_ops == nullptr)
+        return;
+
+    ASTIA_CHECK(listener_ops->listen(*listener, 1) == 0);
+
+    const astia_sockaddr address = socket_address("/s");
+
+    fs::lookup_blocked.store(true);
+
+    std::atomic<long> first_result{-1};
+
+    std::thread first([&] { first_result.store(client_ops->connect(*client, address)); });
+
+    while (!fs::lookup_entered.load()) {
+        std::this_thread::yield();
+    }
+
+    ASTIA_CHECK(client_ops->connect(*client, address) == -EALREADY);
+
+    fs::lookup_blocked.store(false);
+    first.join();
+
+    ASTIA_CHECK(first_result.load() == 0);
+    ASTIA_CHECK(listener->poll(POLLIN) == POLLIN);
+
+    io::request accepted;
+
+    ASTIA_CHECK(listener_ops->accept(*listener, accepted) >= 0);
 }

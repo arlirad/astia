@@ -63,6 +63,7 @@ enum {
     EOVERFLOW       = 75,
     EADDRINUSE      = 98,
     ENOTCONN        = 107,
+    EISCONN         = 106,
     ECONNRESET      = 104,
     ECONNREFUSED    = 111,
     EAFNOSUPPORT    = 97,
