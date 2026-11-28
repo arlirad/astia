@@ -184,7 +184,9 @@ static void release(struct blk* b) {
     list_insert(b); /* b survives on its own */
 }
 
-void* malloc(size_t size) {
+/* Allocate from the arena without touching errno: malloc() owns the POSIX
+   ENOMEM contract, posix_memalign() must leave errno alone. */
+static void* arena_alloc(size_t size) {
     struct blk* b;
     struct blk* t;
 
@@ -216,6 +218,14 @@ void* malloc(size_t size) {
         release(t);
 
     return (char*) b + HDR;
+}
+
+void* malloc(size_t size) {
+    void* ptr = arena_alloc(size);
+    if (ptr == NULL)
+        errno = ENOMEM;
+
+    return ptr;
 }
 
 void free(void* ptr) {
@@ -252,7 +262,7 @@ int posix_memalign(void** memptr, size_t alignment, size_t size) {
         return ENOMEM;
 
     request = size + overhead;
-    base    = malloc(request);
+    base    = arena_alloc(request);
     if (base == NULL)
         return ENOMEM;
 
@@ -280,13 +290,21 @@ void* calloc(size_t nmemb, size_t size) {
 
     void* p;
 
-    if (nmemb != 0 && size > ((size_t) -1) / nmemb)
+    if (nmemb != 0 && size > ((size_t) -1) / nmemb) {
+        errno = ENOMEM;
+
         return NULL; /* nmemb * size would wrap */
+    }
 
     bytes = nmemb * size;
     p     = malloc(bytes);
-    if (p)
-        memset(p, 0, bytes);
+    if (p == NULL) {
+        errno = ENOMEM;
+
+        return NULL;
+    }
+
+    memset(p, 0, bytes);
 
     return p;
 }
@@ -320,8 +338,11 @@ void* realloc(void* ptr, size_t size) {
         if (size <= usable)
             return ptr;
 
-        if (posix_memalign(&np, alignment, size) != 0)
+        if (posix_memalign(&np, alignment, size) != 0) {
+            errno = ENOMEM;
+
             return NULL;
+        }
 
         memcpy(np, ptr, usable);
         release(bb);
@@ -331,8 +352,11 @@ void* realloc(void* ptr, size_t size) {
 
     b = (struct blk*) ((char*) ptr - HDR);
 
-    if (size > ARENA_SIZE)
+    if (size > ARENA_SIZE) {
+        errno = ENOMEM;
+
         return NULL; /* cannot succeed; the old block survives */
+    }
 
     need = ALIGN_UP(size);
     if (need == 0)
@@ -367,8 +391,11 @@ void* realloc(void* ptr, size_t size) {
 
     { /* relocate */
         void* np = malloc(size);
-        if (np == NULL)
+        if (np == NULL) {
+            errno = ENOMEM;
+
             return NULL;
+        }
 
         memcpy(np, ptr, b->size < need ? b->size : need);
         free(ptr);
