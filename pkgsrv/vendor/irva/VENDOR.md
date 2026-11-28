@@ -1,6 +1,6 @@
 # Vendored Irva source
 
-- Upstream: `ssh://tymk@tymkserver/~/git/irva`
+- Upstream repository: `irva` (user-owned; local checkout path omitted)
 - Commit: `b205b6486607bdde44893bc5d47b39b4ee0876aa`
   (`Skip HTTPS validation when using Unix socket`)
 - Vendored on: 2026-11-28
@@ -22,7 +22,7 @@ Update procedure:
 
 1. Review the upstream commit and confirm the pinned SHA.
 2. Run:
-   `git -C /home/tymk/Projects/_prg/servers/irva archive <sha> src/Irva.Client src/Irva.Dtos src/Irva.Core | tar -x -C pkgsrv/vendor/irva`
+   `git -C <irva-checkout> archive <sha> src/Irva.Client src/Irva.Dtos src/Irva.Core | tar -x -C pkgsrv/vendor/irva`
 3. Regenerate `VENDOR.sha256`:
    `cd pkgsrv/vendor/irva && find src -type f -print0 | sort -z | xargs -0 sha256sum > VENDOR.sha256`
 4. Build with the vendored project:

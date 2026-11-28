@@ -57,8 +57,11 @@ def check_vendor() -> None:
 
     manifest = read(VENDOR / "VENDOR.md")
     check(PIN in manifest, "VENDOR.md does not record the pinned commit")
-    check("ssh://tymk@tymkserver/~/git/irva" in manifest,
-          "VENDOR.md does not record the upstream URL")
+    check("Upstream repository: `irva`" in manifest,
+          "VENDOR.md does not record a non-sensitive upstream identifier")
+    for sensitive in ("ssh://", "tymkserver", "@tymk", "/home/tymk"):
+        check(sensitive not in manifest,
+              f"VENDOR.md exposes internal infrastructure detail: {sensitive}")
     check("MIT" in read(VENDOR / "LICENSE"), "vendor LICENSE is not MIT")
 
     verify = subprocess.run(
