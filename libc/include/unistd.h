@@ -132,6 +132,7 @@ void         _exit(int status) __attribute__((noreturn));
 #define _SC_CLK_TCK 2
 #define _SC_OPEN_MAX 4
 #define _SC_REALTIME_SIGNALS 9
+#define _SC_SIGQUEUE_MAX 34
 #define _SC_MAPPED_FILES 17
 #define _SC_MEMORY_PROTECTION 19
 #define _SC_PAGESIZE 30

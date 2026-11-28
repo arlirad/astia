@@ -19,6 +19,34 @@ ASTIA_TEST(signal_state_queues_and_masks_signals) {
     ASTIA_CHECK(state.take_unblocked() == astia::signal_number::int_);
 }
 
+ASTIA_TEST(signal_state_coalesces_repeated_sends_to_the_last_payload) {
+    astia::signal_state state;
+    astia::signal_info  first{0, 0, ASTIA_SI_USER, 10, 1, 0, 0};
+    astia::signal_info  second{0, 0, ASTIA_SI_USER, 20, 2, 0, 0};
+    astia::signal_info  observed{};
+
+    ASTIA_CHECK(state.send(astia::signal_number::usr1, first));
+    ASTIA_CHECK(state.send(astia::signal_number::usr1, second));
+    ASTIA_CHECK(state.pending() == astia::signal_bit(astia::signal_number::usr1));
+
+    ASTIA_CHECK(state.take_unblocked(nullptr, &observed) == astia::signal_number::usr1);
+    ASTIA_CHECK(observed.pid == second.pid);
+    ASTIA_CHECK(observed.uid == second.uid);
+    ASTIA_CHECK(state.pending() == 0);
+    ASTIA_CHECK(state.take_unblocked() == static_cast<astia::signal_number>(0));
+}
+
+ASTIA_TEST(signal_state_selects_the_lowest_pending_number_first) {
+    astia::signal_state state;
+
+    ASTIA_CHECK(state.send(astia::signal_number::usr2));
+    ASTIA_CHECK(state.send(astia::signal_number::usr1));
+
+    ASTIA_CHECK(state.take_unblocked() == astia::signal_number::usr1);
+    ASTIA_CHECK(state.take_unblocked() == astia::signal_number::usr2);
+    ASTIA_CHECK(state.take_unblocked() == static_cast<astia::signal_number>(0));
+}
+
 ASTIA_TEST(signal_state_reports_only_unblocked_fatal_defaults) {
     astia::signal_state state;
 
