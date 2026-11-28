@@ -23,6 +23,11 @@ Implementation and review used the official **ACPI Specification, Release 6.5
 - 5.2.5 RSDP, 5.2.6 System Description Table Header, 5.2.7 RSDT, 5.2.8 XSDT,
   and 5.2.9 FADT (including RESET_REG, RESET_VALUE, RESET_REG_SUP, and the
   extended X_PM1a_CNT_BLK / X_PM1b_CNT_BLK GAS fields).
+- 6.1.5 `_HID` Hardware ID, including numeric compressed EISA IDs and strings.
+- 6.2.12 `_PRS`, 6.2.13 `_PRT` including Table 6.16 mapping fields, and 6.2.16
+  `_SRS` for PCI interrupt-link devices.
+- 6.4.2.1 IRQ Descriptor and 6.4.3.6 Extended Interrupt Descriptor.
+- 6.4.3.5 Address Space Resource Descriptors for root-bridge bus ranges.
 - 7.4.2.6 System `\_S5` State (Soft Off), including SLP_TYPa/SLP_TYPb package
   layout.
 - Chapter 20, ACPI Machine Language (AML) Specification, complete sections
@@ -44,6 +49,9 @@ which supplies `astia::acpi::rsdp()` = 0 and `shutdown_supported()`/`shutdown()`
 
 - `u64 astia::acpi::rsdp()`: the validated loader-supplied RSDP physical
   address, or 0 when absent/invalid.
+- `bool astia::acpi::resolve_pci_route(bus, device, function, pin, route)`:
+  resolves a PCI INTx pin through the root bridge `_PRT`; returns a route only
+  when the firmware description passed validation.
 - `bool astia::acpi::shutdown_supported()`: FADT, DSDT, AML namespace, `\_S5`,
   and PM1 registers all validated and the platform handler registered.
 - `bool astia::acpi::shutdown()`: enter the tiered shutdown sequence.
@@ -123,6 +131,12 @@ Data and evaluation:
   `SizeOf`, `Index`, `DerefOf`, `ObjectType`, `ToInteger`, `Notify`.
 - `_S5` may be a `Name` holding a package or a zero-argument `Method` returning a
   package. The first two package elements must be integers 0-7.
+- `_PRT` may be a `Name` or zero-argument `Method`; root bridges are found by
+  `_HID` `PNP0A03`/`PNP0A08`. Unknown bus ranges, malformed mappings, and
+  device `0xFFFF` addresses fail closed; only function `0xFFFF` is a wildcard.
+- Link `_CRS` IRQs are read from small or extended interrupt descriptors. When
+  no IRQ is selected, `_PRS` supplies a possible IRQ and `_SRS` must accept a
+  patched `_CRS` template before the route is used.
 
 ## Unsupported / rejected
 
@@ -150,8 +164,9 @@ S5 handler. They are not silently guessed or byte-searched:
   the current PCI config helper performs a dword read-modify-write. Malformed
   widths, offsets, access sizes, addresses, or missing RESET_REG_SUP make
   reboot unsupported.
-- No general ACPI device enumeration, `_PRT`, EC/battery/thermal, wake/resume, or
-  AML debugger.
+- No general ACPI device enumeration, EC/battery/thermal, wake/resume, or AML
+  debugger. `_PRT` is limited to root-bridge routing on the root bus; secondary
+  bus bridge routing is not traversed.
 
 Only real firmware constructs needed for namespace construction and `_S5` are
 claimed. Unsupported platforms must not assume ACPI shutdown works.

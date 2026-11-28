@@ -1,6 +1,7 @@
 #include <astia/acpi.hpp>
 #include <astia/arch/io.hpp>
 #include <astia/arch/layout.hpp>
+#include <astia/arch/pci_config.hpp>
 #include <astia/boot.hpp>
 #include <astia/hw/mmio.hpp>
 #include <astia/init.hpp>
@@ -14,6 +15,7 @@
 #include "io.hpp"
 #include "physical.hpp"
 #include "power.hpp"
+#include "prt.hpp"
 #include "tables.hpp"
 
 extern "C" bool astia_acpi_test_override(const char*, astia::acpi::detail::memory_reader&,
@@ -32,6 +34,7 @@ namespace astia::acpi {
         u64                 validated_rsdp = 0;
         bool                s5_ready       = false;
         bool                reset_ready    = false;
+        bool                prt_ready      = false;
 
         constexpr u32 madt_signature = detail::signature("APIC");
         constexpr u32 max_isos       = 16;
@@ -90,6 +93,28 @@ namespace astia::acpi {
             }
         }
 
+        bool gsi_for_irq_checked(u8 irq, u8& gsi) {
+            for (u32 index = 0; index < iso_count; ++index) {
+                if (isos[index].source != irq)
+                    continue;
+
+                if (isos[index].gsi > 0xfe)
+                    return false;
+
+                gsi = static_cast<u8>(isos[index].gsi);
+
+                return true;
+            }
+
+            const u64 value = static_cast<u64>(ioapic_gsi_base) + irq;
+            if (value > 0xfe)
+                return false;
+
+            gsi = static_cast<u8>(value);
+
+            return true;
+        }
+
         bool load_madt_from_platform() {
             u32 size = 0;
 
@@ -124,6 +149,122 @@ namespace astia::acpi {
 
         bool read_io(void*, u16 port, u16& value) {
             value = astia::arch::pio::read16(port);
+
+            return true;
+        }
+
+        bool pci_region_address(u64 address, astia::arch::pci_bdf& bdf, u16& offset) {
+            const u64 device          = (address >> 32) & 0xFFFFu;
+            const u64 function        = (address >> 16) & 0xFFFFu;
+            const u64 register_offset = address & 0xFFFFu;
+
+            if ((address >> 48) != 0 || device >= 32 || function >= 8 ||
+                register_offset > 0xFFFu)
+                return false;
+
+            bdf    = {0, static_cast<u8>(device), static_cast<u8>(function)};
+            offset = static_cast<u16>(register_offset);
+
+            return true;
+        }
+
+        u8 read_pci_config_byte(const astia::arch::pci_bdf& bdf, u16 offset) {
+            const u32 dword =
+                astia::arch::pci_config_read32(bdf, static_cast<u16>(offset & ~3u));
+
+            return static_cast<u8>(dword >> ((offset & 3u) * 8u));
+        }
+
+        bool read_region(void*, u8 space, u64 address, u8 width, u64& value) {
+            if (width != 8 && width != 16 && width != 32)
+                return false;
+
+            if (space == detail::gas_system_io) {
+                if (address > 0xFFFF || width / 8 > 0x10000 - address)
+                    return false;
+
+                switch (width) {
+                case 8:
+                    value = astia::arch::pio::read8(static_cast<u16>(address));
+
+                    return true;
+                case 16:
+                    value = astia::arch::pio::read16(static_cast<u16>(address));
+
+                    return true;
+                case 32:
+                    value = astia::arch::pio::read32(static_cast<u16>(address));
+
+                    return true;
+                default:
+                    return false;
+                }
+            }
+
+            if (space != detail::gas_pci_configuration)
+                return false;
+
+            astia::arch::pci_bdf bdf{};
+
+            u16 offset = 0;
+
+            if (!pci_region_address(address, bdf, offset) || offset + width / 8 > 0x100)
+                return false;
+
+            value = 0;
+
+            for (u8 i = 0; i < width / 8; ++i) {
+                value |= static_cast<u64>(
+                             read_pci_config_byte(bdf, static_cast<u16>(offset + i)))
+                         << (i * 8);
+            }
+
+            return true;
+        }
+
+        bool write_region(void*, u8 space, u64 address, u8 width, u64 value) {
+            if (width != 8 && width != 16 && width != 32)
+                return false;
+
+            if (space == detail::gas_system_io) {
+                if (address > 0xFFFF || width / 8 > 0x10000 - address)
+                    return false;
+
+                switch (width) {
+                case 8:
+                    astia::arch::pio::write8(static_cast<u16>(address),
+                                             static_cast<u8>(value));
+
+                    return true;
+                case 16:
+                    astia::arch::pio::write16(static_cast<u16>(address),
+                                              static_cast<u16>(value));
+
+                    return true;
+                case 32:
+                    astia::arch::pio::write32(static_cast<u16>(address),
+                                              static_cast<u32>(value));
+
+                    return true;
+                default:
+                    return false;
+                }
+            }
+
+            if (space != detail::gas_pci_configuration)
+                return false;
+
+            astia::arch::pci_bdf bdf{};
+
+            u16 offset = 0;
+
+            if (!pci_region_address(address, bdf, offset) || offset + width / 8 > 0x100)
+                return false;
+
+            for (u8 i = 0; i < width / 8; ++i) {
+                astia::arch::pci_config_write8(bdf, static_cast<u16>(offset + i),
+                                               static_cast<u8>(value >> (i * 8)));
+            }
 
             return true;
         }
@@ -285,12 +426,16 @@ namespace astia::acpi {
                            detail::power_error_text(reset_error));
             }
 
+            interpreter.set_region_io({nullptr, read_region, write_region});
+
             if (!interpreter.build(tables)) {
                 logs::info("AML rejected (%s)",
                            detail::aml_error_text(interpreter.error()));
 
                 return true;
             }
+
+            prt_ready = true;
 
             detail::power_error error = detail::power_error::none;
 
@@ -326,14 +471,53 @@ namespace astia::acpi {
     }
 
     u8 gsi_for_irq(u8 irq) {
-        for (u32 index = 0; index < iso_count; ++index) {
-            if (isos[index].source == irq)
-                return static_cast<u8>(isos[index].gsi);
+        u8 gsi = 0xff;
+
+        return gsi_for_irq_checked(irq, gsi) ? gsi : 0xff;
+    }
+
+    bool resolve_pci_route(u8 bus, u8 device, u8 function, u8 pin, pci_route& out) {
+        out = pci_route{};
+
+        if (!prt_ready)
+            return false;
+
+        detail::prt_route route{};
+        detail::prt_error error = detail::prt_error::none;
+
+        if (!detail::resolve_prt_route(interpreter, bus, device, function, pin, route,
+                                       error)) {
+            logs::info("PRT unavailable bdf=%u:%u.%u pin=%u (%s)", bus, device, function,
+                       pin, detail::prt_error_text(error));
+
+            return false;
         }
 
-        const u32 gsi = ioapic_gsi_base + irq;
+        u8 gsi = 0xff;
 
-        return gsi > 0xff ? irq : static_cast<u8>(gsi);
+        if (route.direct) {
+            if (route.gsi == 0 || route.gsi == 0xff)
+                return false;
+
+            gsi = route.gsi;
+        }
+        else if (!gsi_for_irq_checked(route.irq, gsi)) {
+            return false;
+        }
+
+        if (route.irq > 15 || gsi == 0xff)
+            return false;
+
+        out.irq    = route.irq;
+        out.gsi    = gsi;
+        out.pin    = pin;
+        out.direct = route.direct;
+        out.valid  = true;
+
+        logs::info("PRT bdf=%u:%u.%u pin=%u irq=%u gsi=%u source=%s", bus, device,
+                   function, pin, route.irq, gsi, route.direct ? "gsi" : "link");
+
+        return true;
     }
 
     bool shutdown_supported() {

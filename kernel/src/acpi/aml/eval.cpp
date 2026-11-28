@@ -38,6 +38,58 @@ namespace astia::acpi::detail {
         return close_package(c, package_end);
     }
 
+    bool interpreter::eval_create_field(cursor& c, execution& e, value_id& out, u32 width,
+                                        bool bit_index) {
+        value_id source = no_value;
+        value_id index  = no_value;
+
+        if (!eval_term(c, e, source) || !eval_term(c, e, index))
+            return false;
+
+        u64 position = 0;
+
+        if (!as_integer(index, position))
+            return fail(aml_error::wrong_type);
+
+        name_ref reference;
+
+        if (!read_name_ref(c, reference))
+            return false;
+
+        const node_id target = resolve_definition(reference, e.scope, true);
+        if (target == no_node)
+            return fail(aml_error::object_limit);
+
+        const value_id buffer = dereference(source);
+
+        if (buffer == no_value ||
+            _values[buffer].kind != static_cast<u8>(value_kind::buffer))
+            return fail(aml_error::wrong_type);
+
+        if (!bit_index && position > ~u64{0} / 8)
+            return fail(aml_error::invalid_value);
+
+        const u64 bit_offset  = position * (bit_index ? 1ull : 8ull);
+        const u64 buffer_bits = static_cast<u64>(_values[buffer].length) * 8;
+
+        if (width > 64 || bit_offset > buffer_bits || width > buffer_bits - bit_offset ||
+            bit_offset > ~u32{0})
+            return fail(aml_error::invalid_value);
+
+        node& entry = _nodes[target];
+
+        entry.kind       = static_cast<u8>(node_kind::field);
+        entry.source     = buffer;
+        entry.region     = no_node;
+        entry.bit_offset = static_cast<u32>(bit_offset);
+        entry.bit_width  = width;
+        entry.value      = no_value;
+
+        out = add_integer(0);
+
+        return out != no_value || fail(aml_error::value_limit);
+    }
+
     bool interpreter::eval_constant(cursor& c, node_id scope, u64& out) {
         execution execution_context{};
 
@@ -76,6 +128,17 @@ namespace astia::acpi::detail {
             }
 
             return execute_method(target_id, arguments, entry.arg_count, out);
+        }
+
+        if (entry.kind == static_cast<u8>(node_kind::field)) {
+            u64 value = 0;
+
+            if (!read_field(target_id, value))
+                return false;
+
+            out = add_integer(value);
+
+            return out != no_value || fail(aml_error::value_limit);
         }
 
         if (entry.value == no_value)
@@ -153,6 +216,15 @@ namespace astia::acpi::detail {
 
         const auto op = static_cast<opcode>(*c.position);
 
+        if (op == opcode::zero) {
+            ++c.position;
+
+            out.slot  = nullptr;
+            out.field = no_node;
+
+            return true;
+        }
+
         if (raw(op) >= raw(opcode::local_base) &&
             raw(op) <= raw(opcode::local_base) + 7) {
             ++c.position;
@@ -206,11 +278,48 @@ namespace astia::acpi::detail {
 
         node& entry = _nodes[id];
 
-        if (entry.kind != static_cast<u8>(node_kind::name) &&
-            entry.kind != static_cast<u8>(node_kind::field))
-            return fail(aml_error::wrong_type);
+        if (entry.kind == static_cast<u8>(node_kind::name)) {
+            out.slot = &entry.value;
+            out.name = id;
 
-        out.slot = &entry.value;
+            node_id parent = id;
+
+            while (parent != no_node && parent < _node_count) {
+                if (_nodes[parent].kind == static_cast<u8>(node_kind::method)) {
+                    out.transient = true;
+
+                    break;
+                }
+
+                if (parent == root())
+                    break;
+
+                parent = _nodes[parent].parent;
+            }
+
+            return true;
+        }
+
+        if (entry.kind == static_cast<u8>(node_kind::field)) {
+            out.field = id;
+
+            return true;
+        }
+
+        return fail(aml_error::wrong_type);
+    }
+
+    bool interpreter::finish_term(cursor& c, execution& e, value_id result,
+                                  value_id& out) {
+        target destination{};
+
+        if (!eval_target(c, e, destination))
+            return false;
+
+        if (!write_target(destination, result))
+            return false;
+
+        out = result;
 
         return true;
     }
@@ -344,9 +453,11 @@ namespace astia::acpi::detail {
                 break;
             }
 
-            out = add_integer(result);
+            const value_id computed = add_integer(result);
+            if (computed == no_value)
+                return fail(aml_error::value_limit);
 
-            return out != no_value || fail(aml_error::value_limit);
+            return finish_term(c, e, computed, out);
         }
         case opcode::divide: {
             ++c.position;
@@ -372,20 +483,23 @@ namespace astia::acpi::detail {
             if (!eval_target(c, e, remainder) || !eval_target(c, e, quotient))
                 return false;
 
-            if (remainder.slot != nullptr) {
-                const value_id value = add_integer(a % b);
-                if (value == no_value)
-                    return fail(aml_error::value_limit);
+            const value_id remainder_value = add_integer(a % b);
+            if (remainder_value == no_value)
+                return fail(aml_error::value_limit);
 
-                *remainder.slot = value;
+            if (remainder.slot != nullptr || remainder.field != no_node) {
+                if (!write_target(remainder, remainder_value))
+                    return false;
             }
 
             const value_id result = add_integer(a / b);
             if (result == no_value)
                 return fail(aml_error::value_limit);
 
-            if (quotient.slot != nullptr)
-                *quotient.slot = result;
+            if (quotient.slot != nullptr || quotient.field != no_node) {
+                if (!write_target(quotient, result))
+                    return false;
+            }
 
             out = result;
 
@@ -402,26 +516,22 @@ namespace astia::acpi::detail {
 
             u64 value = 0;
 
-            if (destination.slot != nullptr) {
-                if (!as_integer(*destination.slot, value))
-                    return fail(aml_error::wrong_type);
+            if (!read_target(destination, value))
+                return false;
 
-                value = op == opcode::increment ? value + 1 : value - 1;
+            value = op == opcode::increment ? value + 1 : value - 1;
 
-                const value_id result = add_integer(value);
+            const value_id result = add_integer(value);
 
-                if (result == no_value)
-                    return fail(aml_error::value_limit);
+            if (result == no_value)
+                return fail(aml_error::value_limit);
 
-                *destination.slot = result;
-                out               = result;
+            if (!write_target(destination, result))
+                return false;
 
-                return true;
-            }
+            out = result;
 
-            out = add_integer(0);
-
-            return out != no_value || fail(aml_error::value_limit);
+            return true;
         }
         case opcode::bit_not: {
             ++c.position;
@@ -436,9 +546,11 @@ namespace astia::acpi::detail {
             if (!as_integer(operand, value))
                 return fail(aml_error::wrong_type);
 
-            out = add_integer(~value);
+            const value_id computed = add_integer(~value);
+            if (computed == no_value)
+                return fail(aml_error::value_limit);
 
-            return out != no_value || fail(aml_error::value_limit);
+            return finish_term(c, e, computed, out);
         }
         case opcode::find_left:
         case opcode::find_right: {
@@ -475,9 +587,11 @@ namespace astia::acpi::detail {
                 }
             }
 
-            out = add_integer(result);
+            const value_id computed = add_integer(result);
+            if (computed == no_value)
+                return fail(aml_error::value_limit);
 
-            return out != no_value || fail(aml_error::value_limit);
+            return finish_term(c, e, computed, out);
         }
         case opcode::deref: {
             ++c.position;
@@ -555,6 +669,44 @@ namespace astia::acpi::detail {
             out = item;
 
             return out != no_value || fail(aml_error::missing_object);
+        }
+        case opcode::create_dword_field:
+        case opcode::create_word_field:
+        case opcode::create_byte_field:
+        case opcode::create_bit_field:
+        case opcode::create_qword_field: {
+            ++c.position;
+
+            u32  width     = 0;
+            bool bit_index = false;
+
+            switch (op) {
+            case opcode::create_dword_field:
+                width = 32;
+
+                break;
+            case opcode::create_word_field:
+                width = 16;
+
+                break;
+            case opcode::create_byte_field:
+                width = 8;
+
+                break;
+            case opcode::create_bit_field:
+                width     = 1;
+                bit_index = true;
+
+                break;
+            case opcode::create_qword_field:
+                width = 64;
+
+                break;
+            default:
+                break;
+            }
+
+            return eval_create_field(c, e, out, width, bit_index);
         }
         case opcode::object_type: {
             ++c.position;
@@ -654,9 +806,11 @@ namespace astia::acpi::detail {
             u64 b = 0;
 
             if (as_integer(left, a) && as_integer(right, b)) {
-                out = add_integer(a | (b << 32));
+                const value_id computed = add_integer(a | (b << 32));
+                if (computed == no_value)
+                    return fail(aml_error::value_limit);
 
-                return out != no_value || fail(aml_error::value_limit);
+                return finish_term(c, e, computed, out);
             }
 
             return fail(aml_error::unsupported_object);
@@ -669,14 +823,14 @@ namespace astia::acpi::detail {
             if (!eval_term(c, e, operand))
                 return false;
 
-            out = dereference(operand);
-            if (out == no_value)
+            const value_id resolved = dereference(operand);
+            if (resolved == no_value)
                 return fail(aml_error::missing_object);
 
-            if (_values[out].kind == static_cast<u8>(value_kind::integer))
-                return true;
+            if (_values[resolved].kind != static_cast<u8>(value_kind::integer))
+                return fail(aml_error::wrong_type);
 
-            return fail(aml_error::wrong_type);
+            return finish_term(c, e, resolved, out);
         }
         case opcode::copy_object: {
             ++c.position;
@@ -691,8 +845,8 @@ namespace astia::acpi::detail {
             if (!eval_target(c, e, destination))
                 return false;
 
-            if (destination.slot != nullptr)
-                *destination.slot = source;
+            if (!write_target(destination, source))
+                return false;
 
             out = source;
 
@@ -711,8 +865,8 @@ namespace astia::acpi::detail {
             if (!eval_target(c, e, destination))
                 return false;
 
-            if (destination.slot != nullptr)
-                *destination.slot = source;
+            if (!write_target(destination, source))
+                return false;
 
             out = source;
 
@@ -906,7 +1060,7 @@ namespace astia::acpi::detail {
 
         execution e{};
 
-        e.scope = _nodes[method].parent;
+        e.scope = method;
 
         for (value_id& local : e.local) {
             local = add_integer(0);
@@ -962,6 +1116,10 @@ namespace astia::acpi::detail {
         const auto op = static_cast<opcode>(*c.position);
 
         switch (op) {
+        case opcode::name:
+            ++c.position;
+
+            return parse_name_object(c, e.scope);
         case opcode::if_statement:
             return execute_if(c, e);
         case opcode::while_statement:

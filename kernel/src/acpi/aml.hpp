@@ -3,16 +3,18 @@
 #include "tables.hpp"
 
 namespace astia::acpi::detail {
-    constexpr usz max_aml_nodes           = 2048;
-    constexpr usz max_aml_values          = 4096;
-    constexpr usz max_aml_name_refs       = 1024;
-    constexpr usz max_aml_name_segments   = 16;
-    constexpr usz max_aml_package_items   = 256;
-    constexpr u32 max_aml_eval_steps      = 100000;
-    constexpr u32 max_aml_call_depth      = 8;
-    constexpr u32 max_aml_reference_depth = 16;
-    constexpr u32 max_aml_package_depth   = 32;
-    constexpr u32 max_aml_term_depth      = 64;
+    constexpr usz max_aml_nodes                   = 2048;
+    constexpr usz max_aml_values                  = 4096;
+    constexpr usz max_aml_name_refs               = 1024;
+    constexpr usz max_aml_name_segments           = 16;
+    constexpr usz max_aml_package_items           = 256;
+    constexpr u32 max_aml_buffer_bytes            = 32 * 1024;
+    constexpr u32 max_aml_persistent_buffer_bytes = 4096;
+    constexpr u32 max_aml_eval_steps              = 100000;
+    constexpr u32 max_aml_call_depth              = 8;
+    constexpr u32 max_aml_reference_depth         = 16;
+    constexpr u32 max_aml_package_depth           = 32;
+    constexpr u32 max_aml_term_depth              = 64;
 
     using value_id = u32;
     using node_id  = u32;
@@ -68,6 +70,7 @@ namespace astia::acpi::detail {
 
     struct value {
         const u8* data      = nullptr;
+        u8*       writable  = nullptr;
         u64       integer   = 0;
         u32       length    = 0;
         u32       first     = no_value;
@@ -93,6 +96,12 @@ namespace astia::acpi::detail {
         u32       next_sibling = no_node;
         u32       value        = no_value;
         u32       target       = no_node;
+        u32       source       = no_value;
+        u32       region       = no_node;
+        u64       address      = 0;
+        u32       length       = 0;
+        u32       bit_offset   = 0;
+        u32       bit_width    = 0;
         const u8* body         = nullptr;
         u32       body_length  = 0;
         u8        kind         = static_cast<u8>(node_kind::scope);
@@ -101,11 +110,32 @@ namespace astia::acpi::detail {
         u8        object_type  = 0;
     };
 
+    struct region_io {
+        void* context                                                          = nullptr;
+        bool (*read)(void* context, u8 space, u64 address, u8 width, u64& out) = nullptr;
+        bool (*write)(void* context, u8 space, u64 address, u8 width,
+                      u64 value)                                               = nullptr;
+    };
+
     class interpreter {
         public:
         bool build(const table_set& tables);
 
         bool evaluate_s5(value_id& package);
+
+        bool evaluate(const char* path, value_id& out);
+        bool evaluate_node(node_id id, value_id& out);
+        bool evaluate_node(node_id id, const value_id* arguments, usz count,
+                           value_id& out);
+
+        /// Reset execution state for a new evaluation. Values and buffer
+        /// storage are retained because persistent namespace Name/Field nodes
+        /// may hold value IDs created by an earlier evaluation.
+        void reset_evaluation();
+
+        void set_region_io(const region_io& io) {
+            _region_io = io;
+        }
 
         aml_error error() const {
             return _error;
@@ -115,9 +145,45 @@ namespace astia::acpi::detail {
             return id < _value_count ? &_values[id] : nullptr;
         }
 
+        const node* node_at(node_id id) const {
+            return id < _node_count ? &_nodes[id] : nullptr;
+        }
+
+        node_id child(node_id parent, u32 name) const {
+            return find_child(parent, name);
+        }
+
+        node_id first_child(node_id parent) const {
+            return parent < _node_count ? _nodes[parent].first_child : no_node;
+        }
+
+        node_id next_sibling(node_id id) const {
+            return id < _node_count ? _nodes[id].next_sibling : no_node;
+        }
+
         bool integer(value_id id, u64& out) {
             return as_integer(id, out);
         }
+
+        bool package(value_id id, const value*& out) {
+            return as_package(id, out);
+        }
+
+        bool package_item(value_id id, u32 index, value_id& out);
+        bool buffer(value_id id, const u8*& data, u32& length);
+        bool string(value_id id, const char*& data, u32& length);
+        bool name_reference(value_id id, name_ref& out) const;
+
+        bool resolve(const name_ref& reference, node_id scope, node_id& out) const {
+            out = resolve_lookup(reference, scope);
+
+            return out != no_node;
+        }
+
+        bool     find(const char* path, node_id scope, node_id& out);
+        bool     follow_alias_node(node_id id, node_id& out);
+        bool     buffer_mutable(value_id id, u8*& data, u32& length);
+        value_id add_buffer(const u8* data, u32 length);
 
         usz node_count() const {
             return _node_count;
@@ -144,10 +210,19 @@ namespace astia::acpi::detail {
         };
 
         struct target {
-            value_id* slot = nullptr;
+            value_id* slot      = nullptr;
+            node_id   field     = no_node;
+            node_id   name      = no_node;
+            bool      transient = false;
         };
 
         bool fail(aml_error error);
+        bool parse_path(const char* path, name_ref& out) const;
+        bool read_field(node_id id, u64& out);
+        bool write_field(node_id id, u64 value);
+        bool read_target(const target& destination, u64& out);
+        bool write_target(const target& destination, value_id source);
+        u8*  writable_buffer(value_id id, u32& length);
         bool at_end(const cursor& c) const;
         bool enter_term();
         void leave_term();
@@ -215,7 +290,8 @@ namespace astia::acpi::detail {
         bool parse_field(cursor& c, node_id scope);
         bool parse_index_field(cursor& c, node_id scope);
         bool parse_bank_field(cursor& c, node_id scope);
-        bool parse_field_list(cursor& c, const u8* end, node_id scope);
+        bool parse_field_list(cursor& c, const u8* end, node_id scope,
+                              node_id region = no_node);
         bool parse_operation_region(cursor& c, node_id scope);
         bool parse_alias(cursor& c, node_id scope);
         bool parse_external(cursor& c, node_id scope);
@@ -232,8 +308,11 @@ namespace astia::acpi::detail {
         bool eval_name(cursor& c, execution& e, value_id& out);
         bool eval_package(cursor& c, execution& e, value_id& out, bool variable);
         bool eval_buffer(cursor& c, execution& e, value_id& out);
+        bool eval_create_field(cursor& c, execution& e, value_id& out, u32 width,
+                               bool bit_index);
         bool eval_target(cursor& c, execution& e, target& out);
         bool eval_target_for_node(node_id id, target& out);
+        bool finish_term(cursor& c, execution& e, value_id result, value_id& out);
         bool execute_statement(cursor& c, execution& e);
         bool execute_if(cursor& c, execution& e);
         bool execute_while(cursor& c, execution& e);
@@ -247,11 +326,18 @@ namespace astia::acpi::detail {
         value     _values[max_aml_values]{};
         usz       _value_count = 0;
         name_ref  _references[max_aml_name_refs]{};
-        usz       _reference_count = 0;
-        aml_error _error           = aml_error::none;
-        u32       _steps           = 0;
-        u32       _call_depth      = 0;
-        u32       _term_depth      = 0;
+        usz       _reference_count   = 0;
+        usz       _static_values     = 0;
+        usz       _static_references = 0;
+        aml_error _error             = aml_error::none;
+        u32       _steps             = 0;
+        u32       _call_depth        = 0;
+        u32       _term_depth        = 0;
+        u8        _buffer_storage[max_aml_buffer_bytes]{};
+        u32       _buffer_used = 0;
+        u8        _persistent_buffer_storage[max_aml_persistent_buffer_bytes]{};
+        u32       _persistent_buffer_used = 0;
+        region_io _region_io{};
         const u8* _package_ends[max_aml_package_depth]{};
         u32       _package_depth = 0;
     };

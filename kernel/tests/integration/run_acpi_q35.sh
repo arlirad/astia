@@ -45,6 +45,7 @@ case "$mode" in
     shutdown)
         test "$status" -eq 0
         grep -qF "acpi: S5 ready" "$log"
+        grep -qF "acpi: PRT probe irq=" "$log"
         grep -qF "shutdown: tier=final handler=acpi-s5" "$log"
         grep -qF "core: runtime ok" "$log"
         ;;

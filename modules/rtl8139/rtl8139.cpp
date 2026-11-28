@@ -105,11 +105,34 @@ namespace {
         }
 
         bool request_intx() {
-            if (_pci == nullptr || _pci->interrupt_line > 15 || _pci->interrupt_pin == 0)
+            if (_pci == nullptr || _pci->interrupt_pin == 0)
                 return false;
 
-            if (!astia::arch::register_irq_handler(_pci->interrupt_line,
-                                                   &rtl8139_controller::intx_entry,
+            astia::u8 line = _pci->interrupt_line;
+            astia::u8 gsi  = 0;
+
+            if (line == 0 || line == 0xff) {
+                astia::acpi::pci_route route{};
+
+                if (!astia::acpi::resolve_pci_route(_pci->bus, _pci->device,
+                                                    _pci->function, _pci->interrupt_pin,
+                                                    route))
+                    return false;
+
+                line = route.irq;
+                gsi  = route.gsi;
+            }
+            else {
+                if (line > 15)
+                    return false;
+
+                gsi = astia::acpi::gsi_for_irq(line);
+            }
+
+            if (line > 15)
+                return false;
+
+            if (!astia::arch::register_irq_handler(line, &rtl8139_controller::intx_entry,
                                                    &rtl8139_controller::intx_enter,
                                                    &rtl8139_controller::intx_leave, this))
                 return false;
@@ -119,17 +142,16 @@ namespace {
             (void) astia::module::pci_write16(
                 *_pci, 0x04, static_cast<uint16_t>(command & ~(1u << 10)));
 
-            const astia::u8  gsi  = astia::acpi::gsi_for_irq(_pci->interrupt_line);
             const astia::u64 base = astia::acpi::ioapic_base();
 
-            if (!astia::arch::route_gsi(_pci->interrupt_line, base, gsi) ||
-                !astia::arch::unmask_irq_handler(_pci->interrupt_line)) {
-                (void) astia::arch::unregister_irq_handler(_pci->interrupt_line);
+            if (!astia::arch::route_gsi(line, base, gsi) ||
+                !astia::arch::unmask_irq_handler(line)) {
+                (void) astia::arch::unregister_irq_handler(line);
 
                 return false;
             }
 
-            _irq_line    = _pci->interrupt_line;
+            _irq_line    = line;
             _intx_active = true;
             _intx_owner  = this;
 
@@ -415,6 +437,7 @@ namespace {
             _state = request_irq() ? device_state::running : device_state::probed_no_irq;
 
             if (_state == device_state::probed_no_irq) {
+                _registers.write16(register_offset::interrupt_mask, 0);
                 astia::module::log("rtl8139", "polling rx fallback");
                 start_polling();
             }
@@ -548,8 +571,10 @@ namespace {
                 _state =
                     request_irq() ? device_state::running : device_state::probed_no_irq;
 
-                if (_state == device_state::probed_no_irq)
+                if (_state == device_state::probed_no_irq) {
+                    _registers.write16(register_offset::interrupt_mask, 0);
                     start_polling();
+                }
 
                 _net_device.tx().set_quiesce(&rtl8139_controller::quiesce_tx, this);
                 _net_device.tx().set_kick(&rtl8139_controller::kick_tx, this);

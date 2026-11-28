@@ -375,17 +375,25 @@ namespace astia::acpi::detail {
         if (!read_name_ref(c, region))
             return false;
 
+        const node_id region_node = resolve_lookup(region, scope);
+        if (region_node == no_node)
+            return fail(aml_error::missing_object);
+
         u8 flags = 0;
 
         if (!read_u8(c, flags))
             return false;
 
-        return parse_field_list(c, package_end, scope) && close_package(c, package_end);
+        return parse_field_list(c, package_end, scope, region_node) &&
+               close_package(c, package_end);
     }
 
-    bool interpreter::parse_field_list(cursor& c, const u8* end, node_id scope) {
+    bool interpreter::parse_field_list(cursor& c, const u8* end, node_id scope,
+                                       node_id region) {
         if (c.position == nullptr || end == nullptr)
             return fail(aml_error::truncated);
+
+        u64 bit_offset = 0;
 
         while (c.position < end) {
             const u8 tag = *c.position++;
@@ -395,6 +403,8 @@ namespace astia::acpi::detail {
 
                 if (!read_package_length(c, bits, bytes))
                     return false;
+
+                bit_offset += bits;
 
                 continue;
             }
@@ -454,8 +464,18 @@ namespace astia::acpi::detail {
             if (!read_package_length(c, bits, bytes))
                 return false;
 
-            if (add_node(scope, segment, node_kind::field) == no_node)
+            const node_id field = add_node(scope, segment, node_kind::field);
+            if (field == no_node)
                 return fail(aml_error::object_limit);
+
+            if (bit_offset > ~u32{0})
+                return fail(aml_error::invalid_value);
+
+            _nodes[field].region     = region;
+            _nodes[field].bit_offset = static_cast<u32>(bit_offset);
+            _nodes[field].bit_width  = bits;
+
+            bit_offset += bits;
         }
 
         return c.position == end;
@@ -550,6 +570,39 @@ namespace astia::acpi::detail {
 
         node& entry = _nodes[target];
 
+        if (_static_values != 0 && data >= _static_values) {
+            bool transient = false;
+
+            node_id parent = target;
+
+            while (parent != no_node && parent < _node_count) {
+                if (_nodes[parent].kind == static_cast<u8>(node_kind::method)) {
+                    transient = true;
+
+                    break;
+                }
+
+                if (parent == root())
+                    break;
+
+                parent = _nodes[parent].parent;
+            }
+
+            if (!transient) {
+                struct target destination{};
+
+                destination.slot = &entry.value;
+                destination.name = target;
+
+                if (!write_target(destination, data))
+                    return false;
+
+                entry.kind = static_cast<u8>(node_kind::name);
+
+                return true;
+            }
+        }
+
         entry.kind  = static_cast<u8>(node_kind::name);
         entry.value = data;
 
@@ -573,6 +626,49 @@ namespace astia::acpi::detail {
         if (!eval_constant(c, scope, offset) || !eval_constant(c, scope, length))
             return false;
 
+        if (length > ~u32{0})
+            return fail(aml_error::invalid_value);
+
+        // ACPI 6.5 5.2.3.2: PCI Configuration addresses are confined to
+        // segment 0, bus 0. Bits 47:32 hold the device, 31:16 the function,
+        // and 15:0 the configuration-space offset.
+        if (space == 2) {
+            node_id parent = scope;
+
+            bool encoded = false;
+
+            while (parent != no_node) {
+                const node_id adr = find_child(parent, name_segment('_', 'A', 'D', 'R'));
+                if (adr != no_node) {
+                    const node_id resolved = follow_alias(adr, 0);
+
+                    if (resolved != no_node && _nodes[resolved].value != no_value) {
+                        u64 address = 0;
+
+                        if (as_integer(_nodes[resolved].value, address)) {
+                            const u64 device   = (address >> 16) & 0xFFFFu;
+                            const u64 function = address & 0xFFFFu;
+
+                            if (device < 32 && function < 8 && offset <= 0xFFFF) {
+                                offset  = (device << 32) | (function << 16) | offset;
+                                encoded = true;
+                            }
+                        }
+                    }
+
+                    break;
+                }
+
+                if (parent == root())
+                    break;
+
+                parent = _nodes[parent].parent;
+            }
+
+            if (!encoded)
+                return fail(aml_error::invalid_value);
+        }
+
         const node_id target = resolve_definition(reference, scope, true);
         if (target == no_node)
             return fail(aml_error::object_limit);
@@ -582,6 +678,8 @@ namespace astia::acpi::detail {
         entry.kind        = static_cast<u8>(node_kind::region);
         entry.flags       = space;
         entry.target      = no_node;
+        entry.address     = offset;
+        entry.length      = static_cast<u32>(length);
         entry.body        = nullptr;
         entry.body_length = 0;
 

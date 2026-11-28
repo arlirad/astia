@@ -33,4 +33,12 @@ namespace astia::arch {
         x86_64::outl(config_address_port, config_address(address, offset));
         x86_64::outl(config_data_port, value);
     }
+
+    void pci_config_write8(const pci_bdf address, u16 offset, u8 value) {
+        if (!address.valid() || offset > 0xffu)
+            return;
+
+        x86_64::outl(config_address_port, config_address(address, offset));
+        x86_64::outb(static_cast<u16>(config_data_port + (offset & 3u)), value);
+    }
 } // namespace astia::arch

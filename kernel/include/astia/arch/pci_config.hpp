@@ -27,4 +27,5 @@ namespace astia::arch {
     /// specific; the PCI bus enumerator is not.
     u32  pci_config_read32(pci_bdf address, u16 offset);
     void pci_config_write32(pci_bdf address, u16 offset, u32 value);
+    void pci_config_write8(pci_bdf address, u16 offset, u8 value);
 } // namespace astia::arch
