@@ -437,6 +437,7 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             nvme_start_target
+            nvme_async_target
             usb_unit_target
             rtl8139_unit_target
             ps2_controller_unit_target
@@ -460,6 +461,7 @@ if(ASTIA_BUILD_TESTS)
             virtio_blk_teardown_target
             nvme_teardown_target
             nvme_start_target
+            nvme_async_target
             usb_unit_target
             rtl8139_unit_target
             ps2_controller_unit_target
