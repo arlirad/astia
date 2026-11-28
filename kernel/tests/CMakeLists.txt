@@ -1585,6 +1585,10 @@ if (ARCH STREQUAL "x86_64")
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
                 -Wl,--dynamic-linker=/tmp/ld.stub.so -o ${_fix_dir}/interp_exec_perm
                 ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
+                COMMAND ${CMAKE_C_COMPILER} -nostdlib -pie -Wl,-e,_start
+                -Wl,--dynamic-linker=/tmp/exec-search-interp/ld.stub.so
+                -o ${_fix_dir}/interp_exec_search
+                ${CMAKE_CURRENT_SOURCE_DIR}/interp_main.S
                 COMMAND ${CMAKE_COMMAND} -E make_directory ${_fix_dir}/boot_stage/lib
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/ld.stub.so ${_fix_dir}/boot_stage/lib/
@@ -1592,6 +1596,8 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/interp_main ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_COMMAND} -E copy
                 ${_fix_dir}/interp_exec_perm ${_fix_dir}/boot_stage/bin/
+                COMMAND ${CMAKE_COMMAND} -E copy
+                ${_fix_dir}/interp_exec_search ${_fix_dir}/boot_stage/bin/
                 COMMAND ${CMAKE_C_COMPILER} -nostdlib -shared -fPIC
                 -fno-stack-protector -fno-plt -ffreestanding -mno-red-zone
                 -fno-builtin -fno-asynchronous-unwind-tables -Wall -Wextra
@@ -1889,7 +1895,7 @@ if (ARCH STREQUAL "x86_64")
                 ${_fix_dir}/boot_stage ${_fix_dir}/boot_initrd.cpio
                 mod sbin/init sbin/truncated-elf bin/init_libc
                 bin/interp_main lib/ld.stub.so lib/ld.astia.so lib/libfixture.so
-                bin/interp_exec_perm
+                bin/interp_exec_perm bin/interp_exec_search
                 lib/libfixture_base.so lib/libfixture_ifunc.so
                 bin/interp_link bin/interp_now bin/interp_nophdr bin/interp_ifunc
                 bin/interp_copy lib/libcopyfixture.so
@@ -2089,6 +2095,7 @@ if (ARCH STREQUAL "x86_64")
                 "astia: random ok"
                 "astia: interp ok"
                 "astia: interp exec permission ok"
+                "astia: exec search permission ok"
                 "astia: w^x ok"
                 "astia: copy reloc ok"
                 "astia: relro ok"

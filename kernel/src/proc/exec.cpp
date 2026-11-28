@@ -979,8 +979,9 @@ namespace astia::proc {
             if (resolve_rc < 0)
                 co_return error_from_errno(-resolve_rc);
 
-            if (exec_permission_denied(caller, resolved))
-                co_return error_t::eacces;
+            const i64 permission_rc = exec_path_check(caller, resolved);
+            if (permission_rc < 0)
+                co_return error_from_errno(-permission_rc);
 
             auto interp = co_await load_interpreter(*this, resolved);
             if (!interp)
